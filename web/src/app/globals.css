@@ -1,0 +1,118 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light mode (fallback) */
+    --background: 86 20% 96%;
+    --foreground: 220 20% 9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 9%;
+
+    /* Primary: #C8E6A0 pastel green */
+    --primary: 86 58% 55%;
+    --primary-foreground: 220 20% 9%;
+
+    --secondary: 86 20% 88%;
+    --secondary-foreground: 220 20% 20%;
+
+    --muted: 86 10% 92%;
+    --muted-foreground: 220 10% 45%;
+
+    /* Accent: #C8A0E6 pastel lavender */
+    --accent: 274 58% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Danger: #E6A0A8 */
+    --destructive: 355 58% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 82%;
+    --input: 220 13% 85%;
+    --ring: 86 58% 55%;
+
+    --radius: 0.5rem;
+
+    /* Warning: general UI warning (yellow) */
+    --warning: 46 58% 55%;
+    --warning-foreground: 220 20% 9%;
+
+    /* BMS clear type lamp colors (light mode — slightly darker for contrast) */
+    --clear-fc:      200 58% 55%;
+    --clear-exhard:  46  58% 55%;
+    --clear-hard:    8   58% 55%;
+    --clear-normal:  228 58% 55%;
+    --clear-easy:    120 58% 55%;
+    --clear-assist:  274 58% 55%;
+    --clear-failed:  0   0%  45%;
+    --clear-no-play: 220 10% 80%;
+    --clear-perfect: 78  65% 52%;   /* lime        — PERFECT (above FC tier) */
+    --clear-max:     330 65% 62%;   /* pink        — MAX (peak achievement) */
+  }
+
+  .dark {
+    /* Dark mode — OJIK primary theme */
+    /* Dark BG: #12151C → 220 20% 9% */
+    --background: 220 20% 9%;
+    --foreground: 210 40% 95%;
+
+    /* Surface: #1E2330 → 217 23% 15% */
+    --card: 217 23% 15%;
+    --card-foreground: 210 40% 95%;
+
+    --popover: 217 23% 15%;
+    --popover-foreground: 210 40% 95%;
+
+    /* Primary: #C8E6A0 → 86 58% 76% */
+    --primary: 86 58% 76%;
+    --primary-foreground: 220 20% 9%;
+
+    --secondary: 217 23% 22%;
+    --secondary-foreground: 210 40% 88%;
+
+    --muted: 217 23% 22%;
+    --muted-foreground: 215 20% 58%;
+
+    /* Accent: #C8A0E6 → 274 58% 76% */
+    --accent: 274 58% 76%;
+    --accent-foreground: 220 20% 9%;
+
+    /* Danger: #E6A0A8 → 355 58% 76% */
+    --destructive: 355 58% 76%;
+    --destructive-foreground: 220 20% 9%;
+
+    --border: 217 23% 24%;
+    --input: 217 23% 20%;
+    --ring: 86 58% 76%;
+
+    /* Warning: general UI warning (yellow) */
+    --warning: 46 58% 76%;
+    --warning-foreground: 220 20% 9%;
+
+    /* BMS clear type lamp colors — hues from BMS convention, pastel-ized for dark theme */
+    --clear-fc:      200 58% 76%;   /* sky blue  (#87CEEB hue) — FULL COMBO (internal 7) */
+    --clear-exhard:  46  58% 76%;   /* gold/amber              — EX HARD (internal 6) */
+    --clear-hard:    8   58% 76%;   /* pastel coral-red        — HARD CLEAR (internal 5) */
+    --clear-normal:  228 58% 76%;   /* pastel blue             — NORMAL CLEAR (internal 4) */
+    --clear-easy:    120 58% 76%;   /* pastel green            — EASY CLEAR (internal 3) */
+    --clear-assist:  274 58% 76%;   /* pastel purple           — ASSIST EASY (internal 2) */
+    --clear-failed:  0   0%  55%;   /* neutral gray            — FAILED (internal 1) */
+    --clear-no-play: 220 15% 25%;   /* dim surface             — NO PLAY (internal 0) */
+    --clear-perfect: 78  65% 72%;   /* lime                    — PERFECT (internal 8) */
+    --clear-max:     330 65% 78%;   /* pink                    — MAX (internal 9) */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

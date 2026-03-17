@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── API: Lint + Test ────────────────────────────────────────────────────────
+  api-lint-test:
+    name: API - Lint & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ojik
+          POSTGRES_PASSWORD: ojikpass
+          POSTGRES_DB: ojik_bms_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ojik"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://ojik:ojikpass@localhost:5432/ojik_bms_test
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: test-secret-key-for-ci-only
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      REFRESH_TOKEN_EXPIRE_DAYS: 30
+      DISCORD_CLIENT_ID: dummy
+      DISCORD_CLIENT_SECRET: dummy
+      CORS_ORIGINS: '["http://localhost:3000"]'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: api/requirements.txt
+
+      - name: Install dependencies
+        working-directory: api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install aiosqlite  # for SQLite-based test DB
+
+      - name: Lint with ruff
+        working-directory: api
+        run: |
+          ruff check app/ --select E,F,W,I,N,UP
+
+      - name: Run tests
+        working-directory: api
+        run: |
+          pytest tests/ -v --tb=short
+
+  # ── Client: Lint + Test ─────────────────────────────────────────────────────
+  client-lint-test:
+    name: Client - Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        working-directory: client
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" || pip install httpx click rich keyring pytest pytest-asyncio ruff
+
+      - name: Lint with ruff
+        working-directory: client
+        run: |
+          ruff check ojikbms_client/ --select E,F,W,I,N,UP
+
+      - name: Run tests
+        working-directory: client
+        run: |
+          pytest tests/ -v --tb=short
+
+  # ── Web: Lint + Type Check ──────────────────────────────────────────────────
+  web-lint-typecheck:
+    name: Web - Lint & Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Run ESLint
+        working-directory: web
+        run: npm run lint
+
+      - name: Run TypeScript type check
+        working-directory: web
+        run: npm run type-check

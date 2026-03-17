@@ -1,0 +1,63 @@
+name: Build GUI Client
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-windows:
+    name: Build Windows exe
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        working-directory: client
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[gui]"
+          pip install pyinstaller
+
+      - name: Build exe with PyInstaller
+        working-directory: client
+        run: >
+          pyinstaller
+          --onefile
+          --windowed
+          --name ojikbms-gui
+          --add-data "ojikbms_client;ojikbms_client"
+          gui_main.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ojikbms-gui-windows
+          path: client/dist/ojikbms-gui.exe
+
+  create-release:
+    name: Create GitHub Release
+    needs: build-windows
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download exe artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ojikbms-gui-windows
+
+      - name: Create release and upload exe
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ojikbms-gui.exe
+          generate_release_notes: true

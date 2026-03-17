@@ -1,0 +1,86 @@
+# Auto-update interval in hours
+update_interval_hours = 168
+# Number of backups to retain per table
+backup_count = 3
+# Minimum re-request interval per table in hours
+min_request_interval_hours = 1
+
+[[default_tables]]
+slug = "balgwang"
+name = "発狂"
+symbol = "★"
+url = "https://darksabun.club/table/archive/insane1/"
+auto_update = false
+
+[[default_tables]]
+slug = "overjoy"
+name = "第3期Overjoy"
+symbol = "★★"
+url = "https://rattoto10.jounin.jp/table_overjoy.html"
+
+[[default_tables]]
+slug = "new_balgwang"
+name = "NEW GENERATION 発狂"
+symbol = "▼"
+url = "https://rattoto10.jounin.jp/table_insane.html"
+
+[[default_tables]]
+slug = "ln_balgwang"
+name = "LN発狂"
+symbol = "◆"
+url = "https://mocha-repository.info/table/ln_header.json"
+auto_update = false
+
+[[default_tables]]
+slug = "sc_balgwang"
+name = "第3皿"
+symbol = "◎"
+url = "http://minddnim.web.fc2.com/sara/3rd_hard/bms_sara_3rd_hard.html"
+
+[[default_tables]]
+slug = "satellite"
+name = "Satellite"
+symbol = "sl"
+url = "https://stellabms.xyz/sl/table.html"
+
+[[default_tables]]
+slug = "stella"
+name = "Stella"
+symbol = "st"
+url = "https://stellabms.xyz/st/table.html"
+
+[[default_tables]]
+slug = "solar"
+name = "Solar"
+symbol = "so"
+url = "https://stellabms.xyz/so/table.html"
+
+[[default_tables]]
+slug = "supernova"
+name = "Supernova"
+symbol = "sn"
+url = "https://stellabms.xyz/sn/table.html"
+
+[[default_tables]]
+slug = "aery"
+name = "Aery"
+symbol = "⑤"
+url = "https://asumatoki.kr/table/aery/header.json"
+
+[[default_tables]]
+slug = "4ue"
+name = "4UE"
+symbol = "4UE"
+url = "https://classmaterma.github.io/4UE/table.html"
+
+[[default_tables]]
+slug = "6ue"
+name = "6UE"
+symbol = "6UE"
+url = "https://classmaterma.github.io/UE/table.html"
+
+[[default_tables]]
+slug = "8ue"
+name = "8UE"
+symbol = "8UE"
+url = "https://classmaterma.github.io/8UE/table.html"
