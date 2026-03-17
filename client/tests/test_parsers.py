@@ -39,7 +39,7 @@ class TestBmsScanner:
         (tmp_path / "song4.bmson").write_bytes(b'{"info": {}}')
         (tmp_path / "not_a_bms.txt").write_bytes(b"ignore me")
 
-        results, _ = scan_bms_folders([str(tmp_path)], show_progress=False)
+        results, _, _stats = scan_bms_folders([str(tmp_path)], show_progress=False)
 
         assert len(results) == 4
         for result in results:
@@ -55,19 +55,19 @@ class TestBmsScanner:
         (tmp_path / "root.bms").write_bytes(b"#TITLE Root")
         (subdir / "sub.bms").write_bytes(b"#TITLE Sub")
 
-        results, _ = scan_bms_folders([str(tmp_path)], show_progress=False)
+        results, _, _stats = scan_bms_folders([str(tmp_path)], show_progress=False)
         assert len(results) == 2
 
     def test_scan_nonexistent_folder(self) -> None:
         """scan_bms_folders should handle nonexistent folders gracefully."""
-        results, entries = scan_bms_folders(["/nonexistent/path/to/bms"], show_progress=False)
+        results, entries, _stats = scan_bms_folders(["/nonexistent/path/to/bms"], show_progress=False)
         assert results == []
         assert entries == {}
 
     def test_scan_empty_folder(self, tmp_path: Path) -> None:
         """scan_bms_folders should return empty list for folders with no BMS files."""
         (tmp_path / "readme.txt").write_bytes(b"not a bms file")
-        results, _ = scan_bms_folders([str(tmp_path)], show_progress=False)
+        results, _, _stats = scan_bms_folders([str(tmp_path)], show_progress=False)
         assert results == []
 
 

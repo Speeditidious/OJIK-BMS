@@ -7,14 +7,14 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import OAuthAccount, User
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-AVATAR_DIR = Path("/app/uploads/avatars")
-AVATAR_DIR.mkdir(parents=True, exist_ok=True)
+AVATAR_DIR = Path(settings.UPLOADS_DIR) / "avatars"
 ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 MAX_AVATAR_SIZE = 5 * 1024 * 1024  # 5 MB
 
@@ -131,6 +131,7 @@ async def upload_avatar(
 
     ext = (file.filename or "avatar").rsplit(".", 1)[-1].lower()
     filename = f"{current_user.id}_{uuid.uuid4().hex[:8]}.{ext}"
+    AVATAR_DIR.mkdir(parents=True, exist_ok=True)
     dest = AVATAR_DIR / filename
     dest.write_bytes(contents)
 

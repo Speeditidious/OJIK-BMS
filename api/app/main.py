@@ -116,7 +116,7 @@ app.include_router(chatbot.router)
 
 # ── Static files ────────────────────────────────────────────────────────────
 
-_UPLOADS_DIR = Path("/app/uploads")
+_UPLOADS_DIR = Path(settings.UPLOADS_DIR)
 _UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(_UPLOADS_DIR)), name="uploads")
 

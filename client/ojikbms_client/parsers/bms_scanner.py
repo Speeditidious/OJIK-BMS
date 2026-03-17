@@ -192,7 +192,7 @@ def scan_bms_folders(
         progress_callback(len(all_files), 0, "")
 
     if not all_files:
-        return [], {}
+        return [], {}, {"skipped_empty": 0, "error_count": 0}
 
     owned_songs: list[dict[str, Any]] = []
     new_file_entries: dict[str, Any] = {}

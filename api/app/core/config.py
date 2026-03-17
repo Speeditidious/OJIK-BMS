@@ -1,6 +1,12 @@
 
+from pathlib import Path
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolves to api/uploads/ in all environments.
+# In Docker (./api:/app) this maps to /app/uploads — same effective path.
+_DEFAULT_UPLOADS_DIR = str(Path(__file__).parent.parent.parent / "uploads")
 
 
 class Settings(BaseSettings):
@@ -43,6 +49,9 @@ class Settings(BaseSettings):
     S3_ENDPOINT: str = ""
     S3_ACCESS_KEY: str = ""
     S3_SECRET_KEY: str = ""
+
+    # Uploads
+    UPLOADS_DIR: str = _DEFAULT_UPLOADS_DIR
 
     # Frontend
     FRONTEND_URL: str = "http://localhost:3000"
