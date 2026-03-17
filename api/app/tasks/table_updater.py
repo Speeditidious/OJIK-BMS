@@ -1,7 +1,7 @@
 """Celery tasks for fetching and updating difficulty tables."""
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.tasks import celery_app
@@ -33,7 +33,11 @@ async def _async_update_difficulty_table(table_id: int) -> dict:
 
     from app.core.database import AsyncSessionLocal
     from app.models.table import DifficultyTable
-    from app.parsers.table_fetcher import fetch_table, save_table_to_disk, get_update_config
+    from app.parsers.table_fetcher import (
+        fetch_table,
+        get_update_config,
+        save_table_to_disk,
+    )
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -51,7 +55,7 @@ async def _async_update_difficulty_table(table_id: int) -> dict:
         update_config = get_update_config()
         min_hours = update_config.get("min_request_interval_hours", 6)
         if table.last_synced_at:
-            elapsed = datetime.now(timezone.utc) - table.last_synced_at
+            elapsed = datetime.now(UTC) - table.last_synced_at
             if elapsed.total_seconds() < min_hours * 3600:
                 logger.info(
                     f"Skipping table {table_id} ({table.name}): last synced "
@@ -76,7 +80,7 @@ async def _async_update_difficulty_table(table_id: int) -> dict:
 
             # Update DB
             table.table_data = table_data
-            table.last_synced_at = datetime.now(timezone.utc)
+            table.last_synced_at = datetime.now(UTC)
             await db.commit()
 
             logger.info(f"Updated DifficultyTable {table_id}: {table.name}")

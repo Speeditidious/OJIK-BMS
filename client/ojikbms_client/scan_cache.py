@@ -5,7 +5,7 @@ Schema version: 1
 """
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +50,7 @@ def save_cache(
         "version": CACHE_VERSION,
         "files": file_entries,
         "owned_songs_snapshot": owned_songs_snapshot,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
     }
     with CACHE_FILE.open("w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, separators=(",", ":"))

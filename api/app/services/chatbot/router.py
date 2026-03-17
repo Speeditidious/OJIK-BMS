@@ -1,9 +1,9 @@
 """Intent classification for the chatbot."""
-from enum import Enum
-from typing import Any, Dict
+from enum import StrEnum
+from typing import Any
 
 
-class Intent(str, Enum):
+class Intent(StrEnum):
     SCORE_QUERY = "score_query"           # e.g. "What is my ★12 clear rate?"
     SONG_RECOMMENDATION = "song_recommendation"  # e.g. "Recommend songs for my level"
     TABLE_INFO = "table_info"             # e.g. "What is the insane difficulty table?"
@@ -12,7 +12,7 @@ class Intent(str, Enum):
     UNKNOWN = "unknown"
 
 
-INTENT_KEYWORDS: Dict[Intent, list[str]] = {
+INTENT_KEYWORDS: dict[Intent, list[str]] = {
     Intent.SCORE_QUERY: ["클리어", "스코어", "점수", "내 기록", "bp", "콤보"],
     Intent.SONG_RECOMMENDATION: ["추천", "어떤 곡", "연습할", "다음에 할"],
     Intent.TABLE_INFO: ["난이도표", "발광", "통상", "삭제", "보면"],
@@ -36,7 +36,7 @@ def classify_intent(message: str) -> Intent:
     return Intent.UNKNOWN
 
 
-def build_system_prompt(intent: Intent, user_context: Dict[str, Any] | None = None) -> str:
+def build_system_prompt(intent: Intent, user_context: dict[str, Any] | None = None) -> str:
     """Build a system prompt based on the detected intent."""
     base_prompt = (
         "당신은 OJIK BMS의 AI 어시스턴트입니다. "

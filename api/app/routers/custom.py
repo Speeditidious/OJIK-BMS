@@ -1,5 +1,5 @@
 """Custom table and course management endpoints."""
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/custom", tags=["custom"])
 class CustomTableCreate(BaseModel):
     name: str
     is_public: bool = False
-    levels: List[Dict[str, Any]] | None = None
+    levels: list[dict[str, Any]] | None = None
 
 
 class CustomTableRead(BaseModel):
@@ -26,32 +26,32 @@ class CustomTableRead(BaseModel):
     owner_id: str
     name: str
     is_public: bool
-    levels: List[Any] | None
+    levels: list[Any] | None
     model_config = ConfigDict(from_attributes=True)
 
 
 class CustomCourseCreate(BaseModel):
     name: str
-    song_list: List[str] | None = None  # list of sha256 hashes
-    course_file_config: Dict[str, Any] | None = None
+    song_list: list[str] | None = None  # list of sha256 hashes
+    course_file_config: dict[str, Any] | None = None
 
 
 class CustomCourseRead(BaseModel):
     id: str
     owner_id: str
     name: str
-    song_list: List[Any] | None
-    course_file_config: Dict[str, Any] | None
+    song_list: list[Any] | None
+    course_file_config: dict[str, Any] | None
     model_config = ConfigDict(from_attributes=True)
 
 
 # --- Custom Tables ---
 
-@router.get("/tables", response_model=List[CustomTableRead])
+@router.get("/tables", response_model=list[CustomTableRead])
 async def list_custom_tables(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> List[CustomTableRead]:
+) -> list[CustomTableRead]:
     """List current user's custom tables."""
     result = await db.execute(
         select(CustomTable).where(CustomTable.owner_id == current_user.id)
@@ -121,11 +121,11 @@ async def delete_custom_table(
 
 # --- Custom Courses ---
 
-@router.get("/courses", response_model=List[CustomCourseRead])
+@router.get("/courses", response_model=list[CustomCourseRead])
 async def list_custom_courses(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> List[CustomCourseRead]:
+) -> list[CustomCourseRead]:
     """List current user's custom courses."""
     result = await db.execute(
         select(CustomCourse).where(CustomCourse.owner_id == current_user.id)

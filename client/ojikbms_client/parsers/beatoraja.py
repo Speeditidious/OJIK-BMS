@@ -38,7 +38,7 @@ score.db schema (may vary by version):
 """
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -210,7 +210,6 @@ def parse_beatoraja_scores(
             if col and col not in select_cols:
                 select_cols.append(col)
 
-        playcount_col = cols["playcount"] or "playcount"
         has_mode = "mode" in available
         has_player = "player" in available
 
@@ -265,7 +264,7 @@ def parse_beatoraja_scores(
                 if date_col_c and row[date_col_c]:
                     try:
                         played_at_c = datetime.fromtimestamp(
-                            row[date_col_c], tz=timezone.utc
+                            row[date_col_c], tz=UTC
                         ).isoformat()
                     except (ValueError, OSError):
                         pass
@@ -306,7 +305,7 @@ def parse_beatoraja_scores(
             if date_col and row[date_col]:
                 try:
                     played_at = datetime.fromtimestamp(
-                        row[date_col], tz=timezone.utc
+                        row[date_col], tz=UTC
                     ).isoformat()
                 except (ValueError, OSError):
                     pass
@@ -532,7 +531,7 @@ def parse_beatoraja_score_log(
             if row["date"]:
                 try:
                     played_at = datetime.fromtimestamp(
-                        row["date"], tz=timezone.utc
+                        row["date"], tz=UTC
                     ).isoformat()
                 except (ValueError, OSError):
                     pass

@@ -1,5 +1,4 @@
 """Song list and detail endpoints."""
-from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
@@ -24,14 +23,14 @@ class SongRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-@router.get("/", response_model=List[SongRead])
+@router.get("/", response_model=list[SongRead])
 async def list_songs(
-    title: Optional[str] = Query(None, description="Filter by title (partial match)"),
-    artist: Optional[str] = Query(None, description="Filter by artist (partial match)"),
+    title: str | None = Query(None, description="Filter by title (partial match)"),
+    artist: str | None = Query(None, description="Filter by artist (partial match)"),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-) -> List[SongRead]:
+) -> list[SongRead]:
     """List songs with optional filtering."""
     query = select(Song)
 

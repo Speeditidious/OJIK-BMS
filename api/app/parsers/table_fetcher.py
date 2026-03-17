@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import UTC
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -185,7 +186,7 @@ def save_table_to_disk(slug: str, table_data: dict) -> None:
     ``difficulty_tables/config.toml``.
     """
     import shutil
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     config = _load_config()
     backup_count: int = config.get("backup_count", 3)
@@ -198,7 +199,7 @@ def save_table_to_disk(slug: str, table_data: dict) -> None:
 
     # Rotate backups before overwriting
     if header_path.exists() and data_path.exists():
-        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         backup_dir = table_dir / "backups" / ts
         backup_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(header_path, backup_dir / "header.json")

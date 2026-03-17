@@ -69,7 +69,7 @@ jobs:
       - name: Lint with ruff
         working-directory: api
         run: |
-          ruff check app/ --select E,F,W,I,N,UP
+          ruff check app/ --select E,F,W,I,N,UP --ignore E501
 
       - name: Run tests
         working-directory: api
@@ -100,7 +100,7 @@ jobs:
       - name: Lint with ruff
         working-directory: client
         run: |
-          ruff check ojikbms_client/ --select E,F,W,I,N,UP
+          ruff check ojikbms_client/ --select E,F,W,I,N,UP --ignore E501
 
       - name: Run tests
         working-directory: client

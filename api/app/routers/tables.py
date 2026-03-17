@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, List
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -33,7 +33,7 @@ class DifficultyTableRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     @classmethod
-    def from_orm_with_count(cls, table: DifficultyTable) -> "DifficultyTableRead":
+    def from_orm_with_count(cls, table: DifficultyTable) -> DifficultyTableRead:
         song_count: int | None = None
         if table.table_data and "songs" in table.table_data:
             song_count = len(table.table_data["songs"])
@@ -82,10 +82,10 @@ class FavoriteReorderRequest(BaseModel):
 
 # ── List & detail ─────────────────────────────────────────────────────────────
 
-@router.get("/", response_model=List[DifficultyTableRead])
+@router.get("/", response_model=list[DifficultyTableRead])
 async def list_tables(
     db: AsyncSession = Depends(get_db),
-) -> List[DifficultyTableRead]:
+) -> list[DifficultyTableRead]:
     """List all difficulty tables (no table_data payload)."""
     result = await db.execute(
         select(DifficultyTable).order_by(DifficultyTable.is_default.desc(), DifficultyTable.name)
@@ -94,11 +94,11 @@ async def list_tables(
     return [DifficultyTableRead.from_orm_with_count(t) for t in tables]
 
 
-@router.get("/favorites/me", response_model=List[DifficultyTableRead])
+@router.get("/favorites/me", response_model=list[DifficultyTableRead])
 async def get_my_favorites(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> List[DifficultyTableRead]:
+) -> list[DifficultyTableRead]:
     """Get the current user's favorite tables ordered by display_order."""
     result = await db.execute(
         select(DifficultyTable)
@@ -124,12 +124,12 @@ async def get_table(
     return TableDetailRead(**obj.model_dump(), level_order=level_order)
 
 
-@router.get("/{table_id}/songs", response_model=List[TableSong])
+@router.get("/{table_id}/songs", response_model=list[TableSong])
 async def get_table_songs(
     table_id: int,
     level: str | None = Query(default=None, description="Filter by level (e.g. sl0)"),
     db: AsyncSession = Depends(get_db),
-) -> List[TableSong]:
+) -> list[TableSong]:
     """Get songs for a difficulty table, optionally filtered by level."""
     table = await _get_table_or_404(table_id, db)
 

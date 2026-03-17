@@ -1,5 +1,6 @@
 """LLM API client — supports OpenAI, Anthropic, Google Gemini, Ollama."""
-from typing import Any, AsyncGenerator, List
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from app.core.config import settings
 
@@ -74,7 +75,7 @@ class LLMClient:
 
     async def stream_chat(
         self,
-        messages: List[dict],
+        messages: list[dict],
         system_prompt: str | None = None,
         model: str | None = None,
         max_tokens: int = 1024,
@@ -121,7 +122,7 @@ class LLMClient:
 
     async def _stream_openai_compatible(
         self,
-        messages: List[dict],
+        messages: list[dict],
         system_prompt: str | None,
         model: str,
         max_tokens: int,
@@ -145,7 +146,7 @@ class LLMClient:
 
     async def _stream_anthropic(
         self,
-        messages: List[dict],
+        messages: list[dict],
         system_prompt: str | None,
         model: str,
         max_tokens: int,
@@ -165,7 +166,7 @@ class LLMClient:
 
     async def _stream_gemini(
         self,
-        messages: List[dict],
+        messages: list[dict],
         system_prompt: str | None,
         max_tokens: int,
     ) -> AsyncGenerator[str, None]:
@@ -203,7 +204,7 @@ class LLMClient:
             if chunk.text:
                 yield chunk.text
 
-    async def get_embedding(self, text: str) -> List[float]:
+    async def get_embedding(self, text: str) -> list[float]:
         """Generate a text embedding vector.
 
         - OpenAI / Gemini: uses cloud API
@@ -229,6 +230,7 @@ class LLMClient:
 
         elif self._provider == "gemini":
             import asyncio
+
             import google.generativeai as genai
 
             result = await asyncio.to_thread(

@@ -37,6 +37,67 @@ const cardStyles: React.CSSProperties = {
   fontSize: 11,
 };
 
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: any[];
+  label?: string;
+  tableSymbol?: string;
+  clientType?: string;
+  activeEntry?: { level: string; ct: number } | null;
+  labelMap: Record<number, string>;
+}
+
+function CustomTooltip({ active, payload, label, tableSymbol, clientType, activeEntry, labelMap }: CustomTooltipProps) {
+  if (!active || !payload?.length) return null;
+  const rowData = payload[0]?.payload as Record<string, number>;
+  const total = rowData?._total ?? 0;
+
+  return (
+    <div style={cardStyles}>
+      {(() => {
+        const displayLevel =
+          String(label).startsWith("LEVEL ") ? String(label).slice(6) : String(label);
+        return (
+          <div className="font-semibold text-foreground mb-1">
+            {tableSymbol ? `${tableSymbol}${displayLevel}` : displayLevel}
+          </div>
+        );
+      })()}
+      {ALL_CLEAR_TYPES.filter((ct) => {
+        // LR2 has no ASSIST(2) or EXHARD(6)
+        if (clientType === "lr2" && (ct === 2 || ct === 6)) return false;
+        return true;
+      }).map((ct) => {
+        const rawCount = rowData?.[`raw_ct_${ct}`] ?? 0;
+        const ctLabel = labelMap[ct] ?? String(ct);
+        let cumRaw = rawCount;
+        for (const o of ALL_CLEAR_TYPES) {
+          if (o > ct) cumRaw += rowData?.[`raw_ct_${o}`] ?? 0;
+        }
+        const pct = total > 0 ? (cumRaw / total) * 100 : 0;
+        const isActive = activeEntry?.ct === ct;
+        return (
+          <div
+            key={ct}
+            style={{
+              color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--muted-foreground))",
+              fontWeight: isActive ? 700 : 400,
+              transition: "color 0.15s, font-weight 0.15s",
+              display: "flex",
+              gap: "6px",
+            }}
+          >
+            <span>{ctLabel}</span>
+            <span>:</span>
+            <span>{rawCount}</span>
+            <span>({pct.toFixed(1)}%)</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect }: TableClearHistogramProps) {
   const [activeEntry, setActiveEntry] = useState<{ level: string; ct: number } | null>(null);
 
@@ -82,9 +143,9 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect 
 
   // Custom shape factory for hover animation
   function makeShape(ct: number) {
-    return (barProps: any) => {
+    function BarShape(barProps: any) {
       const { x, y, width, height, payload } = barProps;
-      if (!height || height <= 0) return null;
+      if (!height || height <= 0) return <rect width={0} height={0} />;
       const level = payload?.level as string;
       const isThis = activeEntry?.ct === ct && activeEntry?.level === level;
       const sameRowOther = activeEntry?.level === level && activeEntry?.ct !== ct;
@@ -105,60 +166,9 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect 
           }}
         />
       );
-    };
+    }
+    return BarShape;
   }
-
-  // Custom tooltip component
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (!active || !payload?.length) return null;
-    const rowData = payload[0]?.payload as Record<string, number>;
-    const total = rowData?._total ?? 0;
-
-    return (
-      <div style={cardStyles}>
-        {(() => {
-          const displayLevel =
-            String(label).startsWith("LEVEL ") ? String(label).slice(6) : String(label);
-          return (
-            <div className="font-semibold text-foreground mb-1">
-              {tableSymbol ? `${tableSymbol}${displayLevel}` : displayLevel}
-            </div>
-          );
-        })()}
-        {ALL_CLEAR_TYPES.filter((ct) => {
-          // LR2 has no ASSIST(2) or EXHARD(6)
-          if (clientType === "lr2" && (ct === 2 || ct === 6)) return false;
-          return true;
-        }).map((ct) => {
-          const rawCount = rowData?.[`raw_ct_${ct}`] ?? 0;
-          const ctLabel = labelMap[ct] ?? String(ct);
-          let cumRaw = rawCount;
-          for (const o of ALL_CLEAR_TYPES) {
-            if (o > ct) cumRaw += rowData?.[`raw_ct_${o}`] ?? 0;
-          }
-          const pct = total > 0 ? (cumRaw / total) * 100 : 0;
-          const isActive = activeEntry?.ct === ct;
-          return (
-            <div
-              key={ct}
-              style={{
-                color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--muted-foreground))",
-                fontWeight: isActive ? 700 : 400,
-                transition: "color 0.15s, font-weight 0.15s",
-                display: "flex",
-                gap: "6px",
-              }}
-            >
-              <span>{ctLabel}</span>
-              <span>:</span>
-              <span>{rawCount}</span>
-              <span>({pct.toFixed(1)}%)</span>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
 
   return (
     <ResponsiveContainer width="100%" height={chartHeight}>
@@ -191,7 +201,7 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect 
           }}
         />
         <Tooltip
-          content={<CustomTooltip />}
+          content={<CustomTooltip tableSymbol={tableSymbol} clientType={clientType} activeEntry={activeEntry} labelMap={labelMap} />}
           cursor={{ fill: "hsl(var(--accent)/0.08)" }}
         />
         {[25, 50, 75].map((v) => (

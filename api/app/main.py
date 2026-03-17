@@ -1,7 +1,6 @@
 """OJIK BMS FastAPI application entry point."""
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
-
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -9,7 +8,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
-from app.routers import auth, users, tables, scores, songs, analysis, custom, sync, chatbot, schedules
+from app.routers import (
+    analysis,
+    auth,
+    chatbot,
+    custom,
+    schedules,
+    scores,
+    songs,
+    sync,
+    tables,
+    users,
+)
 
 
 @asynccontextmanager

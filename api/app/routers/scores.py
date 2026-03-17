@@ -1,5 +1,4 @@
 """Score query endpoints."""
-from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
@@ -39,14 +38,14 @@ class ScoreHistoryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-@router.get("/me", response_model=List[UserScoreRead])
+@router.get("/me", response_model=list[UserScoreRead])
 async def get_my_scores(
-    client_type: Optional[str] = Query(None, description="Filter by client type: lr2, beatoraja, qwilight"),
+    client_type: str | None = Query(None, description="Filter by client type: lr2, beatoraja, qwilight"),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> List[UserScoreRead]:
+) -> list[UserScoreRead]:
     """Get current user's scores."""
     query = select(UserScore).where(UserScore.user_id == current_user.id)
 
@@ -76,7 +75,7 @@ async def get_my_scores(
 @router.get("/me/{song_sha256}", response_model=UserScoreRead)
 async def get_score_for_song(
     song_sha256: str,
-    client_type: Optional[str] = Query(None),
+    client_type: str | None = Query(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> UserScoreRead:
@@ -109,13 +108,13 @@ async def get_score_for_song(
     )
 
 
-@router.get("/me/history", response_model=List[ScoreHistoryRead])
+@router.get("/me/history", response_model=list[ScoreHistoryRead])
 async def get_score_history(
-    song_sha256: Optional[str] = Query(None),
+    song_sha256: str | None = Query(None),
     limit: int = Query(50, le=200),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> List[ScoreHistoryRead]:
+) -> list[ScoreHistoryRead]:
     """Get current user's score history."""
     query = select(ScoreHistory).where(ScoreHistory.user_id == current_user.id)
 

@@ -1,11 +1,11 @@
 """pgvector-based document retrieval for chatbot RAG."""
-from typing import Any, List
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-async def get_embedding(text_content: str, openai_client: Any) -> List[float]:
+async def get_embedding(text_content: str, openai_client: Any) -> list[float]:
     """
     Generate an embedding vector for the given text using OpenAI.
 
@@ -24,11 +24,11 @@ async def get_embedding(text_content: str, openai_client: Any) -> List[float]:
 
 
 async def retrieve_relevant_documents(
-    query_embedding: List[float],
+    query_embedding: list[float],
     db: AsyncSession,
     top_k: int = 5,
     category: str | None = None,
-) -> List[dict]:
+) -> list[dict]:
     """
     Retrieve the most relevant documents using cosine similarity search with pgvector.
 
@@ -81,7 +81,7 @@ async def retrieve_relevant_documents(
     ]
 
 
-def format_context_from_documents(documents: List[dict]) -> str:
+def format_context_from_documents(documents: list[dict]) -> str:
     """Format retrieved documents into a context string for the LLM prompt."""
     if not documents:
         return ""

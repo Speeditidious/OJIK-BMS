@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import Qt, QSize, QUrl
+from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QDesktopServices, QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -27,12 +27,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-_ASSETS = Path(__file__).parent / "assets"
-
 from ojikbms_client.auth import clear_tokens, is_logged_in
 from ojikbms_client.config import (
-    add_bms_folder,
-    get_api_url,
     load_config,
     save_config,
     set_api_url,
@@ -40,6 +36,8 @@ from ojikbms_client.config import (
     set_lr2_db_path,
 )
 from ojikbms_client.gui.workers import LoginWorker, SyncWorker
+
+_ASSETS = Path(__file__).parent / "assets"
 
 # ---------------------------------------------------------------------------
 # Colour palette (dark, matches web app)

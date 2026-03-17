@@ -1,6 +1,6 @@
 """Play analysis data endpoints."""
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Date, cast, func, or_, select, union_all
@@ -9,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.course import CourseScoreHistory
-from app.models.score import ScoreHistory, UserPlayerStats, UserPlayerStatsHistory, UserScore
+from app.models.score import (
+    ScoreHistory,
+    UserPlayerStats,
+    UserPlayerStatsHistory,
+    UserScore,
+)
 from app.models.song import Song
 from app.models.table import DifficultyTable, UserFavoriteTable
 from app.models.user import User
@@ -19,10 +24,10 @@ router = APIRouter(prefix="/analysis", tags=["analysis"])
 
 @router.get("/summary")
 async def get_play_summary(
-    client_type: Optional[str] = Query(None, description="Filter by client: lr2, beatoraja"),
+    client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get a summary of the current user's play statistics.
 
     Pass client_type=lr2 or client_type=beatoraja to filter by game client.
@@ -83,10 +88,10 @@ async def get_play_summary(
 @router.get("/heatmap")
 async def get_activity_heatmap(
     year: int = Query(default=0, description="Year (0 = current year)"),
-    client_type: Optional[str] = Query(None, description="Filter by client: lr2, beatoraja"),
+    client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Return per-day record update counts for the given year.
 
@@ -94,9 +99,9 @@ async def get_activity_heatmap(
     Entries where played_at is NULL are excluded to avoid data spikes.
     Returns {date, value} for days with value > 0.
     """
-    target_year = year if year > 0 else datetime.now(timezone.utc).year
-    start = datetime(target_year, 1, 1, tzinfo=timezone.utc)
-    end = datetime(target_year + 1, 1, 1, tzinfo=timezone.utc)
+    target_year = year if year > 0 else datetime.now(UTC).year
+    start = datetime(target_year, 1, 1, tzinfo=UTC)
+    end = datetime(target_year + 1, 1, 1, tzinfo=UTC)
 
     # Require played_at to be set — LR2 records have played_at=NULL (no per-play date in
     # score.db) and must be excluded here to avoid a spike on the first sync date.
@@ -141,16 +146,16 @@ async def get_activity_heatmap(
 @router.get("/activity")
 async def get_activity_bar(
     days: int = Query(default=30, ge=7, le=365, description="Number of recent days"),
-    client_type: Optional[str] = Query(None, description="Filter by client: lr2, beatoraja"),
+    client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Return daily record update counts for the last N days.
     Uses played_at only (actual in-game play time).
     Entries where played_at is NULL are excluded to avoid data spikes.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     since = now - timedelta(days=days)
 
     # Require played_at to be set — LR2 records have played_at=NULL (no per-play date in
@@ -194,11 +199,11 @@ async def get_activity_bar(
 @router.get("/recent-updates")
 async def get_recent_updates(
     limit: int = Query(default=20, ge=1, le=100),
-    client_type: Optional[str] = Query(None, description="Filter by client: lr2, beatoraja"),
-    date: Optional[str] = Query(None, description="YYYY-MM-DD — filter by played_at date"),
+    client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
+    date: str | None = Query(None, description="YYYY-MM-DD — filter by played_at date"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Return recent score improvement history, ordered by actual play time.
 
     Includes song title/subtitle/artist, difficulty level badges from the user's
@@ -229,8 +234,8 @@ async def get_recent_updates(
     md5s = [e.song_md5 for e in entries if e.song_md5]
 
     # song_map keyed by sha256; md5_song_map keyed by md5
-    song_map: Dict[str, Any] = {}
-    md5_song_map: Dict[str, Any] = {}
+    song_map: dict[str, Any] = {}
+    md5_song_map: dict[str, Any] = {}
     if sha256s:
         songs_result = await db.execute(
             select(Song.sha256, Song.title, Song.subtitle, Song.artist).where(
@@ -257,8 +262,8 @@ async def get_recent_updates(
             }
 
     # Build sha256 → [{symbol, level}] map from user's favorite tables
-    sha256_to_levels: Dict[str, List[Dict[str, str]]] = {}
-    sha256_to_levels_seen: Dict[str, set] = {}
+    sha256_to_levels: dict[str, list[dict[str, str]]] = {}
+    sha256_to_levels_seen: dict[str, set] = {}
     if sha256s:
         fav_result = await db.execute(
             select(UserFavoriteTable.table_id).where(
@@ -327,10 +332,10 @@ async def get_recent_updates(
 
 @router.get("/grade-distribution")
 async def get_grade_distribution(
-    client_type: Optional[str] = Query(None),
+    client_type: str | None = Query(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get grade/clear type distribution for chart rendering."""
     query = select(UserScore.clear_type, func.count(UserScore.id)).where(
         UserScore.user_id == current_user.id
@@ -352,11 +357,11 @@ async def get_grade_distribution(
 @router.get("/score-trend")
 async def get_score_trend(
     song_sha256: str = Query(..., description="SHA256 of the song"),
-    client_type: Optional[str] = Query(None),
+    client_type: str | None = Query(None),
     limit: int = Query(30, le=100),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get score trend for a specific song over time."""
     query = (
         select(ScoreHistory)
@@ -392,7 +397,7 @@ async def get_notes_activity(
     days: int = Query(default=90, ge=7, le=730, description="Number of recent days"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Return per-day delta of notes hit and play count from player_stats history.
 
     Uses LAG window function to compute sync-to-sync deltas per client_type,
@@ -416,7 +421,7 @@ async def get_notes_activity(
         0, h.total_play_count - func.coalesce(lag_plays, h.total_play_count)
     )
 
-    now = datetime.now(timezone.utc).date()
+    now = datetime.now(UTC).date()
     since = now - timedelta(days=days)
 
     subq = (
@@ -450,10 +455,10 @@ async def get_notes_activity(
 @router.get("/table/{table_id}/clear-distribution")
 async def get_table_clear_distribution(
     table_id: int,
-    client_type: Optional[str] = Query(None, description="Filter by client: lr2, beatoraja"),
+    client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Get per-level clear type distribution and per-song scores for a difficulty table.
 
@@ -480,8 +485,8 @@ async def get_table_clear_distribution(
             "level_order": [],
         }
 
-    songs_data: List[Dict[str, Any]] = table.table_data["songs"]
-    level_order: List[str] = table.table_data.get("level_order") or []
+    songs_data: list[dict[str, Any]] = table.table_data["songs"]
+    level_order: list[str] = table.table_data.get("level_order") or []
 
     sha256_list, md5_list = [], []
     for s in songs_data:
@@ -530,10 +535,10 @@ async def get_table_clear_distribution(
     score_rows = scores_result.all()
 
     # Pick best score per hash (highest clear_type wins), keyed by sha256 and md5
-    score_map_by_sha256: Dict[str, Dict[str, Any]] = {}
-    score_map_by_md5: Dict[str, Dict[str, Any]] = {}
+    score_map_by_sha256: dict[str, dict[str, Any]] = {}
+    score_map_by_md5: dict[str, dict[str, Any]] = {}
 
-    def _better(existing: Optional[Dict[str, Any]], new_entry: Dict[str, Any]) -> bool:
+    def _better(existing: dict[str, Any] | None, new_entry: dict[str, Any]) -> bool:
         return existing is None or (new_entry["clear_type"] or 0) > (existing["clear_type"] or 0)
 
     for row in score_rows:
@@ -553,8 +558,8 @@ async def get_table_clear_distribution(
                 score_map_by_md5[row.song_md5] = entry
 
     # Build song list and level histogram simultaneously
-    songs_out: List[Dict[str, Any]] = []
-    level_counts: Dict[str, Dict[int, int]] = {}
+    songs_out: list[dict[str, Any]] = []
+    level_counts: dict[str, dict[int, int]] = {}
 
     for s in songs_data:
         sha256 = s.get("sha256") or ""
@@ -581,7 +586,7 @@ async def get_table_clear_distribution(
         level_counts[level][clear_type] = level_counts[level].get(clear_type, 0) + 1
 
         # Compute EX Score from judgments (pgreat*2 + great)
-        ex_score: Optional[int] = None
+        ex_score: int | None = None
         if score_data and score_data.get("judgments"):
             j = score_data["judgments"]
             ex_score = j.get("pgreat", 0) * 2 + j.get("great", 0)

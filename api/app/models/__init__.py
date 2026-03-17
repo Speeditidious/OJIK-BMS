@@ -1,10 +1,21 @@
 from app.models.base import Base, TimestampMixin
-from app.models.user import User, OAuthAccount
+from app.models.chatbot import (
+    ChatbotConversation,
+    ChatbotDocument,
+    ChatbotMessage,
+    ChatbotUsageLimit,
+)
+from app.models.course import Course, CourseScoreHistory, UserCourseScore
+from app.models.score import ScoreHistory, UserScore
 from app.models.song import Song, UserOwnedSong, UserSongTag
-from app.models.score import UserScore, ScoreHistory
-from app.models.course import Course, UserCourseScore, CourseScoreHistory
-from app.models.table import DifficultyTable, UserFavoriteTable, CustomTable, CustomCourse, Schedule
-from app.models.chatbot import ChatbotDocument, ChatbotConversation, ChatbotMessage, ChatbotUsageLimit
+from app.models.table import (
+    CustomCourse,
+    CustomTable,
+    DifficultyTable,
+    Schedule,
+    UserFavoriteTable,
+)
+from app.models.user import OAuthAccount, User
 
 __all__ = [
     "Base",

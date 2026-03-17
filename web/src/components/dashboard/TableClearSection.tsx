@@ -610,7 +610,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
                 ))}
                 {filterTitle && (
                   <Badge variant="secondary" className="text-xs gap-1 h-5">
-                    "{filterTitle}"
+                    &quot;{filterTitle}&quot;
                     <button onClick={() => setFilterTitle("")} className="hover:text-foreground">
                       <X className="h-3 w-3" />
                     </button>

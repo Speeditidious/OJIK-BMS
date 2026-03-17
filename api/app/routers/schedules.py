@@ -1,7 +1,7 @@
 """Schedule (calendar todo) endpoints."""
 import uuid
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -18,20 +18,20 @@ router = APIRouter(prefix="/schedules", tags=["schedules"])
 
 class ScheduleCreate(BaseModel):
     title: str
-    description: Optional[str] = None
-    scheduled_date: Optional[datetime] = None
-    scheduled_time: Optional[str] = None  # HH:MM
+    description: str | None = None
+    scheduled_date: datetime | None = None
+    scheduled_time: str | None = None  # HH:MM
 
 
 class ScheduleUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    scheduled_date: Optional[datetime] = None
-    scheduled_time: Optional[str] = None
-    is_completed: Optional[bool] = None
+    title: str | None = None
+    description: str | None = None
+    scheduled_date: datetime | None = None
+    scheduled_time: str | None = None
+    is_completed: bool | None = None
 
 
-def _schedule_to_dict(s: Schedule) -> Dict[str, Any]:
+def _schedule_to_dict(s: Schedule) -> dict[str, Any]:
     return {
         "id": str(s.id),
         "title": s.title,
@@ -44,15 +44,15 @@ def _schedule_to_dict(s: Schedule) -> Dict[str, Any]:
 
 @router.get("/")
 async def list_schedules(
-    target_date: Optional[date] = None,
+    target_date: date | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """List schedules for the current user, optionally filtered by date."""
     query = select(Schedule).where(Schedule.user_id == current_user.id)
 
     if target_date is not None:
-        from sqlalchemy import cast, Date
+        from sqlalchemy import Date, cast
         query = query.where(cast(Schedule.scheduled_date, Date) == target_date)
 
     query = query.order_by(Schedule.scheduled_date.asc().nullslast(), Schedule.id)
@@ -67,7 +67,7 @@ async def create_schedule(
     body: ScheduleCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create a new schedule entry."""
     schedule = Schedule(
         user_id=current_user.id,
@@ -89,7 +89,7 @@ async def update_schedule(
     body: ScheduleUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Update a schedule entry."""
     result = await db.execute(
         select(Schedule).where(

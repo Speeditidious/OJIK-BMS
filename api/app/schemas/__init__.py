@@ -1,4 +1,4 @@
-from typing import Any, Generic, List, TypeVar
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -10,7 +10,7 @@ class MessageResponse(BaseModel):
 
 
 class Pagination(BaseModel, Generic[T]):
-    items: List[T]
+    items: list[T]
     total: int
     page: int
     size: int

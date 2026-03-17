@@ -26,7 +26,7 @@ Score table schema (score.db):
 """
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -229,7 +229,7 @@ def parse_lr2_scores(
                 if playtime_col and row[playtime_col]:
                     try:
                         played_at_c = datetime.fromtimestamp(
-                            row[playtime_col], tz=timezone.utc
+                            row[playtime_col], tz=UTC
                         ).isoformat()
                     except (ValueError, OSError):
                         pass
@@ -277,7 +277,7 @@ def parse_lr2_scores(
             if playtime_col and row[playtime_col]:
                 try:
                     played_at = datetime.fromtimestamp(
-                        row[playtime_col], tz=timezone.utc
+                        row[playtime_col], tz=UTC
                     ).isoformat()
                 except (ValueError, OSError):
                     pass

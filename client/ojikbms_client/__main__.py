@@ -10,7 +10,6 @@ from ojikbms_client.config import (
     add_bms_folder,
     get_api_url,
     load_config,
-    save_config,
     set_api_url,
     set_beatoraja_db_dir,
     set_lr2_db_path,
@@ -70,7 +69,7 @@ def login() -> None:
     port = find_free_port()
     login_url = get_discord_login_url(api_url, state=f"agent:{port}")
 
-    console.print(f"\n[bold]Discord 로그인 URL:[/bold]")
+    console.print("\n[bold]Discord 로그인 URL:[/bold]")
     console.print(f"  [cyan]{login_url}[/cyan]\n")
 
     opened = _open_browser(login_url)

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import Depends, HTTPException, status
@@ -17,7 +17,7 @@ def create_access_token(subject: str | Any, expires_delta: timedelta | None = No
     if expires_delta is None:
         expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    expire = datetime.now(timezone.utc) + expires_delta
+    expire = datetime.now(UTC) + expires_delta
     to_encode = {
         "sub": str(subject),
         "exp": expire,
@@ -31,7 +31,7 @@ def create_refresh_token(subject: str | Any, expires_delta: timedelta | None = N
     if expires_delta is None:
         expires_delta = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
 
-    expire = datetime.now(timezone.utc) + expires_delta
+    expire = datetime.now(UTC) + expires_delta
     to_encode = {
         "sub": str(subject),
         "exp": expire,
@@ -77,6 +77,7 @@ async def get_current_user(
     user_id = verify_token(credentials.credentials, token_type="access")
 
     from sqlalchemy import select
+
     from app.models.user import User
 
     result = await db.execute(select(User).where(User.id == user_id))

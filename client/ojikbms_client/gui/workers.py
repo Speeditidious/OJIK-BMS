@@ -61,7 +61,7 @@ class LoginWorker(QThread):
             self.finished.emit(False, str(e))
 
 
-class _SyncCancelled(Exception):
+class _SyncCancelledError(Exception):
     """Raised internally when the user requests cancellation."""
 
 
@@ -191,7 +191,7 @@ class SyncWorker(QThread):
 
         def _cb(current: int, total: int, filename: str) -> None:
             if self._cancelled:
-                raise _SyncCancelled()
+                raise _SyncCancelledError()
             self.progress.emit(current, total, filename)
 
         owned_songs, new_entries, scan_stats = scan_bms_folders(
@@ -227,7 +227,11 @@ class SyncWorker(QThread):
 
     def _quick_scan(self) -> list[dict[str, Any]] | None:
         """Return cached owned_songs_snapshot, or None if no valid cache."""
-        from ojikbms_client.scan_cache import get_owned_songs_snapshot, has_valid_cache, load_cache
+        from ojikbms_client.scan_cache import (
+            get_owned_songs_snapshot,
+            has_valid_cache,
+            load_cache,
+        )
 
         cache = load_cache()
         if not has_valid_cache(cache):
@@ -272,7 +276,7 @@ class SyncWorker(QThread):
                     self._log(f"[ERROR] Beatoraja 파싱 오류: {e}")
 
             if self._cancelled:
-                raise _SyncCancelled()
+                raise _SyncCancelledError()
 
             # BMS folder scan (full or quick)
             if self._bms_folders:
@@ -288,7 +292,7 @@ class SyncWorker(QThread):
                 all_owned_songs.extend(owned_songs)
 
             if self._cancelled:
-                raise _SyncCancelled()
+                raise _SyncCancelledError()
 
             if not all_scores and not all_courses and not all_owned_songs and not all_player_stats and not all_score_log:
                 self._log("[WARN] 동기화할 데이터가 없습니다.")
@@ -325,7 +329,7 @@ class SyncWorker(QThread):
 
             self.finished.emit(result)
 
-        except _SyncCancelled:
+        except _SyncCancelledError:
             self._log("[INFO] 동기화가 취소되었습니다.")
             self.cancelled.emit()
         except Exception as e:

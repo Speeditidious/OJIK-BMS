@@ -2,9 +2,9 @@
 import asyncio
 import json
 import uuid
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -14,7 +14,6 @@ from app.core.database import get_db
 from app.core.security import get_current_user, get_current_user_optional
 from app.models.chatbot import ChatbotConversation, ChatbotMessage, ChatbotUsageLimit
 from app.models.user import User
-from app.schemas import MessageResponse
 
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
 
@@ -98,11 +97,11 @@ async def create_conversation(
     )
 
 
-@router.get("/conversations", response_model=List[ConversationRead])
+@router.get("/conversations", response_model=list[ConversationRead])
 async def list_conversations(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> List[ConversationRead]:
+) -> list[ConversationRead]:
     """List current user's conversations."""
     result = await db.execute(
         select(ChatbotConversation)

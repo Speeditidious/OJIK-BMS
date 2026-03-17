@@ -1,6 +1,6 @@
 """Local agent synchronization endpoints."""
-from datetime import date, datetime, timezone
-from typing import Any, Dict, List
+from datetime import UTC, date, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -11,7 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.course import Course, CourseScoreHistory, UserCourseScore
-from app.models.score import ScoreHistory, UserPlayerStats, UserPlayerStatsHistory, UserScore
+from app.models.score import (
+    ScoreHistory,
+    UserPlayerStats,
+    UserPlayerStatsHistory,
+    UserScore,
+)
 from app.models.song import Song, UserOwnedSong
 from app.models.user import User
 
@@ -48,8 +53,8 @@ class ScoreSyncItem(BaseModel):
     score_rate: float | None = None
     max_combo: int | None = None
     min_bp: int | None = None
-    judgments: Dict[str, Any] | None = None
-    options: Dict[str, Any] | None = None
+    judgments: dict[str, Any] | None = None
+    options: dict[str, Any] | None = None
     play_count: int = 0
     clear_count: int = 0
     played_at: datetime | None = None
@@ -81,7 +86,7 @@ class CourseSyncItem(BaseModel):
     play_count: int = 0
     clear_count: int = 0
     played_at: datetime | None = None
-    song_hashes: List[Dict[str, Any]] = []
+    song_hashes: list[dict[str, Any]] = []
 
 
 class ScoreLogItem(BaseModel):
@@ -95,11 +100,11 @@ class ScoreLogItem(BaseModel):
 
 
 class SyncRequest(BaseModel):
-    scores: List[ScoreSyncItem] = []
-    owned_songs: List[OwnedSongItem] = []
-    player_stats: List[PlayerStats] = []
-    courses: List[CourseSyncItem] = []
-    score_log: List[ScoreLogItem] = []
+    scores: list[ScoreSyncItem] = []
+    owned_songs: list[OwnedSongItem] = []
+    player_stats: list[PlayerStats] = []
+    courses: list[CourseSyncItem] = []
+    score_log: list[ScoreLogItem] = []
 
 
 class SyncResponse(BaseModel):
@@ -107,7 +112,7 @@ class SyncResponse(BaseModel):
     synced_songs: int
     synced_courses: int = 0
     synced_score_log: int = 0
-    errors: List[str] = []
+    errors: list[str] = []
 
 
 @router.post("/", response_model=SyncResponse)
@@ -122,12 +127,12 @@ async def sync_data(
     Uses a single pre-fetch query per batch to avoid N+1 queries.
     Only updates existing scores when the new data is an improvement.
     """
-    errors: List[str] = []
+    errors: list[str] = []
     synced_scores = 0
     synced_songs = 0
     synced_courses = 0
     synced_score_log = 0
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Upsert owned songs FIRST so that Song table has MD5↔SHA256 mappings
     # before score processing tries to resolve md5 → sha256.
@@ -157,9 +162,9 @@ async def sync_data(
                         "bpm": song_item.bpm,
                     })
 
-            _CHUNK = 4_096
-            for i in range(0, len(song_rows), _CHUNK):
-                chunk = song_rows[i : i + _CHUNK]
+            _chunk = 4_096
+            for i in range(0, len(song_rows), _chunk):
+                chunk = song_rows[i : i + _chunk]
                 stmt = (
                     insert(UserOwnedSong)
                     .values(chunk)
@@ -169,8 +174,8 @@ async def sync_data(
 
             # Upsert song metadata into the Song table.
             # Use COALESCE to preserve existing metadata when new values are NULL.
-            for i in range(0, len(song_meta_rows), _CHUNK):
-                chunk = song_meta_rows[i : i + _CHUNK]
+            for i in range(0, len(song_meta_rows), _chunk):
+                chunk = song_meta_rows[i : i + _chunk]
                 song_stmt = insert(Song).values(chunk)
                 song_stmt = song_stmt.on_conflict_do_update(
                     index_elements=["sha256"],
@@ -635,7 +640,7 @@ async def sync_data(
     # Backfill score_history from Beatoraja scorelog (historical improvement records).
     # Uses ON CONFLICT DO NOTHING so existing entries are never overwritten.
     if payload.score_log:
-        _LOG_CHUNK = 1000
+        _log_chunk = 1000
         valid_log = [
             item for item in payload.score_log
             if len(item.song_sha256) == 64
@@ -662,8 +667,8 @@ async def sync_data(
             }
             for item in valid_log
         ]
-        for i in range(0, len(log_rows), _LOG_CHUNK):
-            chunk = log_rows[i : i + _LOG_CHUNK]
+        for i in range(0, len(log_rows), _log_chunk):
+            chunk = log_rows[i : i + _log_chunk]
             stmt = (
                 insert(ScoreHistory)
                 .values(chunk)
@@ -687,7 +692,7 @@ async def sync_data(
 async def get_sync_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get sync status for the current user."""
     scores_count = await db.execute(
         select(func.count(UserScore.id)).where(UserScore.user_id == current_user.id)
