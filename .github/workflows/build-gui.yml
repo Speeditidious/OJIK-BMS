@@ -28,19 +28,15 @@ jobs:
 
       - name: Build exe with PyInstaller
         working-directory: client
-        run: >
-          pyinstaller
-          --onefile
-          --windowed
-          --name ojikbms-gui
-          --add-data "ojikbms_client;ojikbms_client"
-          gui_main.py
+        run: |
+          $appName = "ojikbms-client-${{ github.ref_name }}"
+          pyinstaller --onefile --windowed --name $appName --collect-all PyQt6 --add-data "ojikbms_client;ojikbms_client" gui_main.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ojikbms-gui-windows
-          path: client/dist/ojikbms-gui.exe
+          path: client/dist/ojikbms-client-*.exe
 
   create-release:
     name: Create GitHub Release
@@ -59,5 +55,5 @@ jobs:
       - name: Create release and upload exe
         uses: softprops/action-gh-release@v2
         with:
-          files: ojikbms-gui.exe
+          files: ojikbms-client-*.exe
           generate_release_notes: true

@@ -11,24 +11,27 @@ export interface GitHubRelease {
 async function fetchLatestRelease(): Promise<GitHubRelease | null> {
   const repo = process.env.NEXT_PUBLIC_GITHUB_REPO ?? "Speeditidious/OJIK-BMS";
 
-  const res = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
-    headers: { Accept: "application/vnd.github+json" },
-  });
+  const res = await fetch(
+    `https://api.github.com/repos/${repo}/releases?per_page=1`,
+    { headers: { Accept: "application/vnd.github+json" } }
+  );
 
   if (!res.ok) return null;
 
   const data = await res.json();
+  if (!data.length) return null;
+  const release = data[0];
 
-  const exeAsset = (data.assets ?? []).find((a: { name: string }) =>
+  const exeAsset = (release.assets ?? []).find((a: { name: string }) =>
     a.name.endsWith(".exe")
   );
 
   return {
-    version: data.tag_name ?? "",
+    version: release.tag_name ?? "",
     exeDownloadUrl: exeAsset?.browser_download_url ?? null,
-    publishedAt: data.published_at ?? "",
-    releaseNotes: data.body ?? "",
-    releasePageUrl: data.html_url ?? "",
+    publishedAt: release.published_at ?? "",
+    releaseNotes: release.body ?? "",
+    releasePageUrl: release.html_url ?? "",
   };
 }
 
