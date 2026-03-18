@@ -1,5 +1,6 @@
 """Play analysis data endpoints."""
-from datetime import UTC, date as date_cls, datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from datetime import date as date_cls
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query

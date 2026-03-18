@@ -1,7 +1,7 @@
 """Discord OAuth2-based authentication backend for sqladmin."""
+from sqladmin.authentication import AuthenticationBackend
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
-from sqladmin.authentication import AuthenticationBackend
 
 
 class DiscordAdminAuth(AuthenticationBackend):
