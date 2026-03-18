@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { HeatmapDay } from "@/hooks/use-analysis";
+import { HeatmapDay, CourseActivityItem } from "@/hooks/use-analysis";
 
 interface ActivityCalendarProps {
   data: HeatmapDay[];
@@ -15,6 +15,7 @@ interface ActivityCalendarProps {
   /** Per-client heatmap data — when both provided, dots are split by client */
   dataLr2?: HeatmapDay[];
   dataBeatoraja?: HeatmapDay[];
+  courseData?: CourseActivityItem[];
 }
 
 const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -35,12 +36,17 @@ function getDotItems(
   firstSyncDates?: { lr2?: string; beatoraja?: string },
   lr2Value?: number,
   beatorajaValue?: number,
+  courseInfo?: { count: number; hasFirstClear: boolean },
 ): DotItem[] {
   const dots: DotItem[] = [];
   if (firstSyncDates?.lr2 === dateStr)
     dots.push({ label: "첫 동기화 (LR2)", color: "accent" });
   if (firstSyncDates?.beatoraja === dateStr)
     dots.push({ label: "첫 동기화 (Beatoraja)", color: "accent" });
+  if (courseInfo) {
+    const prefix = courseInfo.hasFirstClear ? "★ " : "";
+    dots.push({ label: `${prefix}코스 클리어 ${courseInfo.count}건`, color: "accent" });
+  }
   if (lr2Value !== undefined && beatorajaValue !== undefined) {
     if (lr2Value > 0) dots.push({ label: `${lr2Value}개 갱신 (LR2)`, color: "primary" });
     if (beatorajaValue > 0) dots.push({ label: `${beatorajaValue}개 갱신 (Beatoraja)`, color: "primary" });
@@ -59,6 +65,7 @@ export function ActivityCalendar({
   firstSyncDates,
   dataLr2,
   dataBeatoraja,
+  courseData,
 }: ActivityCalendarProps) {
   const today = new Date();
   const todayStr = toDateString(today.getFullYear(), today.getMonth() + 1, today.getDate());
@@ -82,6 +89,19 @@ export function ActivityCalendar({
     for (const d of dataBeatoraja) map[d.date] = d.value;
     return map;
   }, [dataBeatoraja]);
+
+  const courseMap = useMemo(() => {
+    if (!courseData?.length) return {} as Record<string, { count: number; hasFirstClear: boolean }>;
+    const map: Record<string, { count: number; hasFirstClear: boolean }> = {};
+    for (const c of courseData) {
+      if (!c.date) continue;
+      const existing = map[c.date] ?? { count: 0, hasFirstClear: false };
+      existing.count++;
+      if (c.is_first_clear) existing.hasFirstClear = true;
+      map[c.date] = existing;
+    }
+    return map;
+  }, [courseData]);
 
   // Build 6×7 grid
   const cells = useMemo(() => {
@@ -148,6 +168,7 @@ const dots = getDotItems(
             firstSyncDates,
             lr2Map?.[dateStr] ?? (lr2Map ? 0 : undefined),
             beatorajaMap?.[dateStr] ?? (beatorajaMap ? 0 : undefined),
+            courseMap[dateStr],
           );
 
           return (

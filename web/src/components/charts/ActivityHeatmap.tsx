@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { HeatmapDay, ClientTypeFilter } from "@/hooks/use-analysis";
+import { HeatmapDay, ClientTypeFilter, CourseActivityItem } from "@/hooks/use-analysis";
 import {
   Tooltip,
   TooltipContent,
@@ -14,6 +14,7 @@ interface ActivityHeatmapProps {
   year: number;
   firstSyncDates?: { lr2?: string; beatoraja?: string };
   clientType?: ClientTypeFilter;
+  courseData?: CourseActivityItem[];
 }
 
 const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -28,7 +29,20 @@ function getIntensityClass(value: number, max: number): string {
   return "bg-primary";
 }
 
-export function ActivityHeatmap({ data, year, firstSyncDates, clientType }: ActivityHeatmapProps) {
+export function ActivityHeatmap({ data, year, firstSyncDates, clientType, courseData }: ActivityHeatmapProps) {
+  const courseMap = useMemo<Record<string, { count: number; hasFirstClear: boolean }>>(() => {
+    if (!courseData?.length) return {};
+    const map: Record<string, { count: number; hasFirstClear: boolean }> = {};
+    for (const c of courseData) {
+      if (!c.date) continue;
+      const existing = map[c.date] ?? { count: 0, hasFirstClear: false };
+      existing.count++;
+      if (c.is_first_clear) existing.hasFirstClear = true;
+      map[c.date] = existing;
+    }
+    return map;
+  }, [courseData]);
+
   const firstSyncMap = useMemo<Record<string, Array<"lr2" | "beatoraja">>>(() => {
     const map: Record<string, Array<"lr2" | "beatoraja">> = {};
     if (firstSyncDates?.lr2 && clientType !== "beatoraja") {
@@ -133,6 +147,7 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType }: Acti
                     return <div key={dow} className="w-3 h-3 rounded-[2px] opacity-0" />;
                   }
                   const syncClients = cell.date ? (firstSyncMap[cell.date] ?? []) : [];
+                  const courseInfo = cell.date ? courseMap[cell.date] : undefined;
 
                   const isFirstSync = syncClients.length > 0;
                   const cellClass = `w-3 h-3 rounded-[2px] cursor-default transition-opacity hover:opacity-80 ${
@@ -147,7 +162,19 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType }: Acti
                   return (
                     <Tooltip key={dow}>
                       <TooltipTrigger asChild>
-                        <div className={cellClass} />
+                        <div className="relative w-3 h-3">
+                          <div className={cellClass} style={{ width: "100%", height: "100%" }} />
+                          {courseInfo && (
+                            <span
+                              className="absolute bottom-0 right-0 w-1.5 h-1.5 rounded-full border border-background"
+                              style={{
+                                backgroundColor: courseInfo.hasFirstClear
+                                  ? "hsl(var(--accent))"
+                                  : "hsl(var(--accent)/0.7)",
+                              }}
+                            />
+                          )}
+                        </div>
                       </TooltipTrigger>
                       <TooltipContent>
                         <p className="font-medium text-xs">{cell.date}</p>
@@ -155,6 +182,11 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType }: Acti
                           <p className="text-xs text-muted-foreground">{syncLabel}</p>
                         ) : (
                           <p className="text-xs text-muted-foreground">{cell.value} 기록 갱신</p>
+                        )}
+                        {courseInfo && (
+                          <p className="text-xs" style={{ color: "hsl(var(--accent))" }}>
+                            {courseInfo.hasFirstClear ? "★ " : ""}코스 클리어 {courseInfo.count}건
+                          </p>
                         )}
                       </TooltipContent>
                     </Tooltip>
@@ -181,6 +213,15 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType }: Acti
             <div className="flex items-center gap-1">
               <div className="w-3 h-3 rounded-[2px] bg-accent border border-accent" />
               <span>첫 동기화</span>
+            </div>
+          )}
+          {Object.keys(courseMap).length > 0 && (
+            <div className="flex items-center gap-1">
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ backgroundColor: "hsl(var(--accent))" }}
+              />
+              <span>코스 클리어</span>
             </div>
           )}
         </div>

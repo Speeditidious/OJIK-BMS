@@ -17,6 +17,7 @@ import {
   useActivityBar,
   usePlaySummary,
   useRecentUpdates,
+  useCourseActivity,
   ClientTypeFilter,
 } from "@/hooks/use-analysis";
 import { useAuth } from "@/hooks/use-auth";
@@ -114,6 +115,11 @@ export default function DashboardPage() {
   const { data: calLr2Data } = useActivityHeatmap(calYear, "lr2");
   const { data: calBeatorajaData } = useActivityHeatmap(calYear, "beatoraja");
 
+  // Course activity data for overlays
+  const { data: heatmapCourseData } = useCourseActivity(heatmapYear, undefined, clientType);
+  const { data: barCourseData } = useCourseActivity(undefined, barDays, clientType);
+  const { data: calCourseData } = useCourseActivity(calYear, undefined, clientType);
+
   const firstSyncDates = useMemo(() => {
     const map = summaryData?.first_synced_by_client;
     if (!map) return undefined;
@@ -209,7 +215,7 @@ export default function DashboardPage() {
                 {heatmapLoading ? (
                   <div className="h-24 bg-muted rounded animate-pulse" />
                 ) : (
-                  <ActivityHeatmap data={heatmapData?.data ?? []} year={heatmapYear} firstSyncDates={firstSyncDates} clientType={clientType} />
+                  <ActivityHeatmap data={heatmapData?.data ?? []} year={heatmapYear} firstSyncDates={firstSyncDates} clientType={clientType} courseData={heatmapCourseData ?? []} />
                 )}
               </CardContent>
             </Card>
@@ -240,7 +246,7 @@ export default function DashboardPage() {
                 {barLoading ? (
                   <div className="h-48 bg-muted rounded animate-pulse" />
                 ) : (
-                  <ActivityBarChart data={barData?.data ?? []} firstSyncDates={firstSyncDates} clientType={clientType} />
+                  <ActivityBarChart data={barData?.data ?? []} firstSyncDates={firstSyncDates} clientType={clientType} courseData={barCourseData ?? []} />
                 )}
               </CardContent>
             </Card>
@@ -275,6 +281,7 @@ export default function DashboardPage() {
                     firstSyncDates={firstSyncDates}
                     dataLr2={clientType === "all" ? calLr2Data?.data : undefined}
                     dataBeatoraja={clientType === "all" ? calBeatorajaData?.data : undefined}
+                    courseData={calCourseData ?? []}
                   />
                 </CardContent>
               </Card>

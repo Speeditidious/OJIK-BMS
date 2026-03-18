@@ -3,6 +3,7 @@ import urllib.parse
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import RedirectResponse
+from starlette.requests import Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +50,7 @@ async def discord_login(state: str | None = None) -> RedirectResponse:
 
 @router.get("/discord/callback")
 async def discord_callback(
+    request: Request,
     code: str,
     state: str | None = None,
     db: AsyncSession = Depends(get_db),
@@ -178,6 +180,17 @@ async def discord_callback(
             url=f"{redirect_base}?{error_params}",
             status_code=302,
         )
+
+    # Admin panel flow: write session and redirect to /admin instead of issuing JWTs.
+    if state == "admin_panel":
+        if not user.is_admin:
+            error_params = urllib.parse.urlencode({"error": "admin_access_denied"})
+            return RedirectResponse(
+                url=f"{settings.FRONTEND_URL}/auth/callback?{error_params}",
+                status_code=302,
+            )
+        request.session["admin_user_id"] = str(user.id)
+        return RedirectResponse(url="/admin", status_code=302)
 
     access_token = create_access_token(str(user.id))
     refresh_token = create_refresh_token(str(user.id))

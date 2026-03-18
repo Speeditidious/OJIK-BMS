@@ -1,5 +1,5 @@
 """Play analysis data endpoints."""
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date as date_cls, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -103,15 +103,15 @@ async def get_activity_heatmap(
     start = datetime(target_year, 1, 1, tzinfo=UTC)
     end = datetime(target_year + 1, 1, 1, tzinfo=UTC)
 
-    # Require played_at to be set — LR2 records have played_at=NULL (no per-play date in
-    # score.db) and must be excluded here to avoid a spike on the first sync date.
+    # Use COALESCE(played_at::date, sync_date) so that LR2 records (played_at=NULL)
+    # are visible by their sync date while Beatoraja records use their actual play date.
+    effective_date = func.coalesce(cast(ScoreHistory.played_at, Date), ScoreHistory.sync_date)
     song_q = (
-        select(cast(ScoreHistory.played_at, Date).label("day"))
+        select(effective_date.label("day"))
         .where(
             ScoreHistory.user_id == current_user.id,
-            ScoreHistory.played_at.is_not(None),
-            ScoreHistory.played_at >= start,
-            ScoreHistory.played_at < end,
+            effective_date >= start.date(),
+            effective_date < end.date(),
         )
     )
     if client_type:
@@ -158,14 +158,14 @@ async def get_activity_bar(
     now = datetime.now(UTC)
     since = now - timedelta(days=days)
 
-    # Require played_at to be set — LR2 records have played_at=NULL (no per-play date in
-    # score.db) and must be excluded here to avoid a spike on the first sync date.
+    # Use COALESCE(played_at::date, sync_date) so that LR2 records (played_at=NULL)
+    # are visible by their sync date while Beatoraja records use their actual play date.
+    effective_date = func.coalesce(cast(ScoreHistory.played_at, Date), ScoreHistory.sync_date)
     song_q = (
-        select(cast(ScoreHistory.played_at, Date).label("day"))
+        select(effective_date.label("day"))
         .where(
             ScoreHistory.user_id == current_user.id,
-            ScoreHistory.played_at.is_not(None),
-            ScoreHistory.played_at >= since,
+            effective_date >= since.date(),
         )
     )
     if client_type:
@@ -215,7 +215,8 @@ async def get_recent_updates(
     if client_type:
         recent_filter.append(ScoreHistory.client_type == client_type)
     if date:
-        recent_filter.append(func.date(ScoreHistory.played_at) == date)
+        effective_date = func.coalesce(cast(ScoreHistory.played_at, Date), ScoreHistory.sync_date)
+        recent_filter.append(effective_date == date_cls.fromisoformat(date))
         effective_limit = 200
     else:
         effective_limit = limit
@@ -328,6 +329,59 @@ async def get_recent_updates(
             for e in entries
         ]
     }
+
+
+@router.get("/course-activity")
+async def get_course_activity(
+    year: int | None = Query(None, description="Year filter (mutually exclusive with days)"),
+    days: int | None = Query(None, ge=1, le=730, description="Recent N days (mutually exclusive with year)"),
+    client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """Return course clearing events for visualization overlays.
+
+    Only includes first-clear or improvement events (clear_type > old_clear_type OR old_clear_type IS NULL).
+    Provide year= for the whole year, or days= for recent N days.
+    """
+    effective_ts = func.coalesce(CourseScoreHistory.played_at, CourseScoreHistory.recorded_at)
+
+    filters = [
+        CourseScoreHistory.user_id == current_user.id,
+        or_(
+            CourseScoreHistory.old_clear_type.is_(None),
+            CourseScoreHistory.clear_type > CourseScoreHistory.old_clear_type,
+        ),
+    ]
+
+    if year:
+        start = datetime(year, 1, 1, tzinfo=UTC)
+        end = datetime(year + 1, 1, 1, tzinfo=UTC)
+        filters.append(effective_ts >= start)
+        filters.append(effective_ts < end)
+    elif days:
+        since = datetime.now(UTC) - timedelta(days=days)
+        filters.append(effective_ts >= since)
+
+    if client_type:
+        filters.append(CourseScoreHistory.client_type == client_type)
+
+    result = await db.execute(
+        select(CourseScoreHistory).where(*filters).order_by(effective_ts.asc())
+    )
+    entries = result.scalars().all()
+
+    return [
+        {
+            "date": (e.played_at or e.recorded_at).strftime("%Y-%m-%d"),
+            "course_hash": e.course_hash,
+            "clear_type": e.clear_type,
+            "old_clear_type": e.old_clear_type,
+            "is_first_clear": e.old_clear_type is None,
+        }
+        for e in entries
+        if e.played_at or e.recorded_at
+    ]
 
 
 @router.get("/grade-distribution")

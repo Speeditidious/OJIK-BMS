@@ -134,6 +134,14 @@ export interface NotesActivityDay {
   plays: number;
 }
 
+export interface CourseActivityItem {
+  date: string; // YYYY-MM-DD
+  course_hash: string;
+  clear_type: number | null;
+  old_clear_type: number | null;
+  is_first_clear: boolean;
+}
+
 export function useNotesActivity(days: number = 90) {
   return useQuery({
     queryKey: ["analysis", "notes-activity", days],
@@ -142,6 +150,24 @@ export function useNotesActivity(days: number = 90) {
       return api.get<NotesActivityDay[]>(`/analysis/notes-activity?${params}`);
     },
     staleTime: 5 * 60 * 1000, // 5 min
+  });
+}
+
+export function useCourseActivity(
+  year?: number,
+  days?: number,
+  clientType?: ClientTypeFilter
+) {
+  return useQuery({
+    queryKey: ["analysis", "course-activity", year ?? null, days ?? null, clientType ?? "all"],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (year) params.set("year", String(year));
+      if (days) params.set("days", String(days));
+      if (clientType && clientType !== "all") params.set("client_type", clientType);
+      return api.get<CourseActivityItem[]>(`/analysis/course-activity?${params}`);
+    },
+    staleTime: 30 * 60 * 1000,
   });
 }
 

@@ -10,12 +10,13 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ActivityDay, ClientTypeFilter } from "@/hooks/use-analysis";
+import { ActivityDay, ClientTypeFilter, CourseActivityItem } from "@/hooks/use-analysis";
 
 interface ActivityBarChartProps {
   data: ActivityDay[];
   firstSyncDates?: { lr2?: string; beatoraja?: string };
   clientType?: ClientTypeFilter;
+  courseData?: CourseActivityItem[];
 }
 
 function formatDate(dateStr: string): string {
@@ -46,12 +47,14 @@ function SyncLabel({ viewBox, labels }: { viewBox?: { x: number; y: number }; la
 
 function ChartTooltip({ active, payload }: { active?: boolean; payload?: any[] }) {
   if (!active || !payload?.length) return null;
-  const { fullDate, updates, syncLabels, hideSyncCount } = payload[0].payload as {
+  const { fullDate, updates, syncLabels, hideSyncCount, courseLabels } = payload[0].payload as {
     fullDate: string;
     updates: number;
     syncLabels?: string[];
     hideSyncCount?: boolean;
+    courseLabels?: string[];
   };
+  const hasAnySyncLabel = syncLabels?.length;
   return (
     <div
       style={{
@@ -63,28 +66,30 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: any[] }
         padding: "8px 10px",
       }}
     >
-      <p style={{ marginBottom: syncLabels?.length ? 4 : 0 }}>{fullDate}</p>
-      {syncLabels?.length ? (
-        <>
-          {syncLabels.map((l) => (
-            <p key={l} style={{ color: "hsl(var(--accent))", margin: 0 }}>
-              {l}
-            </p>
-          ))}
-          {updates > 0 && !hideSyncCount && (
-            <p style={{ margin: 0, marginTop: 4, color: "hsl(var(--foreground))" }}>
-              기록 갱신: {updates}
-            </p>
-          )}
-        </>
-      ) : (
+      <p style={{ marginBottom: (hasAnySyncLabel || courseLabels?.length) ? 4 : 0 }}>{fullDate}</p>
+      {hasAnySyncLabel && syncLabels!.map((l) => (
+        <p key={l} style={{ color: "hsl(var(--accent))", margin: 0 }}>
+          {l}
+        </p>
+      ))}
+      {courseLabels?.map((l) => (
+        <p key={l} style={{ color: "hsl(var(--accent))", margin: 0 }}>
+          {l}
+        </p>
+      ))}
+      {updates > 0 && (!hideSyncCount || courseLabels?.length) && (
+        <p style={{ margin: 0, marginTop: (hasAnySyncLabel || courseLabels?.length) ? 4 : 0, color: "hsl(var(--foreground))" }}>
+          기록 갱신: {updates}
+        </p>
+      )}
+      {updates === 0 && !hasAnySyncLabel && !courseLabels?.length && (
         <p style={{ margin: 0 }}>기록 갱신: {updates}</p>
       )}
     </div>
   );
 }
 
-export function ActivityBarChart({ data, firstSyncDates, clientType }: ActivityBarChartProps) {
+export function ActivityBarChart({ data, firstSyncDates, clientType, courseData }: ActivityBarChartProps) {
   // Build per-date sync metadata.
   // hideCount=true for LR2-only dates: LR2 score.db has no per-play date, so all
   // records land on the sync day — the count would be misleading.
@@ -107,6 +112,17 @@ export function ActivityBarChart({ data, firstSyncDates, clientType }: ActivityB
     return map;
   }, [firstSyncDates, clientType]);
 
+  const courseByDate = useMemo(() => {
+    if (!courseData?.length) return {} as Record<string, string[]>;
+    const map: Record<string, string[]> = {};
+    for (const c of courseData) {
+      if (!c.date) continue;
+      const label = (c.is_first_clear ? "★ " : "") + `코스 클리어 (${c.course_hash.slice(0, 6)}…)`;
+      (map[c.date] ??= []).push(label);
+    }
+    return map;
+  }, [courseData]);
+
   const chartData = useMemo(() => {
     const rawDates = new Set(data.map((d) => d.date));
     const injected = [...data];
@@ -121,6 +137,11 @@ export function ActivityBarChart({ data, firstSyncDates, clientType }: ActivityB
         injected.push({ date, updates: 0 });
       }
     }
+    for (const date of Object.keys(courseByDate)) {
+      if (!rawDates.has(date) && (rangeMin === null || date >= rangeMin)) {
+        injected.push({ date, updates: 0 });
+      }
+    }
     injected.sort((a, b) => a.date.localeCompare(b.date));
     return injected.map((d) => ({
       date: formatDate(d.date),
@@ -128,8 +149,9 @@ export function ActivityBarChart({ data, firstSyncDates, clientType }: ActivityB
       updates: d.updates,
       syncLabels: syncByDate[d.date]?.labels,
       hideSyncCount: syncByDate[d.date]?.hideCount ?? false,
+      courseLabels: courseByDate[d.date],
     }));
-  }, [data, syncByDate]);
+  }, [data, syncByDate, courseByDate]);
 
   if (chartData.length === 0) {
     return (
@@ -174,7 +196,7 @@ export function ActivityBarChart({ data, firstSyncDates, clientType }: ActivityB
           .filter(([date]) => date >= minDate && date <= maxDate)
           .map(([date, meta]) => (
             <ReferenceLine
-              key={date}
+              key={`sync-${date}`}
               x={formatDate(date)}
               stroke="hsl(var(--accent))"
               strokeDasharray="4 3"
@@ -184,6 +206,17 @@ export function ActivityBarChart({ data, firstSyncDates, clientType }: ActivityB
                   ? { value: meta.labels[0], position: "insideTopRight", fontSize: 10, fill: "hsl(var(--accent))" }
                   : <SyncLabel labels={meta.labels} />
               }
+            />
+          ))}
+        {Object.entries(courseByDate)
+          .filter(([date]) => date >= minDate && date <= maxDate)
+          .map(([date]) => (
+            <ReferenceLine
+              key={`course-${date}`}
+              x={formatDate(date)}
+              stroke="hsl(var(--accent)/0.6)"
+              strokeDasharray="2 2"
+              strokeWidth={1}
             />
           ))}
       </LineChart>

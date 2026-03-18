@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.core.config import settings
 from app.routers import (
@@ -99,6 +100,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# SessionMiddleware is required by sqladmin's authentication backend.
+# Starlette applies middleware in LIFO order, so SessionMiddleware (added
+# second) wraps the outermost layer and runs first on each request.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.SECRET_KEY,
+    max_age=3600 * 8,
+    same_site="lax",
+    https_only=False,  # Set to True when deploying with HTTPS
+)
 
 # ── Routers ─────────────────────────────────────────────────────────────────
 
@@ -119,6 +130,14 @@ app.include_router(chatbot.router)
 _UPLOADS_DIR = Path(settings.UPLOADS_DIR)
 _UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(_UPLOADS_DIR)), name="uploads")
+
+# ── Admin panel ─────────────────────────────────────────────────────────────
+# Must be mounted after routers and static files so /admin does not clash.
+
+from app.admin import create_admin  # noqa: E402
+from app.core.database import engine as _engine  # noqa: E402
+
+_admin = create_admin(app, _engine)
 
 # ── Health check ────────────────────────────────────────────────────────────
 

@@ -112,6 +112,9 @@ class SyncResponse(BaseModel):
     synced_songs: int
     synced_courses: int = 0
     synced_score_log: int = 0
+    updated_scores: int = 0
+    new_songs: int = 0
+    removed_songs: int = 0
     errors: list[str] = []
 
 
@@ -132,12 +135,23 @@ async def sync_data(
     synced_songs = 0
     synced_courses = 0
     synced_score_log = 0
+    updated_scores = 0
+    new_songs = 0
+    removed_songs = 0
     now = datetime.now(UTC)
 
     # Upsert owned songs FIRST so that Song table has MD5↔SHA256 mappings
     # before score processing tries to resolve md5 → sha256.
     if payload.owned_songs:
         try:
+            # Fetch existing sha256 set to compute new/removed counts
+            existing_sha256_result = await db.execute(
+                select(UserOwnedSong.song_sha256).where(
+                    UserOwnedSong.user_id == current_user.id
+                )
+            )
+            existing_sha256_set = {row[0] for row in existing_sha256_result.all()}
+
             seen_sha256: set[str] = set()
             song_rows = []
             song_meta_rows = []
@@ -169,8 +183,13 @@ async def sync_data(
                     insert(UserOwnedSong)
                     .values(chunk)
                     .on_conflict_do_nothing(index_elements=["user_id", "song_sha256"])
+                    .returning(UserOwnedSong.song_sha256)
                 )
-                await db.execute(stmt)
+                rows = await db.execute(stmt)
+                new_songs += len(rows.fetchall())
+
+            # Songs present in DB but absent from this scan (display-only, no deletion)
+            removed_songs = len(existing_sha256_set - seen_sha256)
 
             # Upsert song metadata into the Song table.
             # Use COALESCE to preserve existing metadata when new values are NULL.
@@ -396,6 +415,7 @@ async def sync_data(
                             old_play_count=0, play_count=item.play_count,
                         )
                     )
+                    updated_scores += 1
                 else:
                     # Always update metadata fields regardless of score improvement.
                     # options (arrangement, seed, etc.) must reflect the latest parser output.
@@ -413,6 +433,7 @@ async def sync_data(
                     play_count_increased = item.play_count > old_play_count
 
                     if score_changed:
+                        updated_scores += 1
                         old_clear_type = existing.clear_type
                         old_score = existing.score_rate
                         old_combo = existing.max_combo
@@ -456,6 +477,7 @@ async def sync_data(
                     elif play_count_increased:
                         # play_count changed (FAILED plays); no score improvement.
                         # Record in score_history for per-sync play count tracking.
+                        updated_scores += 1
                         final_sha256 = effective_sha256 or existing.song_sha256
                         final_md5 = effective_md5 or existing.song_md5
                         history_entries.append(
@@ -684,6 +706,9 @@ async def sync_data(
         synced_songs=synced_songs,
         synced_courses=synced_courses,
         synced_score_log=synced_score_log,
+        updated_scores=updated_scores,
+        new_songs=new_songs,
+        removed_songs=removed_songs,
         errors=errors,
     )
 
