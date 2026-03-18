@@ -95,7 +95,7 @@ class SyncWorker(QThread):
             lr2_db_path: Path to LR2 score.db.
             beatoraja_db_dir: Path to Beatoraja data directory.
             bms_folders: List of BMS folder paths.
-            quick: If True, skip BMS scan and use cached owned_songs_snapshot.
+            quick: If True, skip BMS scan entirely — only parse score DBs and sync.
         """
         super().__init__()
         self._lr2_db_path = lr2_db_path
@@ -225,22 +225,6 @@ class SyncWorker(QThread):
             )
         return owned_songs
 
-    def _quick_scan(self) -> list[dict[str, Any]] | None:
-        """Return cached owned_songs_snapshot, or None if no valid cache."""
-        from ojikbms_client.scan_cache import (
-            get_owned_songs_snapshot,
-            has_valid_cache,
-            load_cache,
-        )
-
-        cache = load_cache()
-        if not has_valid_cache(cache):
-            self._log("[WARN] 스캔 캐시가 없습니다. 전체 동기화로 전환합니다.")
-            return None
-        songs = get_owned_songs_snapshot(cache)
-        self._log(f"[INFO] 캐시에서 차분 {len(songs):,}개 로드 완료 (BMS 스캔 생략)")
-        return songs
-
     # ------------------------------------------------------------------
     # QThread entry point
     # ------------------------------------------------------------------
@@ -278,17 +262,9 @@ class SyncWorker(QThread):
             if self._cancelled:
                 raise _SyncCancelledError()
 
-            # BMS folder scan (full or quick)
-            if self._bms_folders:
-                if self._quick:
-                    snapshot = self._quick_scan()
-                    if snapshot is None:
-                        # Fallback to full scan
-                        owned_songs = self._scan_bms()
-                    else:
-                        owned_songs = snapshot
-                else:
-                    owned_songs = self._scan_bms()
+            # BMS folder scan — skipped entirely in quick mode
+            if not self._quick and self._bms_folders:
+                owned_songs = self._scan_bms()
                 all_owned_songs.extend(owned_songs)
 
             if self._cancelled:
@@ -308,19 +284,45 @@ class SyncWorker(QThread):
 
             sent_songs = len(all_owned_songs)
             result = asyncio.run(sync_scores(all_scores, all_owned_songs, all_player_stats, all_courses, all_score_log, progress_callback=_sync_progress))
+            updated_scores_count = result.get('updated_scores', 0)
             total_records = result['synced_scores'] + result.get('synced_courses', 0)
-            log_count = result.get('synced_score_log', 0)
+            synced_songs = result.get('synced_songs', 0)
+
+            # Main highlight line — always show updated score count
             self._log(
                 f'[INFO] <span style="color:{_GREEN};font-weight:bold;">동기화 완료'
-                f" (기록 {total_records:,}개, 차분 {result['synced_songs']:,}/{sent_songs:,}개"
-                + (f", 이력 {log_count:,}개" if log_count else "")
-                + ")</span>"
+                f" — 갱신된 기록: {updated_scores_count:,}개</span>"
             )
-            if sent_songs > 0 and result['synced_songs'] < sent_songs:
-                dupes = sent_songs - result['synced_songs']
+
+            # Full sync: new/removed diff sub-line
+            if not self._quick and sent_songs > 0:
+                new_songs = result.get('new_songs', 0)
+                removed_songs = result.get('removed_songs', 0)
                 self._log(
                     f"&nbsp;&nbsp;&nbsp;&nbsp;"
-                    f'<span style="color:{_MUTED};">○ 중복된 차분 제외: {dupes:,}개'
+                    f'<span style="color:{_MUTED};">○ 신규 차분: {new_songs:,}개'
+                    f" / 제거된 차분: {removed_songs:,}개</span>"
+                )
+
+            # Stats sub-line
+            if not self._quick:
+                self._log(
+                    f"&nbsp;&nbsp;&nbsp;&nbsp;"
+                    f'<span style="color:{_MUTED};">○ 기록 총 {total_records:,}개'
+                    f" / 차분 총 {synced_songs:,}개</span>"
+                )
+            else:
+                self._log(
+                    f"&nbsp;&nbsp;&nbsp;&nbsp;"
+                    f'<span style="color:{_MUTED};">○ 기록 총 {total_records:,}개</span>'
+                )
+
+            # Duplicate diff exclusion sub-line (full sync only)
+            if not self._quick and sent_songs > 0 and synced_songs < sent_songs:
+                dupes = sent_songs - synced_songs
+                self._log(
+                    f"&nbsp;&nbsp;&nbsp;&nbsp;"
+                    f'<span style="color:{_MUTED};">○ 중복된 차분 데이터 제외: {dupes:,}개'
                     f" &nbsp;<small>— 정상 동작 (MD5/SHA256 동일 파일)</small></span>"
                 )
             if result.get("errors"):

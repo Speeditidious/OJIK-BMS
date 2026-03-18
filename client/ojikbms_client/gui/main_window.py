@@ -1,11 +1,12 @@
 """OJIK BMS Client — PyQt6 main window."""
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import QEvent, QObject, QSize, Qt
 from PyQt6.QtGui import QDesktopServices, QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -308,6 +309,8 @@ class MainWindow(QWidget):
         self._lr2_edit = QLineEdit()
         self._lr2_edit.setPlaceholderText("LR2 <username>.db 경로...")
         self._lr2_edit.setReadOnly(True)
+        self._lr2_edit.setAcceptDrops(True)
+        self._lr2_edit.installEventFilter(self)
         lr2_row.addWidget(self._lr2_edit)
         lr2_browse = QPushButton("찾아보기")
         lr2_browse.clicked.connect(self._browse_lr2)
@@ -320,6 +323,8 @@ class MainWindow(QWidget):
         self._bea_edit = QLineEdit()
         self._bea_edit.setPlaceholderText("Beatoraja score.db, scorelog.db 있는 폴더 경로...")
         self._bea_edit.setReadOnly(True)
+        self._bea_edit.setAcceptDrops(True)
+        self._bea_edit.installEventFilter(self)
         bea_row.addWidget(self._bea_edit)
         bea_browse = QPushButton("찾아보기")
         bea_browse.clicked.connect(self._browse_beatoraja)
@@ -330,6 +335,8 @@ class MainWindow(QWidget):
         layout.addWidget(QLabel("BMS 곡, 차분 파일 폴더 (최상위 폴더 하나만 해도 ok)"))
         self._folder_list = QListWidget()
         self._folder_list.setFixedHeight(80)
+        self._folder_list.setAcceptDrops(True)
+        self._folder_list.installEventFilter(self)
         layout.addWidget(self._folder_list)
 
         folder_btns = QHBoxLayout()
@@ -557,6 +564,44 @@ class MainWindow(QWidget):
         url = self._api_url_edit.text().strip()
         if url:
             set_api_url(url)
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # noqa: N802
+        """Handle drag-and-drop for path input widgets."""
+        if event.type() == QEvent.Type.DragEnter:
+            if event.mimeData().hasUrls():
+                event.acceptProposedAction()
+                return True
+        elif event.type() == QEvent.Type.Drop:
+            urls = event.mimeData().urls()
+            if not urls:
+                return False
+            if obj is self._lr2_edit:
+                path = urls[0].toLocalFile()
+                if os.path.isfile(path):
+                    self._lr2_edit.setText(path)
+                    set_lr2_db_path(path)
+                return True
+            elif obj is self._bea_edit:
+                path = urls[0].toLocalFile()
+                if os.path.isdir(path):
+                    self._bea_edit.setText(path)
+                    set_beatoraja_db_dir(path)
+                return True
+            elif obj is self._folder_list:
+                config = load_config()
+                folders = config.get("bms_folders", [])
+                changed = False
+                for url in urls:
+                    path = url.toLocalFile()
+                    if os.path.isdir(path) and path not in folders:
+                        folders.append(path)
+                        self._folder_list.addItem(QListWidgetItem(path))
+                        changed = True
+                if changed:
+                    config["bms_folders"] = folders
+                    save_config(config)
+                return True
+        return super().eventFilter(obj, event)
 
     # ------------------------------------------------------------------
     # Sync slots
