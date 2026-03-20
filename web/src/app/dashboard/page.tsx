@@ -4,12 +4,14 @@ import { useState, useMemo } from "react";
 import { LayoutDashboard, CalendarDays, ChevronLeft } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
 import { StatsGrid } from "@/components/dashboard/StatsGrid";
-import { RecentActivity, UpdateRow } from "@/components/dashboard/RecentActivity";
+import { RecentActivity, UpdateRow, clearBadge } from "@/components/dashboard/RecentActivity";
 import { TableClearSection } from "@/components/dashboard/TableClearSection";
+import { DanBadgeShowcase } from "@/components/dashboard/DanBadgeShowcase";
 import { ActivityHeatmap } from "@/components/charts/ActivityHeatmap";
 import { ActivityBarChart } from "@/components/charts/ActivityBarChart";
 import { ActivityCalendar } from "@/components/charts/ActivityCalendar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -18,7 +20,9 @@ import {
   usePlaySummary,
   useRecentUpdates,
   useCourseActivity,
+  useNotesActivity,
   ClientTypeFilter,
+  RecentUpdate,
 } from "@/hooks/use-analysis";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -31,10 +35,29 @@ function CalendarDayDetail({
   clientType: ClientTypeFilter;
   onBack: () => void;
 }) {
-  // limit is ignored by the API when date is provided (server uses effective_limit=200),
-  // but must be ≤100 to pass API validation.
   const { data, isLoading } = useRecentUpdates(20, clientType, date);
+  const { data: courseData, isLoading: courseLoading } = useCourseActivity(
+    undefined, undefined, clientType, date
+  );
+  const { data: notesData } = useNotesActivity(90, date);
   const [y, m, d] = date.split("-").map(Number);
+
+  const { clearUpdates, scoreUpdates, otherUpdates } = useMemo(() => {
+    const updates: RecentUpdate[] = data?.updates ?? [];
+    const clearUpdates = updates.filter(
+      (u) => u.clear_type !== u.old_clear_type && u.clear_type !== null && u.old_clear_type !== null
+    );
+    const clearSet = new Set(clearUpdates.map((u) => u.id));
+    const scoreUpdates = updates.filter(
+      (u) => !clearSet.has(u.id) && u.score !== u.old_score
+    );
+    const scoreSet = new Set(scoreUpdates.map((u) => u.id));
+    const otherUpdates = updates.filter(
+      (u) => !clearSet.has(u.id) && !scoreSet.has(u.id)
+    );
+    return { clearUpdates, scoreUpdates, otherUpdates };
+  }, [data]);
+
   return (
     <div className="space-y-4">
       <Button
@@ -50,6 +73,18 @@ function CalendarDayDetail({
         <CalendarDays className="h-5 w-5 text-primary" />
         <h2 className="text-lg font-bold">{y}년 {m}월 {d}일의 기록</h2>
       </div>
+
+      {/* Day summary bar */}
+      {data?.day_summary && (
+        <div className="flex justify-center gap-8 text-sm text-muted-foreground flex-wrap">
+          <span>총 갱신 <strong className="text-foreground">{data.day_summary.total_updates}곡</strong></span>
+          <span>총 플레이 <strong className="text-foreground">{data.day_summary.total_play_count}회</strong></span>
+          {notesData && notesData.length > 0 && (
+            <span>격파 노트 <strong className="text-foreground">{notesData[0].notes.toLocaleString()}</strong></span>
+          )}
+        </div>
+      )}
+
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
@@ -78,14 +113,92 @@ function CalendarDayDetail({
             </p>
           )}
           {!isLoading && data && data.updates.length > 0 && (
-            <div>
-              {data.updates.map((u) => (
-                <UpdateRow key={u.id} u={u} />
-              ))}
+            <div className="space-y-4">
+              {clearUpdates.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Separator className="flex-1" />
+                    <span className="text-[10px] text-muted-foreground shrink-0">클리어 갱신 {clearUpdates.length}건</span>
+                    <Separator className="flex-1" />
+                  </div>
+                  {clearUpdates.map((u) => <UpdateRow key={u.id} u={u} />)}
+                </div>
+              )}
+              {scoreUpdates.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Separator className="flex-1" />
+                    <span className="text-[10px] text-muted-foreground shrink-0">스코어 갱신 {scoreUpdates.length}건</span>
+                    <Separator className="flex-1" />
+                  </div>
+                  {scoreUpdates.map((u) => <UpdateRow key={u.id} u={u} />)}
+                </div>
+              )}
+              {otherUpdates.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Separator className="flex-1" />
+                    <span className="text-[10px] text-muted-foreground shrink-0">기타 갱신 {otherUpdates.length}건</span>
+                    <Separator className="flex-1" />
+                  </div>
+                  {otherUpdates.map((u) => <UpdateRow key={u.id} u={u} />)}
+                </div>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Course records section */}
+      {(courseLoading || (courseData && courseData.length > 0)) && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">
+              코스 기록
+              {courseData && (
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  — {courseData.length}건
+                </span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {courseLoading ? (
+              <div className="space-y-2">
+                {[0, 1].map((i) => (
+                  <div key={i} className="h-4 w-48 bg-muted rounded animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div>
+                {courseData!.map((c, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 py-2 border-b border-border/40 last:border-0"
+                  >
+                    {clearBadge(c.clear_type, c.client_type)}
+                    <span className="text-xs font-mono text-muted-foreground">
+                      {c.course_hash.slice(0, 8)}…
+                    </span>
+                    {c.song_count !== null && (
+                      <span className="text-[10px] text-muted-foreground">({c.song_count}곡)</span>
+                    )}
+                    <span className="text-[10px] text-muted-foreground uppercase">{c.client_type}</span>
+                    {c.is_first_clear && (
+                      <span
+                        className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border shrink-0"
+                        style={{ borderColor: "hsl(var(--warning)/0.6)", background: "hsl(var(--warning)/0.15)", color: "hsl(var(--warning))" }}
+                      >
+                        ★ 첫 클리어
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -165,6 +278,7 @@ export default function DashboardPage() {
             <TabsTrigger value="distribution">클리어 분포</TabsTrigger>
             <TabsTrigger value="activity">활동 요약</TabsTrigger>
             <TabsTrigger value="calendar">활동 캘린더</TabsTrigger>
+            <TabsTrigger value="badges">단위 배지</TabsTrigger>
           </TabsList>
 
           {/* Tab 1: Clear distribution by difficulty table */}
@@ -286,6 +400,10 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
             )}
+          </TabsContent>
+          {/* Tab 4: Dan badges showcase */}
+          <TabsContent value="badges">
+            <DanBadgeShowcase />
           </TabsContent>
         </Tabs>
       </main>

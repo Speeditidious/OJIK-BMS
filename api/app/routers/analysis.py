@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.course import CourseScoreHistory
+from app.models.course import Course, CourseScoreHistory
 from app.models.score import (
     ScoreHistory,
     UserPlayerStats,
@@ -326,9 +326,15 @@ async def get_recent_updates(
                     or None
                 ),
                 "difficulty_levels": sha256_to_levels.get(e.song_sha256 or "", []) if e.song_sha256 else [],
+                "play_count": e.play_count,
+                "old_play_count": e.old_play_count,
             }
             for e in entries
-        ]
+        ],
+        "day_summary": {
+            "total_updates": len(entries),
+            "total_play_count": sum(e.play_count or 0 for e in entries),
+        } if date else None,
     }
 
 
@@ -337,13 +343,14 @@ async def get_course_activity(
     year: int | None = Query(None, description="Year filter (mutually exclusive with days)"),
     days: int | None = Query(None, ge=1, le=730, description="Recent N days (mutually exclusive with year)"),
     client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
+    date: str | None = Query(None, description="YYYY-MM-DD — filter by a specific date"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """Return course clearing events for visualization overlays.
 
     Only includes first-clear or improvement events (clear_type > old_clear_type OR old_clear_type IS NULL).
-    Provide year= for the whole year, or days= for recent N days.
+    Provide year= for the whole year, days= for recent N days, or date=YYYY-MM-DD for a specific day.
     """
     effective_ts = func.coalesce(CourseScoreHistory.played_at, CourseScoreHistory.recorded_at)
 
@@ -355,7 +362,10 @@ async def get_course_activity(
         ),
     ]
 
-    if year:
+    if date:
+        effective_date = cast(effective_ts, Date)
+        filters.append(effective_date == date_cls.fromisoformat(date))
+    elif year:
         start = datetime(year, 1, 1, tzinfo=UTC)
         end = datetime(year + 1, 1, 1, tzinfo=UTC)
         filters.append(effective_ts >= start)
@@ -367,10 +377,14 @@ async def get_course_activity(
     if client_type:
         filters.append(CourseScoreHistory.client_type == client_type)
 
+    # Join Course to retrieve song_count
     result = await db.execute(
-        select(CourseScoreHistory).where(*filters).order_by(effective_ts.asc())
+        select(CourseScoreHistory, Course.song_count)
+        .outerjoin(Course, CourseScoreHistory.course_hash == Course.course_hash)
+        .where(*filters)
+        .order_by(effective_ts.asc())
     )
-    entries = result.scalars().all()
+    rows = result.all()
 
     return [
         {
@@ -379,8 +393,10 @@ async def get_course_activity(
             "clear_type": e.clear_type,
             "old_clear_type": e.old_clear_type,
             "is_first_clear": e.old_clear_type is None,
+            "client_type": e.client_type,
+            "song_count": song_count,
         }
-        for e in entries
+        for e, song_count in rows
         if e.played_at or e.recorded_at
     ]
 
@@ -450,6 +466,7 @@ async def get_score_trend(
 @router.get("/notes-activity")
 async def get_notes_activity(
     days: int = Query(default=90, ge=7, le=730, description="Number of recent days"),
+    date: str | None = Query(None, description="YYYY-MM-DD — return data for a single day only"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
@@ -458,6 +475,7 @@ async def get_notes_activity(
     Uses LAG window function to compute sync-to-sync deltas per client_type,
     then aggregates across clients per day.
 
+    Pass date=YYYY-MM-DD to return data for a specific sync day instead of recent N days.
     Response: [{"date": "YYYY-MM-DD", "notes": int, "plays": int}, ...]
     """
     h = UserPlayerStatsHistory
@@ -491,13 +509,18 @@ async def get_notes_activity(
         .subquery()
     )
 
+    if date:
+        date_filter = subq.c.sync_date == date_cls.fromisoformat(date)
+    else:
+        date_filter = subq.c.sync_date >= since
+
     result = await db.execute(
         select(
             subq.c.sync_date,
             func.sum(subq.c.delta_notes).label("notes"),
             func.sum(subq.c.delta_plays).label("plays"),
         )
-        .where(subq.c.sync_date >= since)
+        .where(date_filter)
         .group_by(subq.c.sync_date)
         .order_by(subq.c.sync_date)
     )

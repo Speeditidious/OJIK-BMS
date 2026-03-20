@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -108,3 +109,60 @@ class CourseScoreHistory(Base):
 
     def __repr__(self) -> str:
         return f"<CourseScoreHistory id={self.id} user={self.user_id}>"
+
+
+class AdminDanCourse(Base):
+    """Admin-designated dan course for the badge system."""
+
+    __tablename__ = "admin_dan_courses"
+    __table_args__ = (
+        UniqueConstraint("course_hash", name="uq_admin_dan_courses_course_hash"),
+        Index("ix_admin_dan_courses_category", "category"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    course_hash: Mapped[str] = mapped_column(
+        Text, ForeignKey("courses.course_hash", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    short_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), nullable=False
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    def __repr__(self) -> str:
+        return f"<AdminDanCourse id={self.id} name={self.name}>"
+
+
+class UserDanBadge(Base):
+    """Dan badge awarded to a user upon clearing an admin-designated course."""
+
+    __tablename__ = "user_dan_badges"
+    __table_args__ = (
+        UniqueConstraint("user_id", "dan_course_id", "client_type", name="uq_user_dan_badges"),
+        Index("ix_user_dan_badges_user_id", "user_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    dan_course_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("admin_dan_courses.id", ondelete="CASCADE"), nullable=False
+    )
+    clear_type: Mapped[int] = mapped_column(Integer, nullable=False)
+    client_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    achieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<UserDanBadge user={self.user_id} dan={self.dan_course_id}>"

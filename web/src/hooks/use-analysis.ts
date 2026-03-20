@@ -32,6 +32,8 @@ export interface RecentUpdate {
   old_score_rate: number | null;
   min_bp: number | null;
   old_min_bp: number | null;
+  play_count: number | null;
+  old_play_count: number | null;
   recorded_at: string | null;
   played_at: string | null;
   sync_date: string | null;
@@ -39,6 +41,16 @@ export interface RecentUpdate {
   subtitle: string | null;
   artist: string | null;
   difficulty_levels: Array<{ symbol: string; level: string }>;
+}
+
+export interface DaySummary {
+  total_updates: number;
+  total_play_count: number;
+}
+
+export interface RecentUpdatesResponse {
+  updates: RecentUpdate[];
+  day_summary: DaySummary | null;
 }
 
 export interface GradeDistributionItem {
@@ -122,7 +134,7 @@ export function useRecentUpdates(
       const params = new URLSearchParams({ limit: String(limit) });
       if (clientType !== "all") params.set("client_type", clientType);
       if (date) params.set("date", date);
-      return api.get<{ updates: RecentUpdate[] }>(`/analysis/recent-updates?${params}`);
+      return api.get<RecentUpdatesResponse>(`/analysis/recent-updates?${params}`);
     },
     staleTime: 2 * 60 * 1000, // 2 min — more volatile
   });
@@ -140,13 +152,16 @@ export interface CourseActivityItem {
   clear_type: number | null;
   old_clear_type: number | null;
   is_first_clear: boolean;
+  client_type: string;
+  song_count: number | null;
 }
 
-export function useNotesActivity(days: number = 90) {
+export function useNotesActivity(days: number = 90, date?: string) {
   return useQuery({
-    queryKey: ["analysis", "notes-activity", days],
+    queryKey: ["analysis", "notes-activity", days, date ?? null],
     queryFn: () => {
       const params = new URLSearchParams({ days: String(days) });
+      if (date) params.set("date", date);
       return api.get<NotesActivityDay[]>(`/analysis/notes-activity?${params}`);
     },
     staleTime: 5 * 60 * 1000, // 5 min
@@ -156,15 +171,17 @@ export function useNotesActivity(days: number = 90) {
 export function useCourseActivity(
   year?: number,
   days?: number,
-  clientType?: ClientTypeFilter
+  clientType?: ClientTypeFilter,
+  date?: string
 ) {
   return useQuery({
-    queryKey: ["analysis", "course-activity", year ?? null, days ?? null, clientType ?? "all"],
+    queryKey: ["analysis", "course-activity", year ?? null, days ?? null, clientType ?? "all", date ?? null],
     queryFn: () => {
       const params = new URLSearchParams();
       if (year) params.set("year", String(year));
       if (days) params.set("days", String(days));
       if (clientType && clientType !== "all") params.set("client_type", clientType);
+      if (date) params.set("date", date);
       return api.get<CourseActivityItem[]>(`/analysis/course-activity?${params}`);
     },
     staleTime: 30 * 60 * 1000,

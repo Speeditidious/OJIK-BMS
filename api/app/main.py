@@ -10,6 +10,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.core.config import settings
 from app.routers import (
+    admin,
     analysis,
     auth,
     chatbot,
@@ -113,6 +114,7 @@ app.add_middleware(
 
 # ── Routers ─────────────────────────────────────────────────────────────────
 
+app.include_router(admin.router)
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(tables.router)

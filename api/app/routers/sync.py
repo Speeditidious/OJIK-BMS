@@ -1,4 +1,5 @@
 """Local agent synchronization endpoints."""
+import uuid
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -10,7 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.course import Course, CourseScoreHistory, UserCourseScore
+from app.models.course import (
+    AdminDanCourse,
+    Course,
+    CourseScoreHistory,
+    UserCourseScore,
+    UserDanBadge,
+)
 from app.models.score import (
     ScoreHistory,
     UserPlayerStats,
@@ -21,6 +28,60 @@ from app.models.song import Song, UserOwnedSong
 from app.models.user import User
 
 router = APIRouter(prefix="/sync", tags=["sync"])
+
+
+async def _award_dan_badges(
+    db: AsyncSession,
+    user_id: "uuid.UUID",
+    updated_course_hashes: list[str],
+) -> None:
+    """Award dan badges for courses that have an admin_dan_courses entry.
+
+    Called after course score upserts. Improvement-only: only updates if new clear_type > stored.
+    """
+    if not updated_course_hashes:
+        return
+
+    dan_result = await db.execute(
+        select(AdminDanCourse).where(
+            AdminDanCourse.course_hash.in_(updated_course_hashes),
+            AdminDanCourse.is_active.is_(True),
+        )
+    )
+    dan_courses = dan_result.scalars().all()
+    if not dan_courses:
+        return
+
+    for dan in dan_courses:
+        score_result = await db.execute(
+            select(UserCourseScore).where(
+                UserCourseScore.user_id == user_id,
+                UserCourseScore.course_hash == dan.course_hash,
+                UserCourseScore.clear_type >= 3,
+            )
+        )
+        scores = score_result.scalars().all()
+        for score in scores:
+            achieved_at = score.played_at or score.synced_at or datetime.now(UTC)
+            stmt = (
+                insert(UserDanBadge)
+                .values(
+                    user_id=user_id,
+                    dan_course_id=dan.id,
+                    clear_type=score.clear_type,
+                    client_type=score.client_type,
+                    achieved_at=achieved_at,
+                )
+                .on_conflict_do_update(
+                    constraint="uq_user_dan_badges",
+                    set_={
+                        "clear_type": score.clear_type,
+                        "achieved_at": achieved_at,
+                    },
+                    where=(UserDanBadge.clear_type < score.clear_type),
+                )
+            )
+            await db.execute(stmt)
 
 # Judgment keys that represent actual note hits (excl. ghost/miss inputs)
 _LR2_HIT_KEYS = ["pgreat", "great", "good", "bad"]
@@ -658,6 +719,12 @@ async def sync_data(
                 synced_courses += 1
             except Exception as e:
                 errors.append(f"Course sync error for {item.course_hash[:16]}...: {str(e)}")
+
+        # Award dan badges for any cleared courses
+        try:
+            await _award_dan_badges(db, current_user.id, course_hash_set)
+        except Exception as e:
+            errors.append(f"Dan badge award error: {str(e)}")
 
     # Backfill score_history from Beatoraja scorelog (historical improvement records).
     # Uses ON CONFLICT DO NOTHING so existing entries are never overwritten.

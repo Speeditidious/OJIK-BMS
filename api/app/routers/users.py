@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.models.course import AdminDanCourse, UserDanBadge
 from app.models.user import OAuthAccount, User
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -165,6 +166,37 @@ async def get_my_oauth_accounts(
             provider_username=account.provider_username,
         )
         for account in accounts
+    ]
+
+
+@router.get("/me/badges")
+async def get_my_badges(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """Get current user's earned dan badges."""
+    result = await db.execute(
+        select(UserDanBadge, AdminDanCourse)
+        .join(AdminDanCourse, UserDanBadge.dan_course_id == AdminDanCourse.id)
+        .where(
+            UserDanBadge.user_id == current_user.id,
+            AdminDanCourse.is_active.is_(True),
+        )
+        .order_by(AdminDanCourse.sort_order.asc(), UserDanBadge.achieved_at.desc())
+    )
+    rows = result.all()
+    return [
+        {
+            "dan_course_id": badge.dan_course_id,
+            "course_hash": dan.course_hash,
+            "name": dan.name,
+            "short_name": dan.short_name,
+            "category": dan.category,
+            "clear_type": badge.clear_type,
+            "client_type": badge.client_type,
+            "achieved_at": badge.achieved_at.isoformat(),
+        }
+        for badge, dan in rows
     ]
 
 

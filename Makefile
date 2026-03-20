@@ -5,13 +5,6 @@ SLUG ?=
 update-tables:
 	docker compose exec api python scripts/update_tables.py $(if $(SLUG),--slug $(SLUG),)
 
-fix:
-	@echo "=== API: ruff fix ==="
-	cd api && ruff check app/ --select E,F,W,I,N,UP --ignore E501 --fix
-	@echo "=== Client: ruff fix ==="
-	cd client && ruff check ojikbms_client/ --select E,F,W,I,N,UP --ignore E501 --fix
-	@echo "Fix complete."
-
 ci:
 	@echo "=== API: ruff ==="
 	cd api && ruff check app/ --select E,F,W,I,N,UP --ignore E501
@@ -27,3 +20,10 @@ ci:
 	@echo "=== Client: pytest ==="
 	cd client && conda run -n ojik_bms pytest tests/ -v --tb=short
 	@echo "All checks passed."
+
+fix:
+	@echo "=== API: ruff fix ==="
+	cd api && ruff check app/ --select E,F,W,I,N,UP --ignore E501 --fix
+	@echo "=== Client: ruff fix ==="
+	cd client && ruff check ojikbms_client/ --select E,F,W,I,N,UP --ignore E501 --fix
+	@echo "Fix complete."

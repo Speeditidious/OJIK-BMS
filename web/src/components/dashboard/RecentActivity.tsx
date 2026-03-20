@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { useRecentUpdates, RecentUpdate, ClientTypeFilter } from "@/hooks/use-analysis";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -78,7 +79,29 @@ function formatGroupLabel(dateKey: string): string {
   return base;
 }
 
+function isFirstClear(u: RecentUpdate): boolean {
+  const ct = u.clear_type ?? 0;
+  const old = u.old_clear_type;
+  return ct >= 3 && (old === null || old < 3);
+}
+
+function formatElapsed(u: RecentUpdate): string {
+  const ts = u.played_at ?? u.sync_date ?? u.recorded_at;
+  if (!ts) return "";
+  const diff = Date.now() - new Date(ts).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "방금 전";
+  if (mins < 60) return `${mins}분 전`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}시간 전`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}일 전`;
+  const d = new Date(ts);
+  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+}
+
 export function UpdateRow({ u }: { u: RecentUpdate }) {
+  const [expanded, setExpanded] = useState(false);
   const labels = getClientLabels(u.client_type);
   const songName =
     u.title ??
@@ -91,58 +114,109 @@ export function UpdateRow({ u }: { u: RecentUpdate }) {
     u.score_rate !== null &&
     u.old_score_rate !== null &&
     getRank(u.score_rate) !== getRank(u.old_score_rate);
+  const firstClear = isFirstClear(u);
+  const elapsed = formatElapsed(u);
 
   return (
-    <div className="flex items-start justify-between py-2 border-b border-border/40 last:border-0 gap-2">
-      <div className="flex flex-col gap-1 min-w-0">
-        {/* Song name + subtitle */}
-        <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-          {clearBadge(u.clear_type, u.client_type)}
-          <span className="text-xs font-medium truncate max-w-[200px]">{songName}</span>
-          {u.subtitle && (
-            <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
-              {u.subtitle}
-            </span>
-          )}
-        </div>
-
-        {/* Difficulty level badges */}
-        {u.difficulty_levels.length > 0 && (
-          <div className="flex gap-1 flex-wrap">
-            {u.difficulty_levels.map(({ symbol, level }, i) => (
+    <div
+      className={`py-2 border-b border-border/40 last:border-0 cursor-pointer${firstClear ? " border-l-2 border-l-warning pl-2" : ""}`}
+      onClick={() => setExpanded((prev) => !prev)}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex flex-col gap-1 min-w-0">
+          {/* First clear badge + song name + subtitle */}
+          <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+            {firstClear && (
               <span
-                key={i}
-                className="inline-flex items-center rounded px-1.5 py-0 text-[10px] font-medium border border-primary/40 text-primary bg-primary/10"
+                className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border shrink-0"
+                style={{ borderColor: "hsl(var(--warning)/0.6)", background: "hsl(var(--warning)/0.15)", color: "hsl(var(--warning))" }}
               >
-                {symbol}{level}
+                ★ 첫 클리어
               </span>
-            ))}
+            )}
+            {clearBadge(u.clear_type, u.client_type)}
+            <span className="text-xs font-medium truncate max-w-[200px]">{songName}</span>
+            {u.subtitle && (
+              <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
+                {u.subtitle}
+              </span>
+            )}
           </div>
-        )}
 
-        {/* Changes: clear type, rank, score */}
-        <div className="flex gap-2 flex-wrap">
-          {clearChanged && (
-            <span className="text-[10px] text-muted-foreground">
-              {labels[u.old_clear_type!]} → {labels[u.clear_type!]}
-            </span>
+          {/* Difficulty level badges */}
+          {u.difficulty_levels.length > 0 && (
+            <div className="flex gap-1 flex-wrap">
+              {u.difficulty_levels.map(({ symbol, level }, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center rounded px-1.5 py-0 text-[10px] font-medium border border-primary/40 text-primary bg-primary/10"
+                >
+                  {symbol}{level}
+                </span>
+              ))}
+            </div>
           )}
-          {rankChanged && (
-            <span className="text-[10px] text-muted-foreground">
-              Rank: {getRank(u.old_score_rate)} → {getRank(u.score_rate)}
-            </span>
-          )}
-          {scoreChanged && (
-            <span className="text-[10px] text-muted-foreground font-mono">
-              {u.old_score?.toFixed(0)} → {u.score?.toFixed(0)}
-            </span>
+
+          {/* Changes: clear type, rank, score */}
+          <div className="flex gap-2 flex-wrap">
+            {clearChanged && (
+              <span className="text-[10px] text-muted-foreground">
+                {labels[u.old_clear_type!]} → {labels[u.clear_type!]}
+              </span>
+            )}
+            {rankChanged && (
+              <span className="text-[10px] text-muted-foreground">
+                Rank: {getRank(u.old_score_rate)} → {getRank(u.score_rate)}
+              </span>
+            )}
+            {scoreChanged && (
+              <span className="text-[10px] text-muted-foreground font-mono">
+                {u.old_score?.toFixed(0)} → {u.score?.toFixed(0)}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-muted-foreground uppercase">{u.client_type}</span>
+            {expanded ? (
+              <ChevronUp className="h-3 w-3 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-3 w-3 text-muted-foreground" />
+            )}
+          </div>
+          {elapsed && (
+            <span className="text-[10px] text-muted-foreground">{elapsed}</span>
           )}
         </div>
       </div>
 
-      <div className="flex flex-col items-end gap-1 shrink-0">
-        <span className="text-[10px] text-muted-foreground uppercase">{u.client_type}</span>
-      </div>
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="border-t border-border/30 pt-2 mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
+          {(u.min_bp !== null || u.old_min_bp !== null) && (
+            <span className="text-[10px] text-muted-foreground">
+              BP: {u.old_min_bp ?? "–"} → {u.min_bp ?? "–"}
+            </span>
+          )}
+          {(u.play_count !== null || u.old_play_count !== null) && (
+            <span className="text-[10px] text-muted-foreground">
+              플레이 수: {u.old_play_count ?? "–"} → {u.play_count ?? "–"}
+            </span>
+          )}
+          {u.score_rate !== null && (
+            <span className="text-[10px] text-muted-foreground">
+              스코어율: {(u.score_rate * 100).toFixed(1)}%
+            </span>
+          )}
+          {u.artist && (
+            <span className="text-[10px] text-muted-foreground truncate">
+              {u.artist}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
