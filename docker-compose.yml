@@ -51,6 +51,7 @@ services:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_GITHUB_REPO: Speeditidious/OJIK-BMS
     depends_on:
       - api
     volumes:

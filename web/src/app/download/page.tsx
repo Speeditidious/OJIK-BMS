@@ -120,8 +120,8 @@ export default function DownloadPage() {
                 1
               </span>
               <div>
-                <p className="font-medium">exe 다운로드 후 실행</p>
-                <p className="text-sm text-muted-foreground">추가 설치 없이 바로 실행됩니다.</p>
+                <p className="font-medium">exe 파일 다운로드 후 실행</p>
+                <p className="text-sm text-muted-foreground">새로운 폴더 생성 후 그 안에서 실행시키는 것을 권장합니다 (같은 폴더 내에 config 파일도 생성됨).</p>
               </div>
             </li>
             <li className="flex gap-3">
@@ -131,7 +131,7 @@ export default function DownloadPage() {
               <div>
                 <p className="font-medium">Discord 로그인</p>
                 <p className="text-sm text-muted-foreground">
-                  OJIK BMS 계정과 동일한 Discord 계정으로 인증합니다.
+                  OJIK BMS 계정과 동일한 Discord 계정으로 로그인합니다.
                 </p>
               </div>
             </li>
