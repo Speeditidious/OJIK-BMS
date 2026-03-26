@@ -7,8 +7,9 @@ Supports two source formats:
 The parsed result is normalized to:
   {
     "header": { ...original header.json fields },
-    "songs": [ {level, md5, sha256, title, artist, url, ...}, ... ],
-    "level_order": ["sl0", "sl1", ...]   # ordered level list
+    "songs": [ {level, md5, sha256, title, artist, url, url_diff, name_diff, ...}, ... ],
+    "level_order": ["sl0", "sl1", ...],  # ordered level list
+    "courses": [ {name, md5_list}, ... ]  # parsed from header course/grade fields
   }
 """
 from __future__ import annotations
@@ -65,13 +66,44 @@ def _derive_level_order(songs: list[dict]) -> list[str]:
             seen[level] = len(seen)
 
     def _sort_key(lvl: str) -> tuple[str, int]:
-        # Extract trailing number for natural sort: "sl0" → ("sl", 0)
         m = re.match(r"^(.*?)(\d+)$", lvl)
         if m:
             return (m.group(1), int(m.group(2)))
         return (lvl, 0)
 
     return sorted(seen.keys(), key=_sort_key)
+
+
+def _parse_courses_from_header(header: dict) -> list[dict[str, Any]]:
+    """Extract course entries from header.json course/grade fields.
+
+    Returns a list of {name: str, md5_list: [str, ...]} dicts.
+    """
+    courses: list[dict[str, Any]] = []
+
+    raw_grade: list[dict] = header.get("grade") or []
+    for entry in raw_grade:
+        name = entry.get("name") or ""
+        md5s = entry.get("md5") or []
+        if name and md5s:
+            courses.append({"name": name, "md5_list": md5s})
+
+    raw_course: list[Any] = header.get("course") or []
+    for item in raw_course:
+        # course can be a list of lists
+        if isinstance(item, list):
+            for entry in item:
+                name = entry.get("name") or ""
+                md5s = entry.get("md5") or []
+                if name and md5s:
+                    courses.append({"name": name, "md5_list": md5s})
+        elif isinstance(item, dict):
+            name = item.get("name") or ""
+            md5s = item.get("md5") or []
+            if name and md5s:
+                courses.append({"name": name, "md5_list": md5s})
+
+    return courses
 
 
 def _normalize(header: dict, raw_songs: list[dict]) -> dict:
@@ -84,20 +116,24 @@ def _normalize(header: dict, raw_songs: list[dict]) -> dict:
             "sha256": (song.get("sha256") or song.get("sha256hash") or "").lower(),
             "title": song.get("title") or song.get("title_yomigana") or "",
             "artist": song.get("artist") or "",
-            "url": song.get("url") or song.get("url_diff") or "",
+            "url": song.get("url") or "",
+            "url_diff": song.get("url_diff") or "",
+            "name_diff": song.get("name_diff") or "",
         }
-        # Pass through any extra fields (comment, lr2bmsmd5, etc.)
+        # Pass through any extra fields
         for k, v in song.items():
             if k not in normalized:
                 normalized[k] = v
         songs.append(normalized)
 
     level_order = header.get("level_order") or _derive_level_order(songs)
+    courses = _parse_courses_from_header(header)
 
     return {
         "header": header,
         "songs": songs,
         "level_order": level_order,
+        "courses": courses,
     }
 
 
@@ -105,18 +141,15 @@ async def fetch_table(
     url: str,
     *,
     client: httpx.AsyncClient | None = None,
-    last_modified: str | None = None,
-) -> dict | None:
+) -> dict:
     """Fetch and parse a BMS difficulty table from *url*.
 
     Args:
         url: HTML page or header.json URL.
         client: Optional pre-created httpx client (re-used for efficiency).
-        last_modified: If provided, sends ``If-Modified-Since`` header so the
-            server can return 304 when nothing changed.
 
     Returns:
-        Normalized table dict, or ``None`` if the resource is unchanged (304).
+        Normalized table dict with keys: header, songs, level_order, courses.
 
     Raises:
         httpx.HTTPError: on network / HTTP errors.
@@ -127,19 +160,11 @@ async def fetch_table(
         client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
 
     try:
-        # ── Step 1: Fetch the landing page / header URL ──────────────────────
         req_headers: dict[str, str] = {"User-Agent": "OJIK-BMS-TableFetcher/1.0"}
-        if last_modified:
-            req_headers["If-Modified-Since"] = last_modified
 
         resp = await client.get(url, headers=req_headers)
-
-        if resp.status_code == 304:
-            return None  # Not Modified
-
         resp.raise_for_status()
 
-        # ── Step 2: Resolve header.json URL ──────────────────────────────────
         parsed = urlparse(url)
         is_json = parsed.path.endswith(".json") or "json" in resp.headers.get(
             "content-type", ""
@@ -149,7 +174,6 @@ async def fetch_table(
             header_url = url
             header: dict = resp.json()
         else:
-            # Parse HTML to find bmstable meta tag
             parser = _MetaTagParser()
             parser.feed(resp.text)
             if not parser.bmstable_url:
@@ -159,7 +183,6 @@ async def fetch_table(
             header_resp.raise_for_status()
             header = header_resp.json()
 
-        # ── Step 3: Fetch data.json ───────────────────────────────────────────
         data_url_raw: str = header.get("data_url") or header.get("data_url_no_cache", "")
         if not data_url_raw:
             raise ValueError(f"header.json at {header_url} has no data_url field")
@@ -180,11 +203,7 @@ async def fetch_table(
 
 
 def save_table_to_disk(slug: str, table_data: dict) -> None:
-    """Persist header.json and data.json to the local cache folder.
-
-    Also keeps up to *backup_count* timestamped backups as configured in
-    ``difficulty_tables/config.toml``.
-    """
+    """Persist header.json and data.json to the local cache folder."""
     import shutil
     from datetime import datetime
 
@@ -197,7 +216,6 @@ def save_table_to_disk(slug: str, table_data: dict) -> None:
     header_path = table_dir / "header.json"
     data_path = table_dir / "data.json"
 
-    # Rotate backups before overwriting
     if header_path.exists() and data_path.exists():
         ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         backup_dir = table_dir / "backups" / ts
@@ -205,7 +223,6 @@ def save_table_to_disk(slug: str, table_data: dict) -> None:
         shutil.copy2(header_path, backup_dir / "header.json")
         shutil.copy2(data_path, backup_dir / "data.json")
 
-        # Remove oldest backups beyond backup_count
         backups_root = table_dir / "backups"
         all_backups = sorted(backups_root.iterdir())
         for old in all_backups[:-backup_count]:
@@ -232,11 +249,12 @@ def load_table_from_disk(slug: str) -> dict | None:
     songs = json.loads(data_path.read_text(encoding="utf-8"))
 
     level_order = header.get("level_order") or _derive_level_order(songs)
-    return {"header": header, "songs": songs, "level_order": level_order}
+    courses = _parse_courses_from_header(header)
+    return {"header": header, "songs": songs, "level_order": level_order, "courses": courses}
 
 
 def _load_config() -> dict:
-    import tomllib  # Python 3.11+ stdlib
+    import tomllib
     config_path = TABLES_DIR / "config.toml"
     if not config_path.exists():
         return {}

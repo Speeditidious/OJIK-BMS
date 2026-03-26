@@ -1,30 +1,81 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { LayoutDashboard, CalendarDays, ChevronLeft } from "lucide-react";
+import { useState, useMemo, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { LayoutDashboard, CalendarDays, ChevronLeft, TrendingUp, Music2, Clock, Hammer, HelpCircle } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
 import { StatsGrid } from "@/components/dashboard/StatsGrid";
-import { RecentActivity, UpdateRow, clearBadge } from "@/components/dashboard/RecentActivity";
+import { RecentActivity } from "@/components/dashboard/RecentActivity";
+import { ScoreUpdates } from "@/components/dashboard/ScoreUpdates";
 import { TableClearSection } from "@/components/dashboard/TableClearSection";
-import { DanBadgeShowcase } from "@/components/dashboard/DanBadgeShowcase";
 import { ActivityHeatmap } from "@/components/charts/ActivityHeatmap";
 import { ActivityBarChart } from "@/components/charts/ActivityBarChart";
 import { ActivityCalendar } from "@/components/charts/ActivityCalendar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   useActivityHeatmap,
   useActivityBar,
   usePlaySummary,
   useRecentUpdates,
   useCourseActivity,
-  useNotesActivity,
+
   ClientTypeFilter,
-  RecentUpdate,
 } from "@/hooks/use-analysis";
 import { useAuth } from "@/hooks/use-auth";
+
+function formatPlaytime(seconds: number): string {
+  if (seconds <= 0) return "0분";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}시간 ${m}분`;
+  return `${m}분`;
+}
+
+function DayStatCard({
+  title,
+  value,
+  sub,
+  icon: Icon,
+  uncertain,
+  uncertainTooltip,
+}: {
+  title: string;
+  value: string;
+  sub: string;
+  icon: React.ElementType;
+  uncertain?: boolean;
+  uncertainTooltip?: string;
+}) {
+  return (
+    <Card className="border-dashed">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3 px-4">
+        <p className="text-xs font-medium">{title}</p>
+        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+      </CardHeader>
+      <CardContent className="pb-3 px-4">
+        <div className="text-xl font-bold">
+          {uncertain && uncertainTooltip ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex items-center gap-1 text-muted-foreground cursor-help">
+                  <span className="underline decoration-dashed underline-offset-2">-</span>
+                  <HelpCircle className="h-3.5 w-3.5" />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-xs">
+                {uncertainTooltip}
+              </TooltipContent>
+            </Tooltip>
+          ) : value}
+        </div>
+        <p className="text-[10px] text-muted-foreground">{sub}</p>
+      </CardContent>
+    </Card>
+  );
+}
 
 function CalendarDayDetail({
   date,
@@ -35,28 +86,8 @@ function CalendarDayDetail({
   clientType: ClientTypeFilter;
   onBack: () => void;
 }) {
-  const { data, isLoading } = useRecentUpdates(20, clientType, date);
-  const { data: courseData, isLoading: courseLoading } = useCourseActivity(
-    undefined, undefined, clientType, date
-  );
-  const { data: notesData } = useNotesActivity(90, date);
+  const { data } = useRecentUpdates(1, clientType, date);
   const [y, m, d] = date.split("-").map(Number);
-
-  const { clearUpdates, scoreUpdates, otherUpdates } = useMemo(() => {
-    const updates: RecentUpdate[] = data?.updates ?? [];
-    const clearUpdates = updates.filter(
-      (u) => u.clear_type !== u.old_clear_type && u.clear_type !== null && u.old_clear_type !== null
-    );
-    const clearSet = new Set(clearUpdates.map((u) => u.id));
-    const scoreUpdates = updates.filter(
-      (u) => !clearSet.has(u.id) && u.score !== u.old_score
-    );
-    const scoreSet = new Set(scoreUpdates.map((u) => u.id));
-    const otherUpdates = updates.filter(
-      (u) => !clearSet.has(u.id) && !scoreSet.has(u.id)
-    );
-    return { clearUpdates, scoreUpdates, otherUpdates };
-  }, [data]);
 
   return (
     <div className="space-y-4">
@@ -74,131 +105,45 @@ function CalendarDayDetail({
         <h2 className="text-lg font-bold">{y}년 {m}월 {d}일의 기록</h2>
       </div>
 
-      {/* Day summary bar */}
+      {/* Day summary cards */}
       {data?.day_summary && (
-        <div className="flex justify-center gap-8 text-sm text-muted-foreground flex-wrap">
-          <span>총 갱신 <strong className="text-foreground">{data.day_summary.total_updates}곡</strong></span>
-          <span>총 플레이 <strong className="text-foreground">{data.day_summary.total_play_count}회</strong></span>
-          {notesData && notesData.length > 0 && (
-            <span>격파 노트 <strong className="text-foreground">{notesData[0].notes.toLocaleString()}</strong></span>
-          )}
-        </div>
+        <TooltipProvider>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <DayStatCard
+              title="갱신 수"
+              value={`${data.day_summary.total_updates}`}
+              sub="당일 기록 갱신"
+              icon={TrendingUp}
+            />
+            <DayStatCard
+              title="플레이 수"
+              value={`${data.day_summary.total_play_count ?? 0}`}
+              sub="당일 플레이 횟수"
+              icon={Music2}
+              uncertain={data.day_summary.play_count_uncertain}
+              uncertainTooltip="첫 동기화 당일 혹은 그 이전 기록의 플레이 횟수는 집계할 수 없습니다."
+            />
+            <DayStatCard
+              title="플레이 시간"
+              value={formatPlaytime(data.day_summary.total_playtime)}
+              sub="당일 플레이 시간"
+              icon={Clock}
+              uncertain={data.day_summary.playtime_uncertain}
+              uncertainTooltip="첫 동기화 당일 혹은 그 이전 기록의 플레이 시간은 집계할 수 없습니다."
+            />
+            <DayStatCard
+              title="격파 노트 수"
+              value={`${data.day_summary.total_notes_hit.toLocaleString()}`}
+              sub="당일 격파 노트"
+              icon={Hammer}
+              uncertain={data.day_summary.notes_hit_uncertain}
+              uncertainTooltip="첫 동기화 당일 혹은 그 이전 기록의 격파 노트 수는 집계할 수 없습니다."
+            />
+          </div>
+        </TooltipProvider>
       )}
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            기록 갱신
-            {data && (
-              <span className="text-sm font-normal text-muted-foreground">
-                — {data.updates.length}건
-              </span>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading && (
-            <div className="space-y-3">
-              {[0, 1, 2].map((i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <div className="h-4 w-32 bg-muted rounded animate-pulse" />
-                  <div className="h-4 w-16 bg-muted rounded animate-pulse" />
-                </div>
-              ))}
-            </div>
-          )}
-          {!isLoading && (!data || data.updates.length === 0) && (
-            <p className="text-sm text-muted-foreground py-4 text-center">
-              해당 날짜에 기록된 플레이 데이터가 없습니다.
-            </p>
-          )}
-          {!isLoading && data && data.updates.length > 0 && (
-            <div className="space-y-4">
-              {clearUpdates.length > 0 && (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Separator className="flex-1" />
-                    <span className="text-[10px] text-muted-foreground shrink-0">클리어 갱신 {clearUpdates.length}건</span>
-                    <Separator className="flex-1" />
-                  </div>
-                  {clearUpdates.map((u) => <UpdateRow key={u.id} u={u} />)}
-                </div>
-              )}
-              {scoreUpdates.length > 0 && (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Separator className="flex-1" />
-                    <span className="text-[10px] text-muted-foreground shrink-0">스코어 갱신 {scoreUpdates.length}건</span>
-                    <Separator className="flex-1" />
-                  </div>
-                  {scoreUpdates.map((u) => <UpdateRow key={u.id} u={u} />)}
-                </div>
-              )}
-              {otherUpdates.length > 0 && (
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Separator className="flex-1" />
-                    <span className="text-[10px] text-muted-foreground shrink-0">기타 갱신 {otherUpdates.length}건</span>
-                    <Separator className="flex-1" />
-                  </div>
-                  {otherUpdates.map((u) => <UpdateRow key={u.id} u={u} />)}
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Course records section */}
-      {(courseLoading || (courseData && courseData.length > 0)) && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">
-              코스 기록
-              {courseData && (
-                <span className="text-sm font-normal text-muted-foreground ml-2">
-                  — {courseData.length}건
-                </span>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {courseLoading ? (
-              <div className="space-y-2">
-                {[0, 1].map((i) => (
-                  <div key={i} className="h-4 w-48 bg-muted rounded animate-pulse" />
-                ))}
-              </div>
-            ) : (
-              <div>
-                {courseData!.map((c, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-2 py-2 border-b border-border/40 last:border-0"
-                  >
-                    {clearBadge(c.clear_type, c.client_type)}
-                    <span className="text-xs font-mono text-muted-foreground">
-                      {c.course_hash.slice(0, 8)}…
-                    </span>
-                    {c.song_count !== null && (
-                      <span className="text-[10px] text-muted-foreground">({c.song_count}곡)</span>
-                    )}
-                    <span className="text-[10px] text-muted-foreground uppercase">{c.client_type}</span>
-                    {c.is_first_clear && (
-                      <span
-                        className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border shrink-0"
-                        style={{ borderColor: "hsl(var(--warning)/0.6)", background: "hsl(var(--warning)/0.15)", color: "hsl(var(--warning))" }}
-                      >
-                        ★ 첫 클리어
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      <ScoreUpdates clientType={clientType} date={date} />
     </div>
   );
 }
@@ -207,16 +152,25 @@ const CURRENT_YEAR = new Date().getFullYear();
 const CURRENT_MONTH = new Date().getMonth() + 1;
 const BAR_RANGE_OPTIONS = [7, 30, 90] as const;
 
-export default function DashboardPage() {
+// ── Inner content (uses useSearchParams) ─────────────────────────────────────
+
+function DashboardContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
   const { user, isLoading } = useAuth(true);
   const [clientType, setClientType] = useState<ClientTypeFilter>("all");
   const [heatmapYear, setHeatmapYear] = useState(CURRENT_YEAR);
   const [barDays, setBarDays] = useState<(typeof BAR_RANGE_OPTIONS)[number]>(30);
+  const [activityView, setActivityView] = useState<"updates" | "plays">("updates");
 
-  // Calendar tab state
+  // Calendar tab state (local — preserved across URL-only navigation)
   const [calYear, setCalYear] = useState(CURRENT_YEAR);
   const [calMonth, setCalMonth] = useState(CURRENT_MONTH);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  // URL-derived navigation state
+  const currentTab = searchParams.get("tab") ?? "distribution";
+  const selectedDate = searchParams.get("date");
 
   const { data: heatmapData, isLoading: heatmapLoading } = useActivityHeatmap(heatmapYear, clientType);
   const { data: barData, isLoading: barLoading } = useActivityBar(barDays, clientType);
@@ -241,6 +195,18 @@ export default function DashboardPage() {
       beatoraja: map.beatoraja ? map.beatoraja.slice(0, 10) : undefined,
     };
   }, [summaryData]);
+
+  function handleTabChange(value: string) {
+    router.push(`/dashboard?tab=${value}`, { scroll: false });
+  }
+
+  function handleDayClick(dateStr: string) {
+    router.push(`/dashboard?tab=calendar&date=${dateStr}`, { scroll: false });
+  }
+
+  function handleBackToCalendar() {
+    router.push(`/dashboard?tab=calendar`, { scroll: false });
+  }
 
   if (isLoading) {
     return (
@@ -270,15 +236,14 @@ export default function DashboardPage() {
         <StatsGrid clientType={clientType} onClientTypeChange={setClientType} />
 
         <Tabs
-          defaultValue="distribution"
+          value={currentTab}
+          onValueChange={handleTabChange}
           className="space-y-4"
-          onValueChange={(v) => { if (v !== "calendar") setSelectedDate(null); }}
         >
           <TabsList>
             <TabsTrigger value="distribution">클리어 분포</TabsTrigger>
             <TabsTrigger value="activity">활동 요약</TabsTrigger>
             <TabsTrigger value="calendar">활동 캘린더</TabsTrigger>
-            <TabsTrigger value="badges">단위 배지</TabsTrigger>
           </TabsList>
 
           {/* Tab 1: Clear distribution by difficulty table */}
@@ -303,25 +268,40 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle>활동 히트맵</CardTitle>
-                    <CardDescription>날짜별 스코어 갱신 횟수 (플레이 시간 기준)</CardDescription>
+                    <CardDescription>연도별로 얼마나 열심히 했는지 한 눈에 확인하세요</CardDescription>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setHeatmapYear((y) => y - 1)}
-                    >
-                      ‹
-                    </Button>
-                    <span className="text-sm font-medium w-12 text-center">{heatmapYear}</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setHeatmapYear((y) => Math.min(y + 1, CURRENT_YEAR))}
-                      disabled={heatmapYear >= CURRENT_YEAR}
-                    >
-                      ›
-                    </Button>
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-0.5">
+                      {(["updates", "plays"] as const).map((v) => (
+                        <Button
+                          key={v}
+                          variant={activityView === v ? "secondary" : "ghost"}
+                          size="sm"
+                          className="text-xs h-7 px-2"
+                          onClick={() => setActivityView(v)}
+                        >
+                          {v === "updates" ? "기록 갱신" : "플레이 횟수"}
+                        </Button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setHeatmapYear((y) => y - 1)}
+                      >
+                        ‹
+                      </Button>
+                      <span className="text-sm font-medium w-12 text-center">{heatmapYear}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setHeatmapYear((y) => Math.min(y + 1, CURRENT_YEAR))}
+                        disabled={heatmapYear >= CURRENT_YEAR}
+                      >
+                        ›
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </CardHeader>
@@ -329,7 +309,7 @@ export default function DashboardPage() {
                 {heatmapLoading ? (
                   <div className="h-24 bg-muted rounded animate-pulse" />
                 ) : (
-                  <ActivityHeatmap data={heatmapData?.data ?? []} year={heatmapYear} firstSyncDates={firstSyncDates} clientType={clientType} courseData={heatmapCourseData ?? []} />
+                  <ActivityHeatmap data={heatmapData?.data ?? []} year={heatmapYear} firstSyncDates={firstSyncDates} clientType={clientType} courseData={heatmapCourseData ?? []} viewMode={activityView} />
                 )}
               </CardContent>
             </Card>
@@ -338,8 +318,8 @@ export default function DashboardPage() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>기록 갱신 추이</CardTitle>
-                    <CardDescription>일별 스코어 갱신 횟수 (플레이 시간 기준)</CardDescription>
+                    <CardTitle>활동 그래프</CardTitle>
+                    <CardDescription>기록 갱신 또는 플레이 횟수 추이를 그래프로 확인하세요</CardDescription>
                   </div>
                   <div className="flex gap-1">
                     {BAR_RANGE_OPTIONS.map((d) => (
@@ -360,7 +340,7 @@ export default function DashboardPage() {
                 {barLoading ? (
                   <div className="h-48 bg-muted rounded animate-pulse" />
                 ) : (
-                  <ActivityBarChart data={barData?.data ?? []} firstSyncDates={firstSyncDates} clientType={clientType} courseData={barCourseData ?? []} />
+                  <ActivityBarChart data={barData?.data ?? []} firstSyncDates={firstSyncDates} clientType={clientType} courseData={barCourseData ?? []} viewMode={activityView} />
                 )}
               </CardContent>
             </Card>
@@ -374,7 +354,7 @@ export default function DashboardPage() {
               <CalendarDayDetail
                 date={selectedDate}
                 clientType={clientType}
-                onBack={() => setSelectedDate(null)}
+                onBack={handleBackToCalendar}
               />
             ) : (
               <Card>
@@ -387,7 +367,7 @@ export default function DashboardPage() {
                     data={calHeatmapData?.data ?? []}
                     year={calYear}
                     month={calMonth}
-                    onDayClick={setSelectedDate}
+                    onDayClick={handleDayClick}
                     onMonthChange={(y, m) => {
                       setCalYear(y);
                       setCalMonth(m);
@@ -401,12 +381,22 @@ export default function DashboardPage() {
               </Card>
             )}
           </TabsContent>
-          {/* Tab 4: Dan badges showcase */}
-          <TabsContent value="badges">
-            <DanBadgeShowcase />
-          </TabsContent>
         </Tabs>
       </main>
     </div>
+  );
+}
+
+// ── Export with Suspense (required for useSearchParams in Next.js) ─────────────
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" />
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
   );
 }

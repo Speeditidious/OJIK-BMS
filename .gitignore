@@ -223,3 +223,6 @@ api/difficulty_tables/*/
 # OJIK client runtime files (generated next to exe in prod, client/ root in dev)
 client/config.json
 client/scan_cache.json
+
+# Squashed alembic migration archive
+api/alembic/versions/archive/

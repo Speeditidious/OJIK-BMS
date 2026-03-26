@@ -1,183 +1,337 @@
 """Local agent synchronization endpoints."""
-import uuid
-from datetime import UTC, date, datetime
+import math
+from datetime import UTC, datetime
+from datetime import date as date_cls
 from typing import Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import func, select, text, tuple_
+from sqlalchemy import Date, cast, func, literal, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.course import (
-    AdminDanCourse,
-    Course,
-    CourseScoreHistory,
-    UserCourseScore,
-    UserDanBadge,
-)
-from app.models.score import (
-    ScoreHistory,
-    UserPlayerStats,
-    UserPlayerStatsHistory,
-    UserScore,
-)
-from app.models.song import Song, UserOwnedSong
+from app.models.score import UserPlayerStats, UserScore
 from app.models.user import User
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
 
-async def _award_dan_badges(
-    db: AsyncSession,
-    user_id: "uuid.UUID",
-    updated_course_hashes: list[str],
-) -> None:
-    """Award dan badges for courses that have an admin_dan_courses entry.
-
-    Called after course score upserts. Improvement-only: only updates if new clear_type > stored.
-    """
-    if not updated_course_hashes:
-        return
-
-    dan_result = await db.execute(
-        select(AdminDanCourse).where(
-            AdminDanCourse.course_hash.in_(updated_course_hashes),
-            AdminDanCourse.is_active.is_(True),
+def _compute_score_fields(
+    client_type: str,
+    judgments: dict | None,
+    notes: int | None,
+) -> tuple[int | None, float | None, str | None]:
+    """Compute exscore, rate (%), and rank from judgments and note count."""
+    if not judgments or not notes:
+        return None, None, None
+    if client_type == "lr2":
+        exscore = judgments.get("perfect", 0) * 2 + judgments.get("great", 0)
+    elif client_type == "beatoraja":
+        exscore = (
+            (judgments.get("epg", 0) + judgments.get("lpg", 0)) * 2
+            + judgments.get("egr", 0)
+            + judgments.get("lgr", 0)
         )
-    )
-    dan_courses = dan_result.scalars().all()
-    if not dan_courses:
-        return
-
-    for dan in dan_courses:
-        score_result = await db.execute(
-            select(UserCourseScore).where(
-                UserCourseScore.user_id == user_id,
-                UserCourseScore.course_hash == dan.course_hash,
-                UserCourseScore.clear_type >= 3,
-            )
-        )
-        scores = score_result.scalars().all()
-        for score in scores:
-            achieved_at = score.played_at or score.synced_at or datetime.now(UTC)
-            stmt = (
-                insert(UserDanBadge)
-                .values(
-                    user_id=user_id,
-                    dan_course_id=dan.id,
-                    clear_type=score.clear_type,
-                    client_type=score.client_type,
-                    achieved_at=achieved_at,
-                )
-                .on_conflict_do_update(
-                    constraint="uq_user_dan_badges",
-                    set_={
-                        "clear_type": score.clear_type,
-                        "achieved_at": achieved_at,
-                    },
-                    where=(UserDanBadge.clear_type < score.clear_type),
-                )
-            )
-            await db.execute(stmt)
-
-# Judgment keys that represent actual note hits (excl. ghost/miss inputs)
-_LR2_HIT_KEYS = ["pgreat", "great", "good", "bad"]
-_BT_HIT_KEYS = ["ep", "lp", "eg", "lg", "egd", "lgd", "ebd", "lbd", "epr", "lpr"]
-
-
-def _notes_per_play(judgments: dict | None) -> int:
-    """Return the per-play hit note count from best-score judgments."""
-    if not judgments:
-        return 0
-    return sum(judgments.get(k, 0) for k in _LR2_HIT_KEYS + _BT_HIT_KEYS)
-
-
-def _has_change(existing: UserScore, item: "ScoreSyncItem") -> bool:
-    """Return True if any tracked field has changed since the last sync."""
-    return (
-        (item.clear_type is not None and item.clear_type != existing.clear_type)
-        or (item.score_rate is not None and item.score_rate != existing.score_rate)
-        or (item.max_combo is not None and item.max_combo != existing.max_combo)
-        or (item.min_bp is not None and item.min_bp != existing.min_bp)
-        or item.clear_count > existing.clear_count
-    )
+    else:
+        return None, None, None
+    max_ex = notes * 2
+    if max_ex <= 0:
+        return exscore, None, None
+    rate = math.floor(exscore / max_ex * 10000) / 100
+    # Rank thresholds use notes (not max_ex):
+    #   exscore * 9 >= notes * 16 → AAA (≥ 8/9 of max)
+    for rank, threshold in [("AAA", 16), ("AA", 14), ("A", 12), ("B", 10), ("C", 8), ("D", 6), ("E", 4)]:
+        if exscore * 9 >= notes * threshold:
+            return exscore, rate, rank
+    return exscore, rate, "F"
 
 
 class ScoreSyncItem(BaseModel):
-    song_sha256: str | None = None
-    song_md5: str | None = None
+    scorehash: str | None = None
+    fumen_sha256: str | None = None
+    fumen_md5: str | None = None
+    fumen_hash_others: str | None = None  # course records
     client_type: str  # lr2 / beatoraja / qwilight
     clear_type: int | None = None
-    score_rate: float | None = None
+    notes: int | None = None
+    exscore: int | None = None  # pre-computed exscore (e.g. from scorelog.db)
     max_combo: int | None = None
     min_bp: int | None = None
     judgments: dict[str, Any] | None = None
     options: dict[str, Any] | None = None
-    play_count: int = 0
-    clear_count: int = 0
-    played_at: datetime | None = None
-
-
-class OwnedSongItem(BaseModel):
-    song_md5: str | None = None
-    song_sha256: str
-    title: str | None = None
-    artist: str | None = None
-    subartist: str | None = None
-    subtitle: str | None = None
-    bpm: float | None = None
+    play_count: int | None = None
+    clear_count: int | None = None
+    recorded_at: datetime | None = None
+    song_hashes: list[dict[str, Any]] = []  # for course definition
 
 
 class PlayerStats(BaseModel):
     client_type: str
-    total_notes_hit: int
-    total_play_count: int | None = None
-
-
-class CourseSyncItem(BaseModel):
-    course_hash: str
-    client_type: str
-    clear_type: int | None = None
-    score_rate: float | None = None
-    max_combo: int | None = None
-    min_bp: int | None = None
-    play_count: int = 0
-    clear_count: int = 0
-    played_at: datetime | None = None
-    song_hashes: list[dict[str, Any]] = []
-
-
-class ScoreLogItem(BaseModel):
-    """Single Beatoraja scorelog entry for backfilling score_history."""
-    song_sha256: str
-    client_type: str
-    clear_type: int | None = None
-    max_combo: int | None = None
-    min_bp: int | None = None
-    played_at: datetime
+    playcount: int | None = None
+    clearcount: int | None = None
+    playtime: int | None = None
+    judgments: dict[str, Any] | None = None
 
 
 class SyncRequest(BaseModel):
     scores: list[ScoreSyncItem] = []
-    owned_songs: list[OwnedSongItem] = []
     player_stats: list[PlayerStats] = []
-    courses: list[CourseSyncItem] = []
-    score_log: list[ScoreLogItem] = []
 
 
 class SyncResponse(BaseModel):
     synced_scores: int
-    synced_songs: int
-    synced_courses: int = 0
-    synced_score_log: int = 0
-    updated_scores: int = 0
-    new_songs: int = 0
-    removed_songs: int = 0
+    inserted_scores: int = 0
+    skipped_scores: int = 0
     errors: list[str] = []
 
+
+# ── Best-value helpers ────────────────────────────────────────────────────────
+
+def _fumen_key(item: ScoreSyncItem) -> tuple[str | None, str | None, str | None]:
+    """Return (sha256, md5, hash_others) key for grouping."""
+    return (item.fumen_sha256, item.fumen_md5, item.fumen_hash_others)
+
+
+async def _fetch_current_bests(
+    user_id: Any,
+    sha256s: set[str],
+    md5s: set[str],
+    hash_others: set[str],
+    client_types: set[str],
+    db: AsyncSession,
+) -> dict[tuple, dict[str, Any]]:
+    """Bulk-fetch per-field best values for the given fumen hashes.
+
+    Returns a dict keyed by (fumen_sha256, fumen_md5, fumen_hash_others, client_type)
+    with values: {clear_type, exscore, min_bp, max_combo, play_count}.
+    Aggregates in Python after fetching all rows for the target hashes.
+    """
+    bests: dict[tuple, dict[str, Any]] = {}
+
+    conditions = []
+    if sha256s:
+        conditions.append(
+            (UserScore.fumen_sha256.in_(sha256s)) & (UserScore.fumen_sha256.isnot(None))
+        )
+    if md5s:
+        conditions.append(
+            (UserScore.fumen_md5.in_(md5s)) & (UserScore.fumen_md5.isnot(None)) &
+            UserScore.fumen_sha256.is_(None)
+        )
+    if hash_others:
+        conditions.append(
+            (UserScore.fumen_hash_others.in_(hash_others)) & (UserScore.fumen_hash_others.isnot(None))
+        )
+
+    if not conditions:
+        return bests
+
+    combined = conditions[0]
+    for c in conditions[1:]:
+        combined = combined | c
+
+    result = await db.execute(
+        select(UserScore).where(
+            UserScore.user_id == user_id,
+            UserScore.client_type.in_(client_types),
+            combined,
+        )
+    )
+    rows = result.scalars().all()
+
+    for row in rows:
+        key = (row.fumen_sha256, row.fumen_md5, row.fumen_hash_others, row.client_type)
+        if key not in bests:
+            bests[key] = {
+                "clear_type": None,
+                "exscore": None,
+                "min_bp": None,
+                "max_combo": None,
+                "play_count": None,
+            }
+        entry = bests[key]
+        if row.clear_type is not None and (entry["clear_type"] is None or row.clear_type > entry["clear_type"]):
+            entry["clear_type"] = row.clear_type
+        if row.exscore is not None and (entry["exscore"] is None or row.exscore > entry["exscore"]):
+            entry["exscore"] = row.exscore
+        if row.min_bp is not None and (entry["min_bp"] is None or row.min_bp < entry["min_bp"]):
+            entry["min_bp"] = row.min_bp
+        if row.max_combo is not None and (entry["max_combo"] is None or row.max_combo > entry["max_combo"]):
+            entry["max_combo"] = row.max_combo
+        if row.play_count is not None and (entry["play_count"] is None or row.play_count > entry["play_count"]):
+            entry["play_count"] = row.play_count
+
+    return bests
+
+
+# ── Same-day merge helpers ─────────────────────────────────────────────────────
+
+def _pick(a: Any, b: Any, *, higher_better: bool) -> Any:
+    """Return the better of two nullable values (None treated as worst)."""
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return max(a, b) if higher_better else min(a, b)
+
+
+def _merge_into_existing(
+    existing: UserScore,
+    item: "ScoreSyncItem",
+    new_exscore: int | None,
+    new_rate: float | None,
+    new_rank: str | None,
+) -> dict[str, Any]:
+    """Return UPDATE kwargs that merge item into existing row, keeping best per field.
+
+    Performance fields (clear_type/exscore/min_bp/max_combo/play_count) each
+    take the better value independently.  recorded_at takes the later timestamp.
+    judgments/options/scorehash/clear_count come from whichever side has the
+    later recorded_at.
+    """
+    merged_clear_type = _pick(item.clear_type, existing.clear_type, higher_better=True)
+    merged_exscore = _pick(new_exscore, existing.exscore, higher_better=True)
+    merged_min_bp = _pick(item.min_bp, existing.min_bp, higher_better=False)
+    merged_max_combo = _pick(item.max_combo, existing.max_combo, higher_better=True)
+    merged_play_count = _pick(item.play_count, existing.play_count, higher_better=True)
+
+    # recorded_at: take the later timestamp
+    item_ts = item.recorded_at
+    existing_ts = existing.recorded_at
+    if item_ts is not None and existing_ts is not None:
+        use_new_side = item_ts >= existing_ts
+    elif item_ts is not None:
+        use_new_side = True
+    else:
+        use_new_side = False
+    merged_recorded_at = item_ts if use_new_side else existing_ts
+
+    # rate/rank follow merged_exscore source
+    if merged_exscore == new_exscore and new_exscore is not None:
+        merged_rate, merged_rank = new_rate, new_rank
+    else:
+        merged_rate, merged_rank = existing.rate, existing.rank
+
+    # judgments/options/scorehash/clear_count: take from later recorded_at side
+    if use_new_side:
+        merged_judgments = item.judgments
+        merged_options = item.options
+        merged_scorehash = item.scorehash
+        merged_clear_count = item.clear_count
+    else:
+        merged_judgments = existing.judgments
+        merged_options = existing.options
+        merged_scorehash = existing.scorehash
+        merged_clear_count = existing.clear_count
+
+    return {
+        "clear_type": merged_clear_type,
+        "exscore": merged_exscore,
+        "rate": merged_rate,
+        "rank": merged_rank,
+        "min_bp": merged_min_bp,
+        "max_combo": merged_max_combo,
+        "play_count": merged_play_count,
+        "clear_count": merged_clear_count,
+        "judgments": merged_judgments,
+        "options": merged_options,
+        "scorehash": merged_scorehash,
+        "recorded_at": merged_recorded_at,
+    }
+
+
+async def _fetch_same_day_rows(
+    user_id: Any,
+    sha256s: set[str],
+    md5s: set[str],
+    dates: set[date_cls],
+    db: AsyncSession,
+) -> dict[tuple, UserScore]:
+    """Batch-fetch existing fumen rows that fall on any of the given UTC dates.
+
+    Returns {(sha256_or_md5, client_type, utc_date): UserScore}.
+    When multiple rows share the same key, the one with the latest recorded_at
+    is kept (will be further merged at insert time).
+    """
+    result_map: dict[tuple, UserScore] = {}
+    if not dates or not (sha256s or md5s):
+        return result_map
+
+    conds = []
+    if sha256s:
+        conds.append(
+            UserScore.fumen_sha256.in_(sha256s) & UserScore.fumen_sha256.isnot(None)
+        )
+    if md5s:
+        conds.append(
+            UserScore.fumen_md5.in_(md5s)
+            & UserScore.fumen_md5.isnot(None)
+            & UserScore.fumen_sha256.is_(None)
+        )
+    combined = conds[0]
+    for c in conds[1:]:
+        combined = combined | c
+
+    rows_result = await db.execute(
+        select(UserScore).where(
+            UserScore.user_id == user_id,
+            UserScore.fumen_hash_others.is_(None),
+            combined,
+            cast(UserScore.recorded_at, Date).in_([literal(d, Date) for d in dates]),
+        )
+    )
+    for row in rows_result.scalars().all():
+        if row.recorded_at is None:
+            continue
+        d = row.recorded_at.date()
+        hash_key = row.fumen_sha256 or row.fumen_md5
+        k = (hash_key, row.client_type, d)
+        existing = result_map.get(k)
+        if existing is None or (row.recorded_at > existing.recorded_at):
+            result_map[k] = row
+    return result_map
+
+
+def _is_improvement(
+    item: ScoreSyncItem,
+    exscore: int | None,
+    best: dict[str, Any] | None,
+) -> bool:
+    """Return True if the new score strictly improves at least one tracked field over current bests.
+
+    All comparisons are strict (>, <) so that unchanged records on re-sync are not inserted again.
+    play_count uses strict > as it is a cumulative counter.
+    """
+    if best is None:
+        return True  # no existing record — always insert
+
+    # Regular fumen record
+    if item.clear_type is not None:
+        if best["clear_type"] is None or item.clear_type > best["clear_type"]:
+            return True
+
+    if exscore is not None:
+        if best["exscore"] is None or exscore > best["exscore"]:
+            return True
+
+    if item.min_bp is not None:
+        if best["min_bp"] is None or item.min_bp < best["min_bp"]:
+            return True
+
+    if item.max_combo is not None:
+        if best["max_combo"] is None or item.max_combo > best["max_combo"]:
+            return True
+
+    if item.play_count is not None:
+        if best["play_count"] is None or item.play_count > best["play_count"]:
+            return True
+
+    return False
+
+
+# ── Endpoint ──────────────────────────────────────────────────────────────────
 
 @router.post("/", response_model=SyncResponse)
 async def sync_data(
@@ -186,596 +340,275 @@ async def sync_data(
     db: AsyncSession = Depends(get_db),
 ) -> SyncResponse:
     """
-    Bulk upsert scores and owned songs from the local agent.
+    Bulk upsert scores from the local agent.
 
-    Uses a single pre-fetch query per batch to avoid N+1 queries.
-    Only updates existing scores when the new data is an improvement.
+    Accumulating model:
+    - If scorehash is not None: INSERT with ON CONFLICT (scorehash, user_id, client_type)
+      DO UPDATE (partial unique index applies only when scorehash IS NOT NULL).
+    - If scorehash is None: plain INSERT (no dedup).
+    - Course records: fumen_hash_others is set (course_hash from client); stored as-is in user_scores.
+    - Improvement check: if no field improves over existing per-field bests, the row is skipped.
     """
     errors: list[str] = []
     synced_scores = 0
-    synced_songs = 0
-    synced_courses = 0
-    synced_score_log = 0
-    updated_scores = 0
-    new_songs = 0
-    removed_songs = 0
+    inserted_scores = 0
+    skipped_scores = 0
     now = datetime.now(UTC)
 
-    # Upsert owned songs FIRST so that Song table has MD5↔SHA256 mappings
-    # before score processing tries to resolve md5 → sha256.
-    if payload.owned_songs:
-        try:
-            # Fetch existing sha256 set to compute new/removed counts
-            existing_sha256_result = await db.execute(
-                select(UserOwnedSong.song_sha256).where(
-                    UserOwnedSong.user_id == current_user.id
-                )
-            )
-            existing_sha256_set = {row[0] for row in existing_sha256_result.all()}
+    if not payload.scores and not payload.player_stats:
+        return SyncResponse(synced_scores=0, skipped_scores=0, errors=[])
 
-            seen_sha256: set[str] = set()
-            song_rows = []
-            song_meta_rows = []
-            for song_item in payload.owned_songs:
-                if song_item.song_sha256 not in seen_sha256:
-                    seen_sha256.add(song_item.song_sha256)
-                    song_rows.append({
-                        "user_id": current_user.id,
-                        "song_md5": song_item.song_md5,
-                        "song_sha256": song_item.song_sha256,
-                        "synced_at": now,
-                    })
-                    # Always create Song row for MD5↔SHA256 mapping,
-                    # even when title/artist are missing from BMS header parsing.
-                    song_meta_rows.append({
-                        "sha256": song_item.song_sha256,
-                        "md5": song_item.song_md5,
-                        "title": song_item.title,
-                        "artist": song_item.artist,
-                        "subartist": song_item.subartist,
-                        "subtitle": song_item.subtitle,
-                        "bpm": song_item.bpm,
-                    })
-
-            _chunk = 4_096
-            for i in range(0, len(song_rows), _chunk):
-                chunk = song_rows[i : i + _chunk]
-                stmt = (
-                    insert(UserOwnedSong)
-                    .values(chunk)
-                    .on_conflict_do_nothing(index_elements=["user_id", "song_sha256"])
-                    .returning(UserOwnedSong.song_sha256)
-                )
-                rows = await db.execute(stmt)
-                new_songs += len(rows.fetchall())
-
-            # Songs present in DB but absent from this scan (display-only, no deletion)
-            removed_songs = len(existing_sha256_set - seen_sha256)
-
-            # Upsert song metadata into the Song table.
-            # Use COALESCE to preserve existing metadata when new values are NULL.
-            for i in range(0, len(song_meta_rows), _chunk):
-                chunk = song_meta_rows[i : i + _chunk]
-                song_stmt = insert(Song).values(chunk)
-                song_stmt = song_stmt.on_conflict_do_update(
-                    index_elements=["sha256"],
-                    set_={
-                        "md5": func.coalesce(song_stmt.excluded.md5, Song.md5),
-                        "title": func.coalesce(song_stmt.excluded.title, Song.title),
-                        "artist": func.coalesce(song_stmt.excluded.artist, Song.artist),
-                        "subartist": func.coalesce(song_stmt.excluded.subartist, Song.subartist),
-                        "subtitle": func.coalesce(song_stmt.excluded.subtitle, Song.subtitle),
-                        "bpm": func.coalesce(song_stmt.excluded.bpm, Song.bpm),
-                    },
-                )
-                await db.execute(song_stmt)
-
-            synced_songs = len(song_rows)
-        except Exception as e:
-            errors.append(f"Song sync error: {str(e)}")
-
-    # Flush owned songs so Song table is visible to score md5→sha256 lookup
-    await db.flush()
-
-    # Upsert scores — pre-fetch all existing rows in one query.
-    # Identity key: (song_sha256 or song_md5, client_type)
+    # ── Bulk pre-fetch per-field bests ──────────────────────────────────────────
+    current_bests: dict[tuple, dict[str, Any]] = {}
+    same_day_map: dict[tuple, UserScore] = {}
     if payload.scores:
-        # Resolve md5 → sha256 via songs table for LR2 md5-only scores.
-        # When a match is found we use effective_sha256 so these scores join
-        # the same sha256-keyed constraint as BMS-scanned data.
-        lr2_md5_set = {
-            item.song_md5
+        sha256s = {item.fumen_sha256 for item in payload.scores if item.fumen_sha256}
+        md5s = {item.fumen_md5 for item in payload.scores if item.fumen_md5 and not item.fumen_sha256}
+        hash_others = {item.fumen_hash_others for item in payload.scores if item.fumen_hash_others}
+        client_types = {item.client_type for item in payload.scores}
+        current_bests = await _fetch_current_bests(
+            current_user.id, sha256s, md5s, hash_others, client_types, db
+        )
+
+        # ── Pre-fetch same-day rows for fumen records (courses excluded) ─────
+        fumen_dates: set[date_cls] = {
+            item.recorded_at.date()
             for item in payload.scores
-            if item.song_md5
+            if item.recorded_at and not item.fumen_hash_others
         }
-        md5_to_sha256: dict[str, str] = {}
-        if lr2_md5_set:
-            sha256_lookup = await db.execute(
-                select(Song.md5, Song.sha256).where(
-                    Song.md5.in_(lr2_md5_set),
-                    Song.sha256.is_not(None),
-                )
-            )
-            md5_to_sha256 = {row.md5: row.sha256 for row in sha256_lookup.all()}
+        same_day_map = await _fetch_same_day_rows(
+            current_user.id, sha256s, md5s, fumen_dates, db
+        )
 
-        # Reverse lookup: sha256 → md5 for Beatoraja scores that have no song_md5.
-        # Allows Beatoraja records to be found when a table only provides MD5.
-        beatoraja_sha256_set = {
-            item.song_sha256
-            for item in payload.scores
-            if item.song_sha256 and not item.song_md5
-        }
-        sha256_to_md5: dict[str, str] = {}
-        if beatoraja_sha256_set:
-            md5_lookup = await db.execute(
-                select(Song.sha256, Song.md5).where(
-                    Song.sha256.in_(beatoraja_sha256_set),
-                    Song.md5.is_not(None),
-                )
-            )
-            sha256_to_md5 = {row.sha256: row.md5 for row in md5_lookup.all()}
-
-        sha256_pairs = [
-            (item.song_sha256, item.client_type)
-            for item in payload.scores
-            if item.song_sha256
-        ]
-        md5_pairs = [
-            (item.song_md5, item.client_type)
-            for item in payload.scores
-            if item.song_md5
-        ]
-
-        from sqlalchemy import or_
-        where_clauses = []
-        if sha256_pairs:
-            where_clauses.append(
-                tuple_(UserScore.song_sha256, UserScore.client_type).in_(sha256_pairs)
-            )
-        if md5_pairs:
-            where_clauses.append(
-                tuple_(UserScore.song_md5, UserScore.client_type).in_(md5_pairs)
-            )
-
-        existing_scores: list[UserScore] = []
-        if where_clauses:
-            existing_result = await db.execute(
-                select(UserScore).where(
-                    UserScore.user_id == current_user.id,
-                    or_(*where_clauses),
-                )
-            )
-            existing_scores = list(existing_result.scalars().all())
-
-        existing_map: dict[tuple[str | None, str], UserScore] = {}
-        for s in existing_scores:
-            primary_key = (s.song_sha256 or s.song_md5, s.client_type)
-            existing_map[primary_key] = s
-            # Also index by md5 alone so sha256-resolved records can find their old md5-only row
-            if s.song_md5 and not s.song_sha256:
-                existing_map[(s.song_md5, s.client_type)] = s
-
-        new_scores: list[UserScore] = []
-        history_entries: list[ScoreHistory] = []
-
+    if payload.scores:
         for item in payload.scores:
-            if not item.song_sha256 and not item.song_md5:
-                errors.append("Score skipped: no song_sha256 or song_md5 provided")
-                continue
-
             try:
-                # Resolve effective sha256: use item's sha256, or look up from songs table by md5
-                effective_sha256 = item.song_sha256 or md5_to_sha256.get(item.song_md5 or "")
-                # Resolve effective md5: use item's md5, or reverse-look up from sha256 (Beatoraja)
-                effective_md5 = item.song_md5 or sha256_to_md5.get(item.song_sha256 or "")
+                exscore, rate, rank = _compute_score_fields(
+                    item.client_type, item.judgments, item.notes
+                )
+                # Fall back to client-supplied exscore when judgments/notes are unavailable
+                if exscore is None and item.exscore is not None:
+                    exscore = item.exscore
 
-                identity_key = (effective_sha256 or effective_md5, item.client_type)
-                existing = existing_map.get(identity_key)
-                # Fallback: if sha256 was just resolved, also try the old md5-only key.
-                # If found, merge sha256 onto the existing row to prevent duplicate row creation.
-                if existing is None and effective_md5:
-                    existing = existing_map.get((effective_md5, item.client_type))
-                    if existing is not None and effective_sha256 and not existing.song_sha256:
-                        existing.song_sha256 = effective_sha256
+                is_course = bool(item.fumen_hash_others)
 
-                today = date.today()
-
-                def _make_history_stmt(
-                    sha256_val: str | None,
-                    md5_val: str | None,
-                    old_clear_type: int | None,
-                    old_score: float | None,
-                    old_combo: int | None,
-                    old_min_bp: int | None,
-                    old_clear_count: int,
-                    old_play_count: int = 0,
-                    play_count: int = 0,
-                ) -> Any:
-                    """Build ScoreHistory INSERT ... ON CONFLICT upsert statement.
-
-                    Uses the sha256-based unique constraint when sha256 is available;
-                    falls back to the partial md5-only index for LR2-only records.
-                    """
-                    values = dict(
-                        user_id=current_user.id,
-                        song_sha256=sha256_val,
-                        song_md5=md5_val,
-                        client_type=item.client_type,
-                        sync_date=today,
-                        old_clear_type=old_clear_type,
-                        clear_type=item.clear_type,
-                        old_score=old_score,
-                        score=item.score_rate,
-                        score_rate=item.score_rate,
-                        old_combo=old_combo,
-                        combo=item.max_combo,
-                        old_min_bp=old_min_bp,
-                        min_bp=item.min_bp,
-                        old_clear_count=old_clear_count,
-                        clear_count=item.clear_count,
-                        play_count=play_count,
-                        old_play_count=old_play_count,
-                        played_at=item.played_at,
-                        recorded_at=func.now(),
-                    )
-                    update_set = {
-                        "song_md5": md5_val,
-                        "clear_type": item.clear_type,
-                        "score": item.score_rate,
-                        "score_rate": item.score_rate,
-                        "combo": item.max_combo,
-                        "min_bp": item.min_bp,
-                        "clear_count": item.clear_count,
-                        "play_count": play_count,
-                        "played_at": item.played_at,
-                        "recorded_at": func.now(),
-                    }
-                    if sha256_val:
-                        return (
-                            insert(ScoreHistory)
-                            .values(**values)
-                            .on_conflict_do_update(
-                                constraint="uq_score_history_user_song_client_date",
-                                set_=update_set,
-                            )
-                        )
-                    else:
-                        # md5-only path: use partial unique index from migration 0013
-                        return (
-                            insert(ScoreHistory)
-                            .values(**values)
-                            .on_conflict_do_update(
-                                index_elements=["user_id", "song_md5", "client_type", "sync_date"],
-                                index_where=text("song_sha256 IS NULL AND song_md5 IS NOT NULL"),
-                                set_=update_set,
-                            )
-                        )
-
-                if existing is None:
-                    new_score = UserScore(
-                        user_id=current_user.id,
-                        song_sha256=effective_sha256,
-                        song_md5=effective_md5,
-                        client_type=item.client_type,
-                        clear_type=item.clear_type,
-                        score_rate=item.score_rate,
-                        max_combo=item.max_combo,
-                        min_bp=item.min_bp,
-                        judgments=item.judgments,
-                        options=item.options,
-                        play_count=item.play_count,
-                        clear_count=item.clear_count,
-                        hit_notes=item.clear_count * _notes_per_play(item.judgments),
-                        played_at=item.played_at,
-                        synced_at=now,
-                    )
-                    new_scores.append(new_score)
-                    history_entries.append(
-                        _make_history_stmt(
-                            effective_sha256, effective_md5, None, None, None, None, 0,
-                            old_play_count=0, play_count=item.play_count,
-                        )
-                    )
-                    updated_scores += 1
+                # ── Best key for lookup ─────────────────────────────────────
+                # sha256 takes priority; md5-only if sha256 absent; hash_others for courses
+                if item.fumen_sha256:
+                    best_key = (item.fumen_sha256, None, None, item.client_type)
+                elif item.fumen_md5:
+                    best_key = (None, item.fumen_md5, None, item.client_type)
                 else:
-                    # Always update metadata fields regardless of score improvement.
-                    # options (arrangement, seed, etc.) must reflect the latest parser output.
-                    # synced_at is intentionally NOT updated here — it records the initial sync time.
-                    existing.options = item.options
-                    old_play_count = existing.play_count
-                    existing.play_count = item.play_count
-                    # Backfill sha256/md5 if now resolved via songs table or agent
-                    if effective_sha256 and not existing.song_sha256:
-                        existing.song_sha256 = effective_sha256
-                    if effective_md5 and not existing.song_md5:
-                        existing.song_md5 = effective_md5
+                    best_key = (None, None, item.fumen_hash_others, item.client_type)
 
-                    score_changed = _has_change(existing, item)
-                    play_count_increased = item.play_count > old_play_count
+                best = current_bests.get(best_key)
 
-                    if score_changed:
-                        updated_scores += 1
-                        old_clear_type = existing.clear_type
-                        old_score = existing.score_rate
-                        old_combo = existing.max_combo
-                        old_min_bp = existing.min_bp
-                        old_clear_count = existing.clear_count
+                # ── Improvement check ───────────────────────────────────────
+                if not _is_improvement(item, exscore, best):
+                    skipped_scores += 1
+                    continue
 
-                        delta = max(0, item.clear_count - existing.clear_count)
-                        existing.hit_notes = (existing.hit_notes or 0) + delta * _notes_per_play(item.judgments)
-                        existing.clear_count = item.clear_count
+                # ── Same-day merge for fumen records ────────────────────────
+                # Courses keep the legacy insert path (no same-day dedup).
+                # Fumen records: if a row already exists for this (hash, client_type, UTC date),
+                # UPDATE that row with the per-field best values rather than inserting a new one.
+                same_day_key: tuple | None = None
+                existing_same_day: UserScore | None = None
+                if not is_course and item.recorded_at:
+                    hash_key = item.fumen_sha256 or item.fumen_md5
+                    same_day_key = (hash_key, item.client_type, item.recorded_at.date())
+                    existing_same_day = same_day_map.get(same_day_key)
 
-                        # Score/combo/BP: only update when improved
-                        if item.clear_type is not None and (
-                            existing.clear_type is None or item.clear_type > existing.clear_type
-                        ):
-                            existing.clear_type = item.clear_type
-                        if item.score_rate and (
-                            existing.score_rate is None or item.score_rate > existing.score_rate
-                        ):
-                            existing.score_rate = item.score_rate
-                        if item.max_combo and (
-                            existing.max_combo is None or item.max_combo > existing.max_combo
-                        ):
-                            existing.max_combo = item.max_combo
-                        if item.min_bp is not None and (
-                            existing.min_bp is None or item.min_bp < existing.min_bp
-                        ):
-                            existing.min_bp = item.min_bp
-
-                        existing.judgments = item.judgments
-                        existing.played_at = item.played_at
-
-                        final_sha256 = effective_sha256 or existing.song_sha256
-                        final_md5 = effective_md5 or existing.song_md5
-                        history_entries.append(
-                            _make_history_stmt(
-                                final_sha256, final_md5,
-                                old_clear_type, old_score, old_combo, old_min_bp, old_clear_count,
-                                old_play_count=old_play_count, play_count=item.play_count,
-                            )
+                async with db.begin_nested():
+                    if existing_same_day is not None:
+                        # Merge into the existing same-day row
+                        merged = _merge_into_existing(existing_same_day, item, exscore, rate, rank)
+                        await db.execute(
+                            update(UserScore)
+                            .where(UserScore.id == existing_same_day.id)
+                            .values(**merged, synced_at=now)
                         )
-                    elif play_count_increased:
-                        # play_count changed (FAILED plays); no score improvement.
-                        # Record in score_history for per-sync play count tracking.
-                        updated_scores += 1
-                        final_sha256 = effective_sha256 or existing.song_sha256
-                        final_md5 = effective_md5 or existing.song_md5
-                        history_entries.append(
-                            _make_history_stmt(
-                                final_sha256, final_md5,
-                                existing.clear_type, existing.score_rate, existing.max_combo,
-                                existing.min_bp, existing.clear_count,
-                                old_play_count=old_play_count, play_count=item.play_count,
-                            )
+                        new_id = existing_same_day.id
+                        # Reflect merged values back so in-memory best cache stays accurate
+                        exscore = merged["exscore"]
+                        rate = merged["rate"]
+                        rank = merged["rank"]
+                        item = item.model_copy(update={
+                            "clear_type": merged["clear_type"],
+                            "min_bp": merged["min_bp"],
+                            "max_combo": merged["max_combo"],
+                            "play_count": merged["play_count"],
+                        })
+                        # Update same_day_map entry with merged state
+                        same_day_map[same_day_key] = existing_same_day  # id unchanged; fields updated above
+                    else:
+                        # No same-day row — insert new
+                        values = dict(
+                            user_id=current_user.id,
+                            client_type=item.client_type,
+                            scorehash=item.scorehash,
+                            fumen_sha256=item.fumen_sha256,
+                            fumen_md5=item.fumen_md5,
+                            fumen_hash_others=item.fumen_hash_others,
+                            clear_type=item.clear_type,
+                            exscore=exscore,
+                            rate=rate,
+                            rank=rank,
+                            max_combo=item.max_combo,
+                            min_bp=item.min_bp,
+                            play_count=item.play_count,
+                            clear_count=item.clear_count,
+                            judgments=item.judgments,
+                            options=item.options,
+                            recorded_at=item.recorded_at,
+                            synced_at=now,
                         )
+                        stmt = (
+                            insert(UserScore)
+                            .values(**values)
+                            .on_conflict_do_nothing(
+                                index_elements=["scorehash", "user_id", "client_type"],
+                                index_where=text("scorehash IS NOT NULL"),
+                            )
+                            .returning(UserScore.id)
+                        )
+                        result = await db.execute(stmt)
+                        new_id = result.scalar_one_or_none()
+                        if new_id is None:
+                            # scorehash already exists on a different day — already synced, skip
+                            skipped_scores += 1
+                            continue
+                        inserted_scores += 1
+                        # Register in same_day_map so subsequent items in same payload can merge into it
+                        if same_day_key is not None:
+                            # Store a lightweight sentinel (we only need the id and field values)
+                            new_row_sentinel = UserScore(
+                                id=new_id,
+                                user_id=current_user.id,
+                                client_type=item.client_type,
+                                fumen_sha256=item.fumen_sha256,
+                                fumen_md5=item.fumen_md5,
+                                clear_type=item.clear_type,
+                                exscore=exscore,
+                                rate=rate,
+                                rank=rank,
+                                min_bp=item.min_bp,
+                                max_combo=item.max_combo,
+                                play_count=item.play_count,
+                                clear_count=item.clear_count,
+                                judgments=item.judgments,
+                                options=item.options,
+                                scorehash=item.scorehash,
+                                recorded_at=item.recorded_at,
+                            )
+                            same_day_map[same_day_key] = new_row_sentinel
+
+                # Update in-memory best cache for subsequent items in same payload
+                effective_best: dict[str, Any] = best or {
+                    "clear_type": None, "exscore": None,
+                    "min_bp": None, "max_combo": None, "play_count": None,
+                }
+                if best_key not in current_bests:
+                    current_bests[best_key] = effective_best.copy()
+                entry = current_bests[best_key]
+                if item.clear_type is not None and (entry["clear_type"] is None or item.clear_type >= entry["clear_type"]):
+                    entry["clear_type"] = item.clear_type
+                if exscore is not None and (entry["exscore"] is None or exscore >= entry["exscore"]):
+                    entry["exscore"] = exscore
+                if not is_course:
+                    if item.min_bp is not None and (entry["min_bp"] is None or item.min_bp <= entry["min_bp"]):
+                        entry["min_bp"] = item.min_bp
+                    if item.max_combo is not None and (entry["max_combo"] is None or item.max_combo >= entry["max_combo"]):
+                        entry["max_combo"] = item.max_combo
 
                 synced_scores += 1
             except Exception as e:
-                errors.append(f"Score sync error for {item.song_sha256 or item.song_md5}: {str(e)}")
+                identifier = item.scorehash or item.fumen_sha256 or item.fumen_md5 or item.fumen_hash_others or "?"
+                errors.append(f"Score sync error for {identifier}: {str(e)}")
 
-        if new_scores:
-            db.add_all(new_scores)
-        for stmt in history_entries:
-            await db.execute(stmt)
-
-    # Upsert player stats — one row per (user_id, client_type)
+    # Upsert player stats — one row per (user_id, client_type, UTC date); synced_at updated on same-day conflict.
+    # ON CONFLICT with the functional index is not directly usable via SQLAlchemy dialect,
+    # so we use SELECT + UPDATE/INSERT pattern.
     if payload.player_stats:
+        today = now.date()
         for ps in payload.player_stats:
-            stmt = (
-                insert(UserPlayerStats)
-                .values(
-                    user_id=current_user.id,
-                    client_type=ps.client_type,
-                    total_notes_hit=ps.total_notes_hit,
-                    total_play_count=ps.total_play_count,
-                    synced_at=now,
-                )
-                .on_conflict_do_update(
-                    index_elements=["user_id", "client_type"],
-                    set_={
-                        "total_notes_hit": ps.total_notes_hit,
-                        "total_play_count": ps.total_play_count,
-                        "synced_at": now,
-                    },
-                )
+            existing = await db.execute(
+                select(UserPlayerStats).where(
+                    UserPlayerStats.user_id == current_user.id,
+                    UserPlayerStats.client_type == ps.client_type,
+                    text("CAST(synced_at AT TIME ZONE 'UTC' AS date) = :d"),
+                ),
+                {"d": today},
             )
-            await db.execute(stmt)
-
-            history_stmt = (
-                insert(UserPlayerStatsHistory)
-                .values(
-                    user_id=current_user.id,
-                    client_type=ps.client_type,
-                    sync_date=now.date(),
-                    total_notes_hit=ps.total_notes_hit,
-                    total_play_count=ps.total_play_count,
-                )
-                .on_conflict_do_update(
-                    constraint="uq_player_stats_history",
-                    set_={
-                        "total_notes_hit": ps.total_notes_hit,
-                        "total_play_count": ps.total_play_count,
-                    },
-                )
-            )
-            await db.execute(history_stmt)
-
-    # Upsert course records
-    if payload.courses:
-        # Pre-fetch all existing user_course_scores in one query
-        course_hash_set = [c.course_hash for c in payload.courses]
-        existing_course_result = await db.execute(
-            select(UserCourseScore).where(
-                UserCourseScore.user_id == current_user.id,
-                UserCourseScore.course_hash.in_(course_hash_set),
-            )
-        )
-        existing_course_map: dict[tuple[str, str], UserCourseScore] = {
-            (s.course_hash, s.client_type): s
-            for s in existing_course_result.scalars().all()
-        }
-
-        for item in payload.courses:
-            try:
-                # 1. Upsert course definition (idempotent — hash is the PK)
-                course_stmt = (
-                    insert(Course)
+            row = existing.scalar_one_or_none()
+            if row:
+                await db.execute(
+                    update(UserPlayerStats)
+                    .where(UserPlayerStats.id == row.id)
                     .values(
-                        course_hash=item.course_hash,
-                        source=item.client_type,
-                        song_count=len(item.song_hashes),
-                        song_hashes=item.song_hashes,
-                    )
-                    .on_conflict_do_nothing(index_elements=["course_hash"])
-                )
-                await db.execute(course_stmt)
-
-                # 2. Upsert best score for this user
-                key = (item.course_hash, item.client_type)
-                existing = existing_course_map.get(key)
-
-                if existing is None:
-                    db.add(UserCourseScore(
-                        user_id=current_user.id,
-                        course_hash=item.course_hash,
-                        client_type=item.client_type,
-                        clear_type=item.clear_type,
-                        score_rate=item.score_rate,
-                        max_combo=item.max_combo,
-                        min_bp=item.min_bp,
-                        play_count=item.play_count,
-                        clear_count=item.clear_count,
-                        played_at=item.played_at,
+                        playcount=ps.playcount,
+                        clearcount=ps.clearcount,
+                        playtime=ps.playtime,
+                        judgments=ps.judgments,
                         synced_at=now,
-                    ))
-                    db.add(CourseScoreHistory(
-                        user_id=current_user.id,
-                        course_hash=item.course_hash,
-                        client_type=item.client_type,
-                        clear_type=item.clear_type,
-                        old_clear_type=None,
-                        score_rate=item.score_rate,
-                        old_score_rate=None,
-                        max_combo=item.max_combo,
-                        min_bp=item.min_bp,
-                        played_at=item.played_at,
-                    ))
-                else:
-                    existing.play_count = item.play_count
-                    existing.synced_at = now
-
-                    improved = (
-                        (item.clear_type is not None and (
-                            existing.clear_type is None or item.clear_type > existing.clear_type
-                        ))
-                        or (item.score_rate is not None and (
-                            existing.score_rate is None or item.score_rate > existing.score_rate
-                        ))
-                        or (item.max_combo is not None and (
-                            existing.max_combo is None or item.max_combo > existing.max_combo
-                        ))
-                        or (item.min_bp is not None and (
-                            existing.min_bp is None or item.min_bp < existing.min_bp
-                        ))
-                        or item.clear_count > existing.clear_count
                     )
-                    if improved:
-                        old_clear_type = existing.clear_type
-                        old_score_rate = existing.score_rate
+                )
+            else:
+                # Check if anything actually changed since the last recorded row
+                latest_result = await db.execute(
+                    select(UserPlayerStats)
+                    .where(
+                        UserPlayerStats.user_id == current_user.id,
+                        UserPlayerStats.client_type == ps.client_type,
+                    )
+                    .order_by(UserPlayerStats.synced_at.desc())
+                    .limit(1)
+                )
+                latest_row = latest_result.scalar_one_or_none()
+                if (
+                    latest_row is not None
+                    and latest_row.playcount == ps.playcount
+                    and latest_row.clearcount == ps.clearcount
+                    and latest_row.playtime == ps.playtime
+                ):
+                    continue
+                db.add(UserPlayerStats(
+                    user_id=current_user.id,
+                    client_type=ps.client_type,
+                    synced_at=now,
+                    playcount=ps.playcount,
+                    clearcount=ps.clearcount,
+                    playtime=ps.playtime,
+                    judgments=ps.judgments,
+                ))
 
-                        if item.clear_type is not None and (
-                            existing.clear_type is None or item.clear_type > existing.clear_type
-                        ):
-                            existing.clear_type = item.clear_type
-                        if item.score_rate and (
-                            existing.score_rate is None or item.score_rate > existing.score_rate
-                        ):
-                            existing.score_rate = item.score_rate
-                        if item.max_combo and (
-                            existing.max_combo is None or item.max_combo > existing.max_combo
-                        ):
-                            existing.max_combo = item.max_combo
-                        if item.min_bp is not None and (
-                            existing.min_bp is None or item.min_bp < existing.min_bp
-                        ):
-                            existing.min_bp = item.min_bp
-                        existing.clear_count = item.clear_count
-                        existing.played_at = item.played_at
-
-                        db.add(CourseScoreHistory(
-                            user_id=current_user.id,
-                            course_hash=item.course_hash,
-                            client_type=item.client_type,
-                            clear_type=item.clear_type,
-                            old_clear_type=old_clear_type,
-                            score_rate=item.score_rate,
-                            old_score_rate=old_score_rate,
-                            max_combo=item.max_combo,
-                            min_bp=item.min_bp,
-                            played_at=item.played_at,
-                        ))
-
-                synced_courses += 1
-            except Exception as e:
-                errors.append(f"Course sync error for {item.course_hash[:16]}...: {str(e)}")
-
-        # Award dan badges for any cleared courses
-        try:
-            await _award_dan_badges(db, current_user.id, course_hash_set)
-        except Exception as e:
-            errors.append(f"Dan badge award error: {str(e)}")
-
-    # Backfill score_history from Beatoraja scorelog (historical improvement records).
-    # Uses ON CONFLICT DO NOTHING so existing entries are never overwritten.
-    if payload.score_log:
-        _log_chunk = 1000
-        valid_log = [
-            item for item in payload.score_log
-            if len(item.song_sha256) == 64
-        ]
-        log_rows = [
-            {
-                "user_id": current_user.id,
-                "song_sha256": item.song_sha256,
-                "song_md5": None,
-                "client_type": item.client_type,
-                "sync_date": item.played_at.date(),
-                "clear_type": item.clear_type,
-                "old_clear_type": None,
-                "score": None,
-                "score_rate": None,
-                "old_score": None,
-                "combo": item.max_combo,
-                "old_combo": None,
-                "min_bp": item.min_bp,
-                "old_min_bp": None,
-                "clear_count": None,
-                "old_clear_count": None,
-                "played_at": item.played_at,
-            }
-            for item in valid_log
-        ]
-        for i in range(0, len(log_rows), _log_chunk):
-            chunk = log_rows[i : i + _log_chunk]
-            stmt = (
-                insert(ScoreHistory)
-                .values(chunk)
-                .on_conflict_do_nothing(constraint="uq_score_history_user_song_client_date")
+        # Set first_synced_at[client_type] if not already recorded
+        for ct in {ps.client_type for ps in payload.player_stats}:
+            await db.execute(
+                text("""
+                    UPDATE users
+                    SET first_synced_at = (
+                        CASE WHEN first_synced_at IS NOT NULL AND jsonb_typeof(first_synced_at) = 'object'
+                             THEN first_synced_at
+                             ELSE '{}'::jsonb
+                        END
+                    ) || jsonb_build_object(:ct, CAST(:ts AS TEXT))
+                    WHERE id = :uid
+                      AND (
+                        first_synced_at IS NULL
+                        OR jsonb_typeof(first_synced_at) != 'object'
+                        OR first_synced_at->:ct IS NULL
+                      )
+                """),
+                {"uid": str(current_user.id), "ct": ct, "ts": now.isoformat()},
             )
-            await db.execute(stmt)
-        synced_score_log = len(valid_log)
 
     await db.commit()
 
     return SyncResponse(
         synced_scores=synced_scores,
-        synced_songs=synced_songs,
-        synced_courses=synced_courses,
-        synced_score_log=synced_score_log,
-        updated_scores=updated_scores,
-        new_songs=new_songs,
-        removed_songs=removed_songs,
+        inserted_scores=inserted_scores,
+        skipped_scores=skipped_scores,
         errors=errors,
     )
 
@@ -789,11 +622,6 @@ async def get_sync_status(
     scores_count = await db.execute(
         select(func.count(UserScore.id)).where(UserScore.user_id == current_user.id)
     )
-    songs_count = await db.execute(
-        select(func.count()).select_from(UserOwnedSong).where(
-            UserOwnedSong.user_id == current_user.id
-        )
-    )
     last_synced = await db.execute(
         select(func.max(UserScore.synced_at)).where(UserScore.user_id == current_user.id)
     )
@@ -801,6 +629,5 @@ async def get_sync_status(
     return {
         "user_id": str(current_user.id),
         "total_scores": scores_count.scalar_one(),
-        "total_owned_songs": songs_count.scalar_one(),
         "last_synced_at": last_synced.scalar_one(),
     }

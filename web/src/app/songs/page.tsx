@@ -10,7 +10,7 @@ export default function SongsPage() {
       <main className="container mx-auto px-4 py-8">
         <div className="flex items-center gap-3 mb-8">
           <Music2 className="h-8 w-8 text-primary" />
-          <h1 className="text-3xl font-bold">곡 목록</h1>
+          <h1 className="text-3xl font-bold">차분 목록</h1>
         </div>
 
         {/* Search bar */}
@@ -29,18 +29,15 @@ export default function SongsPage() {
         {/* Song list placeholder */}
         <Card>
           <CardHeader>
-            <CardTitle>보유 곡 목록</CardTitle>
+            <CardTitle>서버에 기록된 차분 목록</CardTitle>
             <CardDescription>
-              로컬 에이전트로 동기화된 BMS 파일 목록
+              OJIK BMS 클라이언트로 동기화된 차분 목록
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-col items-center justify-center h-48 text-muted-foreground gap-4">
               <Music2 className="h-12 w-12 opacity-30" />
-              <p className="text-sm">로컬 에이전트를 설치하고 BMS 폴더를 동기화하세요</p>
-              <Button variant="outline" size="sm">
-                에이전트 다운로드
-              </Button>
+              <p className="text-sm">구현 예정</p>
             </div>
           </CardContent>
         </Card>

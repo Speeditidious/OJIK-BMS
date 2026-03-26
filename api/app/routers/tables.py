@@ -1,17 +1,24 @@
-"""Difficulty table endpoints: list, favorites, import, sync, song query."""
+"""Difficulty table endpoints: list, favorites, import, sync, fumen query."""
 from __future__ import annotations
 
-from datetime import datetime
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import cast, func, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_admin, get_current_user
-from app.models.table import DifficultyTable, UserFavoriteTable
+from app.core.security import (
+    get_current_admin,
+    get_current_user,
+    get_current_user_optional,
+)
+from app.models.difficulty_table import DifficultyTable, UserFavoriteDifficultyTable
+from app.models.fumen import Fumen
+from app.models.score import UserScore
 from app.models.user import User
 from app.schemas import MessageResponse
 
@@ -21,22 +28,18 @@ router = APIRouter(prefix="/tables", tags=["tables"])
 # ── Pydantic schemas ─────────────────────────────────────────────────────────
 
 class DifficultyTableRead(BaseModel):
-    id: int
+    id: uuid.UUID
     name: str
     symbol: str | None
     slug: str | None
     source_url: str | None
     is_default: bool
-    last_synced_at: datetime | None
     song_count: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
     @classmethod
-    def from_orm_with_count(cls, table: DifficultyTable) -> DifficultyTableRead:
-        song_count: int | None = None
-        if table.table_data and "songs" in table.table_data:
-            song_count = len(table.table_data["songs"])
+    def from_orm_with_count(cls, table: DifficultyTable, count: int | None = None) -> DifficultyTableRead:
         return cls(
             id=table.id,
             name=table.name,
@@ -44,19 +47,30 @@ class DifficultyTableRead(BaseModel):
             slug=table.slug,
             source_url=table.source_url,
             is_default=table.is_default,
-            last_synced_at=table.last_synced_at,
-            song_count=song_count,
+            song_count=count,
         )
 
 
-class TableSong(BaseModel):
+class TableFumenScore(BaseModel):
+    """Per-field best scores for a fumen, derived from is_best_* flags."""
+    best_clear_type: int | None
+    best_exscore: int | None
+    rate: float | None
+    rank: str | None
+    best_min_bp: int | None
+    source_client: str | None          # "LR", "BR", "MIX", or None
+    source_client_detail: dict | None  # e.g. {"clear_type": "LR", "exscore": "BR", "min_bp": "BR"}
+
+
+class TableFumen(BaseModel):
     level: str
-    md5: str
-    sha256: str
-    title: str
-    artist: str
-    url: str
-    extra: dict[str, Any] = {}
+    md5: str | None
+    sha256: str | None
+    title: str | None
+    artist: str | None
+    file_url: str | None
+    table_entries: list[Any] | None
+    user_score: TableFumenScore | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -77,7 +91,7 @@ class ImportTableRequest(BaseModel):
 
 
 class FavoriteReorderRequest(BaseModel):
-    table_ids: list[int]
+    table_ids: list[uuid.UUID]
 
 
 # ── List & detail ─────────────────────────────────────────────────────────────
@@ -86,12 +100,24 @@ class FavoriteReorderRequest(BaseModel):
 async def list_tables(
     db: AsyncSession = Depends(get_db),
 ) -> list[DifficultyTableRead]:
-    """List all difficulty tables (no table_data payload)."""
+    """List all difficulty tables."""
     result = await db.execute(
         select(DifficultyTable).order_by(DifficultyTable.is_default.desc(), DifficultyTable.name)
     )
     tables = result.scalars().all()
-    return [DifficultyTableRead.from_orm_with_count(t) for t in tables]
+
+    # Get fumen counts per table in one query
+    _elem = cast(func.jsonb_array_elements(Fumen.table_entries), JSONB)
+    _table_id_col = _elem["table_id"].as_string()
+    count_result = await db.execute(
+        select(_table_id_col, func.count())
+        .select_from(Fumen)
+        .where(Fumen.table_entries.isnot(None))
+        .group_by(_table_id_col)
+    )
+    counts: dict[str, int] = {row[0]: row[1] for row in count_result.all()}
+
+    return [DifficultyTableRead.from_orm_with_count(t, counts.get(str(t.id))) for t in tables]
 
 
 @router.get("/favorites/me", response_model=list[DifficultyTableRead])
@@ -102,9 +128,9 @@ async def get_my_favorites(
     """Get the current user's favorite tables ordered by display_order."""
     result = await db.execute(
         select(DifficultyTable)
-        .join(UserFavoriteTable, DifficultyTable.id == UserFavoriteTable.table_id)
-        .where(UserFavoriteTable.user_id == current_user.id)
-        .order_by(UserFavoriteTable.display_order)
+        .join(UserFavoriteDifficultyTable, DifficultyTable.id == UserFavoriteDifficultyTable.table_id)
+        .where(UserFavoriteDifficultyTable.user_id == current_user.id)
+        .order_by(UserFavoriteDifficultyTable.display_order)
     )
     tables = result.scalars().all()
     return [DifficultyTableRead.from_orm_with_count(t) for t in tables]
@@ -112,58 +138,164 @@ async def get_my_favorites(
 
 @router.get("/{table_id}", response_model=TableDetailRead)
 async def get_table(
-    table_id: int,
+    table_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> TableDetailRead:
-    """Get a specific difficulty table with level_order (no song list)."""
+    """Get a specific difficulty table with level_order."""
     table = await _get_table_or_404(table_id, db)
-    level_order: list[str] = []
-    if table.table_data:
-        level_order = table.table_data.get("level_order") or []
+    level_order: list[str] = table.level_order or []
     obj = DifficultyTableRead.from_orm_with_count(table)
     return TableDetailRead(**obj.model_dump(), level_order=level_order)
 
 
-@router.get("/{table_id}/songs", response_model=list[TableSong])
+_CLIENT_LABEL = {"lr2": "LR", "beatoraja": "BR"}
+
+
+@router.get("/{table_id}/songs", response_model=list[TableFumen])
 async def get_table_songs(
-    table_id: int,
+    table_id: uuid.UUID,
     level: str | None = Query(default=None, description="Filter by level (e.g. sl0)"),
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
-) -> list[TableSong]:
-    """Get songs for a difficulty table, optionally filtered by level."""
-    table = await _get_table_or_404(table_id, db)
+) -> list[TableFumen]:
+    """Get fumens for a difficulty table, optionally filtered by level.
 
-    if not table.table_data or "songs" not in table.table_data:
-        return []
+    When authenticated, includes per-field best user scores for each fumen.
+    """
+    await _get_table_or_404(table_id, db)
 
-    songs: list[dict] = table.table_data["songs"]
-    if level is not None:
-        songs = [s for s in songs if str(s.get("level", "")).strip() == level]
+    table_id_str = str(table_id)
+    query = select(Fumen).where(
+        Fumen.table_entries.contains([{"table_id": table_id_str}])
+    )
+    result = await db.execute(query)
+    fumens = result.scalars().all()
 
-    result: list[TableSong] = []
-    for s in songs:
-        known = {"level", "md5", "sha256", "title", "artist", "url"}
-        extra = {k: v for k, v in s.items() if k not in known}
-        result.append(
-            TableSong(
-                level=str(s.get("level", "")).strip(),
-                md5=s.get("md5") or "",
-                sha256=s.get("sha256") or "",
-                title=s.get("title") or "",
-                artist=s.get("artist") or "",
-                url=s.get("url") or "",
-                extra=extra,
+    # Build level map and apply optional level filter
+    fumen_level_map: dict[tuple[str | None, str | None], str] = {}
+    filtered_fumens: list[Fumen] = []
+    for f in fumens:
+        entries: list[dict] = f.table_entries or []
+        fumen_level: str = ""
+        for entry in entries:
+            if entry.get("table_id") == table_id_str:
+                fumen_level = str(entry.get("level", "")).strip()
+                break
+        if level is not None and fumen_level != level:
+            continue
+        fumen_level_map[(f.sha256, f.md5)] = fumen_level
+        filtered_fumens.append(f)
+
+    # Fetch per-field best scores for the logged-in user (2 queries max)
+    score_map: dict[tuple[str | None, str | None], TableFumenScore] = {}
+    if current_user and filtered_fumens:
+        sha256_list = [f.sha256 for f in filtered_fumens if f.sha256]
+        md5_list = [f.md5 for f in filtered_fumens if f.md5 and not f.sha256]
+
+        score_conditions = []
+        if sha256_list:
+            score_conditions.append(UserScore.fumen_sha256.in_(sha256_list))
+        if md5_list:
+            score_conditions.append(
+                (UserScore.fumen_md5.in_(md5_list)) & UserScore.fumen_sha256.is_(None)
+            )
+
+        if score_conditions:
+            combined = score_conditions[0]
+            for c in score_conditions[1:]:
+                combined = combined | c
+
+            score_rows_result = await db.execute(
+                select(UserScore).where(
+                    UserScore.user_id == current_user.id,
+                    UserScore.fumen_hash_others.is_(None),
+                    combined,
+                ).order_by(UserScore.recorded_at.desc().nullslast())
+            )
+            score_rows = score_rows_result.scalars().all()
+
+            # Per-fumen: pick the most recent row per client_type, then take best per field
+            per_fumen_client: dict[tuple[str | None, str | None], dict[str, Any]] = {}
+            for s in score_rows:
+                key = (s.fumen_sha256, s.fumen_md5 if not s.fumen_sha256 else None)
+                per_client = per_fumen_client.setdefault(key, {})
+                # Already ordered by recorded_at DESC — keep first (most recent) per client_type
+                if s.client_type not in per_client:
+                    per_client[s.client_type] = s
+
+            for key, per_client in per_fumen_client.items():
+                raw: dict[str, Any] = {
+                    "clear_type": None, "clear_type_client": None,
+                    "exscore": None, "rate": None, "rank": None, "exscore_client": None,
+                    "min_bp": None, "min_bp_client": None,
+                }
+                for ct, s in per_client.items():
+                    client_label = _CLIENT_LABEL.get(ct, ct)
+                    if s.clear_type is not None and (raw["clear_type"] is None or s.clear_type > raw["clear_type"]):
+                        raw["clear_type"] = s.clear_type
+                        raw["clear_type_client"] = client_label
+                    if s.exscore is not None and (raw["exscore"] is None or s.exscore > raw["exscore"]):
+                        raw["exscore"] = s.exscore
+                        raw["rate"] = s.rate
+                        raw["rank"] = s.rank
+                        raw["exscore_client"] = client_label
+                    if s.min_bp is not None and (raw["min_bp"] is None or s.min_bp < raw["min_bp"]):
+                        raw["min_bp"] = s.min_bp
+                        raw["min_bp_client"] = client_label
+
+                clients = {
+                    v for k, v in raw.items()
+                    if k.endswith("_client") and v is not None
+                }
+                if len(clients) > 1:
+                    source_client = "MIX"
+                    source_client_detail = {
+                        "clear_type": raw["clear_type_client"],
+                        "exscore": raw["exscore_client"],
+                        "min_bp": raw["min_bp_client"],
+                    }
+                elif len(clients) == 1:
+                    source_client = next(iter(clients))
+                    source_client_detail = None
+                else:
+                    source_client = None
+                    source_client_detail = None
+
+                score_map[key] = TableFumenScore(
+                    best_clear_type=raw["clear_type"],
+                    best_exscore=raw["exscore"],
+                    rate=raw["rate"],
+                    rank=raw["rank"],
+                    best_min_bp=raw["min_bp"],
+                    source_client=source_client,
+                    source_client_detail=source_client_detail,
+                )
+
+    results: list[TableFumen] = []
+    for f in filtered_fumens:
+        key = (f.sha256, f.md5 if not f.sha256 else None)
+        results.append(
+            TableFumen(
+                level=fumen_level_map[(f.sha256, f.md5)],
+                md5=f.md5,
+                sha256=f.sha256,
+                title=f.title,
+                artist=f.artist,
+                file_url=f.file_url,
+                table_entries=f.table_entries,
+                user_score=score_map.get(key),
             )
         )
-    result.sort(key=lambda s: (s.level, s.title.lower()))
-    return result
+
+    results.sort(key=lambda f: (f.level, (f.title or "").lower()))
+    return results
 
 
 # ── Favorites ────────────────────────────────────────────────────────────────
 
 @router.post("/favorites/{table_id}", response_model=MessageResponse)
 async def add_favorite(
-    table_id: int,
+    table_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
@@ -171,21 +303,20 @@ async def add_favorite(
     await _get_table_or_404(table_id, db)
 
     existing = await db.execute(
-        select(UserFavoriteTable).where(
-            UserFavoriteTable.user_id == current_user.id,
-            UserFavoriteTable.table_id == table_id,
+        select(UserFavoriteDifficultyTable).where(
+            UserFavoriteDifficultyTable.user_id == current_user.id,
+            UserFavoriteDifficultyTable.table_id == table_id,
         )
     )
     if existing.scalar_one_or_none() is None:
-        # Append at the end
         order_result = await db.execute(
-            select(func.count()).select_from(UserFavoriteTable).where(
-                UserFavoriteTable.user_id == current_user.id
+            select(func.count()).select_from(UserFavoriteDifficultyTable).where(
+                UserFavoriteDifficultyTable.user_id == current_user.id
             )
         )
         current_count = order_result.scalar() or 0
         db.add(
-            UserFavoriteTable(
+            UserFavoriteDifficultyTable(
                 user_id=current_user.id,
                 table_id=table_id,
                 display_order=current_count,
@@ -198,15 +329,15 @@ async def add_favorite(
 
 @router.delete("/favorites/{table_id}", response_model=MessageResponse)
 async def remove_favorite(
-    table_id: int,
+    table_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
     """Remove a table from favorites."""
     result = await db.execute(
-        select(UserFavoriteTable).where(
-            UserFavoriteTable.user_id == current_user.id,
-            UserFavoriteTable.table_id == table_id,
+        select(UserFavoriteDifficultyTable).where(
+            UserFavoriteDifficultyTable.user_id == current_user.id,
+            UserFavoriteDifficultyTable.table_id == table_id,
         )
     )
     favorite = result.scalar_one_or_none()
@@ -225,9 +356,13 @@ async def reorder_favorites(
 ) -> MessageResponse:
     """Reorder favorites by providing an ordered list of table IDs."""
     result = await db.execute(
-        select(UserFavoriteTable).where(UserFavoriteTable.user_id == current_user.id)
+        select(UserFavoriteDifficultyTable).where(
+            UserFavoriteDifficultyTable.user_id == current_user.id
+        )
     )
-    favorites: dict[int, UserFavoriteTable] = {f.table_id: f for f in result.scalars().all()}
+    favorites: dict[uuid.UUID, UserFavoriteDifficultyTable] = {
+        f.table_id: f for f in result.scalars().all()
+    }
 
     for order, table_id in enumerate(body.table_ids):
         if table_id in favorites:
@@ -259,7 +394,6 @@ async def import_table(
     )
     existing = existing_result.scalar_one_or_none()
     if existing is not None:
-        # Add to favorites and return
         await _ensure_favorite(current_user.id, existing.id, db)
         return DifficultyTableRead.from_orm_with_count(existing)
 
@@ -281,17 +415,17 @@ async def import_table(
     header = table_data.get("header", {})
     name: str = header.get("name") or body.url
     symbol: str | None = header.get("symbol")
+    level_order: list | None = table_data.get("level_order") or header.get("level_order")
 
     new_table = DifficultyTable(
         name=name,
         symbol=symbol,
         source_url=body.url,
         is_default=False,
-        table_data=table_data,
-        last_synced_at=datetime.utcnow(),
+        level_order=level_order,
     )
     db.add(new_table)
-    await db.flush()  # get the new id
+    await db.flush()
 
     await _ensure_favorite(current_user.id, new_table.id, db)
     await db.commit()
@@ -302,7 +436,7 @@ async def import_table(
 
 @router.post("/{table_id}/sync", response_model=MessageResponse)
 async def sync_table(
-    table_id: int,
+    table_id: uuid.UUID,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
@@ -310,14 +444,14 @@ async def sync_table(
     await _get_table_or_404(table_id, db)
 
     from app.tasks.table_updater import update_difficulty_table
-    update_difficulty_table.delay(table_id)
+    update_difficulty_table.delay(str(table_id))
 
     return MessageResponse(message=f"Sync queued for table {table_id}")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-async def _get_table_or_404(table_id: int, db: AsyncSession) -> DifficultyTable:
+async def _get_table_or_404(table_id: uuid.UUID, db: AsyncSession) -> DifficultyTable:
     result = await db.execute(select(DifficultyTable).where(DifficultyTable.id == table_id))
     table = result.scalar_one_or_none()
     if table is None:
@@ -325,18 +459,18 @@ async def _get_table_or_404(table_id: int, db: AsyncSession) -> DifficultyTable:
     return table
 
 
-async def _ensure_favorite(user_id: Any, table_id: int, db: AsyncSession) -> None:
+async def _ensure_favorite(user_id: Any, table_id: uuid.UUID, db: AsyncSession) -> None:
     existing = await db.execute(
-        select(UserFavoriteTable).where(
-            UserFavoriteTable.user_id == user_id,
-            UserFavoriteTable.table_id == table_id,
+        select(UserFavoriteDifficultyTable).where(
+            UserFavoriteDifficultyTable.user_id == user_id,
+            UserFavoriteDifficultyTable.table_id == table_id,
         )
     )
     if existing.scalar_one_or_none() is None:
         order_result = await db.execute(
-            select(func.count()).select_from(UserFavoriteTable).where(
-                UserFavoriteTable.user_id == user_id
+            select(func.count()).select_from(UserFavoriteDifficultyTable).where(
+                UserFavoriteDifficultyTable.user_id == user_id
             )
         )
         count = order_result.scalar() or 0
-        db.add(UserFavoriteTable(user_id=user_id, table_id=table_id, display_order=count))
+        db.add(UserFavoriteDifficultyTable(user_id=user_id, table_id=table_id, display_order=count))

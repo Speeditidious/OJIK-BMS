@@ -1,41 +1,54 @@
 """Score query endpoints."""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.score import ScoreHistory, UserScore
+from app.models.score import UserScore
 from app.models.user import User
 
 router = APIRouter(prefix="/scores", tags=["scores"])
+
+_CLIENT_LABEL = {"lr2": "LR", "beatoraja": "BR"}
 
 
 class UserScoreRead(BaseModel):
     id: str
     user_id: str
-    song_sha256: str
+    scorehash: str | None
+    fumen_sha256: str | None
+    fumen_md5: str | None
+    fumen_hash_others: str | None
     client_type: str
     clear_type: int | None
-    score_rate: float | None
+    exscore: int | None
+    rate: float | None
+    rank: str | None
     max_combo: int | None
     min_bp: int | None
-    play_count: int
+    play_count: int | None
+    recorded_at: str | None
+    synced_at: str | None
     model_config = ConfigDict(from_attributes=True)
 
 
-class ScoreHistoryRead(BaseModel):
-    id: str
-    user_id: str
-    song_sha256: str
-    client_type: str
-    clear_type: int | None
-    old_clear_type: int | None
-    score: float | None
-    old_score: float | None
-    model_config = ConfigDict(from_attributes=True)
+class PerFieldBestScore(BaseModel):
+    """Per-field best score aggregated from each client's latest row."""
+    best_clear_type: int | None = None
+    best_clear_type_client: str | None = None
+    best_exscore: int | None = None
+    rate: float | None = None
+    rank: str | None = None
+    best_exscore_client: str | None = None
+    best_min_bp: int | None = None
+    best_min_bp_client: str | None = None
+    best_max_combo: int | None = None
+    best_max_combo_client: str | None = None
+    source_client: str | None = None
+    source_client_detail: dict | None = None
 
 
 @router.get("/me", response_model=list[UserScoreRead])
@@ -60,81 +73,97 @@ async def get_my_scores(
         UserScoreRead(
             id=str(s.id),
             user_id=str(s.user_id),
-            song_sha256=s.song_sha256,
+            scorehash=s.scorehash,
+            fumen_sha256=s.fumen_sha256,
+            fumen_md5=s.fumen_md5,
+            fumen_hash_others=s.fumen_hash_others,
             client_type=s.client_type,
             clear_type=s.clear_type,
-            score_rate=s.score_rate,
+            exscore=s.exscore,
+            rate=s.rate,
+            rank=s.rank,
             max_combo=s.max_combo,
             min_bp=s.min_bp,
             play_count=s.play_count,
+            recorded_at=s.recorded_at.isoformat() if s.recorded_at else None,
+            synced_at=s.synced_at.isoformat() if s.synced_at else None,
         )
         for s in scores
     ]
 
 
-@router.get("/me/{song_sha256}", response_model=UserScoreRead)
+@router.get("/me/{fumen_sha256}", response_model=PerFieldBestScore)
 async def get_score_for_song(
-    song_sha256: str,
+    fumen_sha256: str,
     client_type: str | None = Query(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> UserScoreRead:
-    """Get current user's score for a specific song."""
-    from fastapi import HTTPException, status
+) -> PerFieldBestScore:
+    """Get per-field best scores for a specific fumen (by sha256).
 
-    query = select(UserScore).where(
-        UserScore.user_id == current_user.id,
-        UserScore.song_sha256 == song_sha256,
+    Fetches the most recent row per client type, then picks the best value
+    per field across clients (MIX source_client if clients differ).
+    """
+    query = (
+        select(UserScore)
+        .where(
+            UserScore.user_id == current_user.id,
+            UserScore.fumen_sha256 == fumen_sha256,
+            UserScore.fumen_hash_others.is_(None),
+        )
+        .order_by(UserScore.recorded_at.desc().nullslast())
     )
     if client_type:
         query = query.where(UserScore.client_type == client_type)
 
     result = await db.execute(query)
-    score = result.scalar_one_or_none()
+    all_rows = result.scalars().all()
 
-    if score is None:
+    if not all_rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Score not found")
 
-    return UserScoreRead(
-        id=str(score.id),
-        user_id=str(score.user_id),
-        song_sha256=score.song_sha256,
-        client_type=score.client_type,
-        clear_type=score.clear_type,
-        score_rate=score.score_rate,
-        max_combo=score.max_combo,
-        min_bp=score.min_bp,
-        play_count=score.play_count,
-    )
+    # Pick the most recent row per client_type
+    per_client: dict[str, UserScore] = {}
+    for s in all_rows:
+        if s.client_type not in per_client:
+            per_client[s.client_type] = s
 
+    best = PerFieldBestScore()
+    clients_used: dict[str, str] = {}  # field → client_label
 
-@router.get("/me/history", response_model=list[ScoreHistoryRead])
-async def get_score_history(
-    song_sha256: str | None = Query(None),
-    limit: int = Query(50, le=200),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> list[ScoreHistoryRead]:
-    """Get current user's score history."""
-    query = select(ScoreHistory).where(ScoreHistory.user_id == current_user.id)
+    for s in per_client.values():
+        label = _CLIENT_LABEL.get(s.client_type, s.client_type)
+        if s.clear_type is not None and (best.best_clear_type is None or s.clear_type > best.best_clear_type):
+            best.best_clear_type = s.clear_type
+            best.best_clear_type_client = label
+            clients_used["clear_type"] = label
+        if s.exscore is not None and (best.best_exscore is None or s.exscore > best.best_exscore):
+            best.best_exscore = s.exscore
+            best.rate = s.rate
+            best.rank = s.rank
+            best.best_exscore_client = label
+            clients_used["exscore"] = label
+        if s.min_bp is not None and (best.best_min_bp is None or s.min_bp < best.best_min_bp):
+            best.best_min_bp = s.min_bp
+            best.best_min_bp_client = label
+            clients_used["min_bp"] = label
+        if s.max_combo is not None and (best.best_max_combo is None or s.max_combo > best.best_max_combo):
+            best.best_max_combo = s.max_combo
+            best.best_max_combo_client = label
+            clients_used["max_combo"] = label
 
-    if song_sha256:
-        query = query.where(ScoreHistory.song_sha256 == song_sha256)
+    unique_clients = set(clients_used.values())
+    if len(unique_clients) > 1:
+        best.source_client = "MIX"
+        best.source_client_detail = {
+            k: v for k, v in {
+                "clear_type": best.best_clear_type_client,
+                "exscore": best.best_exscore_client,
+                "min_bp": best.best_min_bp_client,
+                "max_combo": best.best_max_combo_client,
+            }.items() if v is not None
+        }
+    elif len(unique_clients) == 1:
+        best.source_client = next(iter(unique_clients))
 
-    query = query.order_by(ScoreHistory.played_at.desc()).limit(limit)
-    result = await db.execute(query)
-    histories = result.scalars().all()
-
-    return [
-        ScoreHistoryRead(
-            id=str(h.id),
-            user_id=str(h.user_id),
-            song_sha256=h.song_sha256,
-            client_type=h.client_type,
-            clear_type=h.clear_type,
-            old_clear_type=h.old_clear_type,
-            score=h.score,
-            old_score=h.old_score,
-        )
-        for h in histories
-    ]
+    return best

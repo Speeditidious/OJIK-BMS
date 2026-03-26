@@ -24,7 +24,10 @@ def _default_config() -> dict[str, Any]:
         "api_url": "http://localhost:8000",
         "bms_folders": [],
         "lr2_db_path": None,
+        "lr2_song_db_path": None,
         "beatoraja_db_dir": None,
+        "beatoraja_songdata_db_path": None,
+        "beatoraja_songinfo_db_path": None,
         "last_synced_at": None,
         "client_types": ["lr2", "beatoraja"],
     }
@@ -87,6 +90,27 @@ def set_beatoraja_db_dir(db_dir: str) -> None:
     """Set the Beatoraja database directory."""
     config = load_config()
     config["beatoraja_db_dir"] = db_dir
+    save_config(config)
+
+
+def set_lr2_song_db_path(db_path: str) -> None:
+    """Set the LR2 song.db path."""
+    config = load_config()
+    config["lr2_song_db_path"] = db_path
+    save_config(config)
+
+
+def set_beatoraja_songdata_db_path(db_path: str) -> None:
+    """Set the Beatoraja songdata.db path."""
+    config = load_config()
+    config["beatoraja_songdata_db_path"] = db_path
+    save_config(config)
+
+
+def set_beatoraja_songinfo_db_path(db_path: str) -> None:
+    """Set the Beatoraja songinfo.db path."""
+    config = load_config()
+    config["beatoraja_songinfo_db_path"] = db_path
     save_config(config)
 
 

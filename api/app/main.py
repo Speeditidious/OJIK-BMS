@@ -13,11 +13,10 @@ from app.routers import (
     admin,
     analysis,
     auth,
-    chatbot,
     custom,
+    fumens,
     schedules,
     scores,
-    songs,
     sync,
     tables,
     users,
@@ -44,7 +43,7 @@ async def _seed_default_tables() -> None:
     from sqlalchemy import select
 
     from app.core.database import AsyncSessionLocal
-    from app.models.table import DifficultyTable
+    from app.models.difficulty_table import DifficultyTable
     from app.parsers.table_fetcher import get_default_table_configs
 
     logger = logging.getLogger(__name__)
@@ -119,12 +118,11 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(tables.router)
 app.include_router(scores.router)
-app.include_router(songs.router)
+app.include_router(fumens.router)
 app.include_router(analysis.router)
 app.include_router(custom.router)
 app.include_router(sync.router)
 app.include_router(schedules.router)
-app.include_router(chatbot.router)
 
 
 # ── Static files ────────────────────────────────────────────────────────────

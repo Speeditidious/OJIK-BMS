@@ -1,6 +1,7 @@
 from celery import Celery
 
 from app.core.config import settings
+from app.parsers.table_fetcher import get_update_config
 
 celery_app = Celery(
     "ojik_tasks",
@@ -9,6 +10,8 @@ celery_app = Celery(
     include=["app.tasks.table_updater"],
 )
 
+_update_interval_seconds = get_update_config().get("update_interval_hours", 168) * 3600
+
 celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],
@@ -16,9 +19,9 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     beat_schedule={
-        "update-difficulty-tables-daily": {
+        "update-difficulty-tables": {
             "task": "app.tasks.table_updater.update_all_difficulty_tables",
-            "schedule": 86400.0,  # every 24 hours
+            "schedule": _update_interval_seconds,
         },
     },
 )

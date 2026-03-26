@@ -19,19 +19,6 @@ export interface TokenResponse {
   token_type: string;
 }
 
-// ── Song types ────────────────────────────────────────────────────────────────
-
-export interface Song {
-  id: string;
-  md5: string | null;
-  sha256: string | null;
-  title: string | null;
-  artist: string | null;
-  bpm: number | null;
-  total_notes: number | null;
-  youtube_url: string | null;
-}
-
 // ── Score types ───────────────────────────────────────────────────────────────
 
 export type ClientType = "lr2" | "beatoraja" | "qwilight";
@@ -39,41 +26,52 @@ export type ClientType = "lr2" | "beatoraja" | "qwilight";
 export interface UserScore {
   id: string;
   user_id: string;
-  song_sha256: string;
+  scorehash: string | null;
+  fumen_sha256: string | null;
+  fumen_md5: string | null;
+  fumen_hash_others: string | null;
   client_type: ClientType;
   clear_type: number | null;
-  score_rate: number | null;
+  exscore: number | null;
+  rate: number | null;
+  rank: string | null;
   max_combo: number | null;
   min_bp: number | null;
-  play_count: number;
+  play_count: number | null;
+  clear_count: number | null;
+  judgments: Record<string, number> | null;
+  options: Record<string, unknown> | null;
+  recorded_at: string | null;
+  synced_at: string | null;
 }
 
-export interface ScoreHistory {
-  id: string;
-  user_id: string;
-  song_sha256: string;
-  client_type: ClientType;
-  clear_type: number | null;
-  old_clear_type: number | null;
-  score: number | null;
-  old_score: number | null;
-  combo: number | null;
-  old_combo: number | null;
-  min_bp: number | null;
-  old_min_bp: number | null;
-  played_at: string | null;
+/** Per-field best score aggregated from each client's latest row — used by GET /scores/me/{sha256}. */
+export interface PerFieldBestScore {
+  best_clear_type: number | null;
+  best_clear_type_client: string | null;
+  best_exscore: number | null;
+  rate: number | null;
+  rank: string | null;
+  best_exscore_client: string | null;
+  best_min_bp: number | null;
+  best_min_bp_client: string | null;
+  best_max_combo: number | null;
+  best_max_combo_client: string | null;
+  /** "LR", "BR", "MIX", or null */
+  source_client: string | null;
+  source_client_detail: Record<string, string> | null;
 }
 
 // ── Difficulty table types ────────────────────────────────────────────────────
 
 export interface DifficultyTable {
-  id: number;
+  id: string;
   name: string;
   symbol: string | null;
   slug: string | null;
   source_url: string | null;
   is_default: boolean;
-  last_synced_at: string | null;
+  updated_at: string;
   song_count: number | null;
 }
 
@@ -81,14 +79,27 @@ export interface DifficultyTableDetail extends DifficultyTable {
   level_order: string[];
 }
 
-export interface TableSong {
+/** Per-field best user scores attached to a TableFumen row. */
+export interface TableFumenScore {
+  best_clear_type: number | null;
+  best_exscore: number | null;
+  rate: number | null;
+  rank: string | null;
+  best_min_bp: number | null;
+  /** "LR", "BR", "MIX", or null */
+  source_client: string | null;
+  source_client_detail: Record<string, string> | null;
+}
+
+export interface TableFumen {
   level: string;
-  md5: string;
-  sha256: string;
-  title: string;
-  artist: string;
-  url: string;
-  extra: Record<string, unknown>;
+  md5: string | null;
+  sha256: string | null;
+  title: string | null;
+  artist: string | null;
+  file_url: string | null;
+  table_entries: Array<{ table_id: string; level: string }> | null;
+  user_score: TableFumenScore | null;
 }
 
 export interface CustomTable {
@@ -117,24 +128,6 @@ export interface Schedule {
   scheduled_date: string | null;
   scheduled_time: string | null;
   is_completed: boolean;
-}
-
-// ── Chatbot types ─────────────────────────────────────────────────────────────
-
-export interface ChatbotConversation {
-  id: string;
-  user_id: string | null;
-  summary: string | null;
-}
-
-export interface ChatbotMessage {
-  id: string;
-  conversation_id: string;
-  role: "user" | "assistant" | "system";
-  content: string | null;
-  sources: unknown[] | null;
-  token_usage: Record<string, number> | null;
-  created_at: string;
 }
 
 // ── API utility types ─────────────────────────────────────────────────────────
@@ -172,4 +165,61 @@ export interface ScoreTrendItem {
   score: number | null;
   clear_type: number | null;
   min_bp: number | null;
+}
+
+// ── Score update types (GET /analysis/score-updates) ─────────────────────────
+
+export interface TableLevelRef {
+  symbol: string;
+  level: string;
+}
+
+/** Common base for all score update items. is_course=true means this is a course record. */
+export interface ScoreUpdateBase {
+  fumen_sha256: string | null;
+  fumen_md5: string | null;
+  title: string | null;
+  artist: string | null;
+  table_levels: TableLevelRef[];
+  client_type: ClientType;
+  recorded_at: string | null;
+  is_course: boolean;
+  course_name: string | null;
+  dan_title: string | null;
+}
+
+export interface ClearTypeUpdateItem extends ScoreUpdateBase {
+  prev_clear_type: number | null;
+  new_clear_type: number | null;
+}
+
+export interface ExscoreUpdateItem extends ScoreUpdateBase {
+  prev_exscore: number | null;
+  new_exscore: number | null;
+  prev_rank: string | null;
+  new_rank: string | null;
+}
+
+export interface MaxComboUpdateItem extends ScoreUpdateBase {
+  prev_max_combo: number | null;
+  new_max_combo: number | null;
+}
+
+export interface MinBPUpdateItem extends ScoreUpdateBase {
+  prev_min_bp: number | null;
+  new_min_bp: number | null;
+}
+
+export interface PlayCountUpdateItem extends ScoreUpdateBase {
+  prev_play_count: number | null;
+  new_play_count: number | null;
+  is_initial_sync: boolean;
+}
+
+export interface ScoreUpdatesResponse {
+  clear_type_updates: ClearTypeUpdateItem[];
+  exscore_updates: ExscoreUpdateItem[];
+  max_combo_updates: MaxComboUpdateItem[];
+  min_bp_updates: MinBPUpdateItem[];
+  play_count_updates: PlayCountUpdateItem[];
 }

@@ -27,15 +27,18 @@ function toDateString(year: number, month: number, day: number): string {
 
 interface DotItem {
   label: string;
-  color: "primary" | "accent";
+  color: "primary" | "accent" | "play";
 }
 
 function getDotItems(
   dateStr: string,
-  value: number,
+  updates: number,
+  plays: number,
   firstSyncDates?: { lr2?: string; beatoraja?: string },
-  lr2Value?: number,
-  beatorajaValue?: number,
+  lr2Updates?: number,
+  lr2Plays?: number,
+  beatorajaUpdates?: number,
+  beatorajaPlays?: number,
   courseInfo?: { count: number; hasFirstClear: boolean },
 ): DotItem[] {
   const dots: DotItem[] = [];
@@ -47,11 +50,14 @@ function getDotItems(
     const prefix = courseInfo.hasFirstClear ? "★ " : "";
     dots.push({ label: `${prefix}코스 클리어 ${courseInfo.count}건`, color: "accent" });
   }
-  if (lr2Value !== undefined && beatorajaValue !== undefined) {
-    if (lr2Value > 0) dots.push({ label: `${lr2Value}개 갱신 (LR2)`, color: "primary" });
-    if (beatorajaValue > 0) dots.push({ label: `${beatorajaValue}개 갱신 (Beatoraja)`, color: "primary" });
-  } else if (value > 0) {
-    dots.push({ label: `${value}개 갱신`, color: "primary" });
+  if (lr2Updates !== undefined && beatorajaUpdates !== undefined) {
+    if (lr2Updates > 0) dots.push({ label: `갱신 ${lr2Updates}개 (LR2)`, color: "primary" });
+    if (beatorajaUpdates > 0) dots.push({ label: `갱신 ${beatorajaUpdates}개 (Beatoraja)`, color: "primary" });
+    if ((lr2Plays ?? 0) > 0) dots.push({ label: `플레이 ${lr2Plays}회 (LR2)`, color: "play" });
+    if ((beatorajaPlays ?? 0) > 0) dots.push({ label: `플레이 ${beatorajaPlays}회 (Beatoraja)`, color: "play" });
+  } else {
+    if (updates > 0) dots.push({ label: `갱신 ${updates}개`, color: "primary" });
+    if (plays > 0) dots.push({ label: `플레이 ${plays}회`, color: "play" });
   }
   return dots;
 }
@@ -70,23 +76,43 @@ export function ActivityCalendar({
   const today = new Date();
   const todayStr = toDateString(today.getFullYear(), today.getMonth() + 1, today.getDate());
 
-  const valueMap = useMemo(() => {
+  const updatesMap = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const d of data) map[d.date] = d.value;
+    for (const d of data) map[d.date] = d.updates;
     return map;
   }, [data]);
 
-  const lr2Map = useMemo(() => {
+  const playsMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const d of data) map[d.date] = d.plays;
+    return map;
+  }, [data]);
+
+  const lr2UpdatesMap = useMemo(() => {
     if (!dataLr2) return undefined;
     const map: Record<string, number> = {};
-    for (const d of dataLr2) map[d.date] = d.value;
+    for (const d of dataLr2) map[d.date] = d.updates;
     return map;
   }, [dataLr2]);
 
-  const beatorajaMap = useMemo(() => {
+  const lr2PlaysMap = useMemo(() => {
+    if (!dataLr2) return undefined;
+    const map: Record<string, number> = {};
+    for (const d of dataLr2) map[d.date] = d.plays;
+    return map;
+  }, [dataLr2]);
+
+  const beatorajaUpdatesMap = useMemo(() => {
     if (!dataBeatoraja) return undefined;
     const map: Record<string, number> = {};
-    for (const d of dataBeatoraja) map[d.date] = d.value;
+    for (const d of dataBeatoraja) map[d.date] = d.updates;
+    return map;
+  }, [dataBeatoraja]);
+
+  const beatorajaPlaysMap = useMemo(() => {
+    if (!dataBeatoraja) return undefined;
+    const map: Record<string, number> = {};
+    for (const d of dataBeatoraja) map[d.date] = d.plays;
     return map;
   }, [dataBeatoraja]);
 
@@ -97,7 +123,7 @@ export function ActivityCalendar({
       if (!c.date) continue;
       const existing = map[c.date] ?? { count: 0, hasFirstClear: false };
       existing.count++;
-      if (c.is_first_clear) existing.hasFirstClear = true;
+      // hasFirstClear no longer tracked server-side
       map[c.date] = existing;
     }
     return map;
@@ -160,14 +186,18 @@ export function ActivityCalendar({
           }
 
           const dateStr = cell.dateStr;
-          const value = valueMap[dateStr] ?? 0;
+          const updates = updatesMap[dateStr] ?? 0;
+          const plays = playsMap[dateStr] ?? 0;
           const isToday = dateStr === todayStr;
-const dots = getDotItems(
+          const dots = getDotItems(
             dateStr,
-            value,
+            updates,
+            plays,
             firstSyncDates,
-            lr2Map?.[dateStr] ?? (lr2Map ? 0 : undefined),
-            beatorajaMap?.[dateStr] ?? (beatorajaMap ? 0 : undefined),
+            lr2UpdatesMap?.[dateStr] ?? (lr2UpdatesMap ? 0 : undefined),
+            lr2PlaysMap?.[dateStr] ?? (lr2PlaysMap ? 0 : undefined),
+            beatorajaUpdatesMap?.[dateStr] ?? (beatorajaUpdatesMap ? 0 : undefined),
+            beatorajaPlaysMap?.[dateStr] ?? (beatorajaPlaysMap ? 0 : undefined),
             courseMap[dateStr],
           );
 
@@ -177,12 +207,12 @@ const dots = getDotItems(
               className={[
                 "min-h-[88px] rounded-md flex flex-col items-center p-2 relative text-xs transition-colors",
                 "hover:bg-accent/20",
-                value > 0 || dots.length > 0 ? "font-medium" : "text-muted-foreground",
+                updates > 0 || plays > 0 || dots.length > 0 ? "font-medium" : "text-muted-foreground",
               ]
                 .filter(Boolean)
                 .join(" ")}
               onClick={() => onDayClick(dateStr)}
-              title={value > 0 ? `${cell.day}일 — ${value}건` : String(cell.day)}
+              title={updates > 0 ? `${cell.day}일 — 갱신 ${updates}건` : plays > 0 ? `${cell.day}일 — 플레이 ${plays}회` : String(cell.day)}
             >
               {/* Date number top-left — badge on today */}
               {isToday ? (
@@ -200,13 +230,13 @@ const dots = getDotItems(
                     <div key={di} className="flex items-center gap-0.5 min-w-0">
                       <span
                         className="shrink-0 text-xs leading-none"
-                        style={{ color: `hsl(var(--${dot.color}))` }}
+                        style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : `hsl(var(--${dot.color}))` }}
                       >
                         ●
                       </span>
                       <span
                         className="text-xs leading-tight truncate"
-                        style={{ color: `hsl(var(--${dot.color}))` }}
+                        style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : `hsl(var(--${dot.color}))` }}
                       >
                         {dot.label}
                       </span>

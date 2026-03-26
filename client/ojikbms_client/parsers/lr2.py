@@ -46,6 +46,16 @@ class ParseStats:
         """Rows excluded by the playcount/mode/player WHERE clause."""
         return self.db_total - self.query_result_count
 
+    @property
+    def effective_total(self) -> int:
+        """Total rows excluding intentionally-skipped records (none for LR2)."""
+        return self.db_total
+
+    @property
+    def skipped_lr2(self) -> int:
+        """LR2 has no LR2-import exclusions."""
+        return 0
+
 
 # LR2 arrangement (note layout) enum — shared between 1P and 2P nibbles
 LR2_ARRANGEMENT = {
@@ -91,33 +101,26 @@ _JUDGMENT_CANDIDATES = {
     "op_history": ("op_history", "ophistory"),
     "rseed": ("rseed", "random_seed", "seed"),
     "clearcount": ("clearcount", "clear_count"),
+    "scorehash": ("scorehash",),
+    "totalnotes": ("totalnotes", "total_notes", "notes"),
 }
 
 
 def _decode_lr2_options(op_best: int, op_history: int, rseed: int | None) -> dict:
-    """Decode LR2 play options from raw DB integers.
+    """Return LR2 play options as raw DB integers.
 
     Args:
-        op_best: op_best column value. Tens digit encodes the arrangement
-            (e.g. 3=NORMAL, 10=MIRROR, 21=RANDOM, 31=S-RANDOM). Units digit
-            encodes the gauge type (0=GROOVE, 1=SURVIVAL, etc.).
-        op_history: op_history column value. Statistical analysis shows bit N
-            correlates with the gauge type history (units digit of op_best),
-            NOT arrangement history. Stored as a raw bitmask only.
+        op_best: op_best column value (raw int; tens digit = arrangement, units = gauge).
+        op_history: op_history column value (raw bitmask).
         rseed: rseed column value (random seed; None if column absent).
 
     Returns:
-        Dict with arrangement, arrangement_2p, arrangement_raw, history_raw, seed keys.
+        Dict with op_best, op_history, rseed raw int keys.
     """
-    arr_index = op_best // 10  # tens digit = arrangement
-    arr_1p = LR2_ARRANGEMENT.get(arr_index, f"UNKNOWN({arr_index})")
-
     return {
-        "arrangement": arr_1p,
-        "arrangement_2p": None,  # 2P arrangement not encoded in op_best (units digit unknown)
-        "arrangement_raw": op_best,
-        "history_raw": op_history,  # raw bitmask: encodes gauge type history, NOT arrangement
-        "seed": rseed if rseed else None,
+        "op_best": op_best,
+        "op_history": op_history,
+        "rseed": rseed,
     }
 
 
@@ -226,31 +229,33 @@ def parse_lr2_scores(
 
                 played_at_c = None
                 playtime_col = cols["playtime"]
-                if playtime_col and row[playtime_col]:
-                    try:
-                        played_at_c = datetime.fromtimestamp(
-                            row[playtime_col], tz=UTC
-                        ).isoformat()
-                    except (ValueError, OSError):
-                        pass
-
-                score_rate_c = row[cols["rate"]] if cols["rate"] else None
-                if score_rate_c is not None and score_rate_c > 1.0:
-                    score_rate_c = score_rate_c / 100.0
+                if playtime_col and row[playtime_col] is not None:
+                    ts = int(row[playtime_col])
+                    if ts > 0:
+                        try:
+                            played_at_c = datetime.fromtimestamp(ts, tz=UTC).isoformat()
+                        except (ValueError, OSError):
+                            pass
 
                 clear_col_c = cols["clear"]
                 clear_val_c = int(row[clear_col_c]) if clear_col_c and row[clear_col_c] is not None else 0
 
+                scorehash_col_c = cols.get("scorehash")
+                scorehash_c = None
+                if scorehash_col_c and row[scorehash_col_c]:
+                    scorehash_c = str(row[scorehash_col_c]).strip() or None
+
                 courses.append({
-                    "course_hash": songs_part.lower(),
+                    "fumen_hash_others": songs_part.lower(),
                     "client_type": "lr2",
+                    "scorehash": scorehash_c,
                     "clear_type": LR2_CLEAR_TYPE.get(clear_val_c, 0),
-                    "score_rate": score_rate_c,
+                    "notes": _int(cols["totalnotes"]) or None,
                     "max_combo": _int(cols["maxcombo"]) or None,
                     "min_bp": _int(cols["minbp"]) or None,
                     "play_count": _int(cols["playcount"]),
                     "clear_count": _int(cols["clearcount"]),
-                    "played_at": played_at_c,
+                    "recorded_at": played_at_c,
                     "song_hashes": [
                         {"song_md5": md5.lower(), "song_sha256": None}
                         for md5 in song_md5s
@@ -274,20 +279,16 @@ def parse_lr2_scores(
 
             played_at = None
             playtime_col = cols["playtime"]
-            if playtime_col and row[playtime_col]:
-                try:
-                    played_at = datetime.fromtimestamp(
-                        row[playtime_col], tz=UTC
-                    ).isoformat()
-                except (ValueError, OSError):
-                    pass
-
-            score_rate = row[cols["rate"]] if cols["rate"] else None
-            if score_rate is not None and score_rate > 1.0:
-                score_rate = score_rate / 100.0
+            if playtime_col and row[playtime_col] is not None:
+                ts = int(row[playtime_col])
+                if ts > 0:
+                    try:
+                        played_at = datetime.fromtimestamp(ts, tz=UTC).isoformat()
+                    except (ValueError, OSError):
+                        pass
 
             judgments = {
-                "pgreat": _int(cols["pg"]),
+                "perfect": _int(cols["pg"]),
                 "great": _int(cols["gr"]),
                 "good": _int(cols["gd"]),
                 "bad": _int(cols["bd"]),
@@ -302,6 +303,11 @@ def parse_lr2_scores(
             rseed_col = cols["rseed"]
             rseed = int(row[rseed_col]) if rseed_col and row[rseed_col] is not None else None
 
+            scorehash_col = cols.get("scorehash")
+            scorehash = None
+            if scorehash_col and row[scorehash_col]:
+                scorehash = str(row[scorehash_col]).strip() or None
+
             _clear_type = LR2_CLEAR_TYPE.get(clear_val, 0)
             if _clear_type == 7:  # FC → check for PERFECT / MAX
                 if judgments["good"] == 0 and judgments["bad"] == 0:
@@ -310,17 +316,18 @@ def parse_lr2_scores(
                         _clear_type = 9  # MAX
 
             scores.append({
-                "song_md5": song_md5,
-                "song_sha256": song_sha256,
+                "fumen_md5": song_md5,
+                "fumen_sha256": song_sha256,
+                "scorehash": scorehash,
                 "client_type": "lr2",
                 "clear_type": _clear_type,
-                "score_rate": score_rate,
+                "notes": _int(cols["totalnotes"]) or None,
                 "max_combo": _int(cols["maxcombo"]) or None,
                 "min_bp": _int(cols["minbp"]) or None,
                 "judgments": judgments,
                 "play_count": _int(cols["playcount"]),
                 "clear_count": _int(cols["clearcount"]),
-                "played_at": played_at,
+                "recorded_at": played_at,
                 "options": _decode_lr2_options(op_best, op_history, rseed),
             })
 
@@ -334,14 +341,15 @@ def _list_tables(cursor: sqlite3.Cursor) -> list[str]:
     return [row[0] for row in cursor.fetchall()]
 
 
-def parse_lr2_player_stats(score_db_path: str) -> dict[str, int] | None:
+def parse_lr2_player_stats(score_db_path: str) -> dict | None:
     """Read cumulative totals from LR2 player table.
 
     Args:
         score_db_path: Path to the LR2 score.db file.
 
     Returns:
-        Dict with total_notes_hit and total_play_count, or None if table absent.
+        Dict with playcount, clearcount, playtime, and judgments (raw counts),
+        or None if player table is absent.
     """
     db_path = Path(score_db_path)
     if not db_path.exists():
@@ -351,26 +359,28 @@ def parse_lr2_player_stats(score_db_path: str) -> dict[str, int] | None:
         with sqlite3.connect(str(db_path)) as conn:
             cursor = conn.cursor()
 
-            # Check if player table exists
             cursor.execute("PRAGMA table_info(player)")
             columns = {row[1] for row in cursor.fetchall()}
             if not columns:
                 return None
 
-            # Resolve judgment columns
-            pg_col = _resolve_col(columns, ("perfect", "pg", "pgreat", "p_great"))
-            gr_col = _resolve_col(columns, ("great", "gr"))
-            gd_col = _resolve_col(columns, ("good", "gd"))
-            bd_col = _resolve_col(columns, ("bad", "bd"))
-            pc_col = _resolve_col(columns, ("playcount", "play_count"))
+            pg_col  = _resolve_col(columns, ("perfect", "pg", "pgreat", "p_great"))
+            gr_col  = _resolve_col(columns, ("great", "gr"))
+            gd_col  = _resolve_col(columns, ("good", "gd"))
+            bd_col  = _resolve_col(columns, ("bad", "bd"))
+            pr_col  = _resolve_col(columns, ("poor", "pr"))
+            pc_col  = _resolve_col(columns, ("playcount", "play_count"))
+            cc_col  = _resolve_col(columns, ("clear", "clearcount", "clear_count"))
+            pt_col  = _resolve_col(columns, ("playtime", "play_time"))
 
-            if not any([pg_col, gr_col, gd_col, bd_col]):
+            judgment_cols = [c for c in [pg_col, gr_col, gd_col, bd_col, pr_col] if c]
+            if not judgment_cols:
                 return None
 
-            hit_cols = [c for c in [pg_col, gr_col, gd_col, bd_col] if c]
-            select_parts = hit_cols[:]
-            if pc_col:
-                select_parts.append(pc_col)
+            select_parts = list(dict.fromkeys(
+                judgment_cols
+                + [c for c in [pc_col, cc_col, pt_col] if c]
+            ))
 
             cursor.execute(f"SELECT {', '.join(select_parts)} FROM player LIMIT 1")
             row = cursor.fetchone()
@@ -378,21 +388,113 @@ def parse_lr2_player_stats(score_db_path: str) -> dict[str, int] | None:
                 return None
 
             col_index = {col: i for i, col in enumerate(select_parts)}
-            total_notes_hit = sum(
-                int(row[col_index[c]] or 0) for c in hit_cols
-            )
 
-            total_play_count = None
-            if pc_col and pc_col in col_index:
-                val = row[col_index[pc_col]]
-                if val is not None:
-                    total_play_count = int(val)
+            def _val(col: str | None) -> int | None:
+                if col and col in col_index:
+                    v = row[col_index[col]]
+                    return int(v) if v is not None else None
+                return None
+
+            judgments = {}
+            for key, col in [
+                ("perfect", pg_col),
+                ("great",   gr_col),
+                ("good",    gd_col),
+                ("bad",     bd_col),
+                ("poor",    pr_col),
+            ]:
+                v = _val(col)
+                if v is not None:
+                    judgments[key] = v
 
             return {
-                "total_notes_hit": total_notes_hit,
-                "total_play_count": total_play_count,
+                "playcount":  _val(pc_col),
+                "clearcount": _val(cc_col),
+                "playtime":   _val(pt_col),
+                "judgments":  judgments or None,
             }
     except Exception:
         return None
+
+
+def parse_lr2_songdata(db_path: str) -> list[dict[str, Any]]:
+    """Parse LR2 song.db (LR2song.db) and return song metadata items.
+
+    Each returned dict contains: md5, title, artist, bpm_min, bpm_max.
+    Only rows with valid 32-char MD5 hashes are returned.
+    Does NOT extract karinotes (LR2 counts LN as 2, server counts as 1 → incompatible).
+
+    Args:
+        db_path: Full path to LR2song.db.
+
+    Returns:
+        List of dicts. Returns [] on error or if file does not exist.
+    """
+    db_file = Path(db_path)
+    if not db_file.exists():
+        return []
+
+    items: list[dict[str, Any]] = []
+    try:
+        with sqlite3.connect(str(db_file)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='song'")
+            if not cursor.fetchone():
+                return []
+
+            cursor.execute("PRAGMA table_info(song)")
+            columns = {row[1] for row in cursor.fetchall()}
+
+            hash_col = None
+            for candidate in ("hash", "sha256", "Hash"):
+                if candidate in columns:
+                    hash_col = candidate
+                    break
+            if not hash_col:
+                return []
+
+            title_col = "title" if "title" in columns else None
+            subtitle_col = "subtitle" if "subtitle" in columns else None
+            artist_col = "artist" if "artist" in columns else None
+            subartist_col = "subartist" if "subartist" in columns else None
+            minbpm_col = "minbpm" if "minbpm" in columns else None
+            maxbpm_col = "maxbpm" if "maxbpm" in columns else None
+
+            select_parts = [hash_col]
+            for col in (title_col, subtitle_col, artist_col, subartist_col, minbpm_col, maxbpm_col):
+                if col:
+                    select_parts.append(col)
+
+            cursor.execute(
+                f"SELECT {', '.join(select_parts)} FROM song "
+                f"WHERE {hash_col} IS NOT NULL AND {hash_col} != ''"
+            )
+
+            for row in cursor.fetchall():
+                hash_val = row[hash_col]
+                if not hash_val or len(hash_val) != 32:
+                    continue
+
+                item: dict[str, Any] = {"md5": hash_val.lower()}
+                if title_col:
+                    _title = row[title_col] or ""
+                    _subtitle = (row[subtitle_col] or "") if subtitle_col else ""
+                    item["title"] = (_title + " " + _subtitle).strip() or None
+                if artist_col:
+                    _artist = row[artist_col] or ""
+                    _subartist = (row[subartist_col] or "") if subartist_col else ""
+                    item["artist"] = (_artist + " " + _subartist).strip() or None
+                if minbpm_col and row[minbpm_col] is not None:
+                    item["bpm_min"] = float(row[minbpm_col])
+                if maxbpm_col and row[maxbpm_col] is not None:
+                    item["bpm_max"] = float(row[maxbpm_col])
+                items.append(item)
+
+    except Exception:
+        return []
+
+    return items
 
 

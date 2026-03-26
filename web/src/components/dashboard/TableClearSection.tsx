@@ -6,7 +6,6 @@ import { useFavoriteTables } from "@/hooks/use-tables";
 import { useTableClearDistribution, TableClearSong } from "@/hooks/use-analysis";
 import {
   TableClearHistogram,
-  ClearTypeLegend,
   ALL_CLEAR_TYPES,
 } from "@/components/charts/TableClearHistogram";
 import {
@@ -47,19 +46,6 @@ const CLEAR_ROW_BG: Record<number, string> = {
   9: "bg-[hsl(var(--clear-max)/0.13)]",
 };
 
-function getRank(scoreRate: number | null): string {
-  if (scoreRate === null) return "–";
-  if (scoreRate >= 1.0) return "MAX";
-  if (scoreRate >= 8 / 9) return "AAA";
-  if (scoreRate >= 7 / 9) return "AA";
-  if (scoreRate >= 6 / 9) return "A";
-  if (scoreRate >= 5 / 9) return "B";
-  if (scoreRate >= 4 / 9) return "C";
-  if (scoreRate >= 3 / 9) return "D";
-  if (scoreRate >= 2 / 9) return "E";
-  return "F";
-}
-
 function getClearLabel(clientType: string | null, clearType: number): string {
   if (clientType === "lr2") return LR2_CLEAR_TYPE_LABELS[clearType] ?? String(clearType);
   if (clientType === "beatoraja") return BEATORAJA_CLEAR_TYPE_LABELS[clearType] ?? String(clearType);
@@ -72,7 +58,7 @@ function formatLevel(level: string, tableSymbol?: string): string {
   return tableSymbol ? `${tableSymbol}${label}` : label;
 }
 
-type SortKey = "level" | "title" | "ex_score" | "score_rate" | "min_bp" | "clear_type";
+type SortKey = "level" | "title" | "ex_score" | "rate" | "min_bp" | "clear_type";
 type SortDir = "asc" | "desc";
 
 function parseLevel(level: string): number {
@@ -126,8 +112,8 @@ function compareSongs(a: TableClearSong, b: TableClearSong, key: SortKey, dir: S
     case "ex_score":
       result = (a.ex_score ?? -1) - (b.ex_score ?? -1);
       break;
-    case "score_rate":
-      result = (a.score_rate ?? -1) - (b.score_rate ?? -1);
+    case "rate":
+      result = (a.rate ?? -1) - (b.rate ?? -1);
       break;
     case "min_bp":
       // nulls last; lower BP is better so ascending = best BP first when reversed
@@ -198,8 +184,8 @@ const SongTable = React.memo(function SongTable({ songs }: { songs: TableClearSo
             {th("레벨", "level", "left", "w-14")}
             {th("곡명", "title", "left")}
             {th("EX Score", "ex_score", "center", "w-20")}
-            {th("Rate", "score_rate", "center", "w-20")}
-            {th("Rank", "score_rate", "center", "w-14")}
+            {th("Rate", "rate", "center", "w-20")}
+            {th("Rank", "rate", "center", "w-14")}
             {th("BP", "min_bp", "center", "w-14")}
             <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground w-12">배치</th>
             <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground w-16">구동기</th>
@@ -238,14 +224,14 @@ const SongTable = React.memo(function SongTable({ songs }: { songs: TableClearSo
                   )}
                 </td>
                 <td className="px-3 py-2 text-center text-xs font-mono">
-                  {song.score_rate !== null ? (
-                    `${(song.score_rate * 100).toFixed(2)}%`
+                  {song.rate !== null ? (
+                    `${song.rate.toFixed(2)}%`
                   ) : (
                     <span className="text-muted-foreground">--</span>
                   )}
                 </td>
                 <td className="px-3 py-2 text-center text-xs font-mono">
-                  {song.score_rate !== null ? getRank(song.score_rate) : (
+                  {song.rank !== null ? song.rank : (
                     <span className="text-muted-foreground">--</span>
                   )}
                 </td>
@@ -427,7 +413,7 @@ interface TableClearSectionProps {
 
 export function TableClearSection({ clientType }: TableClearSectionProps) {
   const { data: favTables, isLoading: tablesLoading } = useFavoriteTables();
-  const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
+  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
 
   // Multi-select filter state
   const [filterLevels, setFilterLevels] = useState<Set<string>>(new Set());
@@ -507,7 +493,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
     setFilterTitle("");
   }, []);
 
-  const handleTableSelect = useCallback((id: number) => {
+  const handleTableSelect = useCallback((id: string) => {
     setSelectedTableId(id);
     setFilterLevels(new Set());
     setFilterClearTypes(new Set());
@@ -570,10 +556,8 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
               clientType={clientType}
               tableSymbol={tableSymbol}
               onSelect={handleHistogramSelect}
+              onLevelSelect={toggleLevel}
             />
-
-            {/* Color legend */}
-            <ClearTypeLegend clientType={clientType} />
 
             {/* Filter panel */}
             <FilterPanel

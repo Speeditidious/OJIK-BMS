@@ -1,20 +1,14 @@
 from app.models.base import Base, TimestampMixin
-from app.models.chatbot import (
-    ChatbotConversation,
-    ChatbotDocument,
-    ChatbotMessage,
-    ChatbotUsageLimit,
-)
-from app.models.course import Course, CourseScoreHistory, UserCourseScore
-from app.models.score import ScoreHistory, UserScore
-from app.models.song import Song, UserOwnedSong, UserSongTag
-from app.models.table import (
+from app.models.course import Course
+from app.models.difficulty_table import (
     CustomCourse,
-    CustomTable,
+    CustomDifficultyTable,
     DifficultyTable,
-    Schedule,
-    UserFavoriteTable,
+    UserFavoriteDifficultyTable,
 )
+from app.models.fumen import Fumen, UserFumenTag
+from app.models.schedule import Schedule
+from app.models.score import UserPlayerStats, UserScore
 from app.models.user import OAuthAccount, User
 
 __all__ = [
@@ -22,21 +16,14 @@ __all__ = [
     "TimestampMixin",
     "User",
     "OAuthAccount",
-    "Song",
-    "UserOwnedSong",
-    "UserSongTag",
+    "Fumen",
+    "UserFumenTag",
     "UserScore",
-    "ScoreHistory",
+    "UserPlayerStats",
     "Course",
-    "UserCourseScore",
-    "CourseScoreHistory",
     "DifficultyTable",
-    "UserFavoriteTable",
-    "CustomTable",
+    "UserFavoriteDifficultyTable",
+    "CustomDifficultyTable",
     "CustomCourse",
     "Schedule",
-    "ChatbotDocument",
-    "ChatbotConversation",
-    "ChatbotMessage",
-    "ChatbotUsageLimit",
 ]

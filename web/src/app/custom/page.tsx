@@ -15,7 +15,7 @@ export default function CustomPage() {
           </div>
           <Button className="gap-2">
             <Plus className="h-4 w-4" />
-            새로 만들기
+            새로 만들기 (구현 예정)
           </Button>
         </div>
 
@@ -29,7 +29,7 @@ export default function CustomPage() {
                   + 새 난이도표 만들기
                 </CardTitle>
                 <CardDescription>
-                  나만의 BMS 난이도표를 만들고 곡을 정리하세요
+                  나만의 난이도표를 쉽게 만들어 플레이하세요 (구현 예정).
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -44,7 +44,7 @@ export default function CustomPage() {
                   + 새 코스 만들기
                 </CardTitle>
                 <CardDescription>
-                  여러 곡을 묶어 코스를 만들고 LR2/Beatoraja 형식으로 내보내세요
+                  나만의 코스를 쉽게 만들어 플레이하세요 (구현 예정).
                 </CardDescription>
               </CardHeader>
             </Card>

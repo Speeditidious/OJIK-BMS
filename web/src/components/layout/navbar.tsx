@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -30,7 +31,13 @@ const navItems = [
 
 export function Navbar() {
   const pathname = usePathname();
-  const { user, logout } = useAuthStore();
+  const { user, isInitialized, fetchUser, logout } = useAuthStore();
+
+  useEffect(() => {
+    if (!isInitialized) {
+      fetchUser();
+    }
+  }, [isInitialized, fetchUser]);
 
   return (
     <nav className="border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60">

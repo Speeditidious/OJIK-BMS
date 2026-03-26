@@ -11,10 +11,11 @@ from alembic import context
 # Import all models so Alembic can detect schema changes
 from app.models import Base  # noqa: F401 - ensures all models are registered
 from app.models.user import User, OAuthAccount  # noqa: F401
-from app.models.song import Song, UserOwnedSong, UserSongTag  # noqa: F401
-from app.models.score import UserScore, ScoreHistory  # noqa: F401
-from app.models.table import DifficultyTable, UserFavoriteTable, CustomTable, CustomCourse, Schedule  # noqa: F401
-from app.models.chatbot import ChatbotDocument, ChatbotConversation, ChatbotMessage, ChatbotUsageLimit  # noqa: F401
+from app.models.fumen import Fumen, UserFumenTag  # noqa: F401
+from app.models.score import UserScore, UserPlayerStats  # noqa: F401
+from app.models.difficulty_table import DifficultyTable, UserFavoriteDifficultyTable, CustomDifficultyTable, CustomCourse  # noqa: F401
+from app.models.schedule import Schedule  # noqa: F401
+from app.models.course import Course  # noqa: F401
 from app.core.config import settings
 
 # This is the Alembic Config object
@@ -40,10 +41,19 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=_include_object,
     )
 
     with context.begin_transaction():
         context.run_migrations()
+
+
+def _include_object(obj, name, type_, reflected, compare_to):
+    """Exclude expression-based indexes that SQLAlchemy cannot represent in models."""
+    _functional_indexes = {"uq_player_stats", "ix_player_stats_user_date"}
+    if type_ == "index" and name in _functional_indexes:
+        return False
+    return True
 
 
 def do_run_migrations(connection: Connection) -> None:
@@ -51,6 +61,7 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
+        include_object=_include_object,
     )
 
     with context.begin_transaction():

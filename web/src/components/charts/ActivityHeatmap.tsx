@@ -15,21 +15,28 @@ interface ActivityHeatmapProps {
   firstSyncDates?: { lr2?: string; beatoraja?: string };
   clientType?: ClientTypeFilter;
   courseData?: CourseActivityItem[];
+  viewMode?: "updates" | "plays";
 }
 
 const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-function getIntensityClass(value: number, max: number): string {
+function getIntensityClass(value: number, max: number, mode: "updates" | "plays" = "updates"): string {
   if (value === 0 || max === 0) return "bg-card border border-border/30";
   const ratio = value / max;
+  if (mode === "plays") {
+    if (ratio < 0.25) return "bg-[hsl(var(--chart-play)/0.20)]";
+    if (ratio < 0.5)  return "bg-[hsl(var(--chart-play)/0.45)]";
+    if (ratio < 0.75) return "bg-[hsl(var(--chart-play)/0.70)]";
+    return "bg-[hsl(var(--chart-play))]";
+  }
   if (ratio < 0.25) return "bg-primary/20";
-  if (ratio < 0.5) return "bg-primary/45";
+  if (ratio < 0.5)  return "bg-primary/45";
   if (ratio < 0.75) return "bg-primary/70";
   return "bg-primary";
 }
 
-export function ActivityHeatmap({ data, year, firstSyncDates, clientType, courseData }: ActivityHeatmapProps) {
+export function ActivityHeatmap({ data, year, firstSyncDates, clientType, courseData, viewMode = "updates" }: ActivityHeatmapProps) {
   const courseMap = useMemo<Record<string, { count: number; hasFirstClear: boolean }>>(() => {
     if (!courseData?.length) return {};
     const map: Record<string, { count: number; hasFirstClear: boolean }> = {};
@@ -37,7 +44,7 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
       if (!c.date) continue;
       const existing = map[c.date] ?? { count: 0, hasFirstClear: false };
       existing.count++;
-      if (c.is_first_clear) existing.hasFirstClear = true;
+      // hasFirstClear no longer tracked server-side
       map[c.date] = existing;
     }
     return map;
@@ -55,18 +62,21 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
   }, [firstSyncDates, clientType]);
 
   const { grid, monthLabels, maxValue } = useMemo(() => {
-    const valueMap: Record<string, number> = {};
+    const updatesMap: Record<string, number> = {};
+    const playsMap: Record<string, number> = {};
     let maxValue = 0;
     for (const d of data) {
-      valueMap[d.date] = d.value;
-      if (d.value > maxValue) maxValue = d.value;
+      updatesMap[d.date] = d.updates;
+      playsMap[d.date] = d.plays;
+      const activeVal = viewMode === "plays" ? d.plays : d.updates;
+      if (activeVal > maxValue) maxValue = activeVal;
     }
 
     // Build a 53-week x 7-day grid starting from Jan 1
     const startDate = new Date(year, 0, 1);
     const startDow = startDate.getDay(); // 0=Sun
 
-    const cells: Array<{ date: string | null; value: number; week: number; dow: number }> = [];
+    const cells: Array<{ date: string | null; updates: number; plays: number; week: number; dow: number }> = [];
     const monthLabelWeeks: Array<{ month: number; week: number }> = [];
 
     let currentMonth = -1;
@@ -74,12 +84,12 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
       for (let dow = 0; dow < 7; dow++) {
         const dayIndex = week * 7 + dow - startDow;
         if (dayIndex < 0 || dayIndex >= 366) {
-          cells.push({ date: null, value: 0, week, dow });
+          cells.push({ date: null, updates: 0, plays: 0, week, dow });
           continue;
         }
         const d = new Date(year, 0, 1 + dayIndex);
         if (d.getFullYear() !== year) {
-          cells.push({ date: null, value: 0, week, dow });
+          cells.push({ date: null, updates: 0, plays: 0, week, dow });
           continue;
         }
         const dateStr = d.toISOString().slice(0, 10);
@@ -87,12 +97,12 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
           currentMonth = d.getMonth();
           monthLabelWeeks.push({ month: currentMonth, week });
         }
-        cells.push({ date: dateStr, value: valueMap[dateStr] ?? 0, week, dow });
+        cells.push({ date: dateStr, updates: updatesMap[dateStr] ?? 0, plays: playsMap[dateStr] ?? 0, week, dow });
       }
     }
 
     return { grid: cells, monthLabels: monthLabelWeeks, maxValue };
-  }, [data, year]);
+  }, [data, year, viewMode]);
 
   const rows = useMemo(() => {
     const r: (typeof grid)[] = Array.from({ length: 7 }, () => []);
@@ -150,10 +160,11 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
                   const courseInfo = cell.date ? courseMap[cell.date] : undefined;
 
                   const isFirstSync = syncClients.length > 0;
+                  const activeVal = viewMode === "plays" ? cell.plays : cell.updates;
                   const cellClass = `w-3 h-3 rounded-[2px] cursor-default transition-opacity hover:opacity-80 ${
                     isFirstSync
                       ? "bg-accent border border-accent"
-                      : getIntensityClass(cell.value, maxValue)
+                      : getIntensityClass(activeVal, maxValue, viewMode)
                   }`;
                   const syncLabel = isFirstSync
                     ? syncClients.map((c) => (c === "lr2" ? "LR2" : "Beatoraja")).join(" + ") + " 첫 동기화"
@@ -180,8 +191,20 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
                         <p className="font-medium text-xs">{cell.date}</p>
                         {syncLabel ? (
                           <p className="text-xs text-muted-foreground">{syncLabel}</p>
+                        ) : activeVal === 0 && cell.updates === 0 && cell.plays === 0 ? (
+                          <p className="text-xs text-muted-foreground">기록 없음</p>
                         ) : (
-                          <p className="text-xs text-muted-foreground">{cell.value} 기록 갱신</p>
+                          <>
+                            <p className="text-xs" style={{ color: viewMode === "plays" ? "hsl(var(--chart-play))" : "hsl(var(--primary))" }}>
+                              {viewMode === "plays" ? `${cell.plays} 플레이` : `${cell.updates} 기록 갱신`}
+                            </p>
+                            {viewMode === "plays" && cell.updates > 0 && (
+                              <p className="text-xs text-muted-foreground">{cell.updates} 기록 갱신</p>
+                            )}
+                            {viewMode === "updates" && cell.plays > 0 && (
+                              <p className="text-xs text-muted-foreground">{cell.plays} 플레이</p>
+                            )}
+                          </>
                         )}
                         {courseInfo && (
                           <p className="text-xs" style={{ color: "hsl(var(--accent))" }}>
@@ -204,7 +227,7 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
             {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
               <div
                 key={ratio}
-                className={`w-3 h-3 rounded-[2px] ${getIntensityClass(ratio * maxValue, maxValue)}`}
+                className={`w-3 h-3 rounded-[2px] ${getIntensityClass(ratio * (maxValue || 1), maxValue || 1, viewMode)}`}
               />
             ))}
             <span>More</span>

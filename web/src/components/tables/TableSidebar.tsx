@@ -13,8 +13,8 @@ import type { DifficultyTable } from "@/types";
 interface TableSidebarProps {
   favorites: DifficultyTable[];
   allTables: DifficultyTable[];
-  selectedId: number | null;
-  onSelect: (id: number) => void;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
   onImportClick: () => void;
   isLoggedIn: boolean;
 }
@@ -31,14 +31,14 @@ export function TableSidebar({
   const favoriteIds = new Set(favorites.map((t) => t.id));
 
   const addFav = useMutation({
-    mutationFn: (id: number) => api.post(`/tables/favorites/${id}`),
+    mutationFn: (id: string) => api.post(`/tables/favorites/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["favorites"] });
     },
   });
 
   const removeFav = useMutation({
-    mutationFn: (id: number) => api.delete(`/tables/favorites/${id}`),
+    mutationFn: (id: string) => api.delete(`/tables/favorites/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["favorites"] });
     },

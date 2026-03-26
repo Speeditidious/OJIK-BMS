@@ -5,6 +5,12 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { useRecentUpdates, RecentUpdate, ClientTypeFilter } from "@/hooks/use-analysis";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   CLEAR_TYPE_LABELS,
   LR2_CLEAR_TYPE_LABELS,
   BEATORAJA_CLEAR_TYPE_LABELS,
@@ -43,23 +49,9 @@ export function clearBadge(clearType: number | null, clientType: string) {
   );
 }
 
-/** Convert score_rate (0–1 float) to rank letter per BMS convention. */
-export function getRank(scoreRate: number | null): string {
-  if (scoreRate === null) return "–";
-  if (scoreRate >= 1.0) return "MAX";
-  if (scoreRate >= 8 / 9) return "AAA";
-  if (scoreRate >= 7 / 9) return "AA";
-  if (scoreRate >= 6 / 9) return "A";
-  if (scoreRate >= 5 / 9) return "B";
-  if (scoreRate >= 4 / 9) return "C";
-  if (scoreRate >= 3 / 9) return "D";
-  if (scoreRate >= 2 / 9) return "E";
-  return "F";
-}
-
 /** Get YYYY-MM-DD group key from a RecentUpdate entry. */
 function getGroupKey(u: RecentUpdate): string {
-  const ts = u.played_at ?? u.sync_date ?? u.recorded_at;
+  const ts = u.recorded_at ?? u.synced_at;
   return ts ? ts.slice(0, 10) : "unknown";
 }
 
@@ -80,13 +72,11 @@ function formatGroupLabel(dateKey: string): string {
 }
 
 function isFirstClear(u: RecentUpdate): boolean {
-  const ct = u.clear_type ?? 0;
-  const old = u.old_clear_type;
-  return ct >= 3 && (old === null || old < 3);
+  return (u.clear_type ?? 0) >= 3;
 }
 
 function formatElapsed(u: RecentUpdate): string {
-  const ts = u.played_at ?? u.sync_date ?? u.recorded_at;
+  const ts = u.recorded_at ?? u.synced_at;
   if (!ts) return "";
   const diff = Date.now() - new Date(ts).getTime();
   const mins = Math.floor(diff / 60000);
@@ -105,15 +95,9 @@ export function UpdateRow({ u }: { u: RecentUpdate }) {
   const labels = getClientLabels(u.client_type);
   const songName =
     u.title ??
-    (u.song_sha256 ? u.song_sha256.slice(0, 8) + "…" : null) ??
-    (u.song_md5 ? u.song_md5.slice(0, 8) + "…" : "(알 수 없음)");
-  const clearChanged =
-    u.old_clear_type !== null && u.clear_type !== null && u.clear_type !== u.old_clear_type;
-  const scoreChanged = u.score !== null && u.old_score !== null && u.score !== u.old_score;
-  const rankChanged =
-    u.score_rate !== null &&
-    u.old_score_rate !== null &&
-    getRank(u.score_rate) !== getRank(u.old_score_rate);
+    (u.fumen_sha256 ? u.fumen_sha256.slice(0, 8) + "…" : null) ??
+    (u.fumen_md5 ? u.fumen_md5.slice(0, 8) + "…" : "(알 수 없음)");
+  const rankChanged = u.rank !== null;
   const firstClear = isFirstClear(u);
   const elapsed = formatElapsed(u);
 
@@ -136,11 +120,6 @@ export function UpdateRow({ u }: { u: RecentUpdate }) {
             )}
             {clearBadge(u.clear_type, u.client_type)}
             <span className="text-xs font-medium truncate max-w-[200px]">{songName}</span>
-            {u.subtitle && (
-              <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
-                {u.subtitle}
-              </span>
-            )}
           </div>
 
           {/* Difficulty level badges */}
@@ -157,21 +136,16 @@ export function UpdateRow({ u }: { u: RecentUpdate }) {
             </div>
           )}
 
-          {/* Changes: clear type, rank, score */}
+          {/* Changes: rank, exscore */}
           <div className="flex gap-2 flex-wrap">
-            {clearChanged && (
-              <span className="text-[10px] text-muted-foreground">
-                {labels[u.old_clear_type!]} → {labels[u.clear_type!]}
-              </span>
-            )}
             {rankChanged && (
               <span className="text-[10px] text-muted-foreground">
-                Rank: {getRank(u.old_score_rate)} → {getRank(u.score_rate)}
+                Rank: {u.rank}
               </span>
             )}
-            {scoreChanged && (
+            {u.exscore !== null && (
               <span className="text-[10px] text-muted-foreground font-mono">
-                {u.old_score?.toFixed(0)} → {u.score?.toFixed(0)}
+                EX: {u.exscore}
               </span>
             )}
           </div>
@@ -195,19 +169,38 @@ export function UpdateRow({ u }: { u: RecentUpdate }) {
       {/* Expanded detail */}
       {expanded && (
         <div className="border-t border-border/30 pt-2 mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
-          {(u.min_bp !== null || u.old_min_bp !== null) && (
+          {u.min_bp !== null && (
             <span className="text-[10px] text-muted-foreground">
-              BP: {u.old_min_bp ?? "–"} → {u.min_bp ?? "–"}
+              BP: {u.min_bp}
             </span>
           )}
-          {(u.play_count !== null || u.old_play_count !== null) && (
-            <span className="text-[10px] text-muted-foreground">
-              플레이 수: {u.old_play_count ?? "–"} → {u.play_count ?? "–"}
-            </span>
+          {u.play_count !== null && (
+            u.is_initial_sync ? (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-[10px] text-muted-foreground cursor-help">
+                      플레이 수: - → {u.play_count}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="text-xs">
+                    첫 동기화 — 이전 플레이 횟수 불명
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : u.prev_play_count !== null ? (
+              <span className="text-[10px] text-muted-foreground">
+                플레이 수: {u.prev_play_count} → {u.play_count}
+              </span>
+            ) : (
+              <span className="text-[10px] text-muted-foreground">
+                플레이 수: {u.play_count}
+              </span>
+            )
           )}
-          {u.score_rate !== null && (
+          {u.rate !== null && (
             <span className="text-[10px] text-muted-foreground">
-              스코어율: {(u.score_rate * 100).toFixed(1)}%
+              스코어율: {u.rate.toFixed(1)}%
             </span>
           )}
           {u.artist && (
@@ -271,9 +264,24 @@ export function RecentActivity({ clientType = "all" }: Props) {
               <div key={key}>
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-xs font-semibold text-muted-foreground">{label}</span>
-                  <span className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">
-                    {items.length}건
-                  </span>
+                  <div className="flex items-center gap-1">
+                    {(() => {
+                      const updateCount = items.filter(u => !u.is_stat_only).length;
+                      const playOnlyCount = items.filter(u => u.is_stat_only).length;
+                      return (
+                        <>
+                          <span className="text-[10px] bg-muted rounded px-1.5 py-0.5" style={{ color: "hsl(var(--primary))" }}>
+                            갱신 {updateCount}건
+                          </span>
+                          {playOnlyCount > 0 && (
+                            <span className="text-[10px] bg-muted rounded px-1.5 py-0.5" style={{ color: "hsl(var(--chart-play))" }}>
+                              플레이 {playOnlyCount}건
+                            </span>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
                 </div>
                 <div>
                   {items.map((u) => <UpdateRow key={u.id} u={u} />)}

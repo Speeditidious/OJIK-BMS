@@ -31,7 +31,7 @@ export default function DownloadPage() {
       <div className="space-y-2">
         <h1 className="text-3xl font-bold">OJIK BMS 클라이언트 다운로드</h1>
         <p className="text-muted-foreground">
-          로컬에 있는 BMS 파일들을 스캔하고 서버에 동기화하는 도구입니다.
+          로컬에 있는 BMS 데이터베이스들을 스캔하고 서버에 동기화하는 도구입니다.
         </p>
       </div>
 
@@ -142,7 +142,7 @@ export default function DownloadPage() {
               <div>
                 <p className="font-medium">경로 설정 후 동기화</p>
                 <p className="text-sm text-muted-foreground">
-                  BMS 곡 · 차분들이 담겨있는 폴더와 각 구동기의 플레이 데이터베이스 경로를 지정하면 자동으로 스캔 · 동기화됩니다.
+                  각 구동기의 데이터베이스 경로를 지정하면 자동으로 스캔 · 동기화됩니다.
                 </p>
               </div>
             </li>

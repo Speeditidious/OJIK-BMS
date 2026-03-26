@@ -135,7 +135,10 @@ async def discord_callback(
         db.add(oauth_account)
 
         # Add all default difficulty tables to favorites
-        from app.models.table import DifficultyTable, UserFavoriteTable
+        from app.models.difficulty_table import (
+            DifficultyTable,
+            UserFavoriteDifficultyTable,
+        )
 
         default_tables_result = await db.execute(
             select(DifficultyTable)
@@ -143,7 +146,7 @@ async def discord_callback(
             .order_by(DifficultyTable.id)
         )
         for order, table in enumerate(default_tables_result.scalars().all()):
-            db.add(UserFavoriteTable(user_id=user.id, table_id=table.id, display_order=order))
+            db.add(UserFavoriteDifficultyTable(user_id=user.id, table_id=table.id, display_order=order))
 
         await db.commit()
     else:
@@ -157,10 +160,13 @@ async def discord_callback(
 
         # Ensure default tables are favorited — handles accounts created before
         # the auto-favorite logic was introduced (one-time idempotent init).
-        from app.models.table import DifficultyTable, UserFavoriteTable
+        from app.models.difficulty_table import (
+            DifficultyTable,
+            UserFavoriteDifficultyTable,
+        )
 
         existing_fav = await db.execute(
-            select(UserFavoriteTable).where(UserFavoriteTable.user_id == user.id).limit(1)
+            select(UserFavoriteDifficultyTable).where(UserFavoriteDifficultyTable.user_id == user.id).limit(1)
         )
         if existing_fav.scalar_one_or_none() is None:
             default_tables_result = await db.execute(
@@ -169,7 +175,7 @@ async def discord_callback(
                 .order_by(DifficultyTable.id)
             )
             for order, table in enumerate(default_tables_result.scalars().all()):
-                db.add(UserFavoriteTable(user_id=user.id, table_id=table.id, display_order=order))
+                db.add(UserFavoriteDifficultyTable(user_id=user.id, table_id=table.id, display_order=order))
 
         await db.commit()
 

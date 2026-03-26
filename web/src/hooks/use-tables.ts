@@ -2,13 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
 export interface DifficultyTableItem {
-  id: number;
+  id: string;
   name: string;
   symbol: string | null;
   slug: string | null;
   source_url: string | null;
   is_default: boolean;
-  last_synced_at: string | null;
+  updated_at: string;
   song_count: number | null;
 }
 

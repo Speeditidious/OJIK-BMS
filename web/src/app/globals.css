@@ -53,6 +53,9 @@
     --clear-no-play: 220 10% 80%;
     --clear-perfect: 78  65% 52%;   /* lime        — PERFECT (above FC tier) */
     --clear-max:     330 65% 62%;   /* pink        — MAX (peak achievement) */
+
+    /* Activity chart: play count (separate from 기록 갱신) */
+    --chart-play: 207 50% 55%;
   }
 
   .dark {
@@ -105,6 +108,9 @@
     --clear-no-play: 220 15% 25%;   /* dim surface             — NO PLAY (internal 0) */
     --clear-perfect: 78  65% 72%;   /* lime                    — PERFECT (internal 8) */
     --clear-max:     330 65% 78%;   /* pink                    — MAX (internal 9) */
+
+    /* Activity chart: play count (separate from 기록 갱신) */
+    --chart-play: 207 50% 62%;
   }
 }
 

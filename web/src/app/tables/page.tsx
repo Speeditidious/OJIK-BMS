@@ -13,7 +13,7 @@ import { api } from "@/lib/api";
 import type { DifficultyTable } from "@/types";
 
 export default function TablesPage() {
-  const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
+  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const { user } = useAuthStore();
   const isLoggedIn = !!user;

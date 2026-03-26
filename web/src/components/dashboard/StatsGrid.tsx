@@ -1,6 +1,6 @@
 "use client";
 
-import { Info, Music2, Zap, Star } from "lucide-react";
+import { Info, Music2, Clock, Hammer } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,6 +11,15 @@ import {
 } from "@/components/ui/tooltip";
 import { usePlaySummary, ClientTypeFilter } from "@/hooks/use-analysis";
 import { cn } from "@/lib/utils";
+
+function formatPlaytime(seconds: number): string {
+  if (!seconds) return "0시간";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h >= 100) return `${h.toLocaleString()}시간`;
+  if (h > 0) return m > 0 ? `${h}시간 ${m}분` : `${h}시간`;
+  return `${m}분`;
+}
 
 const CLIENT_OPTIONS: { label: string; value: ClientTypeFilter }[] = [
   { label: "통합", value: "all" },
@@ -119,16 +128,16 @@ export function StatsGrid({ clientType, onClientTypeChange }: StatsGridProps) {
               icon={Music2}
             />
             <StatCard
-              title="격파한 노트 수"
-              value={data.total_notes.toLocaleString()}
-              sub="전체 플레이 누적 격파 노트 수"
-              icon={Zap}
+              title="총 플레이 시간"
+              value={formatPlaytime(data.total_playtime)}
+              sub="전체 플레이 누적 시간"
+              icon={Clock}
             />
             <StatCard
-              title="레이팅"
-              value="--"
-              sub="준비 중"
-              icon={Star}
+              title="총 격파한 노트 수"
+              value={data.total_notes_hit.toLocaleString()}
+              sub="누적 판정 합계"
+              icon={Hammer}
             />
           </>
         )}

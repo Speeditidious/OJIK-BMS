@@ -1,7 +1,7 @@
 import uuid
 
 from sqlalchemy import Boolean, ForeignKey, String, text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -20,6 +20,7 @@ class User(Base, TimestampMixin):
     is_public: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    first_synced_at: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Relationships
     oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(
@@ -33,14 +34,13 @@ class User(Base, TimestampMixin):
 class OAuthAccount(Base):
     __tablename__ = "oauth_accounts"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
         nullable=False,
-        index=True,
     )
-    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), primary_key=True, nullable=False)
     provider_account_id: Mapped[str] = mapped_column(String(128), nullable=False)
     provider_username: Mapped[str | None] = mapped_column(String(128), nullable=True)
     discord_avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)

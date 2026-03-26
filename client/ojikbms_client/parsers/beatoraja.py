@@ -1,5 +1,7 @@
 """Beatoraja score database parser.
 
+Note: rows where scorehash == 'LR2' in score.db are skipped entirely.
+
 Beatoraja uses SQLite databases located in the data/ directory:
 - data/score.db       : Current best scores (score table)
 - data/scorelog.db    : Score history (scorelog table)
@@ -50,6 +52,7 @@ class ParseStats:
     db_total: int = 0           # Total rows in score table (no filter)
     query_result_count: int = 0  # Rows returned after WHERE clause
     skipped_hash: int = 0       # Rows dropped due to missing/invalid hash
+    skipped_lr2: int = 0        # Rows intentionally skipped (LR2-imported records, not real Beatoraja scores)
     parsed_courses: int = 0     # Course (multi-song) records extracted for sync
     parsed: int = 0             # Single-song rows successfully converted to score dicts
 
@@ -57,6 +60,22 @@ class ParseStats:
     def skipped_filter(self) -> int:
         """Rows excluded by the playcount/mode/player WHERE clause."""
         return self.db_total - self.query_result_count
+
+    @property
+    def effective_total(self) -> int:
+        """Total rows excluding intentionally-skipped LR2 imports."""
+        return self.db_total - self.skipped_lr2
+
+
+@dataclass
+class ScoreLogStats:
+    """Counters collected during a single scorelog parser run."""
+
+    total_queried: int = 0      # Rows returned after WHERE clause
+    skipped_hash: int = 0       # Rows dropped due to missing/invalid sha256 (empty or len < 64)
+    skipped_duplicate: int = 0  # Rows skipped as duplicates of score.db entries
+    parsed: int = 0             # Single-song rows successfully added to history
+    parsed_courses: int = 0     # Course rows (sha256 len > 64) added to history
 
 
 # Beatoraja arrangement (note layout) enum — from Beatoraja open source (option column)
@@ -103,7 +122,7 @@ _JUDGMENT_CANDIDATES: dict[str, tuple[str, ...]] = {
     "epr": ("epr", "epoor", "earlypoor"),
     "lpr": ("lpr", "lpoor", "latepoor"),
     "ems": ("ems", "emiss", "miss"),
-    "lms": ("lms",),  # late miss — read separately and summed into "miss" judgments
+    "lms": ("lms",),  # late miss
     "maxcombo": ("maxcombo", "max_combo", "combo"),
     "minbp": ("minbp", "min_bp"),
     "playcount": ("playcount", "play_count"),
@@ -114,28 +133,27 @@ _JUDGMENT_CANDIDATES: dict[str, tuple[str, ...]] = {
     "arrangement": ("option",),
     "seed": ("seed",),
     "random_raw": ("random",),
+    "scorehash": ("scorehash",),
 }
 
 
-def _decode_beatoraja_options(arrangement_val: int, random_raw: int, seed: int) -> dict:
-    """Decode Beatoraja play options from raw DB integers.
+def _decode_beatoraja_options(mode_val: int, arrangement_val: int, seed: int, random_raw: int) -> dict:
+    """Return Beatoraja play options as raw DB integers.
 
     Args:
-        arrangement_val: option column value (arrangement enum index).
-        random_raw: random column value (purpose unknown; stored as raw).
+        mode_val: mode column value (0=SP, 1=DP).
+        arrangement_val: option column value (raw int, arrangement enum index).
         seed: seed column value (-1 means unused).
+        random_raw: random column value (raw int).
 
     Returns:
-        Dict with arrangement, seed, and random_raw keys.
+        Dict with mode, option, seed, random raw int keys.
     """
-    arr = BEATORAJA_ARRANGEMENT.get(arrangement_val, f"UNKNOWN({arrangement_val})")
     return {
-        "arrangement": arr,
-        "arrangement_2p": None,
-        "arrangement_raw": arrangement_val,
-        "history_raw": None,
-        "seed": seed if seed != -1 else None,
-        "random_raw": random_raw,
+        "mode": mode_val,
+        "option": arrangement_val,
+        "seed": seed,
+        "random": random_raw,
     }
 
 
@@ -206,6 +224,9 @@ def parse_beatoraja_scores(
 
         # Build SELECT for only existing columns
         select_cols = ["sha256", "clear"]
+        # Always include scorehash if present
+        if "scorehash" in available:
+            select_cols.append("scorehash")
         for col in cols.values():
             if col and col not in select_cols:
                 select_cols.append(col)
@@ -247,6 +268,13 @@ def parse_beatoraja_scores(
                 stats.skipped_hash += 1
                 continue
 
+            # Skip rows where scorehash == 'LR2' (Beatoraja marks LR2-imported scores this way).
+            # These are not real Beatoraja scores — counted separately, not as hash errors.
+            raw_scorehash = row["scorehash"] if "scorehash" in select_cols else None
+            if raw_scorehash and str(raw_scorehash).strip().upper() == "LR2":
+                stats.skipped_lr2 += 1
+                continue
+
             if len(sha256) > 64:
                 # Course (multi-song) record.
                 # Beatoraja format: N×64-char SHA256 hashes concatenated.
@@ -270,24 +298,23 @@ def parse_beatoraja_scores(
                         pass
 
                 clear_val_c = int(row["clear"]) if row["clear"] is not None else 0
-                exscore_c = _int(cols["exscore"])
                 notes_c = _int(cols["notes"])
-                score_rate_c = None
-                if exscore_c and notes_c:
-                    max_ex = notes_c * 2
-                    if max_ex > 0:
-                        score_rate_c = exscore_c / max_ex
+
+                scorehash_c = None
+                if raw_scorehash and str(raw_scorehash).strip().upper() != "LR2":
+                    scorehash_c = str(raw_scorehash).strip() or None
 
                 courses.append({
-                    "course_hash": sha256,
+                    "fumen_hash_others": sha256,
                     "client_type": "beatoraja",
+                    "scorehash": scorehash_c,
                     "clear_type": BEATORAJA_CLEAR_TYPE.get(clear_val_c, 0),
-                    "score_rate": score_rate_c,
+                    "notes": notes_c or None,
                     "max_combo": _int(cols["maxcombo"]) or None,
                     "min_bp": _int(cols["minbp"]) or None,
                     "play_count": _int(cols["playcount"]),
                     "clear_count": _int(cols["clearcount"]),
-                    "played_at": played_at_c,
+                    "recorded_at": played_at_c,
                     "song_hashes": [
                         {"song_md5": None, "song_sha256": s}
                         for s in song_sha256s
@@ -315,26 +342,22 @@ def parse_beatoraja_scores(
             eg = _int(cols["eg"])
             lg = _int(cols["lg"])
 
-            # Calculate score rate from exscore and notes.
-            # Fall back to computing exscore from judgment counts if the column is absent.
-            score_rate = None
-            exscore = _int(cols["exscore"])
-            if not exscore:
-                exscore = 2 * (ep + lp) + (eg + lg)
             notes = _int(cols["notes"])
-            if exscore and notes:
-                max_exscore = notes * 2  # PGreat=2, Great=1
-                if max_exscore > 0:
-                    score_rate = exscore / max_exscore
 
+            # Raw judgment keys (Beatoraja-native)
             judgments = {
-                "pgreat": ep + lp,
-                "great": eg + lg,
-                "good": _int(cols["egd"]) + _int(cols["lgd"]),
-                "bad": _int(cols["ebd"]) + _int(cols["lbd"]),
-                "poor": _int(cols["epr"]) + _int(cols["lpr"]),
-                "miss": _int(cols["ems"]) + _int(cols["lms"]),
-                "exscore": exscore,
+                "epg": ep,
+                "lpg": lp,
+                "egr": eg,
+                "lgr": lg,
+                "egd": _int(cols["egd"]),
+                "lgd": _int(cols["lgd"]),
+                "ebd": _int(cols["ebd"]),
+                "lbd": _int(cols["lbd"]),
+                "epr": _int(cols["epr"]),
+                "lpr": _int(cols["lpr"]),
+                "ems": _int(cols["ems"]),
+                "lms": _int(cols["lms"]),
             }
 
             clear_val = int(row["clear"]) if row["clear"] is not None else 0
@@ -346,25 +369,34 @@ def parse_beatoraja_scores(
             seed_val = int(row[seed_col]) if seed_col and row[seed_col] is not None else -1
             random_raw_val = int(row[random_raw_col]) if random_raw_col and row[random_raw_col] is not None else 0
 
+            # Extract scorehash; skip if it is 'LR2' (already filtered above for whole rows,
+            # but double-check here for safety)
+            scorehash_val = None
+            if raw_scorehash:
+                sh = str(raw_scorehash).strip()
+                if sh and sh.upper() != "LR2":
+                    scorehash_val = sh
+
             scores.append({
-                "song_sha256": sha256,
+                "fumen_sha256": sha256,
+                "scorehash": scorehash_val,
                 "client_type": "beatoraja",
                 "clear_type": BEATORAJA_CLEAR_TYPE.get(clear_val, 0),
-                "score_rate": score_rate,
+                "notes": notes or None,
                 "max_combo": _int(cols["maxcombo"]) or None,
                 "min_bp": _int(cols["minbp"]) or None,
                 "judgments": judgments,
                 "play_count": _int(cols["playcount"]),
                 "clear_count": _int(cols["clearcount"]),
-                "played_at": played_at,
-                "options": _decode_beatoraja_options(arrangement_val, random_raw_val, seed_val),
+                "recorded_at": played_at,
+                "options": _decode_beatoraja_options(mode, arrangement_val, seed_val, random_raw_val),
             })
 
     stats.parsed = len(scores)
     return scores, courses, stats
 
 
-def parse_beatoraja_player_stats(data_dir: str, player: int = 0) -> dict[str, int] | None:
+def parse_beatoraja_player_stats(data_dir: str, player: int = 0) -> dict | None:
     """Read cumulative totals from Beatoraja player table (most recent row).
 
     Args:
@@ -372,7 +404,8 @@ def parse_beatoraja_player_stats(data_dir: str, player: int = 0) -> dict[str, in
         player: Player slot (0=1P, 1=2P).
 
     Returns:
-        Dict with total_notes_hit and total_play_count, or None if table absent.
+        Dict with playcount, clearcount, playtime, and judgments (raw counts),
+        or None if player table is absent.
     """
     data_path = Path(data_dir)
     score_db = data_path / "score.db"
@@ -383,44 +416,48 @@ def parse_beatoraja_player_stats(data_dir: str, player: int = 0) -> dict[str, in
         with sqlite3.connect(str(score_db)) as conn:
             cursor = conn.cursor()
 
-            # Check if player table exists
             cursor.execute("PRAGMA table_info(player)")
             columns = {row[1] for row in cursor.fetchall()}
             if not columns:
                 return None
 
-            # Resolve judgment columns (Beatoraja uses epg/lpg/egr/lgr etc.)
-            hit_col_candidates = [
-                ("ep", ("epg", "ep")),
-                ("lp", ("lpg", "lp")),
-                ("eg", ("egr", "eg")),
-                ("lg", ("lgr", "lg")),
+            # All judgment field candidates for Beatoraja player table
+            judgment_candidates = [
+                ("epg", ("epg", "ep")),
+                ("lpg", ("lpg", "lp")),
+                ("egr", ("egr", "eg")),
+                ("lgr", ("lgr", "lg")),
                 ("egd", ("egd",)),
                 ("lgd", ("lgd",)),
                 ("ebd", ("ebd",)),
                 ("lbd", ("lbd",)),
-                # epr/lpr (Poor) and ems/lms (Miss) are excluded: key was not pressed
-                # within the note's timing window, so they do not count as notes hit.
+                ("epr", ("epr",)),
+                ("lpr", ("lpr",)),
+                ("ems", ("ems",)),
+                ("lms", ("lms",)),
             ]
-            resolved_hit_cols = [
-                _resolve_col(columns, cands)
-                for _, cands in hit_col_candidates
+            resolved_judgment = [
+                (key, _resolve_col(columns, cands))
+                for key, cands in judgment_candidates
             ]
-            resolved_hit_cols = [c for c in resolved_hit_cols if c]
+            resolved_judgment = [(k, c) for k, c in resolved_judgment if c]
 
-            if not resolved_hit_cols:
+            if not resolved_judgment:
                 return None
 
             date_col = _resolve_col(columns, ("date", "timestamp"))
-            pc_col = _resolve_col(columns, ("playcount", "play_count"))
+            pc_col   = _resolve_col(columns, ("playcount", "play_count"))
+            cc_col   = _resolve_col(columns, ("clear", "clearcount", "clear_count"))
+            pt_col   = _resolve_col(columns, ("playtime", "play_time"))
             has_player_col = "player" in columns
 
-            select_parts = resolved_hit_cols[:]
-            if pc_col:
-                select_parts.append(pc_col)
+            select_parts = list(dict.fromkeys(
+                [c for _, c in resolved_judgment]
+                + [c for c in [pc_col, cc_col, pt_col] if c]
+            ))
 
-            where_parts = []
-            params = []
+            where_parts: list[str] = []
+            params: list[Any] = []
             if has_player_col:
                 where_parts.append("player = ?")
                 params.append(player)
@@ -437,19 +474,24 @@ def parse_beatoraja_player_stats(data_dir: str, player: int = 0) -> dict[str, in
                 return None
 
             col_index = {col: i for i, col in enumerate(select_parts)}
-            total_notes_hit = sum(
-                int(row[col_index[c]] or 0) for c in resolved_hit_cols
-            )
 
-            total_play_count = None
-            if pc_col and pc_col in col_index:
-                val = row[col_index[pc_col]]
-                if val is not None:
-                    total_play_count = int(val)
+            def _val(col: str | None) -> int | None:
+                if col and col in col_index:
+                    v = row[col_index[col]]
+                    return int(v) if v is not None else None
+                return None
+
+            judgments = {}
+            for key, col in resolved_judgment:
+                v = _val(col)
+                if v is not None:
+                    judgments[key] = v
 
             return {
-                "total_notes_hit": total_notes_hit,
-                "total_play_count": total_play_count,
+                "playcount":  _val(pc_col),
+                "clearcount": _val(cc_col),
+                "playtime":   _val(pt_col),
+                "judgments":  judgments or None,
             }
     except Exception:
         return None
@@ -461,14 +503,175 @@ def _list_tables(cursor: sqlite3.Cursor) -> list[str]:
     return [row[0] for row in cursor.fetchall()]
 
 
+def parse_beatoraja_songdata(db_path: str) -> list[dict[str, Any]]:
+    """Parse Beatoraja songdata.db and return song metadata items.
+
+    Each returned dict currently contains at minimum 'md5' and 'sha256' when
+    both are present and non-empty. Additional fields (title, artist, bpm, etc.)
+    are included as-is for forward compatibility — callers decide which fields
+    to use.
+
+    Only rows where both md5 and sha256 are non-empty are returned (rows
+    lacking either hash cannot contribute to hash supplementation).
+
+    Args:
+        db_path: Full path to songdata.db.
+
+    Returns:
+        List of dicts with at least {'md5': str, 'sha256': str, ...}.
+        Returns [] on error or if the file does not exist.
+    """
+    db_file = Path(db_path)
+    if not db_file.exists():
+        return []
+
+    # Beatoraja songdata.db table candidates (varies slightly by version)
+    table_candidates = ("song", "musics", "music")
+    # Column name candidates for each key field
+    md5_candidates = ("md5",)
+    sha256_candidates = ("sha256",)
+
+    items: list[dict[str, Any]] = []
+    try:
+        with sqlite3.connect(str(db_file)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            # Find the song table
+            tables = _list_tables(cursor)
+            table = next((t for t in table_candidates if t in tables), None)
+            if table is None:
+                return []
+
+            columns = _get_columns(cursor, table)
+            md5_col = _resolve_col(columns, md5_candidates)
+            sha256_col = _resolve_col(columns, sha256_candidates)
+            if not md5_col or not sha256_col:
+                return []
+
+            # Collect all available extra columns for forward compatibility
+            extra_cols = sorted(
+                c for c in columns
+                if c not in {md5_col, sha256_col}
+            )
+            select_cols = ", ".join([sha256_col, md5_col] + extra_cols)
+
+            cursor.execute(
+                f"SELECT {select_cols} FROM {table} "
+                f"WHERE {sha256_col} != '' AND {sha256_col} IS NOT NULL "
+                f"  AND {md5_col}    != '' AND {md5_col}    IS NOT NULL"
+            )
+
+            for row in cursor.fetchall():
+                sha256_val = row[sha256_col]
+                md5_val    = row[md5_col]
+                # Basic sanity check on hash lengths
+                if not sha256_val or len(sha256_val) != 64:
+                    continue
+                if not md5_val or len(md5_val) != 32:
+                    continue
+
+                item: dict[str, Any] = {
+                    "sha256": sha256_val.lower(),
+                    "md5":    md5_val.lower(),
+                }
+                for col in extra_cols:
+                    item[col] = row[col]
+                items.append(item)
+
+    except Exception:
+        return []
+
+    return items
+
+
+def parse_beatoraja_songinfo(db_path: str) -> dict[str, dict[str, Any]]:
+    """Parse Beatoraja songinfo.db and return note analysis data keyed by sha256.
+
+    Args:
+        db_path: Full path to songinfo.db.
+
+    Returns:
+        Dict mapping sha256 (lowercase) to {n, ln, s, ls, total, mainbpm}.
+        Returns {} on error or if the file does not exist.
+    """
+    db_file = Path(db_path)
+    if not db_file.exists():
+        return {}
+
+    result: dict[str, dict[str, Any]] = {}
+    try:
+        with sqlite3.connect(str(db_file)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            columns = _get_columns(cursor, "information")
+            if not columns:
+                return {}
+
+            sha256_col = _resolve_col(columns, ("sha256",))
+            if not sha256_col:
+                return {}
+
+            n_col = _resolve_col(columns, ("n",))
+            ln_col = _resolve_col(columns, ("ln",))
+            s_col = _resolve_col(columns, ("s",))
+            ls_col = _resolve_col(columns, ("ls",))
+            total_col = _resolve_col(columns, ("total",))
+            mainbpm_col = _resolve_col(columns, ("mainbpm",))
+
+            select_parts = [sha256_col]
+            for col in (n_col, ln_col, s_col, ls_col, total_col, mainbpm_col):
+                if col:
+                    select_parts.append(col)
+
+            cursor.execute(
+                f"SELECT {', '.join(select_parts)} FROM information "
+                f"WHERE {sha256_col} IS NOT NULL AND {sha256_col} != ''"
+            )
+
+            for row in cursor.fetchall():
+                sha256_val = row[sha256_col]
+                if not sha256_val or len(sha256_val) != 64:
+                    continue
+                key = sha256_val.lower()
+                entry: dict[str, Any] = {}
+                if n_col:
+                    entry["n"] = row[n_col]
+                if ln_col:
+                    entry["ln"] = row[ln_col]
+                if s_col:
+                    entry["s"] = row[s_col]
+                if ls_col:
+                    entry["ls"] = row[ls_col]
+                if total_col:
+                    entry["total"] = row[total_col]
+                if mainbpm_col:
+                    entry["mainbpm"] = row[mainbpm_col]
+                result[key] = entry
+
+    except Exception:
+        return {}
+
+    return result
+
+
 def parse_beatoraja_score_log(
     data_dir: str,
     mode: int = 0,
     player: int = 0,
     since_timestamp: int | None = None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], ScoreLogStats]:
     """
     Parse Beatoraja scorelog.db for score history.
+
+    scorelog.db records best-score improvements only (not every play).
+    Columns extracted: sha256, clear, score (exscore), combo (maxcombo), minbp, date.
+    old* columns (oldclear, oldscore, oldcombo, oldminbp) are intentionally excluded —
+    only the new (improved) values are used.
+
+    Entries whose (sha256, date) pair already exists in score.db are skipped to
+    avoid uploading the same record twice.
 
     Args:
         data_dir: Path to the Beatoraja data directory.
@@ -477,15 +680,45 @@ def parse_beatoraja_score_log(
         since_timestamp: Only return entries after this Unix timestamp.
 
     Returns:
-        List of score history dicts.
+        Tuple of (history list, ScoreLogStats).
+        History list contains score dicts compatible with ScoreSyncItem schema.
     """
     data_path = Path(data_dir)
     scorelog_db = data_path / "scorelog.db"
 
     if not scorelog_db.exists():
-        return []
+        return [], ScoreLogStats()
+
+    # Build (sha256, date) set from score.db to skip duplicate entries.
+    # score.db stores the current best per sha256; scorelog.db may contain
+    # the same (sha256, date) row representing that best score.
+    score_db_pairs: set[tuple[str, int]] = set()
+    score_db = data_path / "score.db"
+    if score_db.exists():
+        with sqlite3.connect(str(score_db)) as score_conn:
+            score_cursor = score_conn.cursor()
+            score_cursor.execute("PRAGMA table_info(score)")
+            score_cols = {row[1] for row in score_cursor.fetchall()}
+            if "sha256" in score_cols and "date" in score_cols:
+                where_parts_s: list[str] = []
+                params_s: list[Any] = []
+                if "mode" in score_cols:
+                    where_parts_s.append("mode = ?")
+                    params_s.append(mode)
+                if "player" in score_cols:
+                    where_parts_s.append("player = ?")
+                    params_s.append(player)
+                where_s = ("WHERE " + " AND ".join(where_parts_s)) if where_parts_s else ""
+                score_cursor.execute(
+                    f"SELECT sha256, date FROM score {where_s}",
+                    params_s,
+                )
+                for s_row in score_cursor.fetchall():
+                    if s_row[0] and s_row[1] is not None:
+                        score_db_pairs.add((s_row[0].strip().lower(), int(s_row[1])))
 
     history: list[dict[str, Any]] = []
+    stats = ScoreLogStats()
 
     with sqlite3.connect(str(scorelog_db)) as conn:
         conn.row_factory = sqlite3.Row
@@ -498,7 +731,7 @@ def parse_beatoraja_score_log(
         has_mode = "mode" in available
         has_player = "player" in available
 
-        where_parts = []
+        where_parts: list[str] = []
         params: list[Any] = []
         if has_mode:
             where_parts.append("mode = ?")
@@ -512,7 +745,10 @@ def parse_beatoraja_score_log(
 
         where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
-        # Resolve actual column names for scorelog (differ from score.db)
+        # Resolve column names that vary across Beatoraja versions.
+        # scorelog has no scorehash column — do not attempt to read one.
+        # old* columns (oldclear, oldscore, oldcombo, oldminbp) are present but
+        # intentionally excluded; only the current (improved) values are synced.
         score_col = "score" if "score" in available else "exscore"
         combo_col = "combo" if "combo" in available else "maxcombo"
 
@@ -522,27 +758,61 @@ def parse_beatoraja_score_log(
             params,
         )
 
-        for row in cursor.fetchall():
-            sha256 = row["sha256"]
-            if not sha256:
+        rows = cursor.fetchall()
+        stats.total_queried = len(rows)
+
+        for row in rows:
+            sha256 = (row["sha256"] or "").strip().lower()
+            if not sha256 or len(sha256) < 64:
+                stats.skipped_hash += 1
+                continue
+
+            date_unix = row["date"]
+
+            # Skip entries already present in score.db (same sha256 + date).
+            if date_unix is not None and (sha256, int(date_unix)) in score_db_pairs:
+                stats.skipped_duplicate += 1
                 continue
 
             played_at = None
-            if row["date"]:
+            if date_unix:
                 try:
                     played_at = datetime.fromtimestamp(
-                        row["date"], tz=UTC
+                        date_unix, tz=UTC
                     ).isoformat()
                 except (ValueError, OSError):
                     pass
 
+            if len(sha256) > 64:
+                # Course record — concatenated N×64-char SHA256 hashes.
+                # scorelog.db lacks scorehash, notes, play_count, clear_count —
+                # those fields are omitted (server treats them as optional).
+                history.append({
+                    "fumen_hash_others": sha256,
+                    "scorehash": None,
+                    "client_type": "beatoraja",
+                    "clear_type": BEATORAJA_CLEAR_TYPE.get(row["clear"] or 0, 0),
+                    "max_combo": row[combo_col],
+                    "min_bp": row["minbp"],
+                    "exscore": row[score_col],
+                    "recorded_at": played_at,
+                    "song_hashes": [],
+                })
+                stats.parsed_courses += 1
+                continue
+
             history.append({
-                "sha256": sha256,
+                "fumen_sha256": sha256,
+                # scorelog.db has no scorehash column — set to None so the server
+                # performs a plain INSERT without deduplication on scorehash.
+                "scorehash": None,
+                "client_type": "beatoraja",
                 "clear_type": BEATORAJA_CLEAR_TYPE.get(row["clear"] or 0, 0),
                 "exscore": row[score_col],
                 "max_combo": row[combo_col],
                 "min_bp": row["minbp"],
-                "played_at": played_at,
+                "recorded_at": played_at,
             })
+            stats.parsed += 1
 
-    return history
+    return history, stats

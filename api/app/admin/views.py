@@ -1,22 +1,26 @@
 """sqladmin ModelView definitions for all OJIK BMS models.
 
 Data integrity rules applied here mirror the constraints in the API:
-- Append-only tables (ScoreHistory, CourseScoreHistory): read-only.
-- Best-score tables (UserScore, UserCourseScore): no create, no delete.
+- Best-score tables (UserScore): no create, no delete.
 - User: no delete (prevents accidental cascade wipeout).
-- ChatbotDocument: embedding column excluded (pgvector breaks the form renderer).
 """
-from sqladmin import ModelView
+import uuid
 
-from app.models.chatbot import (
-    ChatbotConversation,
-    ChatbotDocument,
-    ChatbotUsageLimit,
+from sqladmin import ModelView, action
+from sqlalchemy import delete, null, update
+from starlette.requests import Request
+from starlette.responses import RedirectResponse
+
+from app.models.course import Course
+from app.models.difficulty_table import (
+    CustomCourse,
+    CustomDifficultyTable,
+    DifficultyTable,
+    UserFavoriteDifficultyTable,
 )
-from app.models.course import Course, CourseScoreHistory, UserCourseScore
-from app.models.score import ScoreHistory, UserPlayerStats, UserScore
-from app.models.song import Song
-from app.models.table import CustomCourse, CustomTable, DifficultyTable, Schedule
+from app.models.fumen import Fumen, UserFumenTag
+from app.models.schedule import Schedule
+from app.models.score import UserPlayerStats, UserScore
 from app.models.user import OAuthAccount, User
 
 
@@ -29,13 +33,43 @@ class UserAdmin(ModelView, model=User):
     column_sortable_list = [User.username, User.created_at, User.is_active, User.is_admin]
     can_delete = False  # Deleting a user triggers cascades across all score tables
 
+    @action(
+        name="reset_play_data",
+        label="플레이 데이터 초기화",
+        confirmation_message=(
+            "선택한 유저의 모든 플레이 데이터(user_scores, user_player_stats, first_synced_at)가 삭제됩니다. "
+            "이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?"
+        ),
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def reset_play_data(self, request: Request) -> RedirectResponse:
+        """Delete all play data for selected users (dev/admin use only)."""
+        from app.core.database import AsyncSessionLocal
+
+        pks = request.query_params.get("pks", "")
+        user_ids = [uid.strip() for uid in pks.split(",") if uid.strip()]
+
+        if user_ids:
+            async with AsyncSessionLocal() as db:
+                for uid_str in user_ids:
+                    try:
+                        uid = uuid.UUID(uid_str)
+                    except ValueError:
+                        continue
+                    await db.execute(delete(UserScore).where(UserScore.user_id == uid))
+                    await db.execute(delete(UserPlayerStats).where(UserPlayerStats.user_id == uid))
+                    await db.execute(update(User).where(User.id == uid).values(first_synced_at=null()))
+                await db.commit()
+
+        return RedirectResponse(request.url_for("admin:list", identity="user"), status_code=302)
+
 
 class OAuthAccountAdmin(ModelView, model=OAuthAccount):
     name = "OAuth Account"
     name_plural = "OAuth Accounts"
     icon = "fa-brands fa-discord"
     column_list = [
-        OAuthAccount.id,
         OAuthAccount.user_id,
         OAuthAccount.provider,
         OAuthAccount.provider_account_id,
@@ -55,20 +89,19 @@ class DifficultyTableAdmin(ModelView, model=DifficultyTable):
         DifficultyTable.symbol,
         DifficultyTable.slug,
         DifficultyTable.is_default,
-        DifficultyTable.last_synced_at,
+        DifficultyTable.updated_at,
     ]
     column_searchable_list = [DifficultyTable.name, DifficultyTable.slug]
-    column_sortable_list = [DifficultyTable.id, DifficultyTable.name, DifficultyTable.last_synced_at]
-    # table_data (large JSONB) is intentionally omitted from column_list above
+    column_sortable_list = [DifficultyTable.id, DifficultyTable.name, DifficultyTable.updated_at]
 
 
-class SongAdmin(ModelView, model=Song):
-    name = "Song"
-    name_plural = "Songs"
+class FumenAdmin(ModelView, model=Fumen):
+    name = "Fumen"
+    name_plural = "Fumens"
     icon = "fa-solid fa-music"
-    column_list = [Song.id, Song.title, Song.artist, Song.md5, Song.sha256, Song.bpm]
-    column_searchable_list = [Song.title, Song.artist, Song.md5, Song.sha256]
-    column_sortable_list = [Song.title, Song.artist, Song.bpm, Song.created_at]
+    column_list = [Fumen.title, Fumen.artist, Fumen.md5, Fumen.sha256, Fumen.bpm_max]
+    column_searchable_list = [Fumen.title, Fumen.artist, Fumen.md5, Fumen.sha256]
+    column_sortable_list = [Fumen.title, Fumen.artist, Fumen.bpm_max, Fumen.created_at]
 
 
 class UserScoreAdmin(ModelView, model=UserScore):
@@ -78,39 +111,21 @@ class UserScoreAdmin(ModelView, model=UserScore):
     column_list = [
         UserScore.id,
         UserScore.user_id,
-        UserScore.song_sha256,
-        UserScore.song_md5,
+        UserScore.scorehash,
+        UserScore.fumen_sha256,
+        UserScore.fumen_md5,
+        UserScore.fumen_hash_others,
         UserScore.client_type,
         UserScore.clear_type,
-        UserScore.score_rate,
+        UserScore.rate,
         UserScore.play_count,
-        UserScore.played_at,
+        UserScore.recorded_at,
+        UserScore.synced_at,
     ]
-    column_searchable_list = [UserScore.song_sha256, UserScore.song_md5]
-    column_sortable_list = [UserScore.played_at, UserScore.synced_at, UserScore.score_rate]
+    column_searchable_list = [UserScore.fumen_sha256, UserScore.fumen_md5, UserScore.scorehash]
+    column_sortable_list = [UserScore.recorded_at, UserScore.synced_at, UserScore.rate]
     can_create = False  # Scores must enter through the sync pipeline
-    can_delete = False  # Blind deletion would break score history continuity
-
-
-class ScoreHistoryAdmin(ModelView, model=ScoreHistory):
-    name = "Score History"
-    name_plural = "Score History"
-    icon = "fa-solid fa-clock-rotate-left"
-    column_list = [
-        ScoreHistory.id,
-        ScoreHistory.user_id,
-        ScoreHistory.song_sha256,
-        ScoreHistory.client_type,
-        ScoreHistory.clear_type,
-        ScoreHistory.score_rate,
-        ScoreHistory.recorded_at,
-    ]
-    column_searchable_list = [ScoreHistory.song_sha256, ScoreHistory.song_md5]
-    column_sortable_list = [ScoreHistory.recorded_at]
-    # Append-only: no mutations allowed
-    can_create = False
-    can_edit = False
-    can_delete = False
+    can_delete = False  # Blind deletion would break score continuity
 
 
 class UserPlayerStatsAdmin(ModelView, model=UserPlayerStats):
@@ -118,78 +133,68 @@ class UserPlayerStatsAdmin(ModelView, model=UserPlayerStats):
     name_plural = "Player Stats"
     icon = "fa-solid fa-chart-bar"
     column_list = [
+        UserPlayerStats.id,
         UserPlayerStats.user_id,
         UserPlayerStats.client_type,
-        UserPlayerStats.total_notes_hit,
-        UserPlayerStats.total_play_count,
+        UserPlayerStats.playcount,
+        UserPlayerStats.clearcount,
+        UserPlayerStats.playtime,
         UserPlayerStats.synced_at,
     ]
-    column_sortable_list = [UserPlayerStats.synced_at, UserPlayerStats.total_notes_hit]
+    column_sortable_list = [UserPlayerStats.synced_at, UserPlayerStats.playcount]
+    # judgments (JSONB) intentionally omitted from column_list
 
 
 class CourseAdmin(ModelView, model=Course):
     name = "Course"
     name_plural = "Courses"
     icon = "fa-solid fa-list-ol"
-    column_list = [Course.course_hash, Course.source, Course.song_count, Course.created_at]
-    column_searchable_list = [Course.course_hash]
-    column_sortable_list = [Course.created_at, Course.song_count, Course.source]
+    column_list = [Course.id, Course.name, Course.source_table_id, Course.is_active, Course.dan_title, Course.synced_at]
+    column_searchable_list = [Course.name, Course.dan_title]
+    column_sortable_list = [Course.synced_at, Course.is_active, Course.name]
 
 
-class UserCourseScoreAdmin(ModelView, model=UserCourseScore):
-    name = "User Course Score"
-    name_plural = "User Course Scores"
-    icon = "fa-solid fa-trophy"
+
+class UserFavoriteDifficultyTableAdmin(ModelView, model=UserFavoriteDifficultyTable):
+    name = "Favorite Table"
+    name_plural = "Favorite Tables"
+    icon = "fa-solid fa-star"
     column_list = [
-        UserCourseScore.id,
-        UserCourseScore.user_id,
-        UserCourseScore.course_hash,
-        UserCourseScore.client_type,
-        UserCourseScore.clear_type,
-        UserCourseScore.score_rate,
-        UserCourseScore.play_count,
-        UserCourseScore.played_at,
+        UserFavoriteDifficultyTable.user_id,
+        UserFavoriteDifficultyTable.table_id,
+        UserFavoriteDifficultyTable.display_order,
     ]
-    column_searchable_list = [UserCourseScore.course_hash]
-    column_sortable_list = [UserCourseScore.played_at, UserCourseScore.score_rate]
-    can_create = False
-    can_delete = False
+    column_sortable_list = [UserFavoriteDifficultyTable.display_order]
 
 
-class CourseScoreHistoryAdmin(ModelView, model=CourseScoreHistory):
-    name = "Course Score History"
-    name_plural = "Course Score History"
-    icon = "fa-solid fa-flag-checkered"
+class UserFumenTagAdmin(ModelView, model=UserFumenTag):
+    name = "Fumen Tag"
+    name_plural = "Fumen Tags"
+    icon = "fa-solid fa-tag"
     column_list = [
-        CourseScoreHistory.id,
-        CourseScoreHistory.user_id,
-        CourseScoreHistory.course_hash,
-        CourseScoreHistory.client_type,
-        CourseScoreHistory.clear_type,
-        CourseScoreHistory.score_rate,
-        CourseScoreHistory.recorded_at,
+        UserFumenTag.id,
+        UserFumenTag.user_id,
+        UserFumenTag.fumen_sha256,
+        UserFumenTag.fumen_md5,
+        UserFumenTag.tag,
     ]
-    column_searchable_list = [CourseScoreHistory.course_hash]
-    column_sortable_list = [CourseScoreHistory.recorded_at]
-    # Append-only: no mutations allowed
-    can_create = False
-    can_edit = False
-    can_delete = False
+    column_searchable_list = [UserFumenTag.tag, UserFumenTag.fumen_sha256, UserFumenTag.fumen_md5]
+    column_sortable_list = [UserFumenTag.tag]
 
 
-class CustomTableAdmin(ModelView, model=CustomTable):
+class CustomDifficultyTableAdmin(ModelView, model=CustomDifficultyTable):
     name = "Custom Table"
     name_plural = "Custom Tables"
     icon = "fa-solid fa-table-columns"
     column_list = [
-        CustomTable.id,
-        CustomTable.owner_id,
-        CustomTable.name,
-        CustomTable.is_public,
-        CustomTable.created_at,
+        CustomDifficultyTable.id,
+        CustomDifficultyTable.owner_id,
+        CustomDifficultyTable.name,
+        CustomDifficultyTable.is_public,
+        CustomDifficultyTable.created_at,
     ]
-    column_searchable_list = [CustomTable.name]
-    column_sortable_list = [CustomTable.name, CustomTable.created_at, CustomTable.is_public]
+    column_searchable_list = [CustomDifficultyTable.name]
+    column_sortable_list = [CustomDifficultyTable.name, CustomDifficultyTable.created_at, CustomDifficultyTable.is_public]
 
 
 class CustomCourseAdmin(ModelView, model=CustomCourse):
@@ -221,45 +226,3 @@ class ScheduleAdmin(ModelView, model=Schedule):
     column_sortable_list = [Schedule.scheduled_date, Schedule.is_completed]
 
 
-class ChatbotDocumentAdmin(ModelView, model=ChatbotDocument):
-    name = "Chatbot Document"
-    name_plural = "Chatbot Documents"
-    icon = "fa-solid fa-file-lines"
-    column_list = [
-        ChatbotDocument.id,
-        ChatbotDocument.category,
-        ChatbotDocument.title,
-        ChatbotDocument.chunk_index,
-        ChatbotDocument.updated_at,
-    ]
-    column_searchable_list = [ChatbotDocument.title, ChatbotDocument.category]
-    column_sortable_list = [ChatbotDocument.category, ChatbotDocument.updated_at]
-    # pgvector column crashes the form renderer — always exclude it from forms
-    # (embedding is also omitted from column_list above)
-    form_excluded_columns = [ChatbotDocument.embedding]
-
-
-class ChatbotConversationAdmin(ModelView, model=ChatbotConversation):
-    name = "Chatbot Conversation"
-    name_plural = "Chatbot Conversations"
-    icon = "fa-solid fa-comments"
-    column_list = [
-        ChatbotConversation.id,
-        ChatbotConversation.user_id,
-        ChatbotConversation.created_at,
-        ChatbotConversation.summary,
-    ]
-    column_sortable_list = [ChatbotConversation.created_at]
-
-
-class ChatbotUsageLimitAdmin(ModelView, model=ChatbotUsageLimit):
-    name = "Chatbot Usage Limit"
-    name_plural = "Chatbot Usage Limits"
-    icon = "fa-solid fa-gauge"
-    column_list = [
-        ChatbotUsageLimit.user_id,
-        ChatbotUsageLimit.date,
-        ChatbotUsageLimit.request_count,
-        ChatbotUsageLimit.token_count,
-    ]
-    column_sortable_list = [ChatbotUsageLimit.date, ChatbotUsageLimit.request_count]

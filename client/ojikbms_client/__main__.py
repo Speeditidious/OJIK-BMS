@@ -7,12 +7,14 @@ from rich.table import Table
 
 from ojikbms_client import __version__
 from ojikbms_client.config import (
-    add_bms_folder,
     get_api_url,
     load_config,
     set_api_url,
     set_beatoraja_db_dir,
+    set_beatoraja_songdata_db_path,
+    set_beatoraja_songinfo_db_path,
     set_lr2_db_path,
+    set_lr2_song_db_path,
 )
 
 console = Console()
@@ -96,62 +98,10 @@ def logout() -> None:
 
 
 @cli.command()
-@click.option("--lr2-db", help="LR2 score.db 파일 경로")
-@click.option("--beatoraja-dir", help="Beatoraja data 디렉토리 경로")
-@click.option("--bms-folder", multiple=True, help="BMS 파일 폴더 경로 (여러 개 가능)")
-def sync(
-    lr2_db: str | None,
-    beatoraja_dir: str | None,
-    bms_folder: tuple[str, ...],
-) -> None:
-    """스코어 및 BMS 파일을 서버와 동기화합니다."""
-    from ojikbms_client.auth import is_logged_in
-    from ojikbms_client.sync import run_full_sync
-
-    if not is_logged_in():
-        console.print("[red]로그인이 필요합니다. `ojikbms-client login` 을 먼저 실행하세요.[/red]")
-        return
-
-    config = load_config()
-
-    # Use CLI args if provided, otherwise use config
-    lr2_db_path = lr2_db or config.get("lr2_db_path")
-    beatoraja_db_dir = beatoraja_dir or config.get("beatoraja_db_dir")
-    bms_folders = list(bms_folder) or config.get("bms_folders", [])
-
-    if not lr2_db_path and not beatoraja_db_dir:
-        console.print(
-            "[yellow]LR2 DB 또는 Beatoraja DB 경로를 설정해주세요.[/yellow]\n"
-            "  ojikbms-client config set-lr2 <경로>\n"
-            "  ojikbms-client config set-beatoraja <경로>"
-        )
-        return
-
-    console.print("[bold]OJIK BMS 동기화 시작...[/bold]\n")
-    run_full_sync(
-        lr2_db_path=lr2_db_path,
-        beatoraja_db_dir=beatoraja_db_dir,
-        bms_folders=bms_folders,
-    )
-
-
-@cli.command()
-@click.argument("folder", required=False)
-def scan(folder: str | None) -> None:
-    """BMS 폴더를 스캔하여 파일 수와 해시를 확인합니다."""
-    from ojikbms_client.parsers.bms_scanner import scan_bms_folders
-
-    config = load_config()
-    folders = [folder] if folder else config.get("bms_folders", [])
-
-    if not folders:
-        console.print("[yellow]스캔할 폴더가 없습니다. --folder 옵션으로 폴더를 지정하세요.[/yellow]")
-        return
-
-    console.print(f"[bold]{len(folders)}개 폴더 스캔 중...[/bold]")
-    songs, _ = scan_bms_folders(folders)
-
-    console.print(f"\n[green]스캔 완료:[/green] {len(songs)}개 BMS 파일 발견")
+def sync() -> None:
+    """GUI를 통해 동기화를 실행합니다. (ojikbms-client gui)"""
+    console.print("[yellow]CLI 동기화는 지원하지 않습니다. GUI를 사용하세요:[/yellow]")
+    console.print("  ojikbms-client gui")
 
 
 @cli.group()
@@ -169,9 +119,16 @@ def config_show() -> None:
     table.add_column("값", style="green")
 
     table.add_row("API URL", cfg.get("api_url", ""))
-    table.add_row("LR2 DB 경로", cfg.get("lr2_db_path") or "미설정")
-    table.add_row("Beatoraja 디렉토리", cfg.get("beatoraja_db_dir") or "미설정")
-    table.add_row("BMS 폴더", "\n".join(cfg.get("bms_folders", [])) or "미설정")
+    table.add_row("", "")
+    table.add_row("[bold]LR2[/bold]", "")
+    table.add_row("  기록 DB", cfg.get("lr2_db_path") or "미설정")
+    table.add_row("  차분 DB (song.db)", cfg.get("lr2_song_db_path") or "미설정")
+    table.add_row("", "")
+    table.add_row("[bold]Beatoraja[/bold]", "")
+    table.add_row("  기록 DB 폴더", cfg.get("beatoraja_db_dir") or "미설정")
+    table.add_row("  차분 DB (songdata.db)", cfg.get("beatoraja_songdata_db_path") or "미설정")
+    table.add_row("  차분 정보 DB (songinfo.db)", cfg.get("beatoraja_songinfo_db_path") or "미설정")
+    table.add_row("", "")
     table.add_row("마지막 동기화", cfg.get("last_synced_at") or "없음")
 
     console.print(table)
@@ -196,17 +153,33 @@ def config_set_lr2(path: str) -> None:
 @config.command("set-beatoraja")
 @click.argument("path")
 def config_set_beatoraja(path: str) -> None:
-    """Beatoraja data 디렉토리 경로를 설정합니다."""
+    """Beatoraja 기록 DB 폴더 경로를 설정합니다."""
     set_beatoraja_db_dir(path)
-    console.print(f"[green]Beatoraja 디렉토리 설정됨: {path}[/green]")
+    console.print(f"[green]Beatoraja 기록 DB 폴더 설정됨: {path}[/green]")
 
 
-@config.command("add-folder")
-@click.argument("folder")
-def config_add_folder(folder: str) -> None:
-    """BMS 파일 폴더를 추가합니다."""
-    add_bms_folder(folder)
-    console.print(f"[green]폴더 추가됨: {folder}[/green]")
+@config.command("set-lr2-song")
+@click.argument("path")
+def config_set_lr2_song(path: str) -> None:
+    """LR2 차분 DB(song.db) 경로를 설정합니다."""
+    set_lr2_song_db_path(path)
+    console.print(f"[green]LR2 차분 DB 경로 설정됨: {path}[/green]")
+
+
+@config.command("set-beatoraja-songdata")
+@click.argument("path")
+def config_set_beatoraja_songdata(path: str) -> None:
+    """Beatoraja 차분 DB(songdata.db) 경로를 설정합니다."""
+    set_beatoraja_songdata_db_path(path)
+    console.print(f"[green]Beatoraja 차분 DB 경로 설정됨: {path}[/green]")
+
+
+@config.command("set-beatoraja-songinfo")
+@click.argument("path")
+def config_set_beatoraja_songinfo(path: str) -> None:
+    """Beatoraja 차분 정보 DB(songinfo.db) 경로를 설정합니다."""
+    set_beatoraja_songinfo_db_path(path)
+    console.print(f"[green]Beatoraja 차분 정보 DB 경로 설정됨: {path}[/green]")
 
 
 if __name__ == "__main__":

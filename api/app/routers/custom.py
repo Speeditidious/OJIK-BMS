@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.models.table import CustomCourse, CustomTable
+from app.models.difficulty_table import CustomCourse, CustomDifficultyTable
 from app.models.user import User
 from app.schemas import MessageResponse
 
@@ -54,7 +54,7 @@ async def list_custom_tables(
 ) -> list[CustomTableRead]:
     """List current user's custom tables."""
     result = await db.execute(
-        select(CustomTable).where(CustomTable.owner_id == current_user.id)
+        select(CustomDifficultyTable).where(CustomDifficultyTable.owner_id == current_user.id)
     )
     tables = result.scalars().all()
     return [
@@ -76,7 +76,7 @@ async def create_custom_table(
     db: AsyncSession = Depends(get_db),
 ) -> CustomTableRead:
     """Create a new custom table."""
-    table = CustomTable(
+    table = CustomDifficultyTable(
         owner_id=current_user.id,
         name=payload.name,
         is_public=payload.is_public,
@@ -104,9 +104,9 @@ async def delete_custom_table(
     """Delete a custom table."""
     import uuid as _uuid
     result = await db.execute(
-        select(CustomTable).where(
-            CustomTable.id == _uuid.UUID(table_id),
-            CustomTable.owner_id == current_user.id,
+        select(CustomDifficultyTable).where(
+            CustomDifficultyTable.id == _uuid.UUID(table_id),
+            CustomDifficultyTable.owner_id == current_user.id,
         )
     )
     table = result.scalar_one_or_none()

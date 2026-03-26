@@ -27,6 +27,7 @@ interface TableClearHistogramProps {
   clientType?: string;
   tableSymbol?: string;
   onSelect?: (level: string, clearType: number) => void;
+  onLevelSelect?: (level: string) => void;
 }
 
 const cardStyles: React.CSSProperties = {
@@ -98,7 +99,45 @@ function CustomTooltip({ active, payload, label, tableSymbol, clientType, active
   );
 }
 
-export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect }: TableClearHistogramProps) {
+function YAxisTick({
+  x,
+  y,
+  payload,
+  tableSymbol,
+  onLevelSelect,
+}: {
+  x?: number;
+  y?: number;
+  payload?: { value: unknown };
+  tableSymbol?: string;
+  onLevelSelect?: (level: string) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const val = String(payload?.value ?? "");
+  const label = val.startsWith("LEVEL ") ? val.slice(6) : val;
+  const displayLabel = tableSymbol ? `${tableSymbol}${label}` : label;
+  const isClickable = !!onLevelSelect;
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text
+        x={0}
+        y={0}
+        dy={4}
+        textAnchor="end"
+        fontSize={11}
+        fill={isClickable && hovered ? "hsl(var(--primary))" : "hsl(var(--foreground))"}
+        style={{ cursor: isClickable ? "pointer" : "default", transition: "fill 0.15s ease" }}
+        onClick={isClickable ? () => onLevelSelect(val) : undefined}
+        onMouseEnter={isClickable ? () => setHovered(true) : undefined}
+        onMouseLeave={isClickable ? () => setHovered(false) : undefined}
+      >
+        {displayLabel}
+      </text>
+    </g>
+  );
+}
+
+export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect, onLevelSelect }: TableClearHistogramProps) {
   const [activeEntry, setActiveEntry] = useState<{ level: string; ct: number } | null>(null);
 
   const labelMap =
@@ -171,63 +210,62 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect 
   }
 
   return (
-    <ResponsiveContainer width="100%" height={chartHeight}>
-      <BarChart
-        data={chartData}
-        layout="vertical"
-        margin={{ top: 4, right: 12, left: 12, bottom: 20 }}
-        barCategoryGap="12%"
-      >
-        <XAxis
-          type="number"
-          domain={[0, 100]}
-          ticks={[0, 25, 50, 75, 100]}
-          tickFormatter={(v) => `${v}%`}
-          tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }}
-          tickLine={false}
-          axisLine={false}
-        />
-        <YAxis
-          type="category"
-          dataKey="level"
-          tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }}
-          tickLine={false}
-          axisLine={false}
-          interval={0}
-          width={tableSymbol ? Math.max(88, tableSymbol.length * 12 + 48) : 80}
-          tickFormatter={(val) => {
-            const label = String(val).startsWith("LEVEL ") ? String(val).slice(6) : String(val);
-            return tableSymbol ? `${tableSymbol}${label}` : label;
-          }}
-        />
-        <Tooltip
-          content={<CustomTooltip tableSymbol={tableSymbol} clientType={clientType} activeEntry={activeEntry} labelMap={labelMap} />}
-          cursor={{ fill: "hsl(var(--accent)/0.08)" }}
-        />
-        {[25, 50, 75].map((v) => (
-          <ReferenceLine
-            key={v}
-            x={v}
-            stroke="hsl(var(--muted-foreground))"
-            strokeOpacity={0.45}
-            strokeWidth={1}
-            strokeDasharray="3 3"
+    <div>
+      <ResponsiveContainer width="100%" height={chartHeight}>
+        <BarChart
+          data={chartData}
+          layout="vertical"
+          margin={{ top: 4, right: 12, left: 12, bottom: 4 }}
+          barCategoryGap="12%"
+        >
+          <XAxis
+            type="number"
+            domain={[0, 100]}
+            ticks={[0, 25, 50, 75, 100]}
+            tickFormatter={(v) => `${v}%`}
+            tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }}
+            tickLine={false}
+            axisLine={false}
           />
-        ))}
-        {ALL_CLEAR_TYPES.map((ct) => (
-          <Bar
-            key={ct}
-            dataKey={`ct_${ct}`}
-            stackId="stack"
-            maxBarSize={barHeight}
-            shape={makeShape(ct)}
-            onClick={(data) => onSelect?.(data.level as string, ct)}
-            onMouseEnter={(data) => setActiveEntry({ level: data.level as string, ct })}
-            onMouseLeave={() => setActiveEntry(null)}
+          <YAxis
+            type="category"
+            dataKey="level"
+            tick={<YAxisTick tableSymbol={tableSymbol} onLevelSelect={onLevelSelect} />}
+            tickLine={false}
+            axisLine={false}
+            interval={0}
+            width={tableSymbol ? Math.max(88, tableSymbol.length * 12 + 48) : 80}
           />
-        ))}
-      </BarChart>
-    </ResponsiveContainer>
+          <Tooltip
+            content={<CustomTooltip tableSymbol={tableSymbol} clientType={clientType} activeEntry={activeEntry} labelMap={labelMap} />}
+            cursor={{ fill: "hsl(var(--accent)/0.08)" }}
+          />
+          {[25, 50, 75].map((v) => (
+            <ReferenceLine
+              key={v}
+              x={v}
+              stroke="hsl(var(--muted-foreground))"
+              strokeOpacity={0.45}
+              strokeWidth={1}
+              strokeDasharray="3 3"
+            />
+          ))}
+          {ALL_CLEAR_TYPES.map((ct) => (
+            <Bar
+              key={ct}
+              dataKey={`ct_${ct}`}
+              stackId="stack"
+              maxBarSize={barHeight}
+              shape={makeShape(ct)}
+              onClick={(data) => onSelect?.(data.level as string, ct)}
+              onMouseEnter={(data) => setActiveEntry({ level: data.level as string, ct })}
+              onMouseLeave={() => setActiveEntry(null)}
+            />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+      <ClearTypeLegend clientType={clientType} className="mb-8" />
+    </div>
   );
 }
 
@@ -238,9 +276,10 @@ const BEATORAJA_ITEMS = [9, 8, 7, 6, 5, 4, 3, 2, 1, 0] as const;
 
 interface ClearTypeLegendProps {
   clientType?: string;
+  className?: string;
 }
 
-export function ClearTypeLegend({ clientType }: ClearTypeLegendProps) {
+export function ClearTypeLegend({ clientType, className }: ClearTypeLegendProps) {
   const labelMap =
     clientType === "lr2"
       ? LR2_CLEAR_TYPE_LABELS
@@ -256,7 +295,7 @@ export function ClearTypeLegend({ clientType }: ClearTypeLegendProps) {
       : COMBINED_ITEMS;
 
   return (
-    <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-1">
+    <div className={`flex flex-wrap justify-center gap-x-4 gap-y-1 mt-1 ${className ?? ""}`}>
       {items.map((ct) => (
         <div key={ct} className="flex items-center gap-1.5">
           <div

@@ -1,30 +1,31 @@
 import Link from "next/link";
 import Image from "next/image";
-import { Music2, BarChart3, Table2, Bot, Download } from "lucide-react";
+import { Music2, BarChart3, CalendarClock, Bot, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Navbar } from "@/components/layout/navbar";
+import { LoginButton } from "@/components/home/LoginButton";
 
 const features = [
   {
     icon: BarChart3,
     title: "플레이 분석",
-    description: "난이도표 별 플레이 데이터를 시각화하여 실력 향상 추이 확인",
+    description: "난이도표 별 플레이 데이터를 시각화하여 실력 향상 추이를 확인할 수 있습니다.",
   },
   {
-    icon: Table2,
-    title: "난이도표 최신화 편의기능 (예정)",
-    description: "동기화된 데이터 기반으로 난이도표 별로 최신화를 위해 다운로드 받아야하는 것들 한눈에 표시",
+    icon: CalendarClock,
+    title: "LR2 날짜별 기록 추적",
+    description: "LR2는 플레이 기록 데이터베이스에 날짜가 저장되지 않아 언제 기록을 달성했는지 추적하기 어려웠습니다. 이제 서버에 기록한 시간을 기반으로 추적할 수 있습니다.",
   },
   {
     icon: Music2,
     title: "커스텀 테이블/코스 (예정)",
-    description: "추가 난이도표 등록 뿐만 아니라, 나만의 난이도표와 코스를 쉽게 만들어 공유하고 관리",
+    description: "추가 난이도표 등록 뿐만 아니라, 나만의 난이도표와 코스를 쉽게 만들어 공유하고 관리할 수 있습니다.",
   },
   {
     icon: Bot,
     title: "AI 챗봇 (예정)",
-    description: "BMS 관련 질문, 곡 추천, 플레이 기록 기반 조언을 해주는 챗봇",
+    description: "BMS 관련 질문, 곡 추천, 플레이 기록 기반 조언을 해주는 챗봇과 대화할 수 있습니다.",
   },
 ];
 
@@ -38,7 +39,7 @@ export default function HomePage() {
         <div className="flex justify-center mb-6">
           <div className="flex items-center gap-3 bg-primary/10 text-primary px-4 py-2 rounded-full text-sm font-medium">
             <Music2 className="h-4 w-4" />
-            BMS 유저들만을 위한 리딸 사이트
+            BMS 유저들만을 위한 성과 관리 사이트
           </div>
         </div>
 
@@ -56,16 +57,7 @@ export default function HomePage() {
         </p>
 
         <div className="flex gap-4 justify-center flex-wrap">
-          <Link href="/login">
-            <Button
-              size="lg"
-              className="gap-2 hover:opacity-90 transition-opacity"
-              style={{ backgroundColor: "#5865F2", borderColor: "#5865F2", color: "white" }}
-            >
-              <Image src="/discord_white_icon.png" alt="Discord" width={20} height={20} />
-              Discord로 시작하기
-            </Button>
-          </Link>
+          <LoginButton />
           <Link href="/download">
             <Button size="lg" variant="outline" className="gap-2">
               <Download className="h-5 w-5" />

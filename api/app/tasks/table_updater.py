@@ -1,6 +1,7 @@
 """Celery tasks for fetching and updating difficulty tables."""
 import asyncio
 import logging
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -12,31 +13,39 @@ logger = logging.getLogger(__name__)
 @celery_app.task(
     name="app.tasks.table_updater.update_difficulty_table",
     bind=True,
-    max_retries=3,
-    default_retry_delay=60,
+    max_retries=2,
+    default_retry_delay=3600,
 )
-def update_difficulty_table(self: Any, table_id: int) -> dict:
-    """Fetch and update a single difficulty table from its source URL."""
+def update_difficulty_table(self: Any, table_id: str) -> dict:
+    """Fetch and update a single difficulty table from its source URL.
+
+    table_id is passed as a string for Celery JSON serialization.
+    """
     try:
         loop = asyncio.get_event_loop()
         if loop.is_closed():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        return loop.run_until_complete(_async_update_difficulty_table(table_id))
+        return loop.run_until_complete(_async_update_difficulty_table(uuid.UUID(table_id)))
     except Exception as exc:
         logger.error(f"Failed to update table {table_id}: {exc}")
         raise self.retry(exc=exc)
 
 
-async def _async_update_difficulty_table(table_id: int) -> dict:
+async def _async_update_difficulty_table(table_id: uuid.UUID) -> dict:
     from sqlalchemy import select
 
     from app.core.database import AsyncSessionLocal
-    from app.models.table import DifficultyTable
+    from app.models.difficulty_table import DifficultyTable
     from app.parsers.table_fetcher import (
         fetch_table,
         get_update_config,
         save_table_to_disk,
+    )
+    from app.services.table_import import (
+        remove_stale_entries,
+        upsert_courses,
+        upsert_fumens,
     )
 
     async with AsyncSessionLocal() as db:
@@ -51,11 +60,10 @@ async def _async_update_difficulty_table(table_id: int) -> dict:
         if not table.source_url:
             return {"status": "no_url", "table_id": table_id}
 
-        # Enforce minimum request interval
         update_config = get_update_config()
-        min_hours = update_config.get("min_request_interval_hours", 6)
-        if table.last_synced_at:
-            elapsed = datetime.now(UTC) - table.last_synced_at
+        min_hours = update_config.get("min_request_interval_hours", 1)
+        if table.updated_at:
+            elapsed = datetime.now(UTC) - table.updated_at
             if elapsed.total_seconds() < min_hours * 3600:
                 logger.info(
                     f"Skipping table {table_id} ({table.name}): last synced "
@@ -64,32 +72,25 @@ async def _async_update_difficulty_table(table_id: int) -> dict:
                 return {"status": "skipped_too_recent", "table_id": table_id, "name": table.name}
 
         try:
-            table_data = await fetch_table(
-                table.source_url,
-                last_modified=table.last_modified_header,
-            )
+            table_data = await fetch_table(table.source_url)
 
-            if table_data is None:
-                # 304 Not Modified
-                logger.info(f"Table {table_id} ({table.name}) not modified — skipping")
-                return {"status": "not_modified", "table_id": table_id, "name": table.name}
-
-            # Persist to local disk cache
             if table.slug:
                 save_table_to_disk(table.slug, table_data)
 
-            # Update DB
-            table.table_data = table_data
-            table.last_synced_at = datetime.now(UTC)
+            table.level_order = table_data.get("level_order")
+
+            seen_keys = await upsert_fumens(db, table_id, table_data.get("songs", []))
+            removed = await remove_stale_entries(db, table_id, seen_keys)
+            await upsert_courses(db, table_id, table_data.get("courses", []))
             await db.commit()
 
-            logger.info(f"Updated DifficultyTable {table_id}: {table.name}")
+            logger.info(f"Updated DifficultyTable {table_id}: {table.name}, {len(seen_keys)} fumens")
             return {
                 "status": "success",
                 "table_id": table_id,
                 "name": table.name,
-                "song_count": len(table_data.get("songs", [])),
-                "synced_at": table.last_synced_at.isoformat(),
+                "fumen_count": len(seen_keys),
+                "stale_removed": removed,
             }
 
         except Exception as exc:
@@ -115,7 +116,7 @@ async def _async_update_all_tables() -> dict:
     from sqlalchemy import select
 
     from app.core.database import AsyncSessionLocal
-    from app.models.table import DifficultyTable
+    from app.models.difficulty_table import DifficultyTable
     from app.parsers.table_fetcher import get_default_table_configs
 
     excluded_slugs = {
@@ -130,7 +131,7 @@ async def _async_update_all_tables() -> dict:
         )
         rows = result.all()
 
-    table_ids = [row[0] for row in rows if row[1] not in excluded_slugs]
+    table_ids = [str(row[0]) for row in rows if row[1] not in excluded_slugs]
 
     if excluded_slugs:
         skipped = [row[1] for row in rows if row[1] in excluded_slugs]

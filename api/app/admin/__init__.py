@@ -5,20 +5,16 @@ from sqladmin import Admin
 
 from app.admin.auth import DiscordAdminAuth
 from app.admin.views import (
-    ChatbotConversationAdmin,
-    ChatbotDocumentAdmin,
-    ChatbotUsageLimitAdmin,
     CourseAdmin,
-    CourseScoreHistoryAdmin,
     CustomCourseAdmin,
-    CustomTableAdmin,
+    CustomDifficultyTableAdmin,
     DifficultyTableAdmin,
+    FumenAdmin,
     OAuthAccountAdmin,
     ScheduleAdmin,
-    ScoreHistoryAdmin,
-    SongAdmin,
     UserAdmin,
-    UserCourseScoreAdmin,
+    UserFavoriteDifficultyTableAdmin,
+    UserFumenTagAdmin,
     UserPlayerStatsAdmin,
     UserScoreAdmin,
 )
@@ -53,18 +49,14 @@ def create_admin(app, engine) -> Admin:
     admin.add_view(UserAdmin)
     admin.add_view(OAuthAccountAdmin)
     admin.add_view(DifficultyTableAdmin)
-    admin.add_view(SongAdmin)
+    admin.add_view(FumenAdmin)
     admin.add_view(UserScoreAdmin)
-    admin.add_view(ScoreHistoryAdmin)
     admin.add_view(UserPlayerStatsAdmin)
     admin.add_view(CourseAdmin)
-    admin.add_view(UserCourseScoreAdmin)
-    admin.add_view(CourseScoreHistoryAdmin)
-    admin.add_view(CustomTableAdmin)
+    admin.add_view(UserFavoriteDifficultyTableAdmin)
+    admin.add_view(UserFumenTagAdmin)
+    admin.add_view(CustomDifficultyTableAdmin)
     admin.add_view(CustomCourseAdmin)
     admin.add_view(ScheduleAdmin)
-    admin.add_view(ChatbotDocumentAdmin)
-    admin.add_view(ChatbotConversationAdmin)
-    admin.add_view(ChatbotUsageLimitAdmin)
 
     return admin

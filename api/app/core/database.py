@@ -14,6 +14,11 @@ engine = create_async_engine(
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
+    # insertmanyvalues uses Python % formatting internally; values containing
+    # literal '%' (e.g. URLs like "...%20...") trigger "not all arguments
+    # converted during string formatting". Disable the optimisation to use
+    # standard parameterised queries instead.
+    use_insertmanyvalues=False,
 )
 
 AsyncSessionLocal = async_sessionmaker(

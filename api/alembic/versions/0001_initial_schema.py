@@ -1,9 +1,12 @@
-"""Initial schema
+"""initial_schema
+
+Squashed from migrations 0001–0040. Represents the full DB schema as of Phase 8.
+New deployments: run `alembic upgrade head` to create from scratch.
+Existing deployments: run `alembic stamp 0001` (schema already applied).
 
 Revision ID: 0001
 Revises:
-Create Date: 2026-03-08 00:00:00.000000
-
+Create Date: 2026-03-23
 """
 from typing import Sequence, Union
 
@@ -11,7 +14,6 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-# revision identifiers, used by Alembic.
 revision: str = "0001"
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
@@ -19,11 +21,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Enable pgvector extension
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    # Extensions
     op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
 
-    # ── users ─────────────────────────────────────────────────────────────────
+    # ── users ────────────────────────────────────────────────────────────────
     op.create_table(
         "users",
         sa.Column(
@@ -32,9 +33,12 @@ def upgrade() -> None:
             server_default=sa.text("gen_random_uuid()"),
             nullable=False,
         ),
-        sa.Column("username", sa.String(length=64), nullable=False),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default="true"),
-        sa.Column("is_public", sa.Boolean(), nullable=False, server_default="true"),
+        sa.Column("username", sa.String(64), nullable=False),
+        sa.Column("is_active", sa.Boolean(), server_default=sa.text("true"), nullable=False),
+        sa.Column("is_public", sa.Boolean(), server_default=sa.text("true"), nullable=False),
+        sa.Column("is_admin", sa.Boolean(), server_default=sa.text("false"), nullable=False),
+        sa.Column("avatar_url", sa.String(512), nullable=True),
+        sa.Column("first_synced_at", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -47,80 +51,42 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("username"),
+        sa.PrimaryKeyConstraint("id", name="users_pkey"),
     )
-    op.create_index(op.f("ix_users_username"), "users", ["username"], unique=True)
+    op.create_index("ix_users_username", "users", ["username"], unique=True)
 
-    # ── oauth_accounts ────────────────────────────────────────────────────────
+    # ── oauth_accounts ───────────────────────────────────────────────────────
     op.create_table(
         "oauth_accounts",
-        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("provider", sa.String(length=32), nullable=False),
-        sa.Column("provider_account_id", sa.String(length=128), nullable=False),
-        sa.Column("provider_username", sa.String(length=128), nullable=True),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(
-        op.f("ix_oauth_accounts_user_id"), "oauth_accounts", ["user_id"], unique=False
+        sa.Column("provider", sa.String(32), nullable=False),
+        sa.Column("provider_account_id", sa.String(128), nullable=False),
+        sa.Column("provider_username", sa.String(128), nullable=True),
+        sa.Column("discord_avatar_url", sa.String(512), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["users.id"],
+            name="oauth_accounts_user_id_fkey",
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("user_id", "provider", name="oauth_accounts_pkey"),
     )
 
-    # ── difficulty_tables ─────────────────────────────────────────────────────
+    # ── difficulty_tables ────────────────────────────────────────────────────
     op.create_table(
         "difficulty_tables",
-        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("name", sa.String(length=256), nullable=False),
-        sa.Column("source_url", sa.Text(), nullable=True),
-        sa.Column("is_default", sa.Boolean(), nullable=False, server_default="false"),
-        sa.Column("last_synced_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("table_data", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.PrimaryKeyConstraint("id"),
-    )
-
-    # ── user_favorite_tables ──────────────────────────────────────────────────
-    op.create_table(
-        "user_favorite_tables",
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("table_id", sa.Integer(), nullable=False),
-        sa.Column("display_order", sa.Integer(), nullable=False, server_default="0"),
-        sa.ForeignKeyConstraint(["table_id"], ["difficulty_tables.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("user_id", "table_id"),
-        sa.UniqueConstraint("user_id", "table_id", name="uq_user_favorite_tables"),
-    )
-
-    # ── songs ─────────────────────────────────────────────────────────────────
-    op.create_table(
-        "songs",
         sa.Column(
             "id",
             postgresql.UUID(as_uuid=True),
             server_default=sa.text("gen_random_uuid()"),
             nullable=False,
         ),
-        sa.Column("md5", sa.String(length=32), nullable=True),
-        sa.Column("sha256", sa.String(length=64), nullable=True),
-        sa.Column("title", sa.String(length=512), nullable=True),
-        sa.Column("artist", sa.String(length=256), nullable=True),
-        sa.Column("bpm", sa.Float(), nullable=True),
-        sa.Column("total_notes", sa.Integer(), nullable=True),
-        sa.Column("total", sa.Integer(), nullable=True),
-        sa.Column("youtube_url", sa.Text(), nullable=True),
-        sa.Column("metadata", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("name", sa.String(256), nullable=False),
+        sa.Column("symbol", sa.String(32), nullable=True),
+        sa.Column("slug", sa.String(64), nullable=True),
+        sa.Column("source_url", sa.Text(), nullable=True),
+        sa.Column("level_order", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("is_default", sa.Boolean(), server_default=sa.text("false"), nullable=False),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -133,12 +99,144 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="difficulty_tables_pkey"),
+        sa.UniqueConstraint("source_url", name="uq_difficulty_tables_source_url"),
     )
-    op.create_index(op.f("ix_songs_md5"), "songs", ["md5"], unique=True)
-    op.create_index(op.f("ix_songs_sha256"), "songs", ["sha256"], unique=True)
+    op.create_index("ix_difficulty_tables_slug", "difficulty_tables", ["slug"], unique=False)
 
-    # ── user_scores ───────────────────────────────────────────────────────────
+    # ── fumens ───────────────────────────────────────────────────────────────
+    # No PK constraint in DB — uniqueness enforced by partial unique indexes.
+    # SQLAlchemy uses mapper-level composite PK (sha256, md5) without DB enforcement.
+    op.execute(sa.text("""
+        CREATE TABLE fumens (
+            md5         VARCHAR(32),
+            sha256      VARCHAR(64),
+            title       VARCHAR(512),
+            artist      VARCHAR(256),
+            bpm         DOUBLE PRECISION,
+            total_notes INTEGER,
+            total       INTEGER,
+            youtube_url TEXT,
+            file_url    TEXT,
+            file_url_diff TEXT,
+            table_entries JSONB,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT chk_fumens_hash CHECK (md5 IS NOT NULL OR sha256 IS NOT NULL)
+        )
+    """))
+    op.create_index("ix_fumens_sha256", "fumens", ["sha256"], unique=False)
+    op.create_index("ix_fumens_md5", "fumens", ["md5"], unique=False)
+    op.create_index(
+        "uq_fumens_sha256", "fumens", ["sha256"],
+        unique=True,
+        postgresql_where=sa.text("sha256 IS NOT NULL"),
+    )
+    op.create_index(
+        "uq_fumens_md5", "fumens", ["md5"],
+        unique=True,
+        postgresql_where=sa.text("md5 IS NOT NULL AND sha256 IS NULL"),
+    )
+
+    # ── user_favorite_difficulty_tables ──────────────────────────────────────
+    op.create_table(
+        "user_favorite_difficulty_tables",
+        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("table_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("display_order", sa.Integer(), server_default=sa.text("0"), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["users.id"],
+            name="user_favorite_tables_user_id_fkey",
+            ondelete="CASCADE",
+        ),
+        sa.ForeignKeyConstraint(
+            ["table_id"],
+            ["difficulty_tables.id"],
+            name="user_favorite_tables_table_id_fkey",
+            ondelete="CASCADE",
+        ),
+        sa.UniqueConstraint("user_id", "table_id", name="uq_user_favorite_difficulty_tables"),
+    )
+
+    # ── user_fumen_tags ──────────────────────────────────────────────────────
+    op.create_table(
+        "user_fumen_tags",
+        sa.Column(
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
+        ),
+        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("fumen_sha256", sa.String(64), nullable=True),
+        sa.Column("fumen_md5", sa.String(32), nullable=True),
+        sa.Column("tag", sa.String(64), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["users.id"],
+            name="user_fumen_tags_user_id_fkey",
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name="user_fumen_tags_pkey"),
+    )
+    op.create_index("ix_user_fumen_tags_user_id", "user_fumen_tags", ["user_id"], unique=False)
+    op.create_index("ix_user_fumen_tags_fumen_sha256", "user_fumen_tags", ["fumen_sha256"], unique=False)
+    op.create_index("ix_user_fumen_tags_fumen_md5", "user_fumen_tags", ["fumen_md5"], unique=False)
+    op.create_index(
+        "uq_user_fumen_tags_sha256", "user_fumen_tags",
+        ["user_id", "fumen_sha256", "tag"],
+        unique=True,
+        postgresql_where=sa.text("fumen_sha256 IS NOT NULL"),
+    )
+    op.create_index(
+        "uq_user_fumen_tags_md5", "user_fumen_tags",
+        ["user_id", "fumen_md5", "tag"],
+        unique=True,
+        postgresql_where=sa.text("fumen_md5 IS NOT NULL AND fumen_sha256 IS NULL"),
+    )
+
+    # ── user_player_stats ────────────────────────────────────────────────────
+    # Functional unique index: one row per (user, client_type, UTC day).
+    op.create_table(
+        "user_player_stats",
+        sa.Column(
+            "id",
+            postgresql.UUID(as_uuid=True),
+            server_default=sa.text("gen_random_uuid()"),
+            nullable=False,
+        ),
+        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column("client_type", sa.String(32), nullable=False),
+        sa.Column(
+            "synced_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column("playcount", sa.Integer(), nullable=True),
+        sa.Column("clearcount", sa.Integer(), nullable=True),
+        sa.Column("playtime", sa.BigInteger(), nullable=True),
+        sa.Column("judgments", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["user_id"],
+            ["users.id"],
+            name="user_player_stats_history_user_id_fkey",
+        ),
+        sa.PrimaryKeyConstraint("id", name="user_player_stats_pkey"),
+    )
+    # Expression-based indexes — not representable in SQLAlchemy declarative syntax
+    op.execute(sa.text("""
+        CREATE UNIQUE INDEX uq_player_stats
+        ON user_player_stats (user_id, client_type, CAST(synced_at AT TIME ZONE 'UTC' AS date))
+    """))
+    op.execute(sa.text("""
+        CREATE INDEX ix_player_stats_user_date
+        ON user_player_stats (user_id, CAST(synced_at AT TIME ZONE 'UTC' AS date))
+    """))
+
+    # ── user_scores ──────────────────────────────────────────────────────────
+    # No FK constraint to users — intentional (matches migration 0023 design).
     op.create_table(
         "user_scores",
         sa.Column(
@@ -148,84 +246,153 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("song_sha256", sa.String(length=64), nullable=False),
-        sa.Column("client_type", sa.String(length=32), nullable=False),
+        sa.Column("client_type", sa.String(32), nullable=False),
+        sa.Column("scorehash", sa.Text(), nullable=True),
+        sa.Column("fumen_sha256", sa.String(64), nullable=True),
+        sa.Column("fumen_md5", sa.String(32), nullable=True),
+        sa.Column("fumen_hash_others", sa.Text(), nullable=True),
         sa.Column("clear_type", sa.Integer(), nullable=True),
-        sa.Column("score_rate", sa.Float(), nullable=True),
+        sa.Column("exscore", sa.Integer(), nullable=True),
+        sa.Column("rate", sa.Float(), nullable=True),
+        sa.Column("rank", sa.String(4), nullable=True),
         sa.Column("max_combo", sa.Integer(), nullable=True),
         sa.Column("min_bp", sa.Integer(), nullable=True),
+        sa.Column("play_count", sa.Integer(), nullable=True),
+        sa.Column("clear_count", sa.Integer(), nullable=True),
         sa.Column("judgments", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("play_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("played_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("options", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "synced_at",
             sa.DateTime(timezone=True),
             server_default=sa.text("now()"),
             nullable=True,
         ),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint(
-            "user_id", "song_sha256", "client_type", name="uq_user_scores"
+        sa.Column(
+            "is_best_clear_type",
+            sa.Boolean(),
+            server_default=sa.text("false"),
+            nullable=False,
+        ),
+        sa.Column(
+            "is_best_exscore",
+            sa.Boolean(),
+            server_default=sa.text("false"),
+            nullable=False,
+        ),
+        sa.Column(
+            "is_best_min_bp",
+            sa.Boolean(),
+            server_default=sa.text("false"),
+            nullable=False,
+        ),
+        sa.Column(
+            "is_best_max_combo",
+            sa.Boolean(),
+            server_default=sa.text("false"),
+            nullable=False,
+        ),
+        sa.PrimaryKeyConstraint("id", name="user_scores_pkey"),
+    )
+    op.create_index("ix_user_scores_user_id", "user_scores", ["user_id"], unique=False)
+    op.create_index("ix_user_scores_user_id_recorded_at", "user_scores", ["user_id", "recorded_at"])
+    op.create_index("ix_user_scores_user_id_fumen_sha256", "user_scores", ["user_id", "fumen_sha256"])
+    op.create_index("ix_user_scores_user_id_fumen_md5", "user_scores", ["user_id", "fumen_md5"])
+    op.create_index(
+        "ix_user_scores_user_id_fumen_hash_others",
+        "user_scores",
+        ["user_id", "fumen_hash_others"],
+    )
+    # Partial unique index for scorehash deduplication (migration 0023 design)
+    op.create_index(
+        "uq_user_scores_scorehash", "user_scores",
+        ["scorehash", "user_id", "client_type"],
+        unique=True,
+        postgresql_where=sa.text("scorehash IS NOT NULL"),
+    )
+    # Partial indexes for per-field best score lookup (migration 0038)
+    op.create_index(
+        "ix_user_scores_best_ct_sha256", "user_scores",
+        ["user_id", "fumen_sha256", "client_type"],
+        postgresql_where=sa.text("is_best_clear_type = TRUE AND fumen_sha256 IS NOT NULL"),
+    )
+    op.create_index(
+        "ix_user_scores_best_ex_sha256", "user_scores",
+        ["user_id", "fumen_sha256", "client_type"],
+        postgresql_where=sa.text("is_best_exscore = TRUE AND fumen_sha256 IS NOT NULL"),
+    )
+    op.create_index(
+        "ix_user_scores_best_bp_sha256", "user_scores",
+        ["user_id", "fumen_sha256", "client_type"],
+        postgresql_where=sa.text("is_best_min_bp = TRUE AND fumen_sha256 IS NOT NULL"),
+    )
+    op.create_index(
+        "ix_user_scores_best_ct_md5", "user_scores",
+        ["user_id", "fumen_md5", "client_type"],
+        postgresql_where=sa.text(
+            "is_best_clear_type = TRUE AND fumen_md5 IS NOT NULL AND fumen_sha256 IS NULL"
         ),
     )
     op.create_index(
-        op.f("ix_user_scores_user_id"), "user_scores", ["user_id"], unique=False
+        "ix_user_scores_best_ex_md5", "user_scores",
+        ["user_id", "fumen_md5", "client_type"],
+        postgresql_where=sa.text(
+            "is_best_exscore = TRUE AND fumen_md5 IS NOT NULL AND fumen_sha256 IS NULL"
+        ),
     )
     op.create_index(
-        op.f("ix_user_scores_song_sha256"), "user_scores", ["song_sha256"], unique=False
+        "ix_user_scores_best_bp_md5", "user_scores",
+        ["user_id", "fumen_md5", "client_type"],
+        postgresql_where=sa.text(
+            "is_best_min_bp = TRUE AND fumen_md5 IS NOT NULL AND fumen_sha256 IS NULL"
+        ),
+    )
+    op.create_index(
+        "ix_user_scores_best_ct_others", "user_scores",
+        ["user_id", "fumen_hash_others", "client_type"],
+        postgresql_where=sa.text("is_best_clear_type = TRUE AND fumen_hash_others IS NOT NULL"),
+    )
+    op.create_index(
+        "ix_user_scores_best_ex_others", "user_scores",
+        ["user_id", "fumen_hash_others", "client_type"],
+        postgresql_where=sa.text("is_best_exscore = TRUE AND fumen_hash_others IS NOT NULL"),
     )
 
-    # ── score_history ─────────────────────────────────────────────────────────
+    # ── courses ──────────────────────────────────────────────────────────────
     op.create_table(
-        "score_history",
+        "courses",
         sa.Column(
             "id",
             postgresql.UUID(as_uuid=True),
             server_default=sa.text("gen_random_uuid()"),
             nullable=False,
         ),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("song_sha256", sa.String(length=64), nullable=False),
-        sa.Column("client_type", sa.String(length=32), nullable=False),
-        sa.Column("clear_type", sa.Integer(), nullable=True),
-        sa.Column("old_clear_type", sa.Integer(), nullable=True),
-        sa.Column("score", sa.Float(), nullable=True),
-        sa.Column("old_score", sa.Float(), nullable=True),
-        sa.Column("combo", sa.Integer(), nullable=True),
-        sa.Column("old_combo", sa.Integer(), nullable=True),
-        sa.Column("min_bp", sa.Integer(), nullable=True),
-        sa.Column("old_min_bp", sa.Integer(), nullable=True),
-        sa.Column("played_at", sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(
-        op.f("ix_score_history_user_id"), "score_history", ["user_id"], unique=False
-    )
-    op.create_index(
-        op.f("ix_score_history_song_sha256"),
-        "score_history",
-        ["song_sha256"],
-        unique=False,
-    )
-
-    # ── user_song_tags ────────────────────────────────────────────────────────
-    op.create_table(
-        "user_song_tags",
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("song_sha256", sa.String(length=64), nullable=False),
-        sa.Column("tag", sa.String(length=64), nullable=False),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("user_id", "song_sha256", "tag"),
-        sa.UniqueConstraint(
-            "user_id", "song_sha256", "tag", name="uq_user_song_tags"
+        sa.Column("name", sa.Text(), nullable=False),
+        sa.Column("source_table_id", postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column("md5_list", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("sha256_list", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column("is_active", sa.Boolean(), server_default=sa.text("true"), nullable=False),
+        sa.Column("dan_title", sa.Text(), server_default="''", nullable=False),
+        sa.Column(
+            "synced_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
+        sa.ForeignKeyConstraint(
+            ["source_table_id"],
+            ["difficulty_tables.id"],
+            name="courses_source_table_id_fkey",
+            ondelete="SET NULL",
+        ),
+        sa.PrimaryKeyConstraint("id", name="courses_pkey"),
     )
+    op.create_index("ix_courses_is_active", "courses", ["is_active"], unique=False)
+    op.create_index("ix_courses_source_table_id", "courses", ["source_table_id"], unique=False)
 
-    # ── custom_tables ─────────────────────────────────────────────────────────
+    # ── custom_difficulty_tables ─────────────────────────────────────────────
     op.create_table(
-        "custom_tables",
+        "custom_difficulty_tables",
         sa.Column(
             "id",
             postgresql.UUID(as_uuid=True),
@@ -233,8 +400,8 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("name", sa.String(length=256), nullable=False),
-        sa.Column("is_public", sa.Boolean(), nullable=False, server_default="false"),
+        sa.Column("name", sa.String(256), nullable=False),
+        sa.Column("is_public", sa.Boolean(), server_default=sa.text("false"), nullable=False),
         sa.Column("levels", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column(
             "created_at",
@@ -248,14 +415,22 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.ForeignKeyConstraint(["owner_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(
+            ["owner_id"],
+            ["users.id"],
+            name="custom_tables_owner_id_fkey",
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name="custom_tables_pkey"),
     )
     op.create_index(
-        op.f("ix_custom_tables_owner_id"), "custom_tables", ["owner_id"], unique=False
+        "ix_custom_difficulty_tables_owner_id",
+        "custom_difficulty_tables",
+        ["owner_id"],
+        unique=False,
     )
 
-    # ── custom_courses ────────────────────────────────────────────────────────
+    # ── custom_courses ───────────────────────────────────────────────────────
     op.create_table(
         "custom_courses",
         sa.Column(
@@ -265,13 +440,9 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("owner_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("name", sa.String(length=256), nullable=False),
+        sa.Column("name", sa.String(256), nullable=False),
         sa.Column("song_list", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column(
-            "course_file_config",
-            postgresql.JSONB(astext_type=sa.Text()),
-            nullable=True,
-        ),
+        sa.Column("course_file_config", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -284,17 +455,17 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.ForeignKeyConstraint(["owner_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
+        sa.ForeignKeyConstraint(
+            ["owner_id"],
+            ["users.id"],
+            name="custom_courses_owner_id_fkey",
+            ondelete="CASCADE",
+        ),
+        sa.PrimaryKeyConstraint("id", name="custom_courses_pkey"),
     )
-    op.create_index(
-        op.f("ix_custom_courses_owner_id"),
-        "custom_courses",
-        ["owner_id"],
-        unique=False,
-    )
+    op.create_index("ix_custom_courses_owner_id", "custom_courses", ["owner_id"], unique=False)
 
-    # ── schedules ─────────────────────────────────────────────────────────────
+    # ── schedules ────────────────────────────────────────────────────────────
     op.create_table(
         "schedules",
         sa.Column(
@@ -304,166 +475,38 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("title", sa.String(length=256), nullable=False),
+        sa.Column("title", sa.String(256), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("scheduled_date", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("scheduled_time", sa.String(length=8), nullable=True),
-        sa.Column("is_completed", sa.Boolean(), nullable=False, server_default="false"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(
-        op.f("ix_schedules_user_id"), "schedules", ["user_id"], unique=False
-    )
-
-    # ── user_owned_songs ──────────────────────────────────────────────────────
-    op.create_table(
-        "user_owned_songs",
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("song_md5", sa.String(length=32), nullable=True),
-        sa.Column("song_sha256", sa.String(length=64), nullable=False),
-        sa.Column(
-            "synced_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=True,
-        ),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("user_id", "song_sha256"),
-        sa.UniqueConstraint("user_id", "song_sha256", name="uq_user_owned_songs"),
-    )
-
-    # ── chatbot_documents ─────────────────────────────────────────────────────
-    op.create_table(
-        "chatbot_documents",
-        sa.Column(
-            "id",
-            postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"),
-            nullable=False,
-        ),
-        sa.Column("category", sa.String(length=64), nullable=True),
-        sa.Column("title", sa.String(length=512), nullable=True),
-        sa.Column("content", sa.Text(), nullable=True),
-        sa.Column("chunk_index", sa.Integer(), nullable=True),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=True,
-        ),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(
-        op.f("ix_chatbot_documents_category"),
-        "chatbot_documents",
-        ["category"],
-        unique=False,
-    )
-    # Add pgvector column separately using raw SQL for compatibility
-    op.execute(
-        "ALTER TABLE chatbot_documents ADD COLUMN IF NOT EXISTS embedding vector(1536)"
-    )
-    # Create HNSW index for fast similarity search
-    op.execute(
-        """
-        CREATE INDEX IF NOT EXISTS ix_chatbot_documents_embedding
-        ON chatbot_documents
-        USING hnsw (embedding vector_cosine_ops)
-        WITH (m = 16, ef_construction = 64)
-        """
-    )
-
-    # ── chatbot_conversations ─────────────────────────────────────────────────
-    op.create_table(
-        "chatbot_conversations",
-        sa.Column(
-            "id",
-            postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"),
-            nullable=False,
-        ),
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.Column("summary", sa.Text(), nullable=True),
+        sa.Column("scheduled_time", sa.String(8), nullable=True),
+        sa.Column("is_completed", sa.Boolean(), server_default=sa.text("false"), nullable=False),
         sa.ForeignKeyConstraint(
-            ["user_id"], ["users.id"], ondelete="SET NULL"
+            ["user_id"],
+            ["users.id"],
+            name="schedules_user_id_fkey",
+            ondelete="CASCADE",
         ),
-        sa.PrimaryKeyConstraint("id"),
+        sa.PrimaryKeyConstraint("id", name="schedules_pkey"),
     )
+    op.create_index("ix_schedules_user_id", "schedules", ["user_id"], unique=False)
     op.create_index(
-        op.f("ix_chatbot_conversations_user_id"),
-        "chatbot_conversations",
-        ["user_id"],
+        "ix_schedules_user_id_scheduled_date",
+        "schedules",
+        ["user_id", "scheduled_date"],
         unique=False,
-    )
-
-    # ── chatbot_messages ──────────────────────────────────────────────────────
-    op.create_table(
-        "chatbot_messages",
-        sa.Column(
-            "id",
-            postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"),
-            nullable=False,
-        ),
-        sa.Column("conversation_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("role", sa.String(length=16), nullable=False),
-        sa.Column("content", sa.Text(), nullable=True),
-        sa.Column("sources", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column("token_usage", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.ForeignKeyConstraint(
-            ["conversation_id"], ["chatbot_conversations.id"], ondelete="CASCADE"
-        ),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index(
-        op.f("ix_chatbot_messages_conversation_id"),
-        "chatbot_messages",
-        ["conversation_id"],
-        unique=False,
-    )
-
-    # ── chatbot_usage_limits ──────────────────────────────────────────────────
-    op.create_table(
-        "chatbot_usage_limits",
-        sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("date", sa.Date(), nullable=False),
-        sa.Column("request_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("token_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("user_id", "date"),
     )
 
 
 def downgrade() -> None:
-    op.drop_table("chatbot_usage_limits")
-    op.drop_table("chatbot_messages")
-    op.drop_table("chatbot_conversations")
-    op.drop_table("chatbot_documents")
-    op.drop_table("user_owned_songs")
     op.drop_table("schedules")
     op.drop_table("custom_courses")
-    op.drop_table("custom_tables")
-    op.drop_table("user_song_tags")
-    op.drop_table("score_history")
+    op.drop_table("custom_difficulty_tables")
+    op.drop_table("courses")
     op.drop_table("user_scores")
-    op.drop_table("songs")
-    op.drop_table("user_favorite_tables")
+    op.drop_table("user_player_stats")
+    op.drop_table("user_fumen_tags")
+    op.drop_table("user_favorite_difficulty_tables")
+    op.drop_table("fumens")
     op.drop_table("difficulty_tables")
     op.drop_table("oauth_accounts")
     op.drop_table("users")
-
-    op.execute("DROP EXTENSION IF EXISTS vector")
-    op.execute("DROP EXTENSION IF EXISTS pgcrypto")

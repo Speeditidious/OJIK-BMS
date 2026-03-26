@@ -173,48 +173,4 @@ export const api = {
     });
   },
 
-  /**
-   * Open an SSE stream. Returns an EventSource-like async generator.
-   * Use for chatbot streaming responses.
-   */
-  async *stream(path: string, body: unknown): AsyncGenerator<string> {
-    const token = getAccessToken();
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    const response = await fetch(`${BASE_URL}${path}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok || !response.body) {
-      throw new Error(`Stream error: ${response.status}`);
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            yield line.slice(6);
-          }
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
-  },
 };

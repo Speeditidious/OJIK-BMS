@@ -17,6 +17,7 @@ interface ActivityBarChartProps {
   firstSyncDates?: { lr2?: string; beatoraja?: string };
   clientType?: ClientTypeFilter;
   courseData?: CourseActivityItem[];
+  viewMode?: "updates" | "plays";
 }
 
 function formatDate(dateStr: string): string {
@@ -45,16 +46,18 @@ function SyncLabel({ viewBox, labels }: { viewBox?: { x: number; y: number }; la
   );
 }
 
-function ChartTooltip({ active, payload }: { active?: boolean; payload?: any[] }) {
+function ChartTooltip({ active, payload, viewMode }: { active?: boolean; payload?: any[]; viewMode?: "updates" | "plays" }) {
   if (!active || !payload?.length) return null;
-  const { fullDate, updates, syncLabels, hideSyncCount, courseLabels } = payload[0].payload as {
+  const { fullDate, updates, plays, syncLabels, hideSyncCount, courseLabels } = payload[0].payload as {
     fullDate: string;
     updates: number;
+    plays: number;
     syncLabels?: string[];
     hideSyncCount?: boolean;
     courseLabels?: string[];
   };
   const hasAnySyncLabel = syncLabels?.length;
+  const showCounts = !hideSyncCount || courseLabels?.length;
   return (
     <div
       style={{
@@ -77,19 +80,21 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: any[] }
           {l}
         </p>
       ))}
-      {updates > 0 && (!hideSyncCount || courseLabels?.length) && (
-        <p style={{ margin: 0, marginTop: (hasAnySyncLabel || courseLabels?.length) ? 4 : 0, color: "hsl(var(--foreground))" }}>
-          기록 갱신: {updates}
-        </p>
-      )}
-      {updates === 0 && !hasAnySyncLabel && !courseLabels?.length && (
-        <p style={{ margin: 0 }}>기록 갱신: {updates}</p>
+      {showCounts && (updates > 0 || plays > 0) && (
+        <div style={{ marginTop: (hasAnySyncLabel || courseLabels?.length) ? 4 : 0 }}>
+          <p style={{ margin: 0, color: "hsl(var(--primary))", fontWeight: viewMode === "updates" ? 600 : 400 }}>
+            기록 갱신: {updates}
+          </p>
+          <p style={{ margin: 0, color: "hsl(var(--chart-play))", fontWeight: viewMode === "plays" ? 600 : 400 }}>
+            플레이: {plays}
+          </p>
+        </div>
       )}
     </div>
   );
 }
 
-export function ActivityBarChart({ data, firstSyncDates, clientType, courseData }: ActivityBarChartProps) {
+export function ActivityBarChart({ data, firstSyncDates, clientType, courseData, viewMode = "updates" }: ActivityBarChartProps) {
   // Build per-date sync metadata.
   // hideCount=true for LR2-only dates: LR2 score.db has no per-play date, so all
   // records land on the sync day — the count would be misleading.
@@ -117,14 +122,16 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData 
     const map: Record<string, string[]> = {};
     for (const c of courseData) {
       if (!c.date) continue;
-      const label = (c.is_first_clear ? "★ " : "") + `코스 클리어 (${c.course_hash.slice(0, 6)}…)`;
+      const label = c.course_name
+        ? (c.dan_title ? `[${c.dan_title}] ` : "") + c.course_name
+        : `코스 (${c.course_hash.slice(0, 6)}…)`;
       (map[c.date] ??= []).push(label);
     }
     return map;
   }, [courseData]);
 
   const chartData = useMemo(() => {
-    const rawDates = new Set(data.map((d) => d.date));
+    const seenDates = new Set(data.map((d) => d.date));
     const injected = [...data];
     // When data exists, only inject sync dates at or after the natural data range start to
     // avoid stretching the X-axis back to old LR2 sync dates in "all" mode.
@@ -133,13 +140,15 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData 
     // When data is empty, inject all sync dates so the reference lines still show.
     const rangeMin = data.length > 0 ? data[0].date : null;
     for (const date of Object.keys(syncByDate)) {
-      if (!rawDates.has(date) && (rangeMin === null || date >= rangeMin)) {
-        injected.push({ date, updates: 0 });
+      if (!seenDates.has(date) && (rangeMin === null || date >= rangeMin)) {
+        injected.push({ date, updates: 0, plays: 0 });
+        seenDates.add(date);
       }
     }
     for (const date of Object.keys(courseByDate)) {
-      if (!rawDates.has(date) && (rangeMin === null || date >= rangeMin)) {
-        injected.push({ date, updates: 0 });
+      if (!seenDates.has(date) && (rangeMin === null || date >= rangeMin)) {
+        injected.push({ date, updates: 0, plays: 0 });
+        seenDates.add(date);
       }
     }
     injected.sort((a, b) => a.date.localeCompare(b.date));
@@ -147,6 +156,7 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData 
       date: formatDate(d.date),
       fullDate: d.date,
       updates: d.updates,
+      plays: d.plays,
       syncLabels: syncByDate[d.date]?.labels,
       hideSyncCount: syncByDate[d.date]?.hideCount ?? false,
       courseLabels: courseByDate[d.date],
@@ -181,16 +191,28 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData 
           allowDecimals={false}
         />
         <Tooltip
-          content={<ChartTooltip />}
+          content={<ChartTooltip viewMode={viewMode} />}
           cursor={{ stroke: "hsl(var(--accent))", strokeWidth: 1 }}
+        />
+        <Line
+          type="monotone"
+          dataKey="plays"
+          stroke="hsl(var(--chart-play))"
+          strokeWidth={viewMode === "plays" ? 2 : 1.5}
+          strokeDasharray={viewMode === "plays" ? undefined : "3 2"}
+          strokeOpacity={viewMode === "plays" ? 1 : 0.5}
+          dot={false}
+          activeDot={{ r: viewMode === "plays" ? 3 : 2, fill: "hsl(var(--chart-play))" }}
         />
         <Line
           type="monotone"
           dataKey="updates"
           stroke="hsl(var(--primary))"
-          strokeWidth={2}
+          strokeWidth={viewMode === "updates" ? 2 : 1.5}
+          strokeDasharray={viewMode === "updates" ? undefined : "3 2"}
+          strokeOpacity={viewMode === "updates" ? 1 : 0.5}
           dot={false}
-          activeDot={{ r: 3, fill: "hsl(var(--primary))" }}
+          activeDot={{ r: viewMode === "updates" ? 3 : 2, fill: "hsl(var(--primary))" }}
         />
         {Object.entries(syncByDate)
           .filter(([date]) => date >= minDate && date <= maxDate)
