@@ -116,10 +116,10 @@ async def upsert_fumens(db: AsyncSession, table_id: uuid.UUID, songs: list[dict]
     # when both sha256 and md5 can be None and Python can't compare None < str).
     # Batch to stay under PostgreSQL's 65535 bind-parameter limit (7 cols/row).
     if new_fumen_rows:
-        _COLS_PER_ROW = 7
-        _BATCH_SIZE = 65535 // _COLS_PER_ROW  # 9362
-        for i in range(0, len(new_fumen_rows), _BATCH_SIZE):
-            batch = new_fumen_rows[i : i + _BATCH_SIZE]
+        cols_per_row = 7
+        batch_size = 65535 // cols_per_row  # 9362
+        for i in range(0, len(new_fumen_rows), batch_size):
+            batch = new_fumen_rows[i : i + batch_size]
             await db.execute(
                 pg_insert(Fumen).values(batch).on_conflict_do_nothing()
             )
