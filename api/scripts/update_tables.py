@@ -36,7 +36,7 @@ from app.parsers.table_fetcher import (
 from app.services.table_import import remove_stale_entries, upsert_courses, upsert_fumens
 
 
-async def update_one(slug: str, name: str, url: str) -> bool:
+async def update_one(slug: str, name: str, url: str, symbol_fallback: str | None = None) -> bool:
     """Fetch one table from remote, save to disk, and upsert into DB."""
     print(f"\n[{slug}] {name}")
     print(f"  URL: {url}")
@@ -46,6 +46,7 @@ async def update_one(slug: str, name: str, url: str) -> bool:
         data = await fetch_table(url)
         songs = data.get("songs", [])
         level_order = data.get("level_order", [])
+        effective_symbol = data.get("symbol") or symbol_fallback
         print(f"  → {len(songs)} songs | levels: {level_order[:6]}{'...' if len(level_order) > 6 else ''}")
         save_table_to_disk(slug, data)
         print(f"  ✓ difficulty_tables/{slug}/header.json + data.json saved")
@@ -70,6 +71,7 @@ async def update_one(slug: str, name: str, url: str) -> bool:
                 if existing is None:
                     row = DifficultyTable(
                         name=name,
+                        symbol=effective_symbol,
                         slug=slug,
                         source_url=url,
                         is_default=True,
@@ -81,6 +83,7 @@ async def update_one(slug: str, name: str, url: str) -> bool:
                     db_status = "inserted"
                 else:
                     existing.name = name
+                    existing.symbol = effective_symbol
                     existing.source_url = url
                     existing.is_default = True
                     existing.level_order = table_data.get("level_order")
@@ -116,7 +119,7 @@ async def main() -> None:
 
     results: list[tuple[str, bool]] = []
     for c in configs:
-        ok = await update_one(c["slug"], c["name"], c["url"])
+        ok = await update_one(c["slug"], c["name"], c["url"], symbol_fallback=c.get("symbol"))
         results.append((c["slug"], ok))
 
     print("\n── Summary ──────────────────────────────────")

@@ -40,8 +40,12 @@ async def upsert_fumens(db: AsyncSession, table_id: uuid.UUID, songs: list[dict]
     new_fumen_rows: list[dict] = []
 
     for item in songs:
-        sha256 = (item.get("sha256") or "").lower() or None
-        md5 = (item.get("md5") or "").lower() or None
+        sha256_raw = (item.get("sha256") or "").strip().lower()
+        md5_raw = (item.get("md5") or "").strip().lower()
+        # Reject values that exceed column length constraints (VARCHAR 64/32).
+        # Dirty data sometimes puts a sha256 in the md5 field or has trailing whitespace.
+        sha256 = sha256_raw if len(sha256_raw) <= 64 else None
+        md5 = md5_raw if len(md5_raw) <= 32 else None
         if not sha256 and not md5:
             continue
 
@@ -110,10 +114,15 @@ async def upsert_fumens(db: AsyncSession, table_id: uuid.UUID, songs: list[dict]
 
     # Bulk-insert new fumens via core INSERT to bypass ORM PK sort (which fails
     # when both sha256 and md5 can be None and Python can't compare None < str).
+    # Batch to stay under PostgreSQL's 65535 bind-parameter limit (7 cols/row).
     if new_fumen_rows:
-        await db.execute(
-            pg_insert(Fumen).values(new_fumen_rows).on_conflict_do_nothing()
-        )
+        _COLS_PER_ROW = 7
+        _BATCH_SIZE = 65535 // _COLS_PER_ROW  # 9362
+        for i in range(0, len(new_fumen_rows), _BATCH_SIZE):
+            batch = new_fumen_rows[i : i + _BATCH_SIZE]
+            await db.execute(
+                pg_insert(Fumen).values(batch).on_conflict_do_nothing()
+            )
 
     await db.flush()
     return seen_keys

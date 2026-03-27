@@ -134,6 +134,7 @@ def _normalize(header: dict, raw_songs: list[dict]) -> dict:
         "songs": songs,
         "level_order": level_order,
         "courses": courses,
+        "symbol": header.get("symbol") or None,
     }
 
 

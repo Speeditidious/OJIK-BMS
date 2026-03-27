@@ -39,6 +39,7 @@ async def _async_update_difficulty_table(table_id: uuid.UUID) -> dict:
     from app.models.difficulty_table import DifficultyTable
     from app.parsers.table_fetcher import (
         fetch_table,
+        get_default_table_configs,
         get_update_config,
         save_table_to_disk,
     )
@@ -78,6 +79,15 @@ async def _async_update_difficulty_table(table_id: uuid.UUID) -> dict:
                 save_table_to_disk(table.slug, table_data)
 
             table.level_order = table_data.get("level_order")
+
+            header_symbol = table_data.get("symbol")
+            if header_symbol:
+                table.symbol = header_symbol
+            elif table.symbol is None and table.slug:
+                cfg_map = {c["slug"]: c for c in get_default_table_configs()}
+                fallback = cfg_map.get(table.slug, {}).get("symbol")
+                if fallback:
+                    table.symbol = fallback
 
             seen_keys = await upsert_fumens(db, table_id, table_data.get("songs", []))
             removed = await remove_stale_entries(db, table_id, seen_keys)
