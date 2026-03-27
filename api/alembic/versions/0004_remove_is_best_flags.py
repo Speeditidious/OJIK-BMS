@@ -17,14 +17,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Drop partial indexes before dropping the columns they reference
-    op.drop_index("ix_user_scores_best_ct_sha256", table_name="user_scores")
-    op.drop_index("ix_user_scores_best_ex_sha256", table_name="user_scores")
-    op.drop_index("ix_user_scores_best_bp_sha256", table_name="user_scores")
-    op.drop_index("ix_user_scores_best_ct_md5", table_name="user_scores")
-    op.drop_index("ix_user_scores_best_ex_md5", table_name="user_scores")
-    op.drop_index("ix_user_scores_best_bp_md5", table_name="user_scores")
-    op.drop_index("ix_user_scores_best_ct_others", table_name="user_scores")
-    op.drop_index("ix_user_scores_best_ex_others", table_name="user_scores")
+    op.drop_index("ix_user_scores_best_ct_sha256", table_name="user_scores", if_exists=True)
+    op.drop_index("ix_user_scores_best_ex_sha256", table_name="user_scores", if_exists=True)
+    op.drop_index("ix_user_scores_best_bp_sha256", table_name="user_scores", if_exists=True)
+    op.drop_index("ix_user_scores_best_ct_md5", table_name="user_scores", if_exists=True)
+    op.drop_index("ix_user_scores_best_ex_md5", table_name="user_scores", if_exists=True)
+    op.drop_index("ix_user_scores_best_bp_md5", table_name="user_scores", if_exists=True)
+    op.drop_index("ix_user_scores_best_ct_others", table_name="user_scores", if_exists=True)
+    op.drop_index("ix_user_scores_best_ex_others", table_name="user_scores", if_exists=True)
 
     op.drop_column("user_scores", "is_best_clear_type")
     op.drop_column("user_scores", "is_best_exscore")

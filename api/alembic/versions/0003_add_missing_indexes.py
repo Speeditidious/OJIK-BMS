@@ -16,7 +16,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # This index exists in the model but was missing from the DB
-    op.create_index("ix_courses_source_table_id", "courses", ["source_table_id"], unique=False)
+    op.create_index("ix_courses_source_table_id", "courses", ["source_table_id"], unique=False, if_not_exists=True)
 
 
 def downgrade() -> None:
