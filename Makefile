@@ -1,9 +1,12 @@
 .PHONY: update-tables ci fix
 
 SLUG ?=
+ENV ?=
+
+COMPOSE_FILES = -f docker-compose.yml $(if $(filter prod,$(ENV)),-f docker-compose.prod.yml,)
 
 update-tables:
-	docker compose exec api python scripts/update_tables.py $(if $(SLUG),--slug $(SLUG),)
+	docker compose $(COMPOSE_FILES) exec api python scripts/update_tables.py $(if $(SLUG),--slug $(SLUG),)
 
 ci:
 	@echo "=== API: ruff ==="
