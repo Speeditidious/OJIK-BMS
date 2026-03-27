@@ -21,11 +21,11 @@ jobs:
 
             git pull origin main
 
-            docker compose -f docker-compose.prod.yml build
-            docker compose -f docker-compose.prod.yml up -d
+            docker compose -f docker-compose.prod.yml --env-file .env.prod build
+            docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 
             # Run DB migrations
-            docker compose -f docker-compose.prod.yml exec -T api \
+            docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T api \
               alembic upgrade head
 
             # Clean up unused images/containers
