@@ -136,6 +136,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.prod
 .envrc
 .venv
 env/
@@ -226,3 +227,4 @@ client/scan_cache.json
 
 # Squashed alembic migration archive
 api/alembic/versions/archive/
+web/tsconfig.tsbuildinfo
