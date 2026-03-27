@@ -31,14 +31,15 @@ def upgrade() -> None:
         "custom_difficulty_tables",
         ["owner_id"],
         unique=False,
+        if_not_exists=True,
     )
 
     # ── Fix index names on user_fumen_tags ────────────────────────────────────
     op.drop_index("ix_user_fumen_tags_md5", table_name="user_fumen_tags", if_exists=True)
     op.drop_index("ix_user_fumen_tags_sha256", table_name="user_fumen_tags", if_exists=True)
-    op.create_index("ix_user_fumen_tags_fumen_md5", "user_fumen_tags", ["fumen_md5"], unique=False)
+    op.create_index("ix_user_fumen_tags_fumen_md5", "user_fumen_tags", ["fumen_md5"], unique=False, if_not_exists=True)
     op.create_index(
-        "ix_user_fumen_tags_fumen_sha256", "user_fumen_tags", ["fumen_sha256"], unique=False
+        "ix_user_fumen_tags_fumen_sha256", "user_fumen_tags", ["fumen_sha256"], unique=False, if_not_exists=True
     )
 
     # ── Remove duplicate username unique constraint ───────────────────────────
