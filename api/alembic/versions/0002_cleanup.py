@@ -16,16 +16,16 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # ── Drop chatbot tables (Phase 9 removed from models, DB not cleaned up) ─
-    op.drop_index("ix_chatbot_messages_conversation_id", table_name="chatbot_messages")
-    op.drop_table("chatbot_messages")
-    op.drop_index("ix_chatbot_conversations_user_id", table_name="chatbot_conversations")
-    op.drop_table("chatbot_conversations")
-    op.drop_table("chatbot_usage_limits")
-    op.drop_index("ix_chatbot_documents_category", table_name="chatbot_documents")
-    op.drop_table("chatbot_documents")
+    op.drop_index("ix_chatbot_messages_conversation_id", table_name="chatbot_messages", if_exists=True)
+    op.drop_table("chatbot_messages", if_exists=True)
+    op.drop_index("ix_chatbot_conversations_user_id", table_name="chatbot_conversations", if_exists=True)
+    op.drop_table("chatbot_conversations", if_exists=True)
+    op.drop_table("chatbot_usage_limits", if_exists=True)
+    op.drop_index("ix_chatbot_documents_category", table_name="chatbot_documents", if_exists=True)
+    op.drop_table("chatbot_documents", if_exists=True)
 
     # ── Fix index name on custom_difficulty_tables ────────────────────────────
-    op.drop_index("ix_custom_tables_owner_id", table_name="custom_difficulty_tables")
+    op.drop_index("ix_custom_tables_owner_id", table_name="custom_difficulty_tables", if_exists=True)
     op.create_index(
         "ix_custom_difficulty_tables_owner_id",
         "custom_difficulty_tables",
@@ -34,8 +34,8 @@ def upgrade() -> None:
     )
 
     # ── Fix index names on user_fumen_tags ────────────────────────────────────
-    op.drop_index("ix_user_fumen_tags_md5", table_name="user_fumen_tags")
-    op.drop_index("ix_user_fumen_tags_sha256", table_name="user_fumen_tags")
+    op.drop_index("ix_user_fumen_tags_md5", table_name="user_fumen_tags", if_exists=True)
+    op.drop_index("ix_user_fumen_tags_sha256", table_name="user_fumen_tags", if_exists=True)
     op.create_index("ix_user_fumen_tags_fumen_md5", "user_fumen_tags", ["fumen_md5"], unique=False)
     op.create_index(
         "ix_user_fumen_tags_fumen_sha256", "user_fumen_tags", ["fumen_sha256"], unique=False
@@ -43,7 +43,7 @@ def upgrade() -> None:
 
     # ── Remove duplicate username unique constraint ───────────────────────────
     # ix_users_username (unique index) already enforces uniqueness.
-    op.drop_constraint("users_username_key", "users", type_="unique")
+    op.drop_constraint("users_username_key", "users", type_="unique", if_exists=True)
 
 
 def downgrade() -> None:
