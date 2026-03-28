@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useMemo, useCallback, useDeferredValue } from "react";
+import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 import { X, ChevronUp, ChevronDown, ChevronsUpDown, Search } from "lucide-react";
 import { useFavoriteTables } from "@/hooks/use-tables";
 import { useTableClearDistribution, TableClearSong } from "@/hooks/use-analysis";
@@ -207,9 +209,18 @@ const SongTable = React.memo(function SongTable({ songs }: { songs: TableClearSo
               >
                 <td className="px-3 py-2 text-xs text-muted-foreground">{song.level}</td>
                 <td className="px-3 py-2">
-                  <div className="font-medium text-xs leading-tight truncate max-w-[220px]">
-                    {song.title || "(제목 없음)"}
-                  </div>
+                  {song.sha256 ? (
+                    <Link
+                      href={`/songs/${song.sha256}`}
+                      className="font-medium text-xs leading-tight truncate max-w-[220px] hover:text-primary transition-colors block"
+                    >
+                      {song.title || "(제목 없음)"}
+                    </Link>
+                  ) : (
+                    <div className="font-medium text-xs leading-tight truncate max-w-[220px]">
+                      {song.title || "(제목 없음)"}
+                    </div>
+                  )}
                   {song.artist && (
                     <div className="text-[10px] text-muted-foreground truncate max-w-[220px]">
                       {song.artist}
@@ -411,15 +422,38 @@ interface TableClearSectionProps {
   clientType?: string;
 }
 
+// URL param 키 (대시보드 기존 tab/date 파라미터와 충돌하지 않도록 접두사 d_ 사용)
+const P_TBL = "d_tbl";
+const P_LV  = "d_lv";
+const P_CT  = "d_ct";
+const P_Q   = "d_q";
+
 export function TableClearSection({ clientType }: TableClearSectionProps) {
   const { data: favTables, isLoading: tablesLoading } = useFavoriteTables();
-  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
-  // Multi-select filter state
-  const [filterLevels, setFilterLevels] = useState<Set<string>>(new Set());
-  const [filterClearTypes, setFilterClearTypes] = useState<Set<number>>(new Set());
-  const [filterTitle, setFilterTitle] = useState("");
+  // URL에서 상태 읽기
+  const selectedTableId = searchParams.get(P_TBL);
+  const filterLevels = useMemo(
+    () => new Set(searchParams.get(P_LV)?.split(",").filter(Boolean) ?? []),
+    [searchParams]
+  );
+  const filterClearTypes = useMemo(
+    () => new Set((searchParams.get(P_CT)?.split(",").filter(Boolean) ?? []).map(Number)),
+    [searchParams]
+  );
+  const filterTitle = searchParams.get(P_Q) ?? "";
   const deferredTitle = useDeferredValue(filterTitle);
+
+  // URL 업데이트 헬퍼 (기존 파라미터 보존)
+  const updateParams = useCallback((updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [k, v] of Object.entries(updates)) {
+      if (v) params.set(k, v); else params.delete(k);
+    }
+    router.replace(`/dashboard?${params.toString()}`, { scroll: false });
+  }, [searchParams, router]);
 
   // Auto-select first table when loaded
   const effectiveTableId = selectedTableId ?? (favTables?.[0]?.id ?? null);
@@ -454,7 +488,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
 
   const isFiltered = filterLevels.size > 0 || filterClearTypes.size > 0 || deferredTitle !== "";
 
-  // Histogram click: exclusive toggle (same bar twice → clear; different bar → exclusive set)
+  // Histogram click: exclusive toggle
   const handleHistogramSelect = useCallback((level: string, clearType: number) => {
     const isExclusive =
       filterLevels.size === 1 &&
@@ -463,42 +497,31 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
       filterClearTypes.has(clearType);
 
     if (isExclusive) {
-      setFilterLevels(new Set());
-      setFilterClearTypes(new Set());
+      updateParams({ [P_LV]: null, [P_CT]: null });
     } else {
-      setFilterLevels(new Set([level]));
-      setFilterClearTypes(new Set([clearType]));
+      updateParams({ [P_LV]: level, [P_CT]: String(clearType) });
     }
-  }, [filterLevels, filterClearTypes]);
+  }, [filterLevels, filterClearTypes, updateParams]);
 
   const toggleLevel = useCallback((lv: string) => {
-    setFilterLevels((prev) => {
-      const next = new Set(prev);
-      if (next.has(lv)) next.delete(lv); else next.add(lv);
-      return next;
-    });
-  }, []);
+    const next = new Set(filterLevels);
+    if (next.has(lv)) next.delete(lv); else next.add(lv);
+    updateParams({ [P_LV]: next.size > 0 ? [...next].join(",") : null });
+  }, [filterLevels, updateParams]);
 
   const toggleClearType = useCallback((ct: number) => {
-    setFilterClearTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(ct)) next.delete(ct); else next.add(ct);
-      return next;
-    });
-  }, []);
+    const next = new Set(filterClearTypes);
+    if (next.has(ct)) next.delete(ct); else next.add(ct);
+    updateParams({ [P_CT]: next.size > 0 ? [...next].join(",") : null });
+  }, [filterClearTypes, updateParams]);
 
   const clearFilters = useCallback(() => {
-    setFilterLevels(new Set());
-    setFilterClearTypes(new Set());
-    setFilterTitle("");
-  }, []);
+    updateParams({ [P_LV]: null, [P_CT]: null, [P_Q]: null });
+  }, [updateParams]);
 
   const handleTableSelect = useCallback((id: string) => {
-    setSelectedTableId(id);
-    setFilterLevels(new Set());
-    setFilterClearTypes(new Set());
-    setFilterTitle("");
-  }, []);
+    updateParams({ [P_TBL]: id, [P_LV]: null, [P_CT]: null, [P_Q]: null });
+  }, [updateParams]);
 
   if (tablesLoading) {
     return <div className="h-48 bg-muted rounded animate-pulse" />;
@@ -569,7 +592,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
               filterTitle={filterTitle}
               onToggleLevel={toggleLevel}
               onToggleClearType={toggleClearType}
-              onTitleChange={setFilterTitle}
+              onTitleChange={(v) => updateParams({ [P_Q]: v || null })}
             />
 
             {/* Active filters display */}
@@ -595,7 +618,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
                 {filterTitle && (
                   <Badge variant="secondary" className="text-xs gap-1 h-5">
                     &quot;{filterTitle}&quot;
-                    <button onClick={() => setFilterTitle("")} className="hover:text-foreground">
+                    <button onClick={() => updateParams({ [P_Q]: null })} className="hover:text-foreground">
                       <X className="h-3 w-3" />
                     </button>
                   </Badge>

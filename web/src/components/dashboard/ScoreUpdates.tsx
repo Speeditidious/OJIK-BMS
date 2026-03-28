@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChevronRight } from "lucide-react";
@@ -267,7 +268,16 @@ function LampUpgradeRow({ item }: { item: ClearTypeUpdateItem }) {
       </td>
       {/* 제목 */}
       <td className="px-2 py-2">
-        <p className="text-xs font-medium truncate">{item.title ?? "(알 수 없음)"}</p>
+        {(item.fumen_sha256 || item.fumen_md5) ? (
+          <Link
+            href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
+            className="text-xs font-medium truncate hover:text-primary transition-colors block"
+          >
+            {item.title ?? "(알 수 없음)"}
+          </Link>
+        ) : (
+          <p className="text-xs font-medium truncate">{item.title ?? "(알 수 없음)"}</p>
+        )}
         {item.artist && (
           <p className="text-[10px] text-muted-foreground truncate">{item.artist}</p>
         )}
@@ -353,7 +363,16 @@ function ScoreUpgradeRow({ item }: { item: ExscoreUpdateItem }) {
       </td>
       {/* 제목 */}
       <td className="px-2 py-2">
-        <p className="text-xs font-medium truncate">{item.title ?? "(알 수 없음)"}</p>
+        {(item.fumen_sha256 || item.fumen_md5) ? (
+          <Link
+            href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
+            className="text-xs font-medium truncate hover:text-primary transition-colors block"
+          >
+            {item.title ?? "(알 수 없음)"}
+          </Link>
+        ) : (
+          <p className="text-xs font-medium truncate">{item.title ?? "(알 수 없음)"}</p>
+        )}
         {item.artist && (
           <p className="text-[10px] text-muted-foreground truncate">{item.artist}</p>
         )}
@@ -405,7 +424,16 @@ function BPUpgradeRow({ item }: { item: MinBPUpdateItem }) {
       </td>
       {/* 제목 */}
       <td className="px-2 py-2">
-        <p className="text-xs font-medium truncate">{item.title ?? "(알 수 없음)"}</p>
+        {(item.fumen_sha256 || item.fumen_md5) ? (
+          <Link
+            href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
+            className="text-xs font-medium truncate hover:text-primary transition-colors block"
+          >
+            {item.title ?? "(알 수 없음)"}
+          </Link>
+        ) : (
+          <p className="text-xs font-medium truncate">{item.title ?? "(알 수 없음)"}</p>
+        )}
         {item.artist && (
           <p className="text-[10px] text-muted-foreground truncate">{item.artist}</p>
         )}
@@ -457,7 +485,16 @@ function ComboUpgradeRow({ item }: { item: MaxComboUpdateItem }) {
       </td>
       {/* 제목 */}
       <td className="px-2 py-2">
-        <p className="text-xs font-medium truncate">{item.title ?? "(알 수 없음)"}</p>
+        {(item.fumen_sha256 || item.fumen_md5) ? (
+          <Link
+            href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
+            className="text-xs font-medium truncate hover:text-primary transition-colors block"
+          >
+            {item.title ?? "(알 수 없음)"}
+          </Link>
+        ) : (
+          <p className="text-xs font-medium truncate">{item.title ?? "(알 수 없음)"}</p>
+        )}
         {item.artist && (
           <p className="text-[10px] text-muted-foreground truncate">{item.artist}</p>
         )}
@@ -620,12 +657,19 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
     if (item.is_course) continue;
     const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type);
     entry.clear = { prev: item.prev_clear_type, new: item.new_clear_type };
+    if (entry.bp == null && item.best_min_bp != null) {
+      entry.bp = { prev: null, new: item.best_min_bp };
+    }
   }
 
   for (const item of data.exscore_updates) {
     if (item.is_course) continue;
     const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type);
     entry.score = { prev: item.prev_exscore, new: item.new_exscore, prev_rank: item.prev_rank, new_rank: item.new_rank };
+    // Show best historical BP when there's no dedicated BP improvement entry
+    if (entry.bp == null && item.best_min_bp != null) {
+      entry.bp = { prev: null, new: item.best_min_bp };
+    }
   }
 
   for (const item of data.min_bp_updates) {
@@ -711,13 +755,17 @@ function FumenRow({ fumen }: { fumen: MergedFumenUpdate }) {
         )}
       </td>
 
-      {/* BP: prev → new */}
+      {/* BP: prev → new (or just current best when no improvement) */}
       <td className="px-3 py-2 text-right font-mono align-top whitespace-nowrap">
         {fumen.bp ? (
-          <span className="text-xs text-muted-foreground">
-            {fumen.bp.prev ?? "?"}{" "}
-            <span className="text-foreground">→ {fumen.bp.new ?? "?"}</span>
-          </span>
+          fumen.bp.prev != null ? (
+            <span className="text-xs text-muted-foreground">
+              {fumen.bp.prev}{" "}
+              <span className="text-foreground">→ {fumen.bp.new ?? "?"}</span>
+            </span>
+          ) : (
+            <span className="text-xs text-foreground">{fumen.bp.new}</span>
+          )
         ) : (
           <span className="text-xs text-muted-foreground">—</span>
         )}

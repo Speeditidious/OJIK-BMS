@@ -168,14 +168,14 @@ export function TableSidebar({
   const addFav = useMutation({
     mutationFn: (id: string) => api.post(`/tables/favorites/${id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["favorites"] });
+      queryClient.invalidateQueries({ queryKey: ["tables", "favorites"] });
     },
   });
 
   const removeFav = useMutation({
     mutationFn: (id: string) => api.delete(`/tables/favorites/${id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["favorites"] });
+      queryClient.invalidateQueries({ queryKey: ["tables", "favorites"] });
     },
   });
 
@@ -183,7 +183,7 @@ export function TableSidebar({
     mutationFn: (tableIds: string[]) =>
       api.put("/tables/favorites/reorder", { table_ids: tableIds }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["favorites"] });
+      queryClient.invalidateQueries({ queryKey: ["tables", "favorites"] });
       setLocalFavorites(null);
     },
   });

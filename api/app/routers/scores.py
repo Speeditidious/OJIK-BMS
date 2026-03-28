@@ -1,5 +1,7 @@
 """Score query endpoints."""
 
+import math
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
@@ -7,12 +9,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.models.fumen import Fumen
 from app.models.score import UserScore
 from app.models.user import User
 
 router = APIRouter(prefix="/scores", tags=["scores"])
 
 _CLIENT_LABEL = {"lr2": "LR", "beatoraja": "BR"}
+
+
+def _compute_rate_rank(exscore: int, notes_total: int) -> tuple[float, str]:
+    """Compute rate (%) and rank from exscore and notes_total."""
+    max_ex = notes_total * 2
+    if max_ex <= 0:
+        return 0.0, "F"
+    rate = math.floor(exscore / max_ex * 10000) / 100
+    for rank, threshold in [("AAA", 16), ("AA", 14), ("A", 12), ("B", 10), ("C", 8), ("D", 6), ("E", 4)]:
+        if exscore * 9 >= notes_total * threshold:
+            return rate, rank
+    return rate, "F"
 
 
 class UserScoreRead(BaseModel):
@@ -90,6 +105,84 @@ async def get_my_scores(
         )
         for s in scores
     ]
+
+
+@router.get("/me/fumen/{hash_value}", response_model=list[UserScoreRead])
+async def get_scores_for_fumen(
+    hash_value: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[UserScoreRead]:
+    """Get all score rows for a specific fumen (sha256 or md5), ordered by recorded_at DESC."""
+    from sqlalchemy import or_ as _or
+
+    if len(hash_value) == 64:
+        # sha256 lookup: find fumen's md5 to also fetch md5-only rows (e.g. LR2)
+        fumen_condition = Fumen.sha256 == hash_value
+        fumen_row = await db.execute(select(Fumen.md5).where(fumen_condition).limit(1))
+        paired_md5 = fumen_row.scalar_one_or_none()
+        if paired_md5:
+            hash_condition = _or(
+                (UserScore.fumen_sha256 == hash_value),
+                (UserScore.fumen_md5 == paired_md5) & UserScore.fumen_sha256.is_(None),
+            )
+        else:
+            hash_condition = UserScore.fumen_sha256 == hash_value
+        condition = (hash_condition, UserScore.fumen_hash_others.is_(None))
+    elif len(hash_value) == 32:
+        # md5 lookup: include rows regardless of whether sha256 is also set
+        fumen_condition = Fumen.md5 == hash_value
+        condition = (
+            UserScore.fumen_md5 == hash_value,
+            UserScore.fumen_hash_others.is_(None),
+        )
+    else:
+        from fastapi import HTTPException as _HTTPException
+        from fastapi import status as _status
+        raise _HTTPException(status_code=_status.HTTP_400_BAD_REQUEST, detail="Invalid hash length")
+
+    result = await db.execute(
+        select(UserScore)
+        .where(UserScore.user_id == current_user.id, *condition)
+        .order_by(UserScore.recorded_at.desc().nullslast())
+    )
+    scores = result.scalars().all()
+
+    # Fetch notes_total for rate/rank computation on rows where they're null (e.g. scorelog.db rows)
+    notes_total: int | None = None
+    if any(s.rate is None and s.exscore is not None for s in scores):
+        fumen_result = await db.execute(select(Fumen.notes_total).where(fumen_condition).limit(1))
+        notes_total = fumen_result.scalar_one_or_none()
+
+    def _get_rate_rank(s: UserScore) -> tuple[float | None, str | None]:
+        if s.rate is not None:
+            return s.rate, s.rank
+        if s.exscore is not None and notes_total:
+            return _compute_rate_rank(s.exscore, notes_total)
+        return None, None
+
+    out = []
+    for s in scores:
+        rate, rank = _get_rate_rank(s)
+        out.append(UserScoreRead(
+            id=str(s.id),
+            user_id=str(s.user_id),
+            scorehash=s.scorehash,
+            fumen_sha256=s.fumen_sha256,
+            fumen_md5=s.fumen_md5,
+            fumen_hash_others=s.fumen_hash_others,
+            client_type=s.client_type,
+            clear_type=s.clear_type,
+            exscore=s.exscore,
+            rate=rate,
+            rank=rank,
+            max_combo=s.max_combo,
+            min_bp=s.min_bp,
+            play_count=s.play_count,
+            recorded_at=s.recorded_at.isoformat() if s.recorded_at else None,
+            synced_at=s.synced_at.isoformat() if s.synced_at else None,
+        ))
+    return out
 
 
 @router.get("/me/{fumen_sha256}", response_model=PerFieldBestScore)

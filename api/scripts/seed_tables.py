@@ -39,7 +39,7 @@ async def seed() -> None:
             url: str = cfg["url"]
 
             table_data = load_table_from_disk(slug)
-            effective_symbol = (table_data.get("symbol") if table_data else None) or symbol
+            effective_symbol = symbol or (table_data.get("symbol") if table_data else None)
 
             async with db.begin():
                 result = await db.execute(

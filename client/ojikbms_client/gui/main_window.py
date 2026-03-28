@@ -35,7 +35,6 @@ from PyQt6.QtWidgets import (
 
 from ojikbms_client.auth import clear_tokens, is_logged_in
 from ojikbms_client.config import (
-    get_api_url,
     is_local_url,
     load_config,
     set_api_url,

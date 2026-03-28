@@ -31,7 +31,7 @@ export function ImportDialog({ open, onOpenChange, onImported }: ImportDialogPro
       api.post<DifficultyTable>("/tables/import", { url }),
     onSuccess: (table) => {
       queryClient.invalidateQueries({ queryKey: ["tables"] });
-      queryClient.invalidateQueries({ queryKey: ["favorites"] });
+      queryClient.invalidateQueries({ queryKey: ["tables", "favorites"] });
       setUrl("");
       setError(null);
       onOpenChange(false);

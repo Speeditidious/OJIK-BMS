@@ -1,20 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo } from "react";
+import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, RefreshCw, Music } from "lucide-react";
+import { ExternalLink, RefreshCw, Music, Package, FileCode, Youtube } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { compareTitles } from "@/lib/bms-sort";
+import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
 import type { DifficultyTableDetail, TableFumen, TableFumenScore } from "@/types";
 import { clearBadge } from "@/components/dashboard/RecentActivity";
 
 interface TableDetailProps {
   tableId: string;
   isLoggedIn: boolean;
+  selectedLevel: string | null;
+  onLevelChange: (level: string | null) => void;
 }
 
 // Source client label display
@@ -52,8 +57,11 @@ function SourceClientBadge({ score }: { score: TableFumenScore }) {
   );
 }
 
-export function TableDetail({ tableId, isLoggedIn }: TableDetailProps) {
-  const [selectedLevel, setSelectedLevel] = useState<string | null>(null);
+function songHash(song: TableFumen): string {
+  return song.sha256 || song.md5 || "";
+}
+
+export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange }: TableDetailProps) {
   const queryClient = useQueryClient();
 
   const { data: table, isLoading: tableLoading } = useQuery<DifficultyTableDetail>({
@@ -104,11 +112,21 @@ export function TableDetail({ tableId, isLoggedIn }: TableDetailProps) {
     return acc;
   }, {}) ?? {};
 
-  const displayedSongs = selectedLevel
-    ? (songsByLevel[selectedLevel] ?? [])
-    : songs ?? [];
+  // Sort songs: 1차 level_order 기준, 2차 BMS title sort
+  const levelOrderIndex = Object.fromEntries(
+    table.level_order.map((l, i) => [l, i])
+  );
 
-  // Show user score columns only when logged in and at least one song has scores
+  const displayedSongs = (selectedLevel
+    ? (songsByLevel[selectedLevel] ?? [])
+    : songs ?? []
+  ).slice().sort((a, b) => {
+    const ai = levelOrderIndex[a.level] ?? 9999;
+    const bi = levelOrderIndex[b.level] ?? 9999;
+    if (ai !== bi) return ai - bi;
+    return compareTitles(a.title ?? "", b.title ?? "");
+  });
+
   const hasUserScores = isLoggedIn && displayedSongs.some((s) => s.user_score !== null);
 
   return (
@@ -178,7 +196,7 @@ export function TableDetail({ tableId, isLoggedIn }: TableDetailProps) {
                   ? "bg-primary/10 text-primary font-medium"
                   : "hover:bg-secondary text-muted-foreground"
               )}
-              onClick={() => setSelectedLevel(null)}
+              onClick={() => onLevelChange(null)}
             >
               전체
             </div>
@@ -193,7 +211,7 @@ export function TableDetail({ tableId, isLoggedIn }: TableDetailProps) {
                       ? "bg-primary/10 text-primary font-medium"
                       : "hover:bg-secondary text-muted-foreground"
                   )}
-                  onClick={() => setSelectedLevel(level)}
+                  onClick={() => onLevelChange(level)}
                 >
                   <span className="font-mono">
                     {table.symbol}{level.replace(table.symbol ?? "", "")}
@@ -218,24 +236,33 @@ export function TableDetail({ tableId, isLoggedIn }: TableDetailProps) {
               </div>
             ) : (
               <ScrollArea className="h-full">
-                {/* Column header (only when user scores are available) */}
-                {hasUserScores && (
-                  <div className="sticky top-0 z-10 bg-background border-b px-4 py-1.5 flex items-center gap-2 text-[10px] text-muted-foreground font-medium">
-                    <span className="w-10 shrink-0">레벨</span>
-                    <span className="flex-1 min-w-0">곡명 / 아티스트</span>
-                    <span className="w-16 text-center">클리어</span>
-                    <span className="w-14 text-center">EX</span>
-                    <span className="w-14 text-center">Rate</span>
-                    <span className="w-10 text-center">Rank</span>
-                    <span className="w-12 text-center">BP</span>
-                    <span className="w-10 text-center">출처</span>
-                    <span className="w-5 shrink-0" />
-                  </div>
-                )}
+                {/* Column header */}
+                <div className="sticky top-0 z-10 bg-background border-b px-4 py-1.5 flex items-center gap-2 text-[10px] text-muted-foreground font-medium">
+                  <span className="w-10 shrink-0">레벨</span>
+                  <span className="flex-1 min-w-0">곡명 / 아티스트</span>
+                  {hasUserScores && (
+                    <>
+                      <span className="w-16 text-center">클리어</span>
+                      <span className="w-14 text-center">EX</span>
+                      <span className="w-14 text-center">Rate</span>
+                      <span className="w-10 text-center">Rank</span>
+                      <span className="w-12 text-center">BP</span>
+                      <span className="w-10 text-center">출처</span>
+                    </>
+                  )}
+                  <span className="hidden md:block w-16 text-center">BPM</span>
+                  <span className="hidden md:block w-14 text-center">Notes</span>
+                  <span className="hidden md:block w-12 text-center">길이</span>
+                  <span className="w-16 shrink-0 text-center">링크</span>
+                </div>
                 <div className="divide-y divide-border/50">
                   {displayedSongs.map((song, i) => {
                     const levelLabel = `${table.symbol ?? ""}${song.level.replace(table.symbol ?? "", "")}`;
                     const s = song.user_score;
+                    const hash = songHash(song);
+                    const { total: notesTotal, detail: notesDetail } = formatNotes(
+                      song.notes_total, song.notes_n, song.notes_ln, song.notes_s, song.notes_ls
+                    );
                     return (
                       <div key={`${song.md5}-${song.sha256}-${i}`} className="px-4 py-2.5 hover:bg-secondary/50 transition-colors">
                         <div className="flex items-center gap-2">
@@ -246,8 +273,30 @@ export function TableDetail({ tableId, isLoggedIn }: TableDetailProps) {
 
                           {/* Title & Artist */}
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{song.title || "(제목 없음)"}</p>
+                            {hash ? (
+                              <Link
+                                href={`/songs/${hash}`}
+                                className="text-sm font-medium truncate hover:text-primary transition-colors block"
+                              >
+                                {song.title || "(제목 없음)"}
+                              </Link>
+                            ) : (
+                              <p className="text-sm font-medium truncate">{song.title || "(제목 없음)"}</p>
+                            )}
                             <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
+                            {/* User tags (read-only) */}
+                            {song.user_tags.length > 0 && (
+                              <div className="flex gap-1 flex-wrap mt-0.5">
+                                {song.user_tags.map((t) => (
+                                  <span
+                                    key={t.id}
+                                    className="text-[10px] px-1.5 py-0 rounded-full border border-primary/30 text-primary/80 bg-primary/10"
+                                  >
+                                    {t.tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
                           {/* User score columns */}
@@ -278,20 +327,73 @@ export function TableDetail({ tableId, isLoggedIn }: TableDetailProps) {
                             </>
                           )}
 
-                          {/* Download link */}
-                          {song.file_url ? (
-                            <a
-                              href={song.file_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="shrink-0 text-muted-foreground hover:text-foreground"
-                              title="다운로드 페이지"
-                            >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                            </a>
-                          ) : (
-                            <span className="w-5 shrink-0" />
-                          )}
+                          {/* BPM */}
+                          <div className="hidden md:block w-16 text-center text-xs text-muted-foreground font-mono">
+                            {formatBpm(song.bpm_main, song.bpm_min, song.bpm_max)}
+                          </div>
+
+                          {/* Notes */}
+                          <div className="hidden md:block w-14 text-center text-xs text-muted-foreground font-mono">
+                            {notesTotal === "-" ? "-" : (
+                              notesDetail ? (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="cursor-default">{notesTotal}</span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="left" className="text-xs">
+                                      {notesDetail}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              ) : notesTotal
+                            )}
+                          </div>
+
+                          {/* Length */}
+                          <div className="hidden md:block w-12 text-center text-xs text-muted-foreground font-mono">
+                            {formatLength(song.length)}
+                          </div>
+
+                          {/* Links */}
+                          <div className="w-16 flex justify-center gap-1.5 shrink-0">
+                            {song.youtube_url && (
+                              <a
+                                href={song.youtube_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-red-400/70 hover:text-red-400 transition-colors"
+                                title="YouTube"
+                              >
+                                <Youtube className="h-3.5 w-3.5" />
+                              </a>
+                            )}
+                            {song.file_url && (
+                              <a
+                                href={song.file_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-muted-foreground hover:text-foreground transition-colors"
+                                title="동봉 다운로드"
+                              >
+                                <Package className="h-3.5 w-3.5" />
+                              </a>
+                            )}
+                            {song.file_url_diff && (
+                              <a
+                                href={song.file_url_diff}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-muted-foreground hover:text-foreground transition-colors"
+                                title="차분 다운로드"
+                              >
+                                <FileCode className="h-3.5 w-3.5" />
+                              </a>
+                            )}
+                            {!song.file_url && !song.file_url_diff && !song.youtube_url && (
+                              <span className="w-5 shrink-0" />
+                            )}
+                          </div>
                         </div>
                       </div>
                     );

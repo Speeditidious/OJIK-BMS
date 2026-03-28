@@ -80,14 +80,13 @@ async def _async_update_difficulty_table(table_id: uuid.UUID) -> dict:
 
             table.level_order = table_data.get("level_order")
 
-            header_symbol = table_data.get("symbol")
-            if header_symbol:
-                table.symbol = header_symbol
-            elif table.symbol is None and table.slug:
+            cfg_symbol = None
+            if table.slug:
                 cfg_map = {c["slug"]: c for c in get_default_table_configs()}
-                fallback = cfg_map.get(table.slug, {}).get("symbol")
-                if fallback:
-                    table.symbol = fallback
+                cfg_symbol = cfg_map.get(table.slug, {}).get("symbol")
+            effective_symbol = cfg_symbol or table_data.get("symbol")
+            if effective_symbol:
+                table.symbol = effective_symbol
 
             seen_keys = await upsert_fumens(db, table_id, table_data.get("songs", []))
             removed = await remove_stale_entries(db, table_id, seen_keys)

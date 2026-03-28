@@ -1,6 +1,8 @@
 """Fumen (BMS chart) list and detail endpoints."""
 from __future__ import annotations
 
+import re
+import uuid as _uuid
 from typing import Any
 
 import sqlalchemy as sa
@@ -11,8 +13,11 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_user
-from app.models.fumen import Fumen
+from app.core.security import (
+    get_current_admin,
+    get_current_user,
+)
+from app.models.fumen import Fumen, UserFumenTag
 from app.models.user import User
 
 router = APIRouter(prefix="/fumens", tags=["fumens"])
@@ -63,15 +68,47 @@ async def list_fumens(
     return [FumenRead.model_validate(f) for f in fumens]
 
 
-@router.get("/{sha256}", response_model=FumenRead)
-async def get_fumen_by_sha256(
-    sha256: str,
+# GET /my-tags must be registered before /{hash_value} to avoid path capture.
+class TagRead(BaseModel):
+    id: str
+    tag: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TagCreateRequest(BaseModel):
+    tag: str
+
+
+@router.get("/my-tags", response_model=list[str])
+async def get_my_tags(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[str]:
+    """Get distinct tags used by the current user (for autocomplete)."""
+    result = await db.execute(
+        select(UserFumenTag.tag)
+        .where(UserFumenTag.user_id == current_user.id)
+        .distinct()
+        .order_by(UserFumenTag.tag)
+    )
+    return [row[0] for row in result.all()]
+
+
+@router.get("/{hash_value}", response_model=FumenRead)
+async def get_fumen_by_hash(
+    hash_value: str,
     db: AsyncSession = Depends(get_db),
 ) -> FumenRead:
-    """Get a fumen by SHA256 hash."""
-    result = await db.execute(select(Fumen).where(Fumen.sha256 == sha256))
-    fumen = result.scalar_one_or_none()
+    """Get a fumen by SHA256 (64 chars) or MD5 (32 chars) hash."""
+    if len(hash_value) == 64:
+        result = await db.execute(select(Fumen).where(Fumen.sha256 == hash_value))
+    elif len(hash_value) == 32:
+        result = await db.execute(select(Fumen).where(Fumen.md5 == hash_value))
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid hash length")
 
+    fumen = result.scalar_one_or_none()
     if fumen is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fumen not found")
 
@@ -581,3 +618,185 @@ async def sync_fumen_details(
         updated=updated_count,
         skipped=skipped_count,
     )
+
+
+# ---------------------------------------------------------------------------
+# YouTube URL management (admin only)
+# ---------------------------------------------------------------------------
+
+_YOUTUBE_PATTERN = re.compile(
+    r"^https?://(www\.)?youtube\.com/watch\?.*v=[\w-]+"
+    r"|^https?://youtu\.be/[\w-]+"
+)
+
+
+class YoutubeUrlRequest(BaseModel):
+    youtube_url: str | None = None
+
+
+async def _get_fumen_by_hash(hash_value: str, db: AsyncSession) -> Fumen:
+    if len(hash_value) == 64:
+        result = await db.execute(select(Fumen).where(Fumen.sha256 == hash_value))
+    elif len(hash_value) == 32:
+        result = await db.execute(select(Fumen).where(Fumen.md5 == hash_value))
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid hash length")
+    fumen = result.scalar_one_or_none()
+    if fumen is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fumen not found")
+    return fumen
+
+
+@router.patch("/{hash_value}/youtube-url", response_model=FumenRead)
+async def update_youtube_url(
+    hash_value: str,
+    body: YoutubeUrlRequest,
+    current_user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> FumenRead:
+    """Update youtube_url for a fumen (admin only)."""
+    if body.youtube_url is not None and not _YOUTUBE_PATTERN.match(body.youtube_url):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid YouTube URL",
+        )
+    fumen = await _get_fumen_by_hash(hash_value, db)
+    fumen.youtube_url = body.youtube_url
+    await db.commit()
+    await db.refresh(fumen)
+    return FumenRead.model_validate(fumen)
+
+
+# ---------------------------------------------------------------------------
+# User fumen tags
+# ---------------------------------------------------------------------------
+
+@router.get("/{hash_value}/tags", response_model=list[TagRead])
+async def get_fumen_tags(
+    hash_value: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[TagRead]:
+    """Get current user's tags for a fumen."""
+    if len(hash_value) == 64:
+        condition = UserFumenTag.fumen_sha256 == hash_value
+    elif len(hash_value) == 32:
+        condition = (UserFumenTag.fumen_md5 == hash_value) & UserFumenTag.fumen_sha256.is_(None)
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid hash length")
+
+    result = await db.execute(
+        select(UserFumenTag).where(
+            UserFumenTag.user_id == current_user.id,
+            condition,
+        ).order_by(UserFumenTag.display_order, UserFumenTag.tag)
+    )
+    tags = result.scalars().all()
+    return [TagRead(id=str(t.id), tag=t.tag) for t in tags]
+
+
+@router.post("/{hash_value}/tags", response_model=TagRead, status_code=status.HTTP_201_CREATED)
+async def add_fumen_tag(
+    hash_value: str,
+    body: TagCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TagRead:
+    """Add a tag to a fumen for the current user."""
+    tag_text = body.tag.strip()
+    if not tag_text:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Tag cannot be empty")
+
+    sha256: str | None = None
+    md5: str | None = None
+    if len(hash_value) == 64:
+        sha256 = hash_value
+    elif len(hash_value) == 32:
+        md5 = hash_value
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid hash length")
+
+    # display_order = 현재 태그 수 (마지막에 추가)
+    count_result = await db.execute(
+        select(sa.func.count()).select_from(UserFumenTag).where(
+            UserFumenTag.user_id == current_user.id,
+            UserFumenTag.fumen_sha256 == sha256 if sha256 else
+            (UserFumenTag.fumen_md5 == md5) & UserFumenTag.fumen_sha256.is_(None),
+        )
+    )
+    next_order = count_result.scalar() or 0
+
+    tag = UserFumenTag(
+        user_id=current_user.id,
+        fumen_sha256=sha256,
+        fumen_md5=md5,
+        tag=tag_text,
+        display_order=next_order,
+    )
+    db.add(tag)
+    try:
+        await db.commit()
+        await db.refresh(tag)
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Tag already exists")
+
+    return TagRead(id=str(tag.id), tag=tag.tag)
+
+
+@router.delete("/{hash_value}/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_fumen_tag(
+    hash_value: str,
+    tag_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete a tag from a fumen."""
+    try:
+        tag_uuid = _uuid.UUID(tag_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid tag id")
+
+    result = await db.execute(
+        select(UserFumenTag).where(
+            UserFumenTag.id == tag_uuid,
+            UserFumenTag.user_id == current_user.id,
+        )
+    )
+    tag = result.scalar_one_or_none()
+    if tag is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
+    await db.delete(tag)
+    await db.commit()
+
+
+class TagReorderRequest(BaseModel):
+    tag_ids: list[str]
+
+
+@router.put("/{hash_value}/tags/reorder", status_code=status.HTTP_204_NO_CONTENT)
+async def reorder_fumen_tags(
+    hash_value: str,
+    body: TagReorderRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Reorder tags by providing an ordered list of tag UUIDs."""
+    try:
+        tag_uuids = [_uuid.UUID(tid) for tid in body.tag_ids]
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid tag id")
+
+    result = await db.execute(
+        select(UserFumenTag).where(
+            UserFumenTag.id.in_(tag_uuids),
+            UserFumenTag.user_id == current_user.id,
+        )
+    )
+    tags_by_id = {t.id: t for t in result.scalars().all()}
+
+    for order, tag_uuid in enumerate(tag_uuids):
+        if tag_uuid in tags_by_id:
+            tags_by_id[tag_uuid].display_order = order
+
+    await db.commit()

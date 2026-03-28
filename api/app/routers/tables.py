@@ -1,6 +1,7 @@
 """Difficulty table endpoints: list, favorites, import, sync, fumen query."""
 from __future__ import annotations
 
+import math
 import uuid
 from typing import Any
 
@@ -17,12 +18,24 @@ from app.core.security import (
     get_current_user_optional,
 )
 from app.models.difficulty_table import DifficultyTable, UserFavoriteDifficultyTable
-from app.models.fumen import Fumen
+from app.models.fumen import Fumen, UserFumenTag
 from app.models.score import UserScore
 from app.models.user import User
 from app.schemas import MessageResponse
 
 router = APIRouter(prefix="/tables", tags=["tables"])
+
+
+def _compute_rate_rank(exscore: int, notes_total: int) -> tuple[float, str]:
+    """Compute rate (%) and rank from exscore and notes_total."""
+    max_ex = notes_total * 2
+    if max_ex <= 0:
+        return 0.0, "F"
+    rate = math.floor(exscore / max_ex * 10000) / 100
+    for rank, threshold in [("AAA", 16), ("AA", 14), ("A", 12), ("B", 10), ("C", 8), ("D", 6), ("E", 4)]:
+        if exscore * 9 >= notes_total * threshold:
+            return rate, rank
+    return rate, "F"
 
 
 # ── Pydantic schemas ─────────────────────────────────────────────────────────
@@ -62,6 +75,13 @@ class TableFumenScore(BaseModel):
     source_client_detail: dict | None  # e.g. {"clear_type": "LR", "exscore": "BR", "min_bp": "BR"}
 
 
+class UserTagRead(BaseModel):
+    id: str
+    tag: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TableFumen(BaseModel):
     level: str
     md5: str | None
@@ -69,8 +89,21 @@ class TableFumen(BaseModel):
     title: str | None
     artist: str | None
     file_url: str | None
+    file_url_diff: str | None = None
+    bpm_main: float | None = None
+    bpm_min: float | None = None
+    bpm_max: float | None = None
+    notes_total: int | None = None
+    notes_n: int | None = None
+    notes_ln: int | None = None
+    notes_s: int | None = None
+    notes_ls: int | None = None
+    total: int | None = None
+    length: int | None = None
+    youtube_url: str | None = None
     table_entries: list[Any] | None
     user_score: TableFumenScore | None = None
+    user_tags: list[UserTagRead] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -194,7 +227,17 @@ async def get_table_songs(
     score_map: dict[tuple[str | None, str | None], TableFumenScore] = {}
     if current_user and filtered_fumens:
         sha256_list = [f.sha256 for f in filtered_fumens if f.sha256]
+        # md5-only fumens (no sha256 in fumens table)
         md5_list = [f.md5 for f in filtered_fumens if f.md5 and not f.sha256]
+        # md5s for fumens that ALSO have sha256 — needed to find old md5-only user_scores rows
+        # (e.g. LR2 rows stored before sha256 was available or LR2 which never has sha256)
+        md5_for_sha256_fumens = [f.md5 for f in filtered_fumens if f.sha256 and f.md5]
+        # Map: md5 → canonical (sha256, None) key, for normalizing md5-only rows below
+        md5_to_key: dict[str, tuple[str | None, str | None]] = {
+            f.md5: (f.sha256, None)
+            for f in filtered_fumens
+            if f.sha256 and f.md5
+        }
 
         score_conditions = []
         if sha256_list:
@@ -202,6 +245,11 @@ async def get_table_songs(
         if md5_list:
             score_conditions.append(
                 (UserScore.fumen_md5.in_(md5_list)) & UserScore.fumen_sha256.is_(None)
+            )
+        if md5_for_sha256_fumens:
+            # Also fetch md5-only rows whose fumen now has sha256 (e.g. all LR2 rows)
+            score_conditions.append(
+                (UserScore.fumen_md5.in_(md5_for_sha256_fumens)) & UserScore.fumen_sha256.is_(None)
             )
 
         if score_conditions:
@@ -218,14 +266,28 @@ async def get_table_songs(
             )
             score_rows = score_rows_result.scalars().all()
 
-            # Per-fumen: pick the most recent row per client_type, then take best per field
-            per_fumen_client: dict[tuple[str | None, str | None], dict[str, Any]] = {}
+            # Per-fumen: accumulate per-field best across ALL rows per client_type
+            # Structure: { fumen_key: { client_type: { "clear_type", "exscore", "rate", "rank", "min_bp" } } }
+            per_fumen_client: dict[tuple[str | None, str | None], dict[str, dict[str, Any]]] = {}
             for s in score_rows:
-                key = (s.fumen_sha256, s.fumen_md5 if not s.fumen_sha256 else None)
+                # Normalize key: md5-only rows for fumens that have sha256 → use (sha256, None)
+                if s.fumen_sha256 is None and s.fumen_md5 and s.fumen_md5 in md5_to_key:
+                    key = md5_to_key[s.fumen_md5]
+                else:
+                    key = (s.fumen_sha256, s.fumen_md5 if not s.fumen_sha256 else None)
                 per_client = per_fumen_client.setdefault(key, {})
-                # Already ordered by recorded_at DESC — keep first (most recent) per client_type
-                if s.client_type not in per_client:
-                    per_client[s.client_type] = s
+                ct = s.client_type
+                if ct not in per_client:
+                    per_client[ct] = {"clear_type": None, "exscore": None, "rate": None, "rank": None, "min_bp": None}
+                entry = per_client[ct]
+                if s.clear_type is not None and (entry["clear_type"] is None or s.clear_type > entry["clear_type"]):
+                    entry["clear_type"] = s.clear_type
+                if s.exscore is not None and (entry["exscore"] is None or s.exscore > entry["exscore"]):
+                    entry["exscore"] = s.exscore
+                    entry["rate"] = s.rate
+                    entry["rank"] = s.rank
+                if s.min_bp is not None and (entry["min_bp"] is None or s.min_bp < entry["min_bp"]):
+                    entry["min_bp"] = s.min_bp
 
             for key, per_client in per_fumen_client.items():
                 raw: dict[str, Any] = {
@@ -233,18 +295,18 @@ async def get_table_songs(
                     "exscore": None, "rate": None, "rank": None, "exscore_client": None,
                     "min_bp": None, "min_bp_client": None,
                 }
-                for ct, s in per_client.items():
+                for ct, entry in per_client.items():
                     client_label = _CLIENT_LABEL.get(ct, ct)
-                    if s.clear_type is not None and (raw["clear_type"] is None or s.clear_type > raw["clear_type"]):
-                        raw["clear_type"] = s.clear_type
+                    if entry["clear_type"] is not None and (raw["clear_type"] is None or entry["clear_type"] > raw["clear_type"]):
+                        raw["clear_type"] = entry["clear_type"]
                         raw["clear_type_client"] = client_label
-                    if s.exscore is not None and (raw["exscore"] is None or s.exscore > raw["exscore"]):
-                        raw["exscore"] = s.exscore
-                        raw["rate"] = s.rate
-                        raw["rank"] = s.rank
+                    if entry["exscore"] is not None and (raw["exscore"] is None or entry["exscore"] > raw["exscore"]):
+                        raw["exscore"] = entry["exscore"]
+                        raw["rate"] = entry["rate"]
+                        raw["rank"] = entry["rank"]
                         raw["exscore_client"] = client_label
-                    if s.min_bp is not None and (raw["min_bp"] is None or s.min_bp < raw["min_bp"]):
-                        raw["min_bp"] = s.min_bp
+                    if entry["min_bp"] is not None and (raw["min_bp"] is None or entry["min_bp"] < raw["min_bp"]):
+                        raw["min_bp"] = entry["min_bp"]
                         raw["min_bp_client"] = client_label
 
                 clients = {
@@ -265,14 +327,57 @@ async def get_table_songs(
                     source_client = None
                     source_client_detail = None
 
+                # Compute rate/rank from exscore + notes_total when null (e.g. scorelog.db rows)
+                rate = raw["rate"]
+                rank = raw["rank"]
+                if (rate is None or rank is None) and raw["exscore"] is not None:
+                    notes_map = {
+                        (f.sha256, f.md5 if not f.sha256 else None): f.notes_total
+                        for f in filtered_fumens
+                    }
+                    nt = notes_map.get(key)
+                    if nt:
+                        rate, rank = _compute_rate_rank(raw["exscore"], nt)
+
                 score_map[key] = TableFumenScore(
                     best_clear_type=raw["clear_type"],
                     best_exscore=raw["exscore"],
-                    rate=raw["rate"],
-                    rank=raw["rank"],
+                    rate=rate,
+                    rank=rank,
                     best_min_bp=raw["min_bp"],
                     source_client=source_client,
                     source_client_detail=source_client_detail,
+                )
+
+    # Fetch user tags for logged-in user
+    tag_map: dict[tuple[str | None, str | None], list[UserTagRead]] = {}
+    if current_user and filtered_fumens:
+        sha256_list_tags = [f.sha256 for f in filtered_fumens if f.sha256]
+        md5_list_tags = [f.md5 for f in filtered_fumens if f.md5 and not f.sha256]
+
+        tag_conditions = []
+        if sha256_list_tags:
+            tag_conditions.append(UserFumenTag.fumen_sha256.in_(sha256_list_tags))
+        if md5_list_tags:
+            tag_conditions.append(
+                (UserFumenTag.fumen_md5.in_(md5_list_tags)) & UserFumenTag.fumen_sha256.is_(None)
+            )
+
+        if tag_conditions:
+            combined_tag = tag_conditions[0]
+            for c in tag_conditions[1:]:
+                combined_tag = combined_tag | c
+
+            tag_rows_result = await db.execute(
+                select(UserFumenTag).where(
+                    UserFumenTag.user_id == current_user.id,
+                    combined_tag,
+                )
+            )
+            for tag in tag_rows_result.scalars().all():
+                t_key = (tag.fumen_sha256, tag.fumen_md5 if not tag.fumen_sha256 else None)
+                tag_map.setdefault(t_key, []).append(
+                    UserTagRead(id=str(tag.id), tag=tag.tag)
                 )
 
     results: list[TableFumen] = []
@@ -286,8 +391,21 @@ async def get_table_songs(
                 title=f.title,
                 artist=f.artist,
                 file_url=f.file_url,
+                file_url_diff=f.file_url_diff,
+                bpm_main=f.bpm_main,
+                bpm_min=f.bpm_min,
+                bpm_max=f.bpm_max,
+                notes_total=f.notes_total,
+                notes_n=f.notes_n,
+                notes_ln=f.notes_ln,
+                notes_s=f.notes_s,
+                notes_ls=f.notes_ls,
+                total=f.total,
+                length=f.length,
+                youtube_url=f.youtube_url,
                 table_entries=f.table_entries,
                 user_score=score_map.get(key),
+                user_tags=tag_map.get(key, []),
             )
         )
 

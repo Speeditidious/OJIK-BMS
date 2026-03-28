@@ -1458,14 +1458,19 @@ async def get_score_updates(
             processed_ct.add(fk)
             prev_ct = prev.clear_type if prev else None
             if (r.clear_type or 0) > (prev_ct or 0):
-                clear_type_updates.append({**base, "prev_clear_type": prev_ct, "new_clear_type": r.clear_type})
+                all_rows_ct = prev_rows_map.get(fk, []) + [r]
+                best_min_bp_ct = min((row.min_bp for row in all_rows_ct if row.min_bp is not None), default=None)
+                clear_type_updates.append({**base, "prev_clear_type": prev_ct, "new_clear_type": r.clear_type, "best_min_bp": best_min_bp_ct})
 
         if r.exscore is not None and fk not in processed_ex:
             processed_ex.add(fk)
             prev_ex = prev.exscore if prev else None
             prev_rank = prev.rank if prev else None
             if (r.exscore or 0) > (prev_ex or 0):
-                exscore_updates.append({**base, "prev_exscore": prev_ex, "new_exscore": r.exscore, "prev_rank": prev_rank, "new_rank": r.rank})
+                # Compute best_min_bp across all historical rows (including current) for this fumen+client
+                all_rows = prev_rows_map.get(fk, []) + [r]
+                best_min_bp = min((row.min_bp for row in all_rows if row.min_bp is not None), default=None)
+                exscore_updates.append({**base, "prev_exscore": prev_ex, "new_exscore": r.exscore, "prev_rank": prev_rank, "new_rank": r.rank, "best_min_bp": best_min_bp})
 
         if r.max_combo is not None and fk not in processed_mc:
             processed_mc.add(fk)

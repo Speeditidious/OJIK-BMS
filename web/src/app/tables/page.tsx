@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Table2, Plus } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
@@ -9,14 +10,39 @@ import { TableSidebar } from "@/components/tables/TableSidebar";
 import { TableDetail } from "@/components/tables/TableDetail";
 import { ImportDialog } from "@/components/tables/ImportDialog";
 import { useAuthStore } from "@/stores/auth";
+import { useFavoriteTables } from "@/hooks/use-tables";
 import { api } from "@/lib/api";
 import type { DifficultyTable } from "@/types";
+import { useState } from "react";
 
-export default function TablesPage() {
-  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+function TablesContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [importOpen, setImportOpen] = useState(false);
   const { user } = useAuthStore();
   const isLoggedIn = !!user;
+
+  const selectedTableId = searchParams.get("t");
+  const selectedLevel = searchParams.get("l");
+
+  const setSelectedTableId = (id: string | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (id) {
+      params.set("t", id);
+      params.delete("l"); // 테이블 바꾸면 레벨 초기화
+    } else {
+      params.delete("t");
+      params.delete("l");
+    }
+    router.replace(`/tables?${params.toString()}`, { scroll: false });
+  };
+
+  const setSelectedLevel = (level: string | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (level) params.set("l", level);
+    else params.delete("l");
+    router.replace(`/tables?${params.toString()}`, { scroll: false });
+  };
 
   const { data: allTables = [] } = useQuery<DifficultyTable[]>({
     queryKey: ["tables"],
@@ -24,12 +50,7 @@ export default function TablesPage() {
     staleTime: 2 * 60 * 1000,
   });
 
-  const { data: favorites = [] } = useQuery<DifficultyTable[]>({
-    queryKey: ["favorites"],
-    queryFn: () => api.get("/tables/favorites/me"),
-    enabled: isLoggedIn,
-    staleTime: 2 * 60 * 1000,
-  });
+  const { data: favorites = [] } = useFavoriteTables();
 
   const handleImported = (table: DifficultyTable) => {
     setSelectedTableId(table.id);
@@ -53,7 +74,6 @@ export default function TablesPage() {
       </div>
 
       <div className="flex flex-1 overflow-hidden" style={{ height: "calc(100vh - 128px)" }}>
-        {/* Sidebar */}
         <div className="w-64 shrink-0">
           <TableSidebar
             favorites={favorites}
@@ -65,10 +85,14 @@ export default function TablesPage() {
           />
         </div>
 
-        {/* Main panel */}
         <div className="flex-1 overflow-hidden">
           {selectedTableId !== null ? (
-            <TableDetail tableId={selectedTableId} isLoggedIn={isLoggedIn} />
+            <TableDetail
+              tableId={selectedTableId}
+              isLoggedIn={isLoggedIn}
+              selectedLevel={selectedLevel}
+              onLevelChange={setSelectedLevel}
+            />
           ) : (
             <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground">
               <Table2 className="h-16 w-16 opacity-20" />
@@ -96,5 +120,13 @@ export default function TablesPage() {
         onImported={handleImported}
       />
     </div>
+  );
+}
+
+export default function TablesPage() {
+  return (
+    <Suspense>
+      <TablesContent />
+    </Suspense>
   );
 }

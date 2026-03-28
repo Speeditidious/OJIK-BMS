@@ -109,6 +109,7 @@ class UserFumenTag(Base):
     fumen_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     fumen_md5: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     tag: Mapped[str] = mapped_column(String(64), nullable=False)
+    display_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
     def __repr__(self) -> str:
         hash_key = self.fumen_sha256 or self.fumen_md5

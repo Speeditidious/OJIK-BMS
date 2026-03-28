@@ -91,6 +91,11 @@ export interface TableFumenScore {
   source_client_detail: Record<string, string> | null;
 }
 
+export interface UserTag {
+  id: string;
+  tag: string;
+}
+
 export interface TableFumen {
   level: string;
   md5: string | null;
@@ -98,8 +103,42 @@ export interface TableFumen {
   title: string | null;
   artist: string | null;
   file_url: string | null;
+  file_url_diff: string | null;
+  bpm_main: number | null;
+  bpm_min: number | null;
+  bpm_max: number | null;
+  notes_total: number | null;
+  notes_n: number | null;
+  notes_ln: number | null;
+  notes_s: number | null;
+  notes_ls: number | null;
+  total: number | null;
+  length: number | null;
+  youtube_url: string | null;
   table_entries: Array<{ table_id: string; level: string }> | null;
   user_score: TableFumenScore | null;
+  user_tags: UserTag[];
+}
+
+export interface FumenDetail {
+  md5: string | null;
+  sha256: string | null;
+  title: string | null;
+  artist: string | null;
+  bpm_min: number | null;
+  bpm_max: number | null;
+  bpm_main: number | null;
+  notes_total: number | null;
+  notes_n: number | null;
+  notes_ln: number | null;
+  notes_s: number | null;
+  notes_ls: number | null;
+  total: number | null;
+  length: number | null;
+  youtube_url: string | null;
+  file_url: string | null;
+  file_url_diff: string | null;
+  table_entries: Array<{ table_id: string; level: string }> | null;
 }
 
 export interface CustomTable {
@@ -191,6 +230,7 @@ export interface ScoreUpdateBase {
 export interface ClearTypeUpdateItem extends ScoreUpdateBase {
   prev_clear_type: number | null;
   new_clear_type: number | null;
+  best_min_bp: number | null;
 }
 
 export interface ExscoreUpdateItem extends ScoreUpdateBase {
@@ -198,6 +238,7 @@ export interface ExscoreUpdateItem extends ScoreUpdateBase {
   new_exscore: number | null;
   prev_rank: string | null;
   new_rank: string | null;
+  best_min_bp: number | null;
 }
 
 export interface MaxComboUpdateItem extends ScoreUpdateBase {

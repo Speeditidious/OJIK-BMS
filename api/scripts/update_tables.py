@@ -46,7 +46,7 @@ async def update_one(slug: str, name: str, url: str, symbol_fallback: str | None
         data = await fetch_table(url)
         songs = data.get("songs", [])
         level_order = data.get("level_order", [])
-        effective_symbol = data.get("symbol") or symbol_fallback
+        effective_symbol = symbol_fallback or data.get("symbol")
         print(f"  → {len(songs)} songs | levels: {level_order[:6]}{'...' if len(level_order) > 6 else ''}")
         save_table_to_disk(slug, data)
         print(f"  ✓ difficulty_tables/{slug}/header.json + data.json saved")

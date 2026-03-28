@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useRecentUpdates, RecentUpdate, ClientTypeFilter } from "@/hooks/use-analysis";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -119,7 +120,17 @@ export function UpdateRow({ u }: { u: RecentUpdate }) {
               </span>
             )}
             {clearBadge(u.clear_type, u.client_type)}
-            <span className="text-xs font-medium truncate max-w-[200px]">{songName}</span>
+            {(u.fumen_sha256 || u.fumen_md5) ? (
+              <Link
+                href={`/songs/${u.fumen_sha256 || u.fumen_md5}`}
+                className="text-xs font-medium truncate max-w-[200px] hover:text-primary transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {songName}
+              </Link>
+            ) : (
+              <span className="text-xs font-medium truncate max-w-[200px]">{songName}</span>
+            )}
           </div>
 
           {/* Difficulty level badges */}
