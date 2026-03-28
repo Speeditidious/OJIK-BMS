@@ -8,6 +8,15 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import keyring
 
+from ojikbms_client.config import is_local_url
+
+
+def _make_client(api_url: str, **kwargs: Any) -> httpx.AsyncClient:
+    """Create an AsyncClient, disabling SSL verification for local URLs."""
+    if is_local_url(api_url):
+        kwargs.setdefault("verify", False)
+    return httpx.AsyncClient(**kwargs)
+
 KEYRING_SERVICE = "ojikbms-client"
 ACCESS_TOKEN_KEY = "access_token"
 REFRESH_TOKEN_KEY = "refresh_token"
@@ -57,7 +66,7 @@ async def refresh_access_token(api_url: str) -> bool:
     if not refresh_token:
         return False
 
-    async with httpx.AsyncClient() as client:
+    async with _make_client(api_url) as client:
         try:
             response = await client.post(
                 f"{api_url}/auth/refresh",

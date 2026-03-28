@@ -35,6 +35,8 @@ from PyQt6.QtWidgets import (
 
 from ojikbms_client.auth import clear_tokens, is_logged_in
 from ojikbms_client.config import (
+    get_api_url,
+    is_local_url,
     load_config,
     set_api_url,
     set_beatoraja_db_dir,
@@ -538,7 +540,7 @@ class MainWindow(QWidget):
         adv_row = QHBoxLayout()
         adv_row.addWidget(_make_label("API URL", bold=True, color=_TEXT, size=13))
         self._api_url_edit = QLineEdit()
-        self._api_url_edit.setPlaceholderText("http://localhost:8000")
+        self._api_url_edit.setPlaceholderText("https://api.ojikbms.kr")
         self._api_url_edit.editingFinished.connect(self._save_api_url)
         adv_row.addWidget(self._api_url_edit)
         adv_layout.addLayout(adv_row)
@@ -636,7 +638,7 @@ class MainWindow(QWidget):
         self._bea_edit.setText(config.get("beatoraja_db_dir") or "")
         self._bea_songdata_edit.setText(config.get("beatoraja_songdata_db_path") or "")
         self._bea_songinfo_edit.setText(config.get("beatoraja_songinfo_db_path") or "")
-        self._api_url_edit.setText(config.get("api_url", "http://localhost:8000"))
+        self._api_url_edit.setText(config.get("api_url", "https://api.ojikbms.kr"))
 
         last = config.get("last_synced_at")
         if last:
@@ -670,7 +672,7 @@ class MainWindow(QWidget):
     # ------------------------------------------------------------------
 
     def _on_login(self) -> None:
-        api_url = self._api_url_edit.text().strip() or "http://localhost:8000"
+        api_url = self._api_url_edit.text().strip() or "https://api.ojikbms.kr"
         self._login_btn.setEnabled(False)
         self._append_log("[INFO] 브라우저에서 Discord 로그인 페이지를 엽니다...")
 
@@ -742,8 +744,13 @@ class MainWindow(QWidget):
 
     def _save_api_url(self) -> None:
         url = self._api_url_edit.text().strip()
-        if url:
-            set_api_url(url)
+        if not url:
+            return
+        # Auto-rewrite https://localhost → http://localhost
+        if url.startswith("https://") and is_local_url(url):
+            url = "http://" + url[len("https://"):]
+            self._api_url_edit.setText(url)
+        set_api_url(url)
 
     # ------------------------------------------------------------------
     # Drag-and-drop

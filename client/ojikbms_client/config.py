@@ -21,7 +21,7 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 
 def _default_config() -> dict[str, Any]:
     return {
-        "api_url": "http://localhost:8000",
+        "api_url": "https://api.ojikbms.kr",
         "bms_folders": [],
         "lr2_db_path": None,
         "lr2_song_db_path": None,
@@ -59,13 +59,28 @@ def save_config(config: dict[str, Any]) -> None:
 
 def get_api_url() -> str:
     """Get the configured API URL."""
-    return load_config().get("api_url", "http://localhost:8000")
+    return load_config().get("api_url", "https://api.ojikbms.kr")
+
+
+def is_local_url(url: str) -> bool:
+    """Return True if the URL points to a local/loopback host."""
+    from urllib.parse import urlparse
+    host = urlparse(url).hostname or ""
+    return host in ("localhost", "127.0.0.1", "::1")
 
 
 def set_api_url(url: str) -> None:
-    """Set the API URL in config."""
+    """Set the API URL in config.
+
+    If the URL targets localhost/127.0.0.1 and uses https://, it is
+    automatically rewritten to http:// because local dev servers are
+    typically plain HTTP.
+    """
+    url = url.rstrip("/")
+    if url.startswith("https://") and is_local_url(url):
+        url = "http://" + url[len("https://"):]
     config = load_config()
-    config["api_url"] = url.rstrip("/")
+    config["api_url"] = url
     save_config(config)
 
 

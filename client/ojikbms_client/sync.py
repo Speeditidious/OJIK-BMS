@@ -9,9 +9,17 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from ojikbms_client.auth import make_authenticated_request
-from ojikbms_client.config import get_api_url, update_last_synced_at
+from ojikbms_client.config import get_api_url, is_local_url, update_last_synced_at
 
 console = Console()
+
+
+def _make_client(**kwargs: Any) -> httpx.AsyncClient:
+    """Create an AsyncClient, disabling SSL verification for local URLs."""
+    api_url = get_api_url()
+    if is_local_url(api_url):
+        kwargs.setdefault("verify", False)
+    return httpx.AsyncClient(**kwargs)
 
 BATCH_SIZE = 500  # Number of scores to sync per batch
 
@@ -40,7 +48,7 @@ async def sync_scores(
 
     any_batch_succeeded = False
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
+    async with _make_client(timeout=300.0) as client:
         # Build score batches — skip if no scores
         score_batches = (
             [scores[i : i + BATCH_SIZE] for i in range(0, len(scores), BATCH_SIZE)]
@@ -103,7 +111,7 @@ async def fetch_today_improvement_count() -> int | None:
     api_url = get_api_url()
     today = datetime.now(UTC).strftime("%Y-%m-%d")
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with _make_client(timeout=10.0) as client:
         response = await make_authenticated_request(
             client,
             "GET",
@@ -129,7 +137,7 @@ async def fetch_known_hashes() -> dict[str, set[str]]:
     """
     api_url = get_api_url()
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with _make_client(timeout=60.0) as client:
             response = await make_authenticated_request(
                 client,
                 "GET",
@@ -180,7 +188,7 @@ async def sync_fumen_details(
 
     batches = [items[i:i + batch_size] for i in range(0, len(items), batch_size)] if items else []
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
+    async with _make_client(timeout=300.0) as client:
         for batch_idx, batch in enumerate(batches, 1):
             payload = {"items": batch}
             response = await make_authenticated_request(
@@ -214,7 +222,7 @@ async def get_sync_status() -> dict[str, Any] | None:
     """Get the current sync status from the server."""
     api_url = get_api_url()
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with _make_client(timeout=10.0) as client:
         response = await make_authenticated_request(
             client,
             "GET",

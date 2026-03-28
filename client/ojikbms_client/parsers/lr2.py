@@ -209,6 +209,13 @@ def parse_lr2_scores(
             def _int(col: str | None) -> int:
                 return int(row[col]) if col and row[col] is not None else 0
 
+            def _int_or_none(col: str | None) -> int | None:
+                """Like _int but returns None instead of 0 for missing/null columns.
+                Use this for fields where 0 is a meaningful value (e.g. min_bp=0 for perfect play)."""
+                if not col or row[col] is None:
+                    return None
+                return int(row[col])
+
             raw_hash = (row[sha256_col] or "").strip().replace("\x00", "")
             if not raw_hash:
                 stats.skipped_hash += 1
@@ -252,7 +259,7 @@ def parse_lr2_scores(
                     "clear_type": LR2_CLEAR_TYPE.get(clear_val_c, 0),
                     "notes": _int(cols["totalnotes"]) or None,
                     "max_combo": _int(cols["maxcombo"]) or None,
-                    "min_bp": _int(cols["minbp"]) or None,
+                    "min_bp": _int_or_none(cols["minbp"]),
                     "play_count": _int(cols["playcount"]),
                     "clear_count": _int(cols["clearcount"]),
                     "recorded_at": played_at_c,
@@ -323,7 +330,7 @@ def parse_lr2_scores(
                 "clear_type": _clear_type,
                 "notes": _int(cols["totalnotes"]) or None,
                 "max_combo": _int(cols["maxcombo"]) or None,
-                "min_bp": _int(cols["minbp"]) or None,
+                "min_bp": _int_or_none(cols["minbp"]),
                 "judgments": judgments,
                 "play_count": _int(cols["playcount"]),
                 "clear_count": _int(cols["clearcount"]),
