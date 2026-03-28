@@ -39,6 +39,7 @@ async def seed() -> None:
             url: str = cfg["url"]
 
             table_data = load_table_from_disk(slug)
+            effective_symbol = (table_data.get("symbol") if table_data else None) or symbol
 
             async with db.begin():
                 result = await db.execute(
@@ -49,7 +50,7 @@ async def seed() -> None:
                 if existing is None:
                     row = DifficultyTable(
                         name=name,
-                        symbol=symbol,
+                        symbol=effective_symbol,
                         slug=slug,
                         source_url=url,
                         is_default=True,
@@ -62,7 +63,7 @@ async def seed() -> None:
                     status = "inserted"
                 else:
                     existing.name = name
-                    existing.symbol = symbol
+                    existing.symbol = effective_symbol
                     existing.source_url = url
                     existing.is_default = True
                     existing.default_order = idx

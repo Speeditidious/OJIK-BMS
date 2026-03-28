@@ -1,4 +1,4 @@
-.PHONY: update-tables ci fix
+.PHONY: update-tables seed-tables ci fix
 
 SLUG ?=
 ENV ?=
@@ -7,6 +7,10 @@ COMPOSE_FILES = -f docker-compose.yml $(if $(filter prod,$(ENV)),-f docker-compo
 
 update-tables:
 	docker compose $(COMPOSE_FILES) exec api python scripts/update_tables.py $(if $(SLUG),--slug $(SLUG),)
+	docker compose $(COMPOSE_FILES) exec api python scripts/seed_tables.py
+
+seed-tables:
+	docker compose $(COMPOSE_FILES) exec api python scripts/seed_tables.py
 
 ci:
 	@echo "=== API: ruff ==="

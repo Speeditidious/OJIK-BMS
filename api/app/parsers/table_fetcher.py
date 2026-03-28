@@ -251,7 +251,7 @@ def load_table_from_disk(slug: str) -> dict | None:
 
     level_order = header.get("level_order") or _derive_level_order(songs)
     courses = _parse_courses_from_header(header)
-    return {"header": header, "songs": songs, "level_order": level_order, "courses": courses}
+    return {"header": header, "songs": songs, "level_order": level_order, "courses": courses, "symbol": header.get("symbol") or None}
 
 
 def _load_config() -> dict:

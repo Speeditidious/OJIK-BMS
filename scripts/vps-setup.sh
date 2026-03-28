@@ -34,7 +34,21 @@ mkdir -p "$APP_DIR"
 git clone "$REPO_URL" "$APP_DIR" || (cd "$APP_DIR" && git pull)
 chown -R $APP_USER:$APP_USER "$APP_DIR"
 
-echo "=== [5/6] Firewall (UFW) ==="
+echo "=== [5/6] Install Miniconda & create ojik_bms environment ==="
+MINICONDA_PATH="/opt/miniconda3"
+if [ ! -d "$MINICONDA_PATH" ]; then
+    curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -o /tmp/miniconda.sh
+    bash /tmp/miniconda.sh -b -p "$MINICONDA_PATH"
+    rm /tmp/miniconda.sh
+fi
+export PATH="$MINICONDA_PATH/bin:$PATH"
+"$MINICONDA_PATH/bin/conda" init bash
+"$MINICONDA_PATH/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+"$MINICONDA_PATH/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+"$MINICONDA_PATH/bin/conda" create -n ojik_bms python=3.11 -y
+"$MINICONDA_PATH/bin/conda" run -n ojik_bms pip install -r "$APP_DIR/api/requirements.txt"
+
+echo "=== [6/7] Firewall (UFW) ==="
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow 22/tcp    # SSH
@@ -42,11 +56,11 @@ ufw allow 80/tcp    # HTTP
 ufw allow 443/tcp   # HTTPS
 ufw --force enable
 
-echo "=== [6/6] fail2ban ==="
+echo "=== [7/8] fail2ban ==="
 systemctl enable fail2ban
 systemctl start fail2ban
 
-echo "=== [7/7] SSH hardening — disable password login ==="
+echo "=== [8/8] SSH hardening — disable password login ==="
 sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
 sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
 systemctl reload sshd
