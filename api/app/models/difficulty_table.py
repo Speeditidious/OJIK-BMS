@@ -31,6 +31,7 @@ class DifficultyTable(Base, TimestampMixin):
     slug: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    default_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
     level_order: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     def __repr__(self) -> str:

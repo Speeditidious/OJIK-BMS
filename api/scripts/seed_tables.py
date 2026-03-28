@@ -32,7 +32,7 @@ async def seed() -> None:
         return
 
     async with AsyncSessionLocal() as db:
-        for cfg in configs:
+        for idx, cfg in enumerate(configs):
             slug: str = cfg["slug"]
             name: str = cfg["name"]
             symbol: str | None = cfg.get("symbol")
@@ -53,6 +53,7 @@ async def seed() -> None:
                         slug=slug,
                         source_url=url,
                         is_default=True,
+                        default_order=idx,
                         level_order=table_data.get("level_order") if table_data else None,
                     )
                     db.add(row)
@@ -64,6 +65,7 @@ async def seed() -> None:
                     existing.symbol = symbol
                     existing.source_url = url
                     existing.is_default = True
+                    existing.default_order = idx
                     if table_data:
                         existing.level_order = table_data.get("level_order")
                     table_id = existing.id

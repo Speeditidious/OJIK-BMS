@@ -36,7 +36,7 @@ from app.parsers.table_fetcher import (
 from app.services.table_import import remove_stale_entries, upsert_courses, upsert_fumens
 
 
-async def update_one(slug: str, name: str, url: str, symbol_fallback: str | None = None) -> bool:
+async def update_one(slug: str, name: str, url: str, symbol_fallback: str | None = None, default_order: int | None = None) -> bool:
     """Fetch one table from remote, save to disk, and upsert into DB."""
     print(f"\n[{slug}] {name}")
     print(f"  URL: {url}")
@@ -75,6 +75,7 @@ async def update_one(slug: str, name: str, url: str, symbol_fallback: str | None
                         slug=slug,
                         source_url=url,
                         is_default=True,
+                        default_order=default_order,
                         level_order=table_data.get("level_order"),
                     )
                     db.add(row)
@@ -86,6 +87,8 @@ async def update_one(slug: str, name: str, url: str, symbol_fallback: str | None
                     existing.symbol = effective_symbol
                     existing.source_url = url
                     existing.is_default = True
+                    if default_order is not None:
+                        existing.default_order = default_order
                     existing.level_order = table_data.get("level_order")
                     table_id = existing.id
                     db_status = "updated"
@@ -118,8 +121,8 @@ async def main() -> None:
             sys.exit(1)
 
     results: list[tuple[str, bool]] = []
-    for c in configs:
-        ok = await update_one(c["slug"], c["name"], c["url"], symbol_fallback=c.get("symbol"))
+    for idx, c in enumerate(configs):
+        ok = await update_one(c["slug"], c["name"], c["url"], symbol_fallback=c.get("symbol"), default_order=idx)
         results.append((c["slug"], ok))
 
     print("\n── Summary ──────────────────────────────────")

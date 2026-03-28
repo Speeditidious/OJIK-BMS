@@ -102,7 +102,11 @@ async def list_tables(
 ) -> list[DifficultyTableRead]:
     """List all difficulty tables."""
     result = await db.execute(
-        select(DifficultyTable).order_by(DifficultyTable.is_default.desc(), DifficultyTable.name)
+        select(DifficultyTable).order_by(
+            DifficultyTable.is_default.desc(),
+            DifficultyTable.default_order.asc().nulls_last(),
+            DifficultyTable.name,
+        )
     )
     tables = result.scalars().all()
 
@@ -300,7 +304,7 @@ async def add_favorite(
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
     """Add a table to the current user's favorites."""
-    await _get_table_or_404(table_id, db)
+    table = await _get_table_or_404(table_id, db)
 
     existing = await db.execute(
         select(UserFavoriteDifficultyTable).where(
@@ -309,17 +313,20 @@ async def add_favorite(
         )
     )
     if existing.scalar_one_or_none() is None:
-        order_result = await db.execute(
-            select(func.count()).select_from(UserFavoriteDifficultyTable).where(
-                UserFavoriteDifficultyTable.user_id == current_user.id
+        if table.default_order is not None:
+            initial_order = table.default_order
+        else:
+            order_result = await db.execute(
+                select(func.count()).select_from(UserFavoriteDifficultyTable).where(
+                    UserFavoriteDifficultyTable.user_id == current_user.id
+                )
             )
-        )
-        current_count = order_result.scalar() or 0
+            initial_order = order_result.scalar() or 0
         db.add(
             UserFavoriteDifficultyTable(
                 user_id=current_user.id,
                 table_id=table_id,
-                display_order=current_count,
+                display_order=initial_order,
             )
         )
         await db.commit()
