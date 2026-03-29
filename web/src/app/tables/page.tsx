@@ -60,15 +60,13 @@ function TablesContent() {
     setSelectedTableId(table.id);
   };
 
-  // Resizable sidebar — always start with default to avoid SSR/client mismatch
-  const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_DEFAULT);
-  useEffect(() => {
+  // Resizable sidebar — initialized client-side from localStorage
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return SIDEBAR_DEFAULT;
     const stored = localStorage.getItem(STORAGE_KEY);
     const parsed = stored ? parseInt(stored, 10) : NaN;
-    if (!isNaN(parsed)) {
-      setSidebarWidth(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, parsed)));
-    }
-  }, []);
+    return isNaN(parsed) ? SIDEBAR_DEFAULT : Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, parsed));
+  });
   const isDragging = useRef(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
@@ -80,15 +78,21 @@ function TablesContent() {
     setSidebarWidth(next);
   }, []);
 
+  const handleMouseUpRef = useRef<() => void>(() => {});
+
   const handleMouseUp = useCallback(() => {
     isDragging.current = false;
     document.removeEventListener("mousemove", handleMouseMove);
-    document.removeEventListener("mouseup", handleMouseUp);
+    document.removeEventListener("mouseup", handleMouseUpRef.current);
     setSidebarWidth((w) => {
       localStorage.setItem(STORAGE_KEY, String(w));
       return w;
     });
   }, [handleMouseMove]);
+
+  useEffect(() => {
+    handleMouseUpRef.current = handleMouseUp;
+  }, [handleMouseUp]);
 
   const handleResizeStart = useCallback(
     (e: React.MouseEvent) => {
@@ -97,9 +101,9 @@ function TablesContent() {
       startX.current = e.clientX;
       startWidth.current = sidebarWidth;
       document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
+      document.addEventListener("mouseup", handleMouseUpRef.current);
     },
-    [sidebarWidth, handleMouseMove, handleMouseUp]
+    [sidebarWidth, handleMouseMove]
   );
 
   useEffect(() => {

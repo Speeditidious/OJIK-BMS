@@ -22,8 +22,7 @@ ci:
 	@echo "=== Web: tsc ==="
 	cd web && npm run type-check --silent
 	@echo "=== API: pytest ==="
-	cd api && conda run -n ojik_bms pytest tests/ -v --tb=short; \
-	code=$$?; [ $$code -eq 0 ] || [ $$code -eq 5 ] || exit $$code
+	cd api && conda run -n ojik_bms sh -c 'pytest tests/ -v --tb=short; code=$$?; [ $$code -eq 0 ] || [ $$code -eq 5 ]'
 	@echo "=== Client: pytest ==="
 	cd client && conda run -n ojik_bms pytest tests/ -v --tb=short
 	@echo "All checks passed."

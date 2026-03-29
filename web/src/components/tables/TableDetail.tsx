@@ -258,6 +258,7 @@ interface SongVirtualListProps {
 function SongVirtualList({ songs, table, hasUserScores }: SongVirtualListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
+  // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
     count: songs.length,
     getScrollElement: () => parentRef.current,
