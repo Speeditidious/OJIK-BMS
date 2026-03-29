@@ -33,6 +33,7 @@ interface TableSidebarProps {
   onSelect: (id: string) => void;
   onImportClick: () => void;
   isLoggedIn: boolean;
+  sidebarWidth?: number;
 }
 
 interface SortableTableRowProps {
@@ -41,6 +42,7 @@ interface SortableTableRowProps {
   onSelect: (id: string) => void;
   onToggleFavorite: (table: DifficultyTable, e: React.MouseEvent) => void;
   isLoggedIn: boolean;
+  showCount?: boolean;
 }
 
 function SortableTableRow({
@@ -49,6 +51,7 @@ function SortableTableRow({
   onSelect,
   onToggleFavorite,
   isLoggedIn,
+  showCount = true,
 }: SortableTableRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: table.id });
@@ -85,8 +88,8 @@ function SortableTableRow({
           {table.symbol}
         </Badge>
       )}
-      <span className="flex-1 truncate text-sm">{table.name}</span>
-      {table.song_count != null && (
+      <span className="flex-1 min-w-0 truncate text-sm">{table.name}</span>
+      {showCount && table.song_count != null && (
         <span className="text-xs text-muted-foreground shrink-0">{table.song_count}</span>
       )}
       {isLoggedIn && (
@@ -108,12 +111,14 @@ function StaticTableRow({
   onSelect,
   onToggleFavorite,
   isLoggedIn,
+  showCount = true,
 }: {
   table: DifficultyTable;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onToggleFavorite: (table: DifficultyTable, e: React.MouseEvent) => void;
   isLoggedIn: boolean;
+  showCount?: boolean;
 }) {
   return (
     <div
@@ -131,8 +136,8 @@ function StaticTableRow({
           {table.symbol}
         </Badge>
       )}
-      <span className="flex-1 truncate text-sm">{table.name}</span>
-      {table.song_count != null && (
+      <span className="flex-1 min-w-0 truncate text-sm">{table.name}</span>
+      {showCount && table.song_count != null && (
         <span className="text-xs text-muted-foreground shrink-0">{table.song_count}</span>
       )}
       {isLoggedIn && (
@@ -155,7 +160,9 @@ export function TableSidebar({
   onSelect,
   onImportClick,
   isLoggedIn,
+  sidebarWidth = 256,
 }: TableSidebarProps) {
+  const showCount = sidebarWidth >= 180;
   const queryClient = useQueryClient();
   const favoriteIds = new Set(favorites.map((t) => t.id));
 
@@ -240,6 +247,7 @@ export function TableSidebar({
                     onSelect={onSelect}
                     onToggleFavorite={toggleFavorite}
                     isLoggedIn={isLoggedIn}
+                    showCount={showCount}
                   />
                 ))}
               </SortableContext>
@@ -261,6 +269,7 @@ export function TableSidebar({
                 onSelect={onSelect}
                 onToggleFavorite={toggleFavorite}
                 isLoggedIn={isLoggedIn}
+                showCount={showCount}
               />
             ))}
           </>

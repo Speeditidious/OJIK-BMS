@@ -183,15 +183,15 @@ const SongTable = React.memo(function SongTable({ songs }: { songs: TableClearSo
       <table className="w-full text-sm">
         <thead className="sticky top-0 bg-card border-b border-border z-10">
           <tr>
-            {th("레벨", "level", "left", "w-14")}
-            {th("곡명", "title", "left")}
-            {th("EX Score", "ex_score", "center", "w-20")}
+            {th("Level", "level", "left", "w-14")}
+            {th("Title", "title", "left")}
+            {th("Score", "ex_score", "center", "w-20")}
             {th("Rate", "rate", "center", "w-20")}
             {th("Rank", "rate", "center", "w-14")}
             {th("BP", "min_bp", "center", "w-14")}
-            <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground w-12">배치</th>
-            <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground w-16">구동기</th>
-            {th("클리어", "clear_type", "center", "w-24")}
+            <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground w-12">Option</th>
+            <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground w-16">Env</th>
+            {th("Lamp", "clear_type", "center", "w-24")}
           </tr>
         </thead>
         <tbody>

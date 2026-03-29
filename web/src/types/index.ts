@@ -43,6 +43,7 @@ export interface UserScore {
   options: Record<string, unknown> | null;
   recorded_at: string | null;
   synced_at: string | null;
+  is_first_sync: boolean;
 }
 
 /** Per-field best score aggregated from each client's latest row — used by GET /scores/me/{sha256}. */

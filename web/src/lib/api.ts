@@ -40,7 +40,7 @@ type RequestOptions = RequestInit & {
   skipRefresh?: boolean;
 };
 
-async function refreshTokens(): Promise<boolean> {
+export async function refreshTokens(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
 

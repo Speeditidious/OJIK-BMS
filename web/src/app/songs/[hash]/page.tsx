@@ -192,13 +192,13 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
                     <table className="w-full text-sm">
                       <thead className="bg-card border-b">
                         <tr>
-                          <th className="px-3 py-2 text-left text-xs text-muted-foreground font-medium">클리어</th>
-                          <th className="px-3 py-2 text-center text-xs text-muted-foreground font-medium w-16">EX</th>
+                          <th className="px-3 py-2 text-left text-xs text-muted-foreground font-medium">Lamp</th>
+                          <th className="px-3 py-2 text-center text-xs text-muted-foreground font-medium w-16">Score</th>
                           <th className="px-3 py-2 text-center text-xs text-muted-foreground font-medium w-16">Rate</th>
                           <th className="px-3 py-2 text-center text-xs text-muted-foreground font-medium w-12">Rank</th>
                           <th className="px-3 py-2 text-center text-xs text-muted-foreground font-medium w-12">BP</th>
-                          <th className="px-3 py-2 text-center text-xs text-muted-foreground font-medium w-10">구동기</th>
-                          <th className="px-3 py-2 text-right text-xs text-muted-foreground font-medium">날짜</th>
+                          <th className="px-3 py-2 text-center text-xs text-muted-foreground font-medium w-10">Env</th>
+                          <th className="px-3 py-2 text-right text-xs text-muted-foreground font-medium">Date</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -225,7 +225,13 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
                               </span>
                             </td>
                             <td className="px-3 py-2 text-right text-xs text-muted-foreground">
-                              {s.recorded_at ? new Date(s.recorded_at).toLocaleDateString("ko-KR") : "--"}
+                              {s.recorded_at
+                                ? new Date(s.recorded_at).toLocaleDateString("ko-KR")
+                                : s.is_first_sync
+                                  ? "--"
+                                  : s.synced_at
+                                    ? new Date(s.synced_at).toLocaleDateString("ko-KR")
+                                    : "--"}
                             </td>
                           </tr>
                         ))}

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "./toaster";
+import { refreshTokens, getRefreshToken } from "@/lib/api";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -17,6 +18,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
         },
       })
   );
+
+  // Background token refresh: every 80 minutes (well before 2-hour expiry)
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (getRefreshToken()) refreshTokens();
+    }, 80 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

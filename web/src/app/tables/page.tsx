@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Table2, Plus } from "lucide-react";
@@ -13,7 +13,11 @@ import { useAuthStore } from "@/stores/auth";
 import { useFavoriteTables } from "@/hooks/use-tables";
 import { api } from "@/lib/api";
 import type { DifficultyTable } from "@/types";
-import { useState } from "react";
+
+const SIDEBAR_MIN = 140;
+const SIDEBAR_MAX = 480;
+const SIDEBAR_DEFAULT = 256;
+const STORAGE_KEY = "tables-sidebar-width";
 
 function TablesContent() {
   const router = useRouter();
@@ -29,7 +33,7 @@ function TablesContent() {
     const params = new URLSearchParams(searchParams.toString());
     if (id) {
       params.set("t", id);
-      params.delete("l"); // 테이블 바꾸면 레벨 초기화
+      params.delete("l");
     } else {
       params.delete("t");
       params.delete("l");
@@ -56,6 +60,55 @@ function TablesContent() {
     setSelectedTableId(table.id);
   };
 
+  // Resizable sidebar — always start with default to avoid SSR/client mismatch
+  const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_DEFAULT);
+  useEffect(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const parsed = stored ? parseInt(stored, 10) : NaN;
+    if (!isNaN(parsed)) {
+      setSidebarWidth(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, parsed)));
+    }
+  }, []);
+  const isDragging = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging.current) return;
+    const delta = e.clientX - startX.current;
+    const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startWidth.current + delta));
+    setSidebarWidth(next);
+  }, []);
+
+  const handleMouseUp = useCallback(() => {
+    isDragging.current = false;
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", handleMouseUp);
+    setSidebarWidth((w) => {
+      localStorage.setItem(STORAGE_KEY, String(w));
+      return w;
+    });
+  }, [handleMouseMove]);
+
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      isDragging.current = true;
+      startX.current = e.clientX;
+      startWidth.current = sidebarWidth;
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+    },
+    [sidebarWidth, handleMouseMove, handleMouseUp]
+  );
+
+  useEffect(() => {
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [handleMouseMove, handleMouseUp]);
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Navbar />
@@ -74,7 +127,8 @@ function TablesContent() {
       </div>
 
       <div className="flex flex-1 overflow-hidden" style={{ height: "calc(100vh - 128px)" }}>
-        <div className="w-64 shrink-0">
+        {/* Sidebar */}
+        <div style={{ width: sidebarWidth, flexShrink: 0 }}>
           <TableSidebar
             favorites={favorites}
             allTables={allTables}
@@ -82,9 +136,18 @@ function TablesContent() {
             onSelect={setSelectedTableId}
             onImportClick={() => setImportOpen(true)}
             isLoggedIn={isLoggedIn}
+            sidebarWidth={sidebarWidth}
           />
         </div>
 
+        {/* Resize handle */}
+        <div
+          className="w-1 shrink-0 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors select-none"
+          style={{ touchAction: "none" }}
+          onMouseDown={handleResizeStart}
+        />
+
+        {/* Main content */}
         <div className="flex-1 overflow-hidden">
           {selectedTableId !== null ? (
             <TableDetail

@@ -1,12 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ExternalLink, RefreshCw, Music, Package, FileCode, Youtube } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -42,10 +42,10 @@ function SourceClientBadge({ score }: { score: TableFumenScore }) {
         <TooltipContent side="left" className="text-xs">
           <div className="space-y-0.5">
             {source_client_detail.clear_type && (
-              <div>Clear: {source_client_detail.clear_type}</div>
+              <div>Lamp: {source_client_detail.clear_type}</div>
             )}
             {source_client_detail.exscore && (
-              <div>EX: {source_client_detail.exscore}</div>
+              <div>Score: {source_client_detail.exscore}</div>
             )}
             {source_client_detail.min_bp && (
               <div>BP: {source_client_detail.min_bp}</div>
@@ -112,7 +112,6 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
     return acc;
   }, {}) ?? {};
 
-  // Sort songs: 1차 level_order 기준, 2차 BMS title sort
   const levelOrderIndex = Object.fromEntries(
     table.level_order.map((l, i) => [l, i])
   );
@@ -156,7 +155,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
                 rel="noopener noreferrer"
                 className="flex items-center gap-1 hover:text-foreground transition-colors"
               >
-                원본 <ExternalLink className="h-3 w-3" />
+                난이도표 링크 <ExternalLink className="h-3 w-3" />
               </a>
             )}
           </div>
@@ -225,7 +224,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
           </div>
 
           {/* Song list */}
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-auto">
             {songsLoading ? (
               <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
                 불러오는 중...
@@ -235,175 +234,249 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
                 곡이 없습니다.
               </div>
             ) : (
-              <ScrollArea className="h-full">
-                {/* Column header */}
-                <div className="sticky top-0 z-10 bg-background border-b px-4 py-1.5 flex items-center gap-2 text-[10px] text-muted-foreground font-medium">
-                  <span className="w-10 shrink-0">레벨</span>
-                  <span className="flex-1 min-w-0">곡명 / 아티스트</span>
-                  {hasUserScores && (
-                    <>
-                      <span className="w-16 text-center">클리어</span>
-                      <span className="w-14 text-center">EX</span>
-                      <span className="w-14 text-center">Rate</span>
-                      <span className="w-10 text-center">Rank</span>
-                      <span className="w-12 text-center">BP</span>
-                      <span className="w-10 text-center">출처</span>
-                    </>
-                  )}
-                  <span className="hidden md:block w-16 text-center">BPM</span>
-                  <span className="hidden md:block w-14 text-center">Notes</span>
-                  <span className="hidden md:block w-12 text-center">길이</span>
-                  <span className="w-16 shrink-0 text-center">링크</span>
-                </div>
-                <div className="divide-y divide-border/50">
-                  {displayedSongs.map((song, i) => {
-                    const levelLabel = `${table.symbol ?? ""}${song.level.replace(table.symbol ?? "", "")}`;
-                    const s = song.user_score;
-                    const hash = songHash(song);
-                    const { total: notesTotal, detail: notesDetail } = formatNotes(
-                      song.notes_total, song.notes_n, song.notes_ln, song.notes_s, song.notes_ls
-                    );
-                    return (
-                      <div key={`${song.md5}-${song.sha256}-${i}`} className="px-4 py-2.5 hover:bg-secondary/50 transition-colors">
-                        <div className="flex items-center gap-2">
-                          {/* Level badge */}
-                          <Badge variant="outline" className="font-mono text-xs shrink-0 px-1.5 py-0 w-10 justify-center">
-                            {levelLabel}
-                          </Badge>
-
-                          {/* Title & Artist */}
-                          <div className="flex-1 min-w-0">
-                            {hash ? (
-                              <Link
-                                href={`/songs/${hash}`}
-                                className="text-sm font-medium truncate hover:text-primary transition-colors block"
-                              >
-                                {song.title || "(제목 없음)"}
-                              </Link>
-                            ) : (
-                              <p className="text-sm font-medium truncate">{song.title || "(제목 없음)"}</p>
-                            )}
-                            <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
-                            {/* User tags (read-only) */}
-                            {song.user_tags.length > 0 && (
-                              <div className="flex gap-1 flex-wrap mt-0.5">
-                                {song.user_tags.map((t) => (
-                                  <span
-                                    key={t.id}
-                                    className="text-[10px] px-1.5 py-0 rounded-full border border-primary/30 text-primary/80 bg-primary/10"
-                                  >
-                                    {t.tag}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* User score columns */}
-                          {hasUserScores && (
-                            <>
-                              <div className="w-16 flex justify-center">
-                                {s ? clearBadge(s.best_clear_type, "") : (
-                                  <span className="text-xs text-muted-foreground">-</span>
-                                )}
-                              </div>
-                              <div className="w-14 text-center text-xs text-muted-foreground">
-                                {s?.best_exscore ?? "-"}
-                              </div>
-                              <div className="w-14 text-center text-xs text-muted-foreground">
-                                {s?.rate != null ? `${s.rate.toFixed(2)}%` : "-"}
-                              </div>
-                              <div className="w-10 text-center text-xs font-mono text-muted-foreground">
-                                {s?.rank ?? "-"}
-                              </div>
-                              <div className="w-12 text-center text-xs text-muted-foreground">
-                                {s?.best_min_bp ?? "-"}
-                              </div>
-                              <div className="w-10 flex justify-center">
-                                {s ? <SourceClientBadge score={s} /> : (
-                                  <span className="text-xs text-muted-foreground">-</span>
-                                )}
-                              </div>
-                            </>
-                          )}
-
-                          {/* BPM */}
-                          <div className="hidden md:block w-16 text-center text-xs text-muted-foreground font-mono">
-                            {formatBpm(song.bpm_main, song.bpm_min, song.bpm_max)}
-                          </div>
-
-                          {/* Notes */}
-                          <div className="hidden md:block w-14 text-center text-xs text-muted-foreground font-mono">
-                            {notesTotal === "-" ? "-" : (
-                              notesDetail ? (
-                                <TooltipProvider>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span className="cursor-default">{notesTotal}</span>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="left" className="text-xs">
-                                      {notesDetail}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </TooltipProvider>
-                              ) : notesTotal
-                            )}
-                          </div>
-
-                          {/* Length */}
-                          <div className="hidden md:block w-12 text-center text-xs text-muted-foreground font-mono">
-                            {formatLength(song.length)}
-                          </div>
-
-                          {/* Links */}
-                          <div className="w-16 flex justify-center gap-1.5 shrink-0">
-                            {song.youtube_url && (
-                              <a
-                                href={song.youtube_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-red-400/70 hover:text-red-400 transition-colors"
-                                title="YouTube"
-                              >
-                                <Youtube className="h-3.5 w-3.5" />
-                              </a>
-                            )}
-                            {song.file_url && (
-                              <a
-                                href={song.file_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-muted-foreground hover:text-foreground transition-colors"
-                                title="동봉 다운로드"
-                              >
-                                <Package className="h-3.5 w-3.5" />
-                              </a>
-                            )}
-                            {song.file_url_diff && (
-                              <a
-                                href={song.file_url_diff}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-muted-foreground hover:text-foreground transition-colors"
-                                title="차분 다운로드"
-                              >
-                                <FileCode className="h-3.5 w-3.5" />
-                              </a>
-                            )}
-                            {!song.file_url && !song.file_url_diff && !song.youtube_url && (
-                              <span className="w-5 shrink-0" />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </ScrollArea>
+              <SongVirtualList
+                songs={displayedSongs}
+                table={table}
+                hasUserScores={hasUserScores}
+              />
             )}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Virtualized song list ---
+
+interface SongVirtualListProps {
+  songs: TableFumen[];
+  table: DifficultyTableDetail;
+  hasUserScores: boolean;
+}
+
+function SongVirtualList({ songs, table, hasUserScores }: SongVirtualListProps) {
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const rowVirtualizer = useVirtualizer({
+    count: songs.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 44,
+    overscan: 10,
+  });
+
+  return (
+    <div ref={parentRef} style={{ height: "100%", overflowY: "auto" }}>
+      {/* Sticky column header */}
+      <div
+        className="sticky top-0 z-10 bg-background border-b px-4 py-1.5 flex items-center gap-2 text-[10px] text-muted-foreground font-medium"
+        style={{ minWidth: 680 }}
+      >
+        <span className="w-10 shrink-0">Level</span>
+        <span className="flex-1 min-w-[140px]">Title / Artist</span>
+        {hasUserScores && (
+          <>
+            <span className="w-16 text-center">Lamp</span>
+            <span className="w-14 text-center">Score</span>
+            <span className="w-14 text-center">Rate</span>
+            <span className="w-10 text-center">Rank</span>
+            <span className="w-12 text-center">BP</span>
+            <span className="w-10 text-center">Env</span>
+          </>
+        )}
+        <span className="w-20 text-center">BPM</span>
+        <span className="w-14 text-center">Notes</span>
+        <span className="w-12 text-center">Length</span>
+        <span className="w-8 shrink-0 text-center">URL1</span>
+        <span className="w-8 shrink-0 text-center">URL2</span>
+        <span className="w-8 shrink-0 text-center">Youtube</span>
+      </div>
+
+      {/* Virtualized rows container */}
+      <div
+        style={{
+          height: rowVirtualizer.getTotalSize(),
+          width: "100%",
+          position: "relative",
+        }}
+      >
+        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+          const song = songs[virtualRow.index];
+          const levelLabel = `${table.symbol ?? ""}${song.level.replace(table.symbol ?? "", "")}`;
+          const s = song.user_score;
+          const hash = songHash(song);
+          const { total: notesTotal, detail: notesDetail } = formatNotes(
+            song.notes_total, song.notes_n, song.notes_ln, song.notes_s, song.notes_ls
+          );
+
+          return (
+            <div
+              key={virtualRow.key}
+              style={{
+                position: "absolute",
+                top: virtualRow.start,
+                left: 0,
+                width: "100%",
+                height: virtualRow.size,
+                minWidth: 680,
+              }}
+              className="px-4 flex items-center gap-2 hover:bg-secondary/50 transition-colors border-b border-border/30"
+            >
+              {/* Level badge */}
+              <Badge variant="outline" className="font-mono text-xs shrink-0 px-1.5 py-0 w-10 justify-center">
+                {levelLabel}
+              </Badge>
+
+              {/* Title & Artist */}
+              <div className="flex-1 min-w-[140px] min-w-0 overflow-hidden">
+                {hash ? (
+                  <Link
+                    href={`/songs/${hash}`}
+                    className="text-sm font-medium truncate hover:text-primary transition-colors block"
+                  >
+                    {song.title || "(제목 없음)"}
+                  </Link>
+                ) : (
+                  <p className="text-sm font-medium truncate">{song.title || "(제목 없음)"}</p>
+                )}
+                <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
+                {song.user_tags.length > 0 && (
+                  <div className="flex gap-1 flex-wrap">
+                    {song.user_tags.map((t) => (
+                      <span
+                        key={t.id}
+                        className="text-[10px] px-1.5 py-0 rounded-full border border-primary/30 text-primary/80 bg-primary/10"
+                      >
+                        {t.tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* User score columns */}
+              {hasUserScores && (
+                <>
+                  <div className="w-16 flex justify-center">
+                    {s ? clearBadge(s.best_clear_type, "") : (
+                      <span className="text-xs text-muted-foreground">-</span>
+                    )}
+                  </div>
+                  <div className="w-14 text-center text-xs text-muted-foreground">
+                    {s?.best_exscore ?? "-"}
+                  </div>
+                  <div className="w-14 text-center text-xs text-muted-foreground">
+                    {s?.rate != null ? `${s.rate.toFixed(2)}%` : "-"}
+                  </div>
+                  <div className="w-10 text-center text-xs font-mono text-muted-foreground">
+                    {s?.rank ?? "-"}
+                  </div>
+                  <div className="w-12 text-center text-xs text-muted-foreground">
+                    {s?.best_min_bp ?? "-"}
+                  </div>
+                  <div className="w-10 flex justify-center">
+                    {s ? <SourceClientBadge score={s} /> : (
+                      <span className="text-xs text-muted-foreground">-</span>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* BPM */}
+              <div className="w-20 text-center text-xs text-muted-foreground font-mono">
+                {formatBpm(song.bpm_main, song.bpm_min, song.bpm_max)}
+              </div>
+
+              {/* Notes */}
+              <div className="w-14 text-center text-xs text-muted-foreground font-mono">
+                {notesTotal === "-" ? "-" : (
+                  notesDetail ? (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="cursor-help inline-flex items-center gap-0.5">
+                            {notesTotal}
+                            <span className="text-[8px] text-accent/70 leading-none">●</span>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" className="text-xs font-mono">
+                          <div className="space-y-0.5">
+                            {notesDetail.split(" ").map((part) => {
+                              const [label, val] = part.split(":");
+                              return (
+                                <div key={label} className="flex gap-2 justify-between">
+                                  <span className="text-muted-foreground">{label}</span>
+                                  <span>{val}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : notesTotal
+                )}
+              </div>
+
+              {/* Length */}
+              <div className="w-12 text-center text-xs text-muted-foreground font-mono">
+                {formatLength(song.length)}
+              </div>
+
+              {/* URL1 (file_url) */}
+              <div className="w-8 flex justify-center shrink-0">
+                {song.file_url ? (
+                  <a
+                    href={song.file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    title="URL1"
+                  >
+                    <Package className="h-3.5 w-3.5" />
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground/30 text-xs">–</span>
+                )}
+              </div>
+
+              {/* URL2 (file_url_diff) */}
+              <div className="w-8 flex justify-center shrink-0">
+                {song.file_url_diff ? (
+                  <a
+                    href={song.file_url_diff}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    title="URL2"
+                  >
+                    <FileCode className="h-3.5 w-3.5" />
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground/30 text-xs">–</span>
+                )}
+              </div>
+
+              {/* Youtube */}
+              <div className="w-8 flex justify-center shrink-0">
+                {song.youtube_url ? (
+                  <a
+                    href={song.youtube_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[hsl(var(--destructive)/0.7)] hover:text-[hsl(var(--destructive))] transition-colors"
+                    title="Youtube"
+                  >
+                    <Youtube className="h-3.5 w-3.5" />
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground/30 text-xs">–</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

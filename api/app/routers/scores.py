@@ -1,10 +1,11 @@
 """Score query endpoints."""
 
 import math
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -47,6 +48,7 @@ class UserScoreRead(BaseModel):
     play_count: int | None
     recorded_at: str | None
     synced_at: str | None
+    is_first_sync: bool = False
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -144,9 +146,24 @@ async def get_scores_for_fumen(
     result = await db.execute(
         select(UserScore)
         .where(UserScore.user_id == current_user.id, *condition)
-        .order_by(UserScore.recorded_at.desc().nullslast())
+        .order_by(func.coalesce(UserScore.recorded_at, UserScore.synced_at).desc().nullslast())
     )
     scores = result.scalars().all()
+
+    # Fetch first_synced_at for is_first_sync detection
+    fst_result = await db.execute(select(User.first_synced_at).where(User.id == current_user.id))
+    first_synced_at: dict | None = fst_result.scalar_one_or_none()
+
+    def _is_first_sync(s: UserScore) -> bool:
+        if not first_synced_at or s.synced_at is None:
+            return False
+        fst_str = first_synced_at.get(s.client_type)
+        if not fst_str:
+            return False
+        fst = datetime.fromisoformat(fst_str)
+        if fst.tzinfo is None:
+            fst = fst.replace(tzinfo=UTC)
+        return abs((s.synced_at - fst).total_seconds()) <= 3600
 
     # Fetch notes_total for rate/rank computation on rows where they're null (e.g. scorelog.db rows)
     notes_total: int | None = None
@@ -181,6 +198,7 @@ async def get_scores_for_fumen(
             play_count=s.play_count,
             recorded_at=s.recorded_at.isoformat() if s.recorded_at else None,
             synced_at=s.synced_at.isoformat() if s.synced_at else None,
+            is_first_sync=_is_first_sync(s),
         ))
     return out
 

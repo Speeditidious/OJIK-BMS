@@ -17,7 +17,7 @@ import {
   BEATORAJA_CLEAR_TYPE_LABELS,
 } from "@/components/charts/ClearDistributionChart";
 
-// CSS variable refs per internal clear_type (0=NO PLAY, 1=FAILED, 2=ASSIST, 3=EASY, 4=NORMAL, 5=HARD, 6=EXHARD, 7=FC)
+// CSS variable refs per internal clear_type (0=NO PLAY, 1=FAILED, 2=ASSIST, 3=EASY, 4=NORMAL, 5=HARD, 6=EXHARD, 7=FC, 8=PERFECT, 9=MAX)
 const CLEAR_BADGE_STYLE: Record<number, React.CSSProperties> = {
   0: { borderColor: "hsl(var(--clear-no-play))", background: "hsl(var(--clear-no-play)/0.4)", color: "hsl(var(--muted-foreground))" },
   1: { borderColor: "hsl(var(--clear-failed)/0.6)", background: "hsl(var(--clear-failed)/0.15)", color: "hsl(var(--clear-failed))" },
@@ -27,6 +27,8 @@ const CLEAR_BADGE_STYLE: Record<number, React.CSSProperties> = {
   5: { borderColor: "hsl(var(--clear-hard)/0.6)", background: "hsl(var(--clear-hard)/0.2)", color: "hsl(var(--clear-hard))" },
   6: { borderColor: "hsl(var(--clear-exhard)/0.6)", background: "hsl(var(--clear-exhard)/0.2)", color: "hsl(var(--clear-exhard))" },
   7: { borderColor: "hsl(var(--clear-fc)/0.6)", background: "hsl(var(--clear-fc)/0.2)", color: "hsl(var(--clear-fc))" },
+  8: { borderColor: "hsl(var(--clear-perfect)/0.6)", background: "hsl(var(--clear-perfect)/0.2)", color: "hsl(var(--clear-perfect))" },
+  9: { borderColor: "hsl(var(--clear-max)/0.6)", background: "hsl(var(--clear-max)/0.2)", color: "hsl(var(--clear-max))" },
 };
 
 function getClientLabels(clientType: string) {
