@@ -7,7 +7,7 @@ COMPOSE_FILES = -f docker-compose.yml $(if $(filter prod,$(ENV)),-f docker-compo
 
 update-tables:
 	docker compose $(COMPOSE_FILES) exec api python scripts/update_tables.py $(if $(SLUG),--slug $(SLUG),)
-	docker compose $(COMPOSE_FILES) exec api python scripts/seed_tables.py
+	docker compose $(COMPOSE_FILES) exec api python scripts/seed_tables.py $(if $(SLUG),--slug $(SLUG),)
 
 seed-tables:
 	docker compose $(COMPOSE_FILES) exec api python scripts/seed_tables.py

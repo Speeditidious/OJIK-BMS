@@ -122,3 +122,17 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ── TableClearHistogram bar hover animation ── */
+/* Transitions applied globally; opacity/transform only animate when <style ref> injects rules */
+.hist-wrapper .hist-bar {
+  transition: opacity 0.2s ease, transform 0.18s ease;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Y-axis tick hover — CSS :hover instead of per-tick useState */
+.hist-wrapper text.hist-yaxis-tick:hover {
+  fill: hsl(var(--primary)) !important;
+  transition: fill 0.15s ease;
+}

@@ -5,11 +5,11 @@ import {
   Line,
   LineChart,
   ReferenceLine,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
+import { useChartWidth } from "@/hooks/use-chart-size";
 import { ActivityDay, ClientTypeFilter, CourseActivityItem } from "@/hooks/use-analysis";
 
 interface ActivityBarChartProps {
@@ -95,6 +95,7 @@ function ChartTooltip({ active, payload, viewMode }: { active?: boolean; payload
 }
 
 export function ActivityBarChart({ data, firstSyncDates, clientType, courseData, viewMode = "updates" }: ActivityBarChartProps) {
+  const [chartRef, chartWidth] = useChartWidth(150);
   // Build per-date sync metadata.
   // hideCount=true for LR2-only dates: LR2 score.db has no per-play date, so all
   // records land on the sync day — the count would be misleading.
@@ -171,12 +172,16 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData,
     );
   }
 
+  if (chartWidth === 0) {
+    return <div ref={chartRef} style={{ width: "100%", height: 200 }} />;
+  }
+
   const minDate = chartData[0].fullDate;
   const maxDate = chartData[chartData.length - 1].fullDate;
 
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <LineChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+    <div ref={chartRef}>
+      <LineChart width={chartWidth} height={200} data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
         <XAxis
           dataKey="date"
           tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
@@ -242,6 +247,6 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData,
             />
           ))}
       </LineChart>
-    </ResponsiveContainer>
+    </div>
   );
 }

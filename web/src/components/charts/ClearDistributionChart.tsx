@@ -1,15 +1,16 @@
 "use client";
 
+import { useMemo, useCallback } from "react";
 import {
   Bar,
   BarChart,
   Cell,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 import { GradeDistributionItem } from "@/hooks/use-analysis";
+import { useChartWidth } from "@/hooks/use-chart-size";
 
 // Internal clear type system (numeric order = quality order):
 // 0=NO PLAY, 1=FAILED, 2=ASSIST, 3=EASY, 4=NORMAL, 5=HARD, 6=EXHARD, 7=FC, 8=PERFECT, 9=MAX
@@ -52,6 +53,52 @@ interface ClearDistributionChartProps {
 }
 
 export function ClearDistributionChart({ data, clientType }: ClearDistributionChartProps) {
+  // All hooks at top before any early returns
+  const [chartRef, chartWidth] = useChartWidth(150);
+
+  const labelMap = useMemo(
+    () =>
+      clientType === "lr2"
+        ? LR2_CLEAR_TYPE_LABELS
+        : clientType === "beatoraja"
+        ? BEATORAJA_CLEAR_TYPE_LABELS
+        : CLEAR_TYPE_LABELS,
+    [clientType]
+  );
+
+  const chartData = useMemo(
+    () =>
+      data
+        .filter((d) => d.clear_type !== null)
+        .sort((a, b) => (b.clear_type ?? 0) - (a.clear_type ?? 0))
+        .map((d) => ({
+          label: labelMap[d.clear_type ?? 0] ?? String(d.clear_type),
+          count: d.count,
+          type: d.clear_type ?? 0,
+        })),
+    [data, labelMap]
+  );
+
+  const totalCount = useMemo(
+    () => chartData.reduce((acc, d) => acc + d.count, 0),
+    [chartData]
+  );
+
+  const chartHeight = useMemo(
+    () => chartData.length * 24,
+    [chartData.length]
+  );
+
+  const tooltipFormatter = useCallback(
+    (value: number, _name: string, props: any) => {
+      const ct = (props.payload as any).type as number;
+      const cumRaw = chartData.filter((d) => d.type >= ct).reduce((s, d) => s + d.count, 0);
+      const pct = totalCount > 0 ? (cumRaw / totalCount) * 100 : 0;
+      return [`${value.toLocaleString()} (${pct.toFixed(1)}%)`, labelMap[ct]];
+    },
+    [chartData, totalCount, labelMap]
+  );
+
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
@@ -60,28 +107,15 @@ export function ClearDistributionChart({ data, clientType }: ClearDistributionCh
     );
   }
 
-  const labelMap =
-    clientType === "lr2"
-      ? LR2_CLEAR_TYPE_LABELS
-      : clientType === "beatoraja"
-      ? BEATORAJA_CLEAR_TYPE_LABELS
-      : CLEAR_TYPE_LABELS;
-
-  const chartData = data
-    .filter((d) => d.clear_type !== null)
-    .sort((a, b) => (b.clear_type ?? 0) - (a.clear_type ?? 0))
-    .map((d) => ({
-      label: labelMap[d.clear_type ?? 0] ?? String(d.clear_type),
-      count: d.count,
-      type: d.clear_type ?? 0,
-    }));
-
-  const totalCount = chartData.reduce((acc, d) => acc + d.count, 0);
-  const chartHeight = chartData.length * 24;
+  if (chartWidth === 0) {
+    return <div ref={chartRef} style={{ width: "100%", height: chartHeight }} />;
+  }
 
   return (
-    <ResponsiveContainer width="100%" height={chartHeight}>
+    <div ref={chartRef}>
       <BarChart
+        width={chartWidth}
+        height={chartHeight}
         data={chartData}
         layout="vertical"
         barCategoryGap="12%"
@@ -110,12 +144,7 @@ export function ClearDistributionChart({ data, clientType }: ClearDistributionCh
             fontSize: 12,
             color: "hsl(var(--foreground))",
           }}
-          formatter={(value: number, _name: string, props) => {
-            const ct = (props.payload as any).type as number;
-            const cumRaw = chartData.filter((d) => d.type >= ct).reduce((s, d) => s + d.count, 0);
-            const pct = totalCount > 0 ? (cumRaw / totalCount) * 100 : 0;
-            return [`${value.toLocaleString()} (${pct.toFixed(1)}%)`, labelMap[ct]];
-          }}
+          formatter={tooltipFormatter}
           cursor={{ fill: "hsl(var(--accent)/0.1)" }}
         />
         <Bar dataKey="count" radius={[0, 3, 3, 0]} barSize={16}>
@@ -124,6 +153,6 @@ export function ClearDistributionChart({ data, clientType }: ClearDistributionCh
           ))}
         </Bar>
       </BarChart>
-    </ResponsiveContainer>
+    </div>
   );
 }

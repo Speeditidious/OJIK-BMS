@@ -40,7 +40,18 @@ type RequestOptions = RequestInit & {
   skipRefresh?: boolean;
 };
 
+let _refreshPromise: Promise<boolean> | null = null;
+
 export async function refreshTokens(): Promise<boolean> {
+  // Deduplicate concurrent refresh calls — reuse the in-flight promise.
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = _doRefresh().finally(() => {
+    _refreshPromise = null;
+  });
+  return _refreshPromise;
+}
+
+async function _doRefresh(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
 

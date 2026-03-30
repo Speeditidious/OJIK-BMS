@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useMemo, useCallback, useDeferredValue } from "react";
+import React, { memo, useState, useMemo, useCallback, useDeferredValue, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { X, ChevronUp, ChevronDown, ChevronsUpDown, Search } from "lucide-react";
@@ -47,6 +48,18 @@ const CLEAR_ROW_BG: Record<number, string> = {
   8: "bg-[hsl(var(--clear-perfect)/0.13)]",
   9: "bg-[hsl(var(--clear-max)/0.13)]",
 };
+
+// Pre-compute clear badge styles per clear type to avoid inline object creation
+const CLEAR_BADGE_STYLES: Record<number, React.CSSProperties> = Object.fromEntries(
+  Object.entries(CLEAR_TYPE_COLORS).map(([ct, color]) => [
+    ct,
+    {
+      background: `${color}30`,
+      color: color,
+      border: `1px solid ${color}60`,
+    },
+  ])
+) as Record<number, React.CSSProperties>;
 
 function getClearLabel(clientType: string | null, clearType: number): string {
   if (clientType === "lr2") return LR2_CLEAR_TYPE_LABELS[clearType] ?? String(clearType);
@@ -131,16 +144,20 @@ function compareSongs(a: TableClearSong, b: TableClearSong, key: SortKey, dir: S
   return dir === "asc" ? result : -result;
 }
 
-function SortIcon({ colKey, sortKey, sortDir }: { colKey: SortKey; sortKey: SortKey; sortDir: SortDir }) {
+const SortIcon = memo(function SortIcon({ colKey, sortKey, sortDir }: { colKey: SortKey; sortKey: SortKey; sortDir: SortDir }) {
   if (colKey !== sortKey) return <ChevronsUpDown className="inline h-3 w-3 ml-0.5 opacity-30" />;
   return sortDir === "asc"
     ? <ChevronUp className="inline h-3 w-3 ml-0.5 text-primary" />
     : <ChevronDown className="inline h-3 w-3 ml-0.5 text-primary" />;
-}
+});
+
+const ROW_HEIGHT = 44;
+const MAX_TABLE_HEIGHT = 420;
 
 const SongTable = React.memo(function SongTable({ songs }: { songs: TableClearSong[] }) {
   const [sortKey, setSortKey] = useState<SortKey>("level");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const parentRef = useRef<HTMLDivElement>(null);
 
   const handleSort = (key: SortKey) => {
     if (key === sortKey) {
@@ -156,6 +173,14 @@ const SongTable = React.memo(function SongTable({ songs }: { songs: TableClearSo
     [songs, sortKey, sortDir]
   );
 
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const rowVirtualizer = useVirtualizer({
+    count: sorted.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10,
+  });
+
   if (songs.length === 0) {
     return (
       <div className="flex items-center justify-center h-24 text-muted-foreground text-sm">
@@ -164,103 +189,105 @@ const SongTable = React.memo(function SongTable({ songs }: { songs: TableClearSo
     );
   }
 
-  const th = (label: string, key: SortKey, align: "left" | "right" | "center" = "left", width?: string) => (
-    <th
+  const thCol = (label: string, key: SortKey, extraClass: string) => (
+    <div
       className={cn(
-        "px-3 py-2 font-medium text-xs text-muted-foreground select-none cursor-pointer hover:text-foreground transition-colors whitespace-nowrap",
-        align === "left" ? "text-left" : align === "right" ? "text-right" : "text-center",
-        width
+        "cursor-pointer select-none hover:text-foreground transition-colors whitespace-nowrap shrink-0",
+        extraClass
       )}
       onClick={() => handleSort(key)}
     >
       {label}
       <SortIcon colKey={key} sortKey={sortKey} sortDir={sortDir} />
-    </th>
+    </div>
   );
 
   return (
-    <div className="overflow-auto max-h-[420px] rounded-md border border-border">
-      <table className="w-full text-sm">
-        <thead className="sticky top-0 bg-card border-b border-border z-10">
-          <tr>
-            {th("Level", "level", "left", "w-14")}
-            {th("Title", "title", "left")}
-            {th("Score", "ex_score", "center", "w-20")}
-            {th("Rate", "rate", "center", "w-20")}
-            {th("Rank", "rate", "center", "w-14")}
-            {th("BP", "min_bp", "center", "w-14")}
-            <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground w-12">Option</th>
-            <th className="text-center px-3 py-2 font-medium text-xs text-muted-foreground w-16">Env</th>
-            {th("Lamp", "clear_type", "center", "w-24")}
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((song, idx) => {
+    <div className="rounded-md border border-border overflow-hidden">
+      {/* Sticky header — flex row matching virtual row layout */}
+      <div
+        className="sticky top-0 z-10 bg-card border-b border-border flex items-center px-3 py-2 text-xs font-medium text-muted-foreground"
+        style={{ minWidth: 680 }}
+      >
+        {thCol("Level", "level", "w-14")}
+        {thCol("Title", "title", "flex-1 min-w-[140px] pl-2")}
+        {thCol("Score", "ex_score", "w-20 text-center")}
+        {thCol("Rate", "rate", "w-20 text-center")}
+        {thCol("Rank", "rate", "w-14 text-center")}
+        {thCol("BP", "min_bp", "w-14 text-center")}
+        <div className="w-12 shrink-0 text-center whitespace-nowrap">Option</div>
+        <div className="w-16 shrink-0 text-center whitespace-nowrap">Env</div>
+        {thCol("Lamp", "clear_type", "w-24 text-center")}
+      </div>
+
+      {/* Virtual scroll area */}
+      <div
+        ref={parentRef}
+        className="overflow-auto"
+        style={{ maxHeight: MAX_TABLE_HEIGHT }}
+      >
+        <div style={{ height: rowVirtualizer.getTotalSize(), width: "100%", position: "relative" }}>
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const song = sorted[virtualRow.index];
             const arrangement = song.options
               ? ARRANGEMENT_KANJI[(song.options.arrangement as string) ?? ""] ?? null
               : null;
             return (
-              <tr
-                key={song.sha256 || idx}
+              <div
+                key={song.sha256 || virtualRow.index}
+                style={{
+                  position: "absolute",
+                  top: virtualRow.start,
+                  left: 0,
+                  width: "100%",
+                  height: virtualRow.size,
+                  minWidth: 680,
+                }}
                 className={cn(
-                  "border-b border-border/30 last:border-0",
+                  "flex items-center px-3 border-b border-border/30",
                   CLEAR_ROW_BG[song.clear_type] ?? ""
                 )}
               >
-                <td className="px-3 py-2 text-xs text-muted-foreground">{song.level}</td>
-                <td className="px-3 py-2">
+                <div className="w-14 shrink-0 text-xs text-muted-foreground">{song.level}</div>
+                <div className="flex-1 min-w-[140px] min-w-0 overflow-hidden pl-2">
                   {song.sha256 ? (
                     <Link
                       href={`/songs/${song.sha256}`}
-                      className="font-medium text-xs leading-tight truncate max-w-[220px] hover:text-primary transition-colors block"
+                      className="font-medium text-xs leading-tight truncate max-w-full hover:text-primary transition-colors block"
                     >
                       {song.title || "(제목 없음)"}
                     </Link>
                   ) : (
-                    <div className="font-medium text-xs leading-tight truncate max-w-[220px]">
+                    <div className="font-medium text-xs leading-tight truncate max-w-full">
                       {song.title || "(제목 없음)"}
                     </div>
                   )}
                   {song.artist && (
-                    <div className="text-[10px] text-muted-foreground truncate max-w-[220px]">
+                    <div className="text-[10px] text-muted-foreground truncate max-w-full">
                       {song.artist}
                     </div>
                   )}
-                </td>
-                <td className="px-3 py-2 text-center text-xs font-mono">
-                  {song.ex_score !== null ? (
-                    song.ex_score
-                  ) : (
-                    <span className="text-muted-foreground">--</span>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-center text-xs font-mono">
-                  {song.rate !== null ? (
-                    `${song.rate.toFixed(2)}%`
-                  ) : (
-                    <span className="text-muted-foreground">--</span>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-center text-xs font-mono">
-                  {song.rank !== null ? song.rank : (
-                    <span className="text-muted-foreground">--</span>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-center text-xs font-mono">
-                  {song.min_bp !== null ? (
-                    song.min_bp
-                  ) : (
-                    <span className="text-muted-foreground">--</span>
-                  )}
-                </td>
-                <td className="px-3 py-2 text-center text-xs">
+                </div>
+                <div className="w-20 shrink-0 text-center text-xs font-mono">
+                  {song.ex_score !== null ? song.ex_score : <span className="text-muted-foreground">--</span>}
+                </div>
+                <div className="w-20 shrink-0 text-center text-xs font-mono">
+                  {song.rate !== null ? `${song.rate.toFixed(2)}%` : <span className="text-muted-foreground">--</span>}
+                </div>
+                <div className="w-14 shrink-0 text-center text-xs font-mono">
+                  {song.rank !== null ? song.rank : <span className="text-muted-foreground">--</span>}
+                </div>
+                <div className="w-14 shrink-0 text-center text-xs font-mono">
+                  {song.min_bp !== null ? song.min_bp : <span className="text-muted-foreground">--</span>}
+                </div>
+                <div className="w-12 shrink-0 text-center text-xs">
                   {arrangement ? (
                     <span className="text-muted-foreground">{arrangement}</span>
                   ) : (
                     <span className="text-muted-foreground/40">–</span>
                   )}
-                </td>
-                <td className="px-3 py-2 text-center">
+                </div>
+                <div className="w-16 shrink-0 text-center">
                   {song.client_type ? (
                     <span className="inline-flex items-center rounded px-1.5 py-0 text-[10px] font-medium border border-border/50 text-muted-foreground">
                       {song.client_type === "beatoraja" ? "BR" : song.client_type.toUpperCase()}
@@ -268,28 +295,24 @@ const SongTable = React.memo(function SongTable({ songs }: { songs: TableClearSo
                   ) : (
                     <span className="text-muted-foreground/40">–</span>
                   )}
-                </td>
-                <td className="px-3 py-2 text-center">
+                </div>
+                <div className="w-24 shrink-0 text-center">
                   {song.clear_type > 0 ? (
                     <span
                       className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
-                      style={{
-                        background: `${CLEAR_TYPE_COLORS[song.clear_type]}30`,
-                        color: CLEAR_TYPE_COLORS[song.clear_type],
-                        border: `1px solid ${CLEAR_TYPE_COLORS[song.clear_type]}60`,
-                      }}
+                      style={CLEAR_BADGE_STYLES[song.clear_type]}
                     >
                       {getClearLabel(song.client_type, song.clear_type)}
                     </span>
                   ) : (
                     <span className="text-[10px] text-muted-foreground">NO PLAY</span>
                   )}
-                </td>
-              </tr>
+                </div>
+              </div>
             );
           })}
-        </tbody>
-      </table>
+        </div>
+      </div>
     </div>
   );
 });
@@ -310,7 +333,7 @@ interface FilterPanelProps {
   onTitleChange: (v: string) => void;
 }
 
-function FilterPanel({
+const FilterPanel = memo(function FilterPanel({
   levels,
   tableSymbol,
   clientType,
@@ -322,10 +345,29 @@ function FilterPanel({
   onTitleChange,
 }: FilterPanelProps) {
   // Which clear types are relevant for this client
-  const clearTypes = (ALL_CLEAR_TYPES as readonly number[]).filter((ct) => {
-    if (clientType === "lr2" && (ct === 2 || ct === 6)) return false;
-    return true;
-  });
+  const clearTypes = useMemo(() => {
+    return (ALL_CLEAR_TYPES as readonly number[]).filter((ct) => {
+      if (clientType === "lr2" && (ct === 2 || ct === 6)) return false;
+      return true;
+    });
+  }, [clientType]);
+
+  // Pre-compute button styles for all clear types
+  const clearTypeButtonStyles = useMemo(() => {
+    const styles: Record<number, Record<string, React.CSSProperties>> = {};
+    for (const ct of clearTypes) {
+      const color = CLEAR_TYPE_COLORS[ct];
+      styles[ct] = {
+        active: {
+          background: `${color}25`,
+          color,
+          borderColor: `${color}80`,
+        },
+        inactive: { color },
+      };
+    }
+    return styles;
+  }, [clearTypes]);
 
   return (
     <div className="rounded-lg border border-border/50 bg-card/50 p-3 space-y-3">
@@ -335,7 +377,6 @@ function FilterPanel({
         <div className="flex flex-wrap gap-1">
           {clearTypes.map((ct) => {
             const active = filterClearTypes.has(ct);
-            const color = CLEAR_TYPE_COLORS[ct];
             const label = getClearLabel(clientType ?? null, ct);
             return (
               <button
@@ -347,15 +388,7 @@ function FilterPanel({
                     ? "opacity-100"
                     : "opacity-50 hover:opacity-75 border-border/40"
                 )}
-                style={
-                  active
-                    ? {
-                        background: `${color}25`,
-                        color,
-                        borderColor: `${color}80`,
-                      }
-                    : { color }
-                }
+                style={active ? clearTypeButtonStyles[ct]?.active : clearTypeButtonStyles[ct]?.inactive}
                 title={label}
               >
                 {label}
@@ -412,7 +445,7 @@ function FilterPanel({
       </div>
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // TableClearSection

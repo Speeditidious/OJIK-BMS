@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, memo } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useRecentUpdates, RecentUpdate, ClientTypeFilter } from "@/hooks/use-analysis";
@@ -93,7 +93,7 @@ function formatElapsed(u: RecentUpdate): string {
   return `${d.getMonth() + 1}월 ${d.getDate()}일`;
 }
 
-export function UpdateRow({ u }: { u: RecentUpdate }) {
+export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
   const [expanded, setExpanded] = useState(false);
   const labels = getClientLabels(u.client_type);
   const songName =
@@ -225,7 +225,7 @@ export function UpdateRow({ u }: { u: RecentUpdate }) {
       )}
     </div>
   );
-}
+});
 
 interface Props {
   clientType?: ClientTypeFilter;

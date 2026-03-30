@@ -55,8 +55,10 @@ async def upsert_fumens(db: AsyncSession, table_id: uuid.UUID, songs: list[dict]
         file_url = item.get("url") or None
         file_url_diff = item.get("url_diff") or None
 
-        hash_key = f"sha256:{sha256}" if sha256 else f"md5:{md5}"
-        seen_keys.add(hash_key)
+        if sha256:
+            seen_keys.add(f"sha256:{sha256}")
+        if md5:
+            seen_keys.add(f"md5:{md5}")
 
         # Look up existing fumen.
         # sha256 takes priority. If not found by sha256, fall back to md5 — the

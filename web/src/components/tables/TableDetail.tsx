@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, memo, useCallback } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -89,6 +89,41 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
     },
   });
 
+  const hasData = (table?.level_order.length ?? 0) > 0;
+
+  const songsByLevel = useMemo(
+    () =>
+      songs?.reduce<Record<string, TableFumen[]>>((acc, song) => {
+        if (!acc[song.level]) acc[song.level] = [];
+        acc[song.level].push(song);
+        return acc;
+      }, {}) ?? {},
+    [songs]
+  );
+
+  const levelOrderIndex = useMemo(
+    () => Object.fromEntries((table?.level_order ?? []).map((l, i) => [l, i])),
+    [table?.level_order]
+  );
+
+  const displayedSongs = useMemo(() => {
+    const base = selectedLevel
+      ? (songsByLevel[selectedLevel] ?? [])
+      : songs ?? [];
+    return base.slice().sort((a, b) => {
+      const ai = levelOrderIndex[a.level] ?? 9999;
+      const bi = levelOrderIndex[b.level] ?? 9999;
+      if (ai !== bi) return ai - bi;
+      return compareTitles(a.title ?? "", b.title ?? "");
+    });
+  }, [selectedLevel, songsByLevel, songs, levelOrderIndex]);
+
+  const hasUserScores = useMemo(
+    () => isLoggedIn && displayedSongs.some((s) => s.user_score !== null),
+    [isLoggedIn, displayedSongs]
+  );
+
+  // Early returns after all hooks
   if (tableLoading) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -104,29 +139,6 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
       </div>
     );
   }
-
-  const hasData = table.level_order.length > 0;
-  const songsByLevel = songs?.reduce<Record<string, TableFumen[]>>((acc, song) => {
-    if (!acc[song.level]) acc[song.level] = [];
-    acc[song.level].push(song);
-    return acc;
-  }, {}) ?? {};
-
-  const levelOrderIndex = Object.fromEntries(
-    table.level_order.map((l, i) => [l, i])
-  );
-
-  const displayedSongs = (selectedLevel
-    ? (songsByLevel[selectedLevel] ?? [])
-    : songs ?? []
-  ).slice().sort((a, b) => {
-    const ai = levelOrderIndex[a.level] ?? 9999;
-    const bi = levelOrderIndex[b.level] ?? 9999;
-    if (ai !== bi) return ai - bi;
-    return compareTitles(a.title ?? "", b.title ?? "");
-  });
-
-  const hasUserScores = isLoggedIn && displayedSongs.some((s) => s.user_score !== null);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -187,7 +199,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
       ) : (
         <div className="flex flex-1 overflow-hidden">
           {/* Level selector */}
-          <div className="w-32 shrink-0 border-r overflow-y-auto">
+          <div className="w-32 shrink-0 border-r overflow-y-auto overscroll-contain [&::-webkit-scrollbar]:hidden">
             <div
               className={cn(
                 "px-3 py-2 text-sm cursor-pointer transition-colors",
@@ -224,7 +236,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
           </div>
 
           {/* Song list */}
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-hidden">
             {songsLoading ? (
               <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
                 불러오는 중...
@@ -255,7 +267,7 @@ interface SongVirtualListProps {
   hasUserScores: boolean;
 }
 
-function SongVirtualList({ songs, table, hasUserScores }: SongVirtualListProps) {
+const SongVirtualList = memo(function SongVirtualList({ songs, table, hasUserScores }: SongVirtualListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -267,7 +279,7 @@ function SongVirtualList({ songs, table, hasUserScores }: SongVirtualListProps) 
   });
 
   return (
-    <div ref={parentRef} style={{ height: "100%", overflowY: "auto" }}>
+    <div ref={parentRef} className="[&::-webkit-scrollbar]:hidden" style={{ height: "100%", overflowY: "auto", overscrollBehavior: "contain" }}>
       {/* Sticky column header */}
       <div
         className="sticky top-0 z-10 bg-background border-b px-4 py-1.5 flex items-center gap-2 text-[10px] text-muted-foreground font-medium"
@@ -480,4 +492,4 @@ function SongVirtualList({ songs, table, hasUserScores }: SongVirtualListProps) 
       </div>
     </div>
   );
-}
+});

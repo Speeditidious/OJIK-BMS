@@ -1267,7 +1267,7 @@ async def get_score_updates(
     best_ids = [row.score_id for row in latest_ids_result]
 
     if not best_ids:
-        return {"course_updates": [], "clear_type_updates": [], "exscore_updates": [], "other_updates": []}
+        return {"clear_type_updates": [], "exscore_updates": [], "max_combo_updates": [], "min_bp_updates": [], "play_count_updates": []}
 
     best_result = await db.execute(
         select(UserScore)

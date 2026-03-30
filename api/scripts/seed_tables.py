@@ -10,6 +10,7 @@ and courses accordingly.
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import sys
 from pathlib import Path
@@ -24,9 +25,14 @@ from app.parsers.table_fetcher import get_default_table_configs, load_table_from
 from app.services.table_import import remove_stale_entries, upsert_courses, upsert_fumens
 
 
-async def seed() -> None:
-    """Upsert all default tables from disk cache into the database."""
+async def seed(slug_filter: str | None = None) -> None:
+    """Upsert default tables from disk cache into the database."""
     configs = get_default_table_configs()
+    if slug_filter:
+        configs = [c for c in configs if c["slug"] == slug_filter]
+        if not configs:
+            print(f"Slug '{slug_filter}' not found in config.toml")
+            sys.exit(1)
     if not configs:
         print("No default tables configured in config.toml.")
         return
@@ -86,4 +92,9 @@ async def seed() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(seed())
+    parser = argparse.ArgumentParser(
+        description="Seed difficulty tables from disk cache into DB."
+    )
+    parser.add_argument("--slug", help="Seed only this slug (from config.toml)")
+    args = parser.parse_args()
+    asyncio.run(seed(slug_filter=args.slug))
