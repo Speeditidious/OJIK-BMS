@@ -44,8 +44,8 @@ async def upsert_fumens(db: AsyncSession, table_id: uuid.UUID, songs: list[dict]
         md5_raw = (item.get("md5") or "").strip().lower()
         # Reject values that exceed column length constraints (VARCHAR 64/32).
         # Dirty data sometimes puts a sha256 in the md5 field or has trailing whitespace.
-        sha256 = sha256_raw if len(sha256_raw) <= 64 else None
-        md5 = md5_raw if len(md5_raw) <= 32 else None
+        sha256 = sha256_raw if sha256_raw and len(sha256_raw) <= 64 else None
+        md5 = md5_raw if md5_raw and len(md5_raw) <= 32 else None
         if not sha256 and not md5:
             continue
 
