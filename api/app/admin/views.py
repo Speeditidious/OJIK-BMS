@@ -94,6 +94,42 @@ class DifficultyTableAdmin(ModelView, model=DifficultyTable):
     column_searchable_list = [DifficultyTable.name, DifficultyTable.slug]
     column_sortable_list = [DifficultyTable.id, DifficultyTable.name, DifficultyTable.updated_at]
 
+    @action(
+        name="sync_selected_tables",
+        label="선택된 테이블 최신화",
+        confirmation_message="선택된 난이도표들을 최신화합니다. 계속하시겠습니까?",
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def sync_selected_tables(self, request: Request) -> RedirectResponse:
+        """Queue Celery sync tasks for each selected difficulty table."""
+        from app.tasks.table_updater import update_difficulty_table
+
+        pks = request.query_params.get("pks", "")
+        for pk in [p.strip() for p in pks.split(",") if p.strip()]:
+            update_difficulty_table.delay(pk)
+
+        return RedirectResponse(
+            request.url_for("admin:list", identity="difficultytable"), status_code=302
+        )
+
+    @action(
+        name="sync_all_tables",
+        label="전체 테이블 일괄 최신화",
+        confirmation_message="모든 난이도표를 최신화합니다. 계속하시겠습니까?",
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def sync_all_tables(self, request: Request) -> RedirectResponse:
+        """Queue a Celery task to sync all difficulty tables."""
+        from app.tasks.table_updater import update_all_difficulty_tables
+
+        update_all_difficulty_tables.delay()
+
+        return RedirectResponse(
+            request.url_for("admin:list", identity="difficultytable"), status_code=302
+        )
+
 
 class FumenAdmin(ModelView, model=Fumen):
     name = "Fumen"

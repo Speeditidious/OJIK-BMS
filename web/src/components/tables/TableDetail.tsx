@@ -2,10 +2,9 @@
 
 import { useMemo, useRef, memo, useCallback } from "react";
 import Link from "next/link";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ExternalLink, RefreshCw, Music, Package, FileCode, Youtube } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ExternalLink, Music, Package, FileCode, Youtube } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
@@ -62,8 +61,6 @@ function songHash(song: TableFumen): string {
 }
 
 export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange }: TableDetailProps) {
-  const queryClient = useQueryClient();
-
   const { data: table, isLoading: tableLoading } = useQuery<DifficultyTableDetail>({
     queryKey: ["table", tableId],
     queryFn: () => api.get(`/tables/${tableId}`),
@@ -78,15 +75,6 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
     },
     enabled: selectedLevel !== null || (!!table && table.level_order.length > 0),
     staleTime: 5 * 60 * 1000,
-  });
-
-  const syncMutation = useMutation({
-    mutationFn: () => api.post(`/tables/${tableId}/sync`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tables"] });
-      queryClient.invalidateQueries({ queryKey: ["table", tableId] });
-      queryClient.invalidateQueries({ queryKey: ["table-songs", tableId] });
-    },
   });
 
   const hasData = (table?.level_order.length ?? 0) > 0;
@@ -143,7 +131,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="px-6 py-4 border-b flex items-start gap-3 shrink-0">
+      <div className="px-6 py-4 border-b flex items-center gap-3 shrink-0">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             {table.symbol && (
@@ -153,48 +141,33 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
             )}
             <h2 className="text-xl font-bold truncate">{table.name}</h2>
           </div>
-          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-            {table.song_count != null && (
-              <span>{table.song_count.toLocaleString()}곡</span>
-            )}
-            {table.updated_at && (
-              <span>마지막 동기화: {new Date(table.updated_at).toLocaleDateString("ko-KR")}</span>
-            )}
-            {table.source_url && (
+          {table.source_url && (
+            <div className="mt-1">
               <a
                 href={table.source_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1 hover:text-foreground transition-colors"
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 난이도표 링크 <ExternalLink className="h-3 w-3" />
               </a>
-            )}
-          </div>
+            </div>
+          )}
         </div>
-        {isLoggedIn && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
-            title="수동 동기화"
-          >
-            <RefreshCw className={cn("h-4 w-4", syncMutation.isPending && "animate-spin")} />
-          </Button>
-        )}
+        <div className="shrink-0 text-right text-xs text-muted-foreground space-y-0.5">
+          {table.song_count != null && (
+            <div>{table.song_count.toLocaleString()} 차분</div>
+          )}
+          {table.updated_at && (
+            <div>최근 동기화: {new Date(table.updated_at).toLocaleDateString("ko-KR")}</div>
+          )}
+        </div>
       </div>
 
       {!hasData ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 text-muted-foreground">
           <Music className="h-12 w-12 opacity-30" />
           <p className="text-sm">난이도표 데이터가 아직 없습니다.</p>
-          {isLoggedIn && (
-            <Button variant="outline" size="sm" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
-              <RefreshCw className={cn("h-4 w-4 mr-2", syncMutation.isPending && "animate-spin")} />
-              지금 동기화
-            </Button>
-          )}
         </div>
       ) : (
         <div className="flex flex-1 overflow-hidden">
@@ -243,7 +216,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
               </div>
             ) : displayedSongs.length === 0 ? (
               <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                곡이 없습니다.
+                차분이 없습니다.
               </div>
             ) : (
               <SongVirtualList

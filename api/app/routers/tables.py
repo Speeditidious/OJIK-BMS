@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import uuid
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -47,6 +48,7 @@ class DifficultyTableRead(BaseModel):
     slug: str | None
     source_url: str | None
     is_default: bool
+    updated_at: datetime | None = None
     song_count: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -60,6 +62,7 @@ class DifficultyTableRead(BaseModel):
             slug=table.slug,
             source_url=table.source_url,
             is_default=table.is_default,
+            updated_at=table.updated_at,
             song_count=count,
         )
 
@@ -181,7 +184,15 @@ async def get_table(
     """Get a specific difficulty table with level_order."""
     table = await _get_table_or_404(table_id, db)
     level_order: list[str] = table.level_order or []
-    obj = DifficultyTableRead.from_orm_with_count(table)
+
+    count_result = await db.execute(
+        select(func.count())
+        .select_from(Fumen)
+        .where(Fumen.table_entries.contains([{"table_id": str(table_id)}]))
+    )
+    song_count: int | None = count_result.scalar()
+
+    obj = DifficultyTableRead.from_orm_with_count(table, song_count)
     return TableDetailRead(**obj.model_dump(), level_order=level_order)
 
 
