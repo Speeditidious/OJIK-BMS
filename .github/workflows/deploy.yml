@@ -24,6 +24,9 @@ jobs:
             docker compose -f docker-compose.prod.yml --env-file .env.prod build
             docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
 
+            # Restart nginx to pick up new api container IP after rebuild
+            docker compose -f docker-compose.prod.yml --env-file .env.prod restart nginx
+
             # Run DB migrations
             docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T api \
               alembic upgrade head
