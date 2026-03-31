@@ -64,10 +64,10 @@ function SortableTableRow({
       style={style}
       onClick={() => onSelect(table.id)}
       className={cn(
-        "group flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer transition-colors",
+        "flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer",
         selectedId === table.id
           ? "bg-primary/10 text-primary"
-          : "hover:bg-secondary text-foreground"
+          : "text-foreground"
       )}
     >
       <button
@@ -79,22 +79,24 @@ function SortableTableRow({
       >
         <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
       </button>
-      {table.symbol && (
-        <Badge variant="outline" className="shrink-0 text-xs font-mono px-1.5 py-0">
-          {table.symbol}
-        </Badge>
-      )}
-      <span className="flex-1 min-w-0 truncate text-sm">{table.name}</span>
-      {table.song_count != null && (
-        <span className="text-xs text-muted-foreground shrink-0">{table.song_count}</span>
-      )}
+      <div className="flex-1 flex items-center gap-2 min-w-0 hover:text-primary transition-colors">
+        {table.symbol && (
+          <Badge variant="outline" className="shrink-0 text-xs font-mono px-1.5 py-0">
+            {table.symbol}
+          </Badge>
+        )}
+        <span className="truncate text-sm">{table.name}</span>
+        {table.song_count != null && (
+          <span className="text-xs text-muted-foreground shrink-0">{table.song_count}</span>
+        )}
+      </div>
       {isLoggedIn && (
         <button
           onClick={(e) => onToggleFavorite(table, e)}
-          className="shrink-0 opacity-60 group-hover:opacity-100 transition-opacity"
+          className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"
           title="즐겨찾기 해제"
         >
-          <StarOff className="h-3.5 w-3.5 text-muted-foreground" />
+          <StarOff className="h-3.5 w-3.5" />
         </button>
       )}
     </div>
@@ -119,28 +121,27 @@ function StaticTableRow({
       key={table.id}
       onClick={() => onSelect(table.id)}
       className={cn(
-        "group flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer transition-colors",
+        "flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer",
         selectedId === table.id
           ? "bg-primary/10 text-primary"
-          : "hover:bg-secondary text-foreground"
+          : "text-foreground"
       )}
     >
-      {table.symbol && (
-        <Badge variant="outline" className="shrink-0 text-xs font-mono px-1.5 py-0">
-          {table.symbol}
-        </Badge>
-      )}
-      <span className="flex-1 min-w-0 truncate text-sm">{table.name}</span>
-      {table.song_count != null && (
-        <span className="text-xs text-muted-foreground shrink-0">{table.song_count}</span>
-      )}
+      <div className="flex-1 flex items-center gap-2 min-w-0 hover:text-primary transition-colors">
+        {table.symbol && (
+          <Badge variant="outline" className="shrink-0 text-xs font-mono px-1.5 py-0">
+            {table.symbol}
+          </Badge>
+        )}
+        <span className="truncate text-sm">{table.name}</span>
+      </div>
       {isLoggedIn && (
         <button
           onClick={(e) => onToggleFavorite(table, e)}
-          className="shrink-0 opacity-40 group-hover:opacity-100 transition-opacity"
+          className="shrink-0 text-muted-foreground hover:text-yellow-400 transition-colors"
           title="즐겨찾기 추가"
         >
-          <Star className="h-3.5 w-3.5 text-muted-foreground" />
+          <Star className="h-3.5 w-3.5" />
         </button>
       )}
     </div>

@@ -68,12 +68,9 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
   });
 
   const { data: songs, isLoading: songsLoading } = useQuery<TableFumen[]>({
-    queryKey: ["table-songs", tableId, selectedLevel],
-    queryFn: () => {
-      const qs = selectedLevel ? `?level=${encodeURIComponent(selectedLevel)}` : "";
-      return api.get(`/tables/${tableId}/songs${qs}`);
-    },
-    enabled: selectedLevel !== null || (!!table && table.level_order.length > 0),
+    queryKey: ["table-songs", tableId],
+    queryFn: () => api.get(`/tables/${tableId}/songs`),
+    enabled: (table?.level_order.length ?? 0) > 0,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -184,14 +181,17 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
           <div className="w-32 shrink-0 border-r overflow-y-auto overscroll-contain [&::-webkit-scrollbar]:hidden">
             <div
               className={cn(
-                "px-3 py-2 text-sm cursor-pointer transition-colors",
+                "px-3 py-2 text-sm cursor-pointer transition-colors flex items-center justify-between",
                 selectedLevel === null
                   ? "bg-primary/10 text-primary font-medium"
                   : "hover:bg-secondary text-muted-foreground"
               )}
               onClick={() => onLevelChange(null)}
             >
-              전체
+              <span>전체</span>
+              {songs != null && (
+                <span className="text-xs opacity-60">{songs.length}</span>
+              )}
             </div>
             {table.level_order.map((level) => {
               const count = songsByLevel[level]?.length;
