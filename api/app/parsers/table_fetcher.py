@@ -126,7 +126,8 @@ def _normalize(header: dict, raw_songs: list[dict]) -> dict:
                 normalized[k] = v
         songs.append(normalized)
 
-    level_order = header.get("level_order") or _derive_level_order(songs)
+    raw_level_order = header.get("level_order") or _derive_level_order(songs)
+    level_order = [str(lv) for lv in raw_level_order]  # normalize int → str
     courses = _parse_courses_from_header(header)
 
     return {
@@ -249,7 +250,8 @@ def load_table_from_disk(slug: str) -> dict | None:
     header = json.loads(header_path.read_text(encoding="utf-8"))
     songs = json.loads(data_path.read_text(encoding="utf-8"))
 
-    level_order = header.get("level_order") or _derive_level_order(songs)
+    raw_level_order = header.get("level_order") or _derive_level_order(songs)
+    level_order = [str(lv) for lv in raw_level_order]  # normalize int → str
     courses = _parse_courses_from_header(header)
     return {"header": header, "songs": songs, "level_order": level_order, "courses": courses, "symbol": header.get("symbol") or None}
 

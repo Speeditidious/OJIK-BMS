@@ -61,7 +61,7 @@ function songHash(song: TableFumen): string {
 }
 
 export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange }: TableDetailProps) {
-  const { data: table, isLoading: tableLoading } = useQuery<DifficultyTableDetail>({
+  const { data: table, isLoading: tableLoading, error: tableError } = useQuery<DifficultyTableDetail>({
     queryKey: ["table", tableId],
     queryFn: () => api.get(`/tables/${tableId}`),
     staleTime: 5 * 60 * 1000,
@@ -116,6 +116,15 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
         불러오는 중...
+      </div>
+    );
+  }
+
+  if (tableError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
+        <p>난이도표를 불러오는 데 실패했습니다.</p>
+        <p className="text-xs">{(tableError as Error).message}</p>
       </div>
     );
   }
