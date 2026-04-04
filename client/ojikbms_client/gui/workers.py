@@ -481,6 +481,8 @@ class SyncWorker(QThread):
             f' <span style="color:{_MUTED};">- 신규 {result["inserted"]:,}개, '
             f'보강 {result["updated"]:,}개, 이미 존재한 데이터 {result["skipped"]:,}개</span>'
         )
+        for err in result.get("errors", [])[:5]:
+            self._log(f'[WARN] 차분 상세 전송 오류: {err}')
 
     @staticmethod
     async def _post_supplement(api_url: str, payload: dict) -> dict:
