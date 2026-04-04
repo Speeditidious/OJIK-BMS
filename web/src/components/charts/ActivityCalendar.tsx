@@ -161,7 +161,7 @@ export function ActivityCalendar({
         <Button variant="ghost" size="icon" onClick={prevMonth}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <span className="text-sm font-semibold">
+        <span className="text-body font-semibold">
           {year}년 {month}월
         </span>
         <Button variant="ghost" size="icon" onClick={nextMonth}>
@@ -172,7 +172,7 @@ export function ActivityCalendar({
       {/* Weekday labels */}
       <div className="grid grid-cols-7 gap-1">
         {WEEKDAY_LABELS.map((label) => (
-          <div key={label} className="text-center text-xs text-muted-foreground font-medium py-1">
+          <div key={label} className="text-center text-label text-muted-foreground font-medium py-1">
             {label}
           </div>
         ))}
@@ -205,7 +205,7 @@ export function ActivityCalendar({
             <button
               key={dateStr}
               className={[
-                "min-h-[88px] rounded-md flex flex-col items-center p-2 relative text-xs transition-colors",
+                "min-h-[88px] rounded-md flex flex-col items-center p-2 relative text-label transition-colors",
                 "hover:bg-accent/20",
                 updates > 0 || plays > 0 || dots.length > 0 ? "font-medium" : "text-muted-foreground",
               ]
@@ -216,7 +216,7 @@ export function ActivityCalendar({
             >
               {/* Date number top-left — badge on today */}
               {isToday ? (
-                <span className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold leading-none mb-1">
+                <span className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-body font-bold leading-none mb-1">
                   {cell.day}
                 </span>
               ) : (
@@ -229,13 +229,13 @@ export function ActivityCalendar({
                   {dots.map((dot, di) => (
                     <div key={di} className="flex items-center gap-0.5 min-w-0">
                       <span
-                        className="shrink-0 text-xs leading-none"
+                        className="shrink-0 text-label leading-none"
                         style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : `hsl(var(--${dot.color}))` }}
                       >
                         ●
                       </span>
                       <span
-                        className="text-xs leading-tight truncate"
+                        className="text-label leading-tight truncate"
                         style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : `hsl(var(--${dot.color}))` }}
                       >
                         {dot.label}

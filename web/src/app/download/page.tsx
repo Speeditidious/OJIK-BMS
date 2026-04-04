@@ -45,7 +45,7 @@ export default function DownloadPage() {
               <>
                 <span>최신 버전</span>
                 <Badge variant="secondary">{release.version}</Badge>
-                <span className="text-sm font-normal text-muted-foreground ml-auto">
+                <span className="text-body font-normal text-muted-foreground ml-auto">
                   {formatDate(release.publishedAt)}
                 </span>
               </>
@@ -84,7 +84,7 @@ export default function DownloadPage() {
             </div>
           ) : isError || !process.env.NEXT_PUBLIC_GITHUB_REPO ? (
             <div className="space-y-3">
-              <p className="text-muted-foreground text-sm">
+              <p className="text-muted-foreground text-body">
                 릴리즈 정보를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.
               </p>
               {process.env.NEXT_PUBLIC_GITHUB_REPO && (
@@ -101,7 +101,7 @@ export default function DownloadPage() {
               )}
             </div>
           ) : (
-            <p className="text-muted-foreground text-sm">
+            <p className="text-muted-foreground text-body">
               아직 배포된 릴리즈가 없습니다. 곧 출시될 예정입니다.
             </p>
           )}
@@ -116,32 +116,32 @@ export default function DownloadPage() {
         <CardContent>
           <ol className="space-y-4">
             <li className="flex gap-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-semibold">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-body font-semibold">
                 1
               </span>
               <div>
                 <p className="font-medium">exe 파일 다운로드 후 실행</p>
-                <p className="text-sm text-muted-foreground">새로운 폴더 생성 후 그 안에서 실행시키는 것을 권장합니다 (같은 폴더 내에 config 파일도 생성됨).</p>
+                <p className="text-body text-muted-foreground">새로운 폴더 생성 후 그 안에서 실행시키는 것을 권장합니다 (같은 폴더 내에 config 파일도 생성됨).</p>
               </div>
             </li>
             <li className="flex gap-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-semibold">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-body font-semibold">
                 2
               </span>
               <div>
                 <p className="font-medium">Discord 로그인</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-body text-muted-foreground">
                   OJIK BMS 계정과 동일한 Discord 계정으로 로그인합니다.
                 </p>
               </div>
             </li>
             <li className="flex gap-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-semibold">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-body font-semibold">
                 3
               </span>
               <div>
                 <p className="font-medium">경로 설정 후 동기화</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-body text-muted-foreground">
                   각 구동기의 데이터베이스 경로를 지정하면 자동으로 스캔 · 동기화됩니다.
                 </p>
               </div>

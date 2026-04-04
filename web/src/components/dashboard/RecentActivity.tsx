@@ -21,14 +21,14 @@ import {
 const CLEAR_BADGE_STYLE: Record<number, React.CSSProperties> = {
   0: { borderColor: "hsl(var(--clear-no-play))", background: "hsl(var(--clear-no-play)/0.4)", color: "hsl(var(--muted-foreground))" },
   1: { borderColor: "hsl(var(--clear-failed)/0.6)", background: "hsl(var(--clear-failed)/0.15)", color: "hsl(var(--clear-failed))" },
-  2: { borderColor: "hsl(var(--clear-assist)/0.6)", background: "hsl(var(--clear-assist)/0.2)", color: "hsl(var(--clear-assist))" },
-  3: { borderColor: "hsl(var(--clear-easy)/0.6)", background: "hsl(var(--clear-easy)/0.2)", color: "hsl(var(--clear-easy))" },
-  4: { borderColor: "hsl(var(--clear-normal)/0.6)", background: "hsl(var(--clear-normal)/0.2)", color: "hsl(var(--clear-normal))" },
-  5: { borderColor: "hsl(var(--clear-hard)/0.6)", background: "hsl(var(--clear-hard)/0.2)", color: "hsl(var(--clear-hard))" },
-  6: { borderColor: "hsl(var(--clear-exhard)/0.6)", background: "hsl(var(--clear-exhard)/0.2)", color: "hsl(var(--clear-exhard))" },
-  7: { borderColor: "hsl(var(--clear-fc)/0.6)", background: "hsl(var(--clear-fc)/0.2)", color: "hsl(var(--clear-fc))" },
-  8: { borderColor: "hsl(var(--clear-perfect)/0.6)", background: "hsl(var(--clear-perfect)/0.2)", color: "hsl(var(--clear-perfect))" },
-  9: { borderColor: "hsl(var(--clear-max)/0.6)", background: "hsl(var(--clear-max)/0.2)", color: "hsl(var(--clear-max))" },
+  2: { borderColor: "hsl(var(--clear-assist)/0.6)", background: "hsl(var(--clear-assist)/0.2)", color: "hsl(220 20% 9%)" },
+  3: { borderColor: "hsl(var(--clear-easy)/0.6)", background: "hsl(var(--clear-easy)/0.2)", color: "hsl(220 20% 9%)" },
+  4: { borderColor: "hsl(var(--clear-normal)/0.6)", background: "hsl(var(--clear-normal)/0.2)", color: "hsl(220 20% 9%)" },
+  5: { borderColor: "hsl(var(--clear-hard)/0.6)", background: "hsl(var(--clear-hard)/0.2)", color: "hsl(220 20% 9%)" },
+  6: { borderColor: "hsl(var(--clear-exhard)/0.6)", background: "hsl(var(--clear-exhard)/0.2)", color: "hsl(220 20% 9%)" },
+  7: { borderColor: "hsl(var(--clear-fc)/0.6)", background: "hsl(var(--clear-fc)/0.2)", color: "hsl(220 20% 9%)" },
+  8: { borderColor: "hsl(var(--clear-perfect)/0.6)", background: "hsl(var(--clear-perfect)/0.2)", color: "hsl(220 20% 9%)" },
+  9: { borderColor: "hsl(var(--clear-max)/0.6)", background: "hsl(var(--clear-max)/0.2)", color: "hsl(220 20% 9%)" },
 };
 
 function getClientLabels(clientType: string) {
@@ -44,9 +44,21 @@ export function clearBadge(clearType: number | null, clientType: string) {
   const style = CLEAR_BADGE_STYLE[clearType] ?? CLEAR_BADGE_STYLE[0];
   return (
     <span
-      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border shrink-0"
+      className="inline-flex items-center rounded-full px-2 py-0.5 text-caption font-medium border shrink-0"
       style={style}
     >
+      {label}
+    </span>
+  );
+}
+
+/** Plain text version of clearBadge — no badge decoration, no color override. */
+export function clearText(clearType: number | null, clientType: string) {
+  if (clearType === null) return null;
+  const labels = getClientLabels(clientType);
+  const label = labels[clearType] ?? String(clearType);
+  return (
+    <span className="text-label">
       {label}
     </span>
   );
@@ -115,7 +127,7 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
           <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
             {firstClear && (
               <span
-                className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium border shrink-0"
+                className="inline-flex items-center rounded-full px-2 py-0.5 text-caption font-medium border shrink-0"
                 style={{ borderColor: "hsl(var(--warning)/0.6)", background: "hsl(var(--warning)/0.15)", color: "hsl(var(--warning))" }}
               >
                 ★ 첫 클리어
@@ -125,13 +137,13 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
             {(u.fumen_sha256 || u.fumen_md5) ? (
               <Link
                 href={`/songs/${u.fumen_sha256 || u.fumen_md5}`}
-                className="text-xs font-medium truncate max-w-[200px] hover:text-primary transition-colors"
+                className="text-label font-medium truncate max-w-[200px] hover:text-primary transition-colors"
                 onClick={(e) => e.stopPropagation()}
               >
                 {songName}
               </Link>
             ) : (
-              <span className="text-xs font-medium truncate max-w-[200px]">{songName}</span>
+              <span className="text-label font-medium truncate max-w-[200px]">{songName}</span>
             )}
           </div>
 
@@ -141,7 +153,7 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
               {u.difficulty_levels.map(({ symbol, level }, i) => (
                 <span
                   key={i}
-                  className="inline-flex items-center rounded px-1.5 py-0 text-[10px] font-medium border border-primary/40 text-primary bg-primary/10"
+                  className="inline-flex items-center rounded px-1.5 py-0 text-caption font-medium border border-primary/40 text-primary bg-primary/10"
                 >
                   {symbol}{level}
                 </span>
@@ -152,12 +164,12 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
           {/* Changes: rank, exscore */}
           <div className="flex gap-2 flex-wrap">
             {rankChanged && (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-caption text-muted-foreground">
                 Rank: {u.rank}
               </span>
             )}
             {u.exscore !== null && (
-              <span className="text-[10px] text-muted-foreground font-mono">
+              <span className="text-caption text-muted-foreground font-mono">
                 EX: {u.exscore}
               </span>
             )}
@@ -166,7 +178,7 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
 
         <div className="flex flex-col items-end gap-1 shrink-0">
           <div className="flex items-center gap-1">
-            <span className="text-[10px] text-muted-foreground uppercase">{u.client_type}</span>
+            <span className="text-caption text-muted-foreground uppercase">{u.client_type}</span>
             {expanded ? (
               <ChevronUp className="h-3 w-3 text-muted-foreground" />
             ) : (
@@ -174,7 +186,7 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
             )}
           </div>
           {elapsed && (
-            <span className="text-[10px] text-muted-foreground">{elapsed}</span>
+            <span className="text-caption text-muted-foreground">{elapsed}</span>
           )}
         </div>
       </div>
@@ -183,7 +195,7 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
       {expanded && (
         <div className="border-t border-border/30 pt-2 mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
           {u.min_bp !== null && (
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-caption text-muted-foreground">
               BP: {u.min_bp}
             </span>
           )}
@@ -192,32 +204,32 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="text-[10px] text-muted-foreground cursor-help">
+                    <span className="text-caption text-muted-foreground cursor-help">
                       플레이 수: - → {u.play_count}
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent className="text-xs">
+                  <TooltipContent className="text-label">
                     첫 동기화 — 이전 플레이 횟수 불명
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             ) : u.prev_play_count !== null ? (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-caption text-muted-foreground">
                 플레이 수: {u.prev_play_count} → {u.play_count}
               </span>
             ) : (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-caption text-muted-foreground">
                 플레이 수: {u.play_count}
               </span>
             )
           )}
           {u.rate !== null && (
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-caption text-muted-foreground">
               스코어율: {u.rate.toFixed(1)}%
             </span>
           )}
           {u.artist && (
-            <span className="text-[10px] text-muted-foreground truncate">
+            <span className="text-caption text-muted-foreground truncate">
               {u.artist}
             </span>
           )}
@@ -266,7 +278,7 @@ export function RecentActivity({ clientType = "all" }: Props) {
         )}
 
         {!isLoading && groups.length === 0 && (
-          <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+          <div className="flex items-center justify-center h-32 text-muted-foreground text-body">
             로컬 에이전트를 설치하고 동기화하면 활동 내역이 표시됩니다.
           </div>
         )}
@@ -276,18 +288,18 @@ export function RecentActivity({ clientType = "all" }: Props) {
             {groups.map(({ key, label, items }) => (
               <div key={key}>
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-semibold text-muted-foreground">{label}</span>
+                  <span className="text-label font-semibold text-muted-foreground">{label}</span>
                   <div className="flex items-center gap-1">
                     {(() => {
                       const updateCount = items.filter(u => !u.is_stat_only).length;
                       const playOnlyCount = items.filter(u => u.is_stat_only).length;
                       return (
                         <>
-                          <span className="text-[10px] bg-muted rounded px-1.5 py-0.5" style={{ color: "hsl(var(--primary))" }}>
+                          <span className="text-caption bg-muted rounded px-1.5 py-0.5" style={{ color: "hsl(var(--primary))" }}>
                             갱신 {updateCount}건
                           </span>
                           {playOnlyCount > 0 && (
-                            <span className="text-[10px] bg-muted rounded px-1.5 py-0.5" style={{ color: "hsl(var(--chart-play))" }}>
+                            <span className="text-caption bg-muted rounded px-1.5 py-0.5" style={{ color: "hsl(var(--chart-play))" }}>
                               플레이 {playOnlyCount}건
                             </span>
                           )}

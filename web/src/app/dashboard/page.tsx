@@ -52,11 +52,11 @@ function DayStatCard({
   return (
     <Card className="border-dashed">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1 pt-3 px-4">
-        <p className="text-xs font-medium">{title}</p>
+        <p className="text-label font-medium">{title}</p>
         <Icon className="h-3.5 w-3.5 text-muted-foreground" />
       </CardHeader>
       <CardContent className="pb-3 px-4">
-        <div className="text-xl font-bold">
+        <div className="text-stat font-bold">
           {uncertain && uncertainTooltip ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -65,13 +65,13 @@ function DayStatCard({
                   <HelpCircle className="h-3.5 w-3.5" />
                 </span>
               </TooltipTrigger>
-              <TooltipContent className="max-w-xs text-xs">
+              <TooltipContent className="max-w-xs text-label">
                 {uncertainTooltip}
               </TooltipContent>
             </Tooltip>
           ) : value}
         </div>
-        <p className="text-[10px] text-muted-foreground">{sub}</p>
+        <p className="text-caption text-muted-foreground">{sub}</p>
       </CardContent>
     </Card>
   );
@@ -225,7 +225,7 @@ function DashboardContent() {
           <div>
             <h1 className="text-3xl font-bold">대시보드</h1>
             {user && (
-              <p className="text-muted-foreground text-sm mt-0.5">
+              <p className="text-muted-foreground text-body mt-0.5">
                 환영합니다,{" "}
                 <span className="text-foreground font-medium">{user.username}</span>님
               </p>
@@ -277,7 +277,7 @@ function DashboardContent() {
                           key={v}
                           variant={activityView === v ? "secondary" : "ghost"}
                           size="sm"
-                          className="text-xs h-7 px-2"
+                          className="text-label h-7 px-2"
                           onClick={() => setActivityView(v)}
                         >
                           {v === "updates" ? "기록 갱신" : "플레이 횟수"}
@@ -292,7 +292,7 @@ function DashboardContent() {
                       >
                         ‹
                       </Button>
-                      <span className="text-sm font-medium w-12 text-center">{heatmapYear}</span>
+                      <span className="text-body font-medium w-12 text-center">{heatmapYear}</span>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -327,7 +327,7 @@ function DashboardContent() {
                         key={d}
                         variant={barDays === d ? "secondary" : "ghost"}
                         size="sm"
-                        className="text-xs h-7 px-2"
+                        className="text-label h-7 px-2"
                         onClick={() => setBarDays(d)}
                       >
                         {d}일

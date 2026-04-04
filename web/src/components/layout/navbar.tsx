@@ -59,7 +59,7 @@ export function Navbar() {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                  "flex items-center gap-2 px-3 py-2 rounded-md text-body font-medium transition-colors",
                   isActive
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:text-foreground hover:bg-secondary"
@@ -85,11 +85,11 @@ export function Navbar() {
                   className="rounded-full object-cover"
                 />
               ) : (
-                <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary">
+                <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-label font-medium text-primary">
                   {user.username.charAt(0).toUpperCase()}
                 </div>
               )}
-              <span className="text-sm text-muted-foreground hidden sm:block">{user.username}</span>
+              <span className="text-body text-muted-foreground hidden sm:block">{user.username}</span>
             </div>
           )}
           <Link href="/settings">

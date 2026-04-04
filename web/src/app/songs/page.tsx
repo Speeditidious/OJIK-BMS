@@ -20,7 +20,7 @@ export default function SongsPage() {
             <input
               type="text"
               placeholder="곡명 또는 아티스트 검색..."
-              className="w-full pl-9 pr-4 py-2 rounded-md border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full pl-9 pr-4 py-2 rounded-md border bg-background text-body focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
           <Button variant="outline">검색</Button>
@@ -37,7 +37,7 @@ export default function SongsPage() {
           <CardContent>
             <div className="flex flex-col items-center justify-center h-48 text-muted-foreground gap-4">
               <Music2 className="h-12 w-12 opacity-30" />
-              <p className="text-sm">구현 예정</p>
+              <p className="text-body">구현 예정</p>
             </div>
           </CardContent>
         </Card>

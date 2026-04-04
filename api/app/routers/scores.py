@@ -46,6 +46,7 @@ class UserScoreRead(BaseModel):
     max_combo: int | None
     min_bp: int | None
     play_count: int | None
+    options: dict | None = None
     recorded_at: str | None
     synced_at: str | None
     is_first_sync: bool = False
@@ -102,6 +103,7 @@ async def get_my_scores(
             max_combo=s.max_combo,
             min_bp=s.min_bp,
             play_count=s.play_count,
+            options=s.options,
             recorded_at=s.recorded_at.isoformat() if s.recorded_at else None,
             synced_at=s.synced_at.isoformat() if s.synced_at else None,
         )
@@ -196,6 +198,7 @@ async def get_scores_for_fumen(
             max_combo=s.max_combo,
             min_bp=s.min_bp,
             play_count=s.play_count,
+            options=s.options,
             recorded_at=s.recorded_at.isoformat() if s.recorded_at else None,
             synced_at=s.synced_at.isoformat() if s.synced_at else None,
             is_first_sync=_is_first_sync(s),

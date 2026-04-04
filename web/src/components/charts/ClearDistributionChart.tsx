@@ -89,19 +89,36 @@ export function ClearDistributionChart({ data, clientType }: ClearDistributionCh
     [chartData.length]
   );
 
-  const tooltipFormatter = useCallback(
-    (value: number, _name: string, props: any) => {
-      const ct = (props.payload as any).type as number;
+  const renderTooltip = useCallback(
+    ({ active, payload }: any) => {
+      if (!active || !payload?.length) return null;
+      const entry = payload[0].payload;
+      const ct = entry.type as number;
+      const value = entry.count as number;
       const cumRaw = chartData.filter((d) => d.type >= ct).reduce((s, d) => s + d.count, 0);
       const pct = totalCount > 0 ? (cumRaw / totalCount) * 100 : 0;
-      return [`${value.toLocaleString()} (${pct.toFixed(1)}%)`, labelMap[ct]];
+      return (
+        <div style={{
+          backgroundColor: "hsl(var(--card))",
+          border: "1px solid hsl(var(--border))",
+          borderRadius: "6px",
+          padding: "8px 12px",
+          fontSize: "var(--text-label)",
+          color: "hsl(var(--foreground))",
+          whiteSpace: "nowrap",
+          width: "max-content",
+        }}>
+          <p style={{ fontWeight: 600, marginBottom: 2 }}>{labelMap[ct]}</p>
+          <p>{value.toLocaleString()} ({pct.toFixed(1)}%)</p>
+        </div>
+      );
     },
     [chartData, totalCount, labelMap]
   );
 
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+      <div className="flex items-center justify-center h-48 text-muted-foreground text-body">
         스코어 데이터가 없습니다
       </div>
     );
@@ -123,7 +140,7 @@ export function ClearDistributionChart({ data, clientType }: ClearDistributionCh
       >
         <XAxis
           type="number"
-          tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+          tick={{ fontSize: 'var(--text-caption)', fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={false}
           allowDecimals={false}
@@ -131,20 +148,13 @@ export function ClearDistributionChart({ data, clientType }: ClearDistributionCh
         <YAxis
           type="category"
           dataKey="label"
-          tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }}
+          tick={{ fontSize: 'var(--text-caption)', fill: "hsl(var(--foreground))" }}
           tickLine={false}
           axisLine={false}
           width={56}
         />
         <Tooltip
-          contentStyle={{
-            backgroundColor: "hsl(var(--card))",
-            border: "1px solid hsl(var(--border))",
-            borderRadius: "6px",
-            fontSize: 12,
-            color: "hsl(var(--foreground))",
-          }}
-          formatter={tooltipFormatter}
+          content={renderTooltip}
           cursor={{ fill: "hsl(var(--accent)/0.1)" }}
         />
         <Bar dataKey="count" radius={[0, 3, 3, 0]} barSize={16}>

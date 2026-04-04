@@ -81,13 +81,13 @@ function SortableTableRow({
       </button>
       <div className="flex-1 flex items-center gap-2 min-w-0 hover:text-primary transition-colors">
         {table.symbol && (
-          <Badge variant="outline" className="shrink-0 text-xs font-mono px-1.5 py-0">
+          <Badge variant="outline" className="shrink-0 text-label font-mono px-1.5 py-0">
             {table.symbol}
           </Badge>
         )}
-        <span className="truncate text-sm">{table.name}</span>
+        <span className="truncate text-body">{table.name}</span>
         {table.song_count != null && (
-          <span className="text-xs text-muted-foreground shrink-0">{table.song_count}</span>
+          <span className="text-label text-muted-foreground shrink-0">{table.song_count}</span>
         )}
       </div>
       {isLoggedIn && (
@@ -129,11 +129,11 @@ function StaticTableRow({
     >
       <div className="flex-1 flex items-center gap-2 min-w-0 hover:text-primary transition-colors">
         {table.symbol && (
-          <Badge variant="outline" className="shrink-0 text-xs font-mono px-1.5 py-0">
+          <Badge variant="outline" className="shrink-0 text-label font-mono px-1.5 py-0">
             {table.symbol}
           </Badge>
         )}
-        <span className="truncate text-sm">{table.name}</span>
+        <span className="truncate text-body">{table.name}</span>
       </div>
       {isLoggedIn && (
         <button
@@ -216,7 +216,7 @@ export function TableSidebar({
   return (
     <div className="flex flex-col h-full border-r">
       <div className="px-4 py-3 flex items-center justify-between border-b">
-        <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+        <span className="text-body font-semibold text-muted-foreground uppercase tracking-wide">
           난이도표
         </span>
         {isLoggedIn && (
@@ -231,7 +231,7 @@ export function TableSidebar({
         {/* Favorites section */}
         {isLoggedIn && displayedFavorites.length > 0 && (
           <>
-            <p className="px-2 pb-1 text-xs text-muted-foreground font-medium">즐겨찾기</p>
+            <p className="px-2 pb-1 text-label text-muted-foreground font-medium">즐겨찾기</p>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={displayedFavorites.map((t) => t.id)} strategy={verticalListSortingStrategy}>
                 {displayedFavorites.map((t) => (
@@ -254,7 +254,7 @@ export function TableSidebar({
         {otherTables.length > 0 && (
           <>
             {isLoggedIn && displayedFavorites.length > 0 && (
-              <p className="px-2 pb-1 text-xs text-muted-foreground font-medium">전체</p>
+              <p className="px-2 pb-1 text-label text-muted-foreground font-medium">전체</p>
             )}
             {otherTables.map((t) => (
               <StaticTableRow
@@ -270,7 +270,7 @@ export function TableSidebar({
         )}
 
         {allTables.length === 0 && (
-          <p className="px-2 py-4 text-sm text-muted-foreground text-center">
+          <p className="px-2 py-4 text-body text-muted-foreground text-center">
             난이도표 데이터를 불러오는 중...
           </p>
         )}

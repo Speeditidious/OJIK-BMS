@@ -44,13 +44,13 @@ function StatCard({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <div className="flex items-center gap-1">
-          <CardTitle className="text-sm font-medium">{title}</CardTitle>
+          <CardTitle className="text-body font-medium">{title}</CardTitle>
           {tooltip && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Info className="h-3 w-3 text-muted-foreground cursor-help" />
               </TooltipTrigger>
-              <TooltipContent className="max-w-xs text-xs">
+              <TooltipContent className="max-w-xs text-label">
                 {tooltip}
               </TooltipContent>
             </Tooltip>
@@ -59,8 +59,8 @@ function StatCard({
         <Icon className="h-4 w-4 text-muted-foreground" />
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
-        <p className="text-xs text-muted-foreground">{sub}</p>
+        <div className="text-stat font-bold">{value}</div>
+        <p className="text-label text-muted-foreground">{sub}</p>
       </CardContent>
     </Card>
   );
@@ -88,7 +88,7 @@ export function StatsGrid({ clientType, onClientTypeChange }: StatsGridProps) {
             variant="ghost"
             size="sm"
             className={cn(
-              "h-7 px-3 text-xs rounded-full",
+              "h-7 px-3 text-label rounded-full",
               clientType === opt.value
                 ? "bg-primary/15 text-primary font-semibold"
                 : "text-muted-foreground"
@@ -116,7 +116,7 @@ export function StatsGrid({ clientType, onClientTypeChange }: StatsGridProps) {
             </Card>
           ))
         ) : isError || !data ? (
-          <div className="col-span-3 flex items-center justify-center h-24 text-sm text-muted-foreground">
+          <div className="col-span-3 flex items-center justify-center h-24 text-body text-muted-foreground">
             데이터를 불러오지 못했습니다
           </div>
         ) : (

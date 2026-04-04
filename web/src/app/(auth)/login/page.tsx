@@ -27,7 +27,7 @@ function LoginContent() {
         </CardHeader>
         <CardContent className="space-y-4">
           {error && (
-            <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2 text-body text-destructive">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{error}</span>
             </div>
@@ -38,7 +38,7 @@ function LoginContent() {
               Discord로 로그인
             </Button>
           </a>
-          <p className="text-center text-sm text-muted-foreground">
+          <p className="text-center text-body text-muted-foreground">
             로그인하면{" "}
             <a href="#" className="underline underline-offset-4 hover:text-primary">
               이용약관

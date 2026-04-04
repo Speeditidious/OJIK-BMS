@@ -36,7 +36,7 @@ function SyncLabel({ viewBox, labels }: { viewBox?: { x: number; y: number }; la
           x={viewBox.x + 4}
           y={viewBox.y + 12 + i * 12}
           fill="hsl(var(--accent))"
-          fontSize={10}
+          fontSize='var(--text-caption)'
           textAnchor="start"
         >
           {label}
@@ -64,7 +64,7 @@ function ChartTooltip({ active, payload, viewMode }: { active?: boolean; payload
         backgroundColor: "hsl(var(--card))",
         border: "1px solid hsl(var(--border))",
         borderRadius: "6px",
-        fontSize: 12,
+        fontSize: 'var(--text-label)',
         color: "hsl(var(--foreground))",
         padding: "8px 10px",
       }}
@@ -166,7 +166,7 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData,
 
   if (chartData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+      <div className="flex items-center justify-center h-48 text-muted-foreground text-body">
         이 기간에 동기화된 데이터가 없습니다
       </div>
     );
@@ -184,13 +184,13 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData,
       <LineChart width={chartWidth} height={200} data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
         <XAxis
           dataKey="date"
-          tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+          tick={{ fontSize: 'var(--text-caption)', fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={false}
           interval="preserveStartEnd"
         />
         <YAxis
-          tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+          tick={{ fontSize: 'var(--text-caption)', fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={false}
           allowDecimals={false}
@@ -230,7 +230,7 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData,
               strokeWidth={1.5}
               label={
                 meta.labels.length === 1
-                  ? { value: meta.labels[0], position: "insideTopRight", fontSize: 10, fill: "hsl(var(--accent))" }
+                  ? { value: meta.labels[0], position: "insideTopRight", fontSize: 'var(--text-caption)', fill: "hsl(var(--accent))" }
                   : <SyncLabel labels={meta.labels} />
               }
             />

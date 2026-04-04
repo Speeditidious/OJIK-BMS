@@ -6,6 +6,7 @@ const config: Config = {
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/lib/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     container: {
@@ -69,6 +70,18 @@ const config: Config = {
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+      },
+      fontSize: {
+        caption: ['var(--text-caption)', { lineHeight: '1rem'     }],
+        label:   ['var(--text-label)',   { lineHeight: '1.25rem'  }],
+        body:    ['var(--text-body)',    { lineHeight: '1.375rem' }],
+        base:    ['var(--text-base)',    { lineHeight: '1.5rem'   }],
+        lg:      ['var(--text-lg)',      { lineHeight: '1.75rem'  }],
+        xl:      ['var(--text-xl)',      { lineHeight: '1.75rem'  }],
+        '2xl':   ['var(--text-2xl)',     { lineHeight: '2rem'     }],
+        stat:    ['var(--text-stat)',    { lineHeight: '2rem'     }],
+        '3xl':   ['var(--text-3xl)',     { lineHeight: '2.25rem'  }],
+        hero:    ['var(--text-hero)',    { lineHeight: '1'        }],
       },
     },
   },

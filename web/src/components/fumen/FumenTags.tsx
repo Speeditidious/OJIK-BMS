@@ -55,7 +55,7 @@ function SortableTagPill({
         opacity: isDragging ? 0.5 : 1,
         cursor: isDragging ? "grabbing" : undefined,
       }}
-      className="inline-flex items-center gap-0.5 rounded-full pl-1.5 pr-2 py-0.5 text-xs font-medium border select-none"
+      className="inline-flex items-center gap-0.5 rounded-full pl-1.5 pr-2 py-0.5 text-label font-medium border select-none"
     >
       {/* 드래그 핸들 */}
       <button
@@ -182,7 +182,7 @@ export function FumenTags({ hash }: FumenTagsProps) {
       <div className="relative" ref={popoverRef}>
         <button
           onClick={() => setOpen((v) => !v)}
-          className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors"
+          className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-border px-2 py-0.5 text-label text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors"
         >
           <Plus className="h-3 w-3" />
           태그 추가
@@ -197,7 +197,7 @@ export function FumenTags({ hash }: FumenTagsProps) {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="태그 검색 또는 입력..."
-                className="w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground/50 py-0.5"
+                className="w-full bg-transparent text-label outline-none placeholder:text-muted-foreground/50 py-0.5"
               />
             </div>
 
@@ -210,7 +210,7 @@ export function FumenTags({ hash }: FumenTagsProps) {
                     className="w-full flex items-center px-3 py-1.5 hover:bg-secondary/60 transition-colors"
                   >
                     <span
-                      className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border"
+                      className="inline-flex items-center rounded-full px-2.5 py-0.5 text-label font-medium border"
                       style={tagStyle(t)}
                     >
                       {t}
@@ -223,16 +223,16 @@ export function FumenTags({ hash }: FumenTagsProps) {
                   className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-secondary/60 transition-colors"
                 >
                   <Plus className="h-3 w-3 text-muted-foreground shrink-0" />
-                  <span className="text-xs text-muted-foreground">생성:</span>
+                  <span className="text-label text-muted-foreground">생성:</span>
                   <span
-                    className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border"
+                    className="inline-flex items-center rounded-full px-2.5 py-0.5 text-label font-medium border"
                     style={tagStyle(input.trim())}
                   >
                     {input.trim()}
                   </span>
                 </button>
               ) : (
-                <p className="px-3 py-2 text-xs text-muted-foreground/60">
+                <p className="px-3 py-2 text-label text-muted-foreground/60">
                   아직 만든 태그가 없습니다
                 </p>
               )}

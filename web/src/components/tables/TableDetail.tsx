@@ -1,18 +1,25 @@
 "use client";
 
-import { useMemo, useRef, memo, useCallback } from "react";
+import { useMemo, useRef, memo, useCallback, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ExternalLink, Music, Package, FileCode, Youtube } from "lucide-react";
+import {
+  ExternalLink, Music, Package, FileCode, Youtube, FileSpreadsheet,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { compareTitles } from "@/lib/bms-sort";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
+import { CLEAR_ROW_CLASS, parseArrangement, levelSortIndex, ARRANGEMENT_KANJI, exportToExcel } from "@/lib/fumen-table-utils";
+import { CLEAR_TYPE_LABELS } from "@/components/charts/ClearDistributionChart";
 import type { DifficultyTableDetail, TableFumen, TableFumenScore } from "@/types";
-import { clearBadge } from "@/components/dashboard/RecentActivity";
+import { clearText } from "@/components/dashboard/RecentActivity";
+
+type SortKey = "level" | "title" | "lamp" | "score" | "rate" | "rank" | "min_bp" | "plays" | "option" | "bpm" | "notes" | "length" | "env";
+type SortDir = "asc" | "desc";
 
 interface TableDetailProps {
   tableId: string;
@@ -21,14 +28,14 @@ interface TableDetailProps {
   onLevelChange: (level: string | null) => void;
 }
 
-// Source client label display
 function SourceClientBadge({ score }: { score: TableFumenScore }) {
   const { source_client, source_client_detail } = score;
   if (!source_client) return null;
 
+  const isMix = source_client === "MIX";
   const badge = (
-    <span className="text-[10px] font-mono px-1 py-0.5 rounded border border-border/60 text-muted-foreground">
-      {source_client}
+    <span className={`text-label${isMix ? " cursor-help" : ""}`}>
+      {source_client}{isMix && <span className="ml-0.5 text-accent/70 leading-none">●</span>}
     </span>
   );
 
@@ -38,7 +45,7 @@ function SourceClientBadge({ score }: { score: TableFumenScore }) {
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>{badge}</TooltipTrigger>
-        <TooltipContent side="left" className="text-xs">
+        <TooltipContent side="left" className="text-label">
           <div className="space-y-0.5">
             {source_client_detail.clear_type && (
               <div>Lamp: {source_client_detail.clear_type}</div>
@@ -60,7 +67,14 @@ function songHash(song: TableFumen): string {
   return song.sha256 || song.md5 || "";
 }
 
+const RANK_ORDER: Record<string, number> = {
+  MAX: 9, AAA: 8, AA: 7, A: 6, B: 5, C: 4, D: 3, E: 2, F: 1,
+};
+
 export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange }: TableDetailProps) {
+  const [sortKey, setSortKey] = useState<SortKey>("level");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
   const { data: table, isLoading: tableLoading, error: tableError } = useQuery<DifficultyTableDetail>({
     queryKey: ["table", tableId],
     queryFn: () => api.get(`/tables/${tableId}`),
@@ -86,29 +100,85 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
     [songs]
   );
 
-  const levelOrderIndex = useMemo(
-    () => Object.fromEntries((table?.level_order ?? []).map((l, i) => [l, i])),
-    [table?.level_order]
-  );
+  const levelOrder = useMemo(() => table?.level_order ?? [], [table?.level_order]);
 
   const displayedSongs = useMemo(() => {
     const base = selectedLevel
       ? (songsByLevel[selectedLevel] ?? [])
       : songs ?? [];
+
     return base.slice().sort((a, b) => {
-      const ai = levelOrderIndex[a.level] ?? 9999;
-      const bi = levelOrderIndex[b.level] ?? 9999;
-      if (ai !== bi) return ai - bi;
-      return compareTitles(a.title ?? "", b.title ?? "");
+      let cmp = 0;
+      switch (sortKey) {
+        case "level": {
+          const ai = levelSortIndex(a.level, levelOrder);
+          const bi = levelSortIndex(b.level, levelOrder);
+          cmp = ai - bi;
+          if (cmp === 0) cmp = compareTitles(a.title ?? "", b.title ?? "");
+          break;
+        }
+        case "title":
+          cmp = compareTitles(a.title ?? "", b.title ?? "");
+          break;
+        case "lamp":
+          cmp = (a.user_score?.best_clear_type ?? -1) - (b.user_score?.best_clear_type ?? -1);
+          break;
+        case "score":
+          cmp = (a.user_score?.best_exscore ?? -1) - (b.user_score?.best_exscore ?? -1);
+          break;
+        case "rate":
+          cmp = (a.user_score?.rate ?? -1) - (b.user_score?.rate ?? -1);
+          break;
+        case "rank": {
+          const ra = RANK_ORDER[a.user_score?.rank ?? ""] ?? 0;
+          const rb = RANK_ORDER[b.user_score?.rank ?? ""] ?? 0;
+          cmp = ra - rb;
+          break;
+        }
+        case "min_bp":
+          cmp = (a.user_score?.best_min_bp ?? Infinity) - (b.user_score?.best_min_bp ?? Infinity);
+          break;
+        case "plays":
+          cmp = (a.user_score?.play_count ?? -1) - (b.user_score?.play_count ?? -1);
+          break;
+        case "option":
+          cmp = (parseArrangement(a.user_score?.options ?? null, a.user_score?.client_type ?? null) ?? "").localeCompare(
+            parseArrangement(b.user_score?.options ?? null, b.user_score?.client_type ?? null) ?? ""
+          );
+          break;
+        case "bpm":
+          cmp = (a.bpm_main ?? -1) - (b.bpm_main ?? -1);
+          break;
+        case "notes":
+          cmp = (a.notes_total ?? -1) - (b.notes_total ?? -1);
+          break;
+        case "length":
+          cmp = (a.length ?? -1) - (b.length ?? -1);
+          break;
+        case "env":
+          cmp = (a.user_score?.source_client ?? "").localeCompare(b.user_score?.source_client ?? "");
+          break;
+      }
+      return sortDir === "asc" ? cmp : -cmp;
     });
-  }, [selectedLevel, songsByLevel, songs, levelOrderIndex]);
+  }, [selectedLevel, songsByLevel, songs, sortKey, sortDir, levelOrder]);
 
   const hasUserScores = useMemo(
     () => isLoggedIn && displayedSongs.some((s) => s.user_score !== null),
     [isLoggedIn, displayedSongs]
   );
 
-  // Early returns after all hooks
+  const handleSort = useCallback((key: SortKey) => {
+    setSortKey((prev) => {
+      if (prev === key) {
+        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+        return key;
+      }
+      setSortDir("asc");
+      return key;
+    });
+  }, []);
+
   if (tableLoading) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -121,7 +191,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
         <p>난이도표를 불러오는 데 실패했습니다.</p>
-        <p className="text-xs">{(tableError as Error).message}</p>
+        <p className="text-label">{(tableError as Error).message}</p>
       </div>
     );
   }
@@ -141,7 +211,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             {table.symbol && (
-              <Badge variant="secondary" className="font-mono text-sm">
+              <Badge variant="secondary" className="font-mono text-body">
                 {table.symbol}
               </Badge>
             )}
@@ -153,14 +223,14 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
                 href={table.source_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                className="flex items-center gap-1 text-label text-muted-foreground hover:text-foreground transition-colors"
               >
                 난이도표 링크 <ExternalLink className="h-3 w-3" />
               </a>
             </div>
           )}
         </div>
-        <div className="shrink-0 text-right text-xs text-muted-foreground space-y-0.5">
+        <div className="shrink-0 text-right text-label text-muted-foreground space-y-0.5">
           {table.song_count != null && (
             <div>{table.song_count.toLocaleString()} 차분</div>
           )}
@@ -173,7 +243,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
       {!hasData ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 text-muted-foreground">
           <Music className="h-12 w-12 opacity-30" />
-          <p className="text-sm">난이도표 데이터가 아직 없습니다.</p>
+          <p className="text-body">난이도표 데이터가 아직 없습니다.</p>
         </div>
       ) : (
         <div className="flex flex-1 overflow-hidden">
@@ -181,7 +251,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
           <div className="w-32 shrink-0 border-r overflow-y-auto overscroll-contain [&::-webkit-scrollbar]:hidden">
             <div
               className={cn(
-                "px-3 py-2 text-sm cursor-pointer transition-colors flex items-center justify-between",
+                "px-3 py-2 text-body cursor-pointer transition-colors flex items-center justify-between",
                 selectedLevel === null
                   ? "bg-primary/10 text-primary font-medium"
                   : "hover:bg-secondary text-muted-foreground"
@@ -190,7 +260,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
             >
               <span>전체</span>
               {songs != null && (
-                <span className="text-xs opacity-60">{songs.length}</span>
+                <span className="text-label opacity-60">{songs.length}</span>
               )}
             </div>
             {table.level_order.map((level) => {
@@ -199,18 +269,18 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
                 <div
                   key={level}
                   className={cn(
-                    "px-3 py-2 text-sm cursor-pointer transition-colors flex items-center justify-between",
+                    "px-3 py-2 text-body cursor-pointer transition-colors flex items-center justify-between",
                     selectedLevel === level
                       ? "bg-primary/10 text-primary font-medium"
                       : "hover:bg-secondary text-muted-foreground"
                   )}
                   onClick={() => onLevelChange(level)}
                 >
-                  <span className="font-mono">
+                  <span>
                     {table.symbol}{level.replace(table.symbol ?? "", "")}
                   </span>
                   {count != null && (
-                    <span className="text-xs opacity-60">{count}</span>
+                    <span className="text-label opacity-60">{count}</span>
                   )}
                 </div>
               );
@@ -220,11 +290,11 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
           {/* Song list */}
           <div className="flex-1 overflow-hidden">
             {songsLoading ? (
-              <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+              <div className="flex items-center justify-center h-full text-muted-foreground text-body">
                 불러오는 중...
               </div>
             ) : displayedSongs.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+              <div className="flex items-center justify-center h-full text-muted-foreground text-body">
                 차분이 없습니다.
               </div>
             ) : (
@@ -232,6 +302,9 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
                 songs={displayedSongs}
                 table={table}
                 hasUserScores={hasUserScores}
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={handleSort}
               />
             )}
           </div>
@@ -241,15 +314,42 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
   );
 }
 
-// --- Virtualized song list ---
+// --- Virtualized song table ---
 
 interface SongVirtualListProps {
   songs: TableFumen[];
   table: DifficultyTableDetail;
   hasUserScores: boolean;
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onSort: (key: SortKey) => void;
 }
 
-const SongVirtualList = memo(function SongVirtualList({ songs, table, hasUserScores }: SongVirtualListProps) {
+function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
+  if (sortKey !== col) return <span className="ml-0.5 text-muted-foreground/35">⇅</span>;
+  return <span className="ml-0.5">{sortDir === "asc" ? "↑" : "↓"}</span>;
+}
+
+function Th({ col, label, sortKey, sortDir, onSort, className }: {
+  col: SortKey; label: string; sortKey: SortKey; sortDir: SortDir;
+  onSort: (key: SortKey) => void; className?: string;
+}) {
+  return (
+    <th
+      className={cn(
+        "px-2 py-1.5 text-left font-medium whitespace-nowrap cursor-pointer select-none hover:text-foreground transition-colors",
+        className,
+      )}
+      onClick={() => onSort(col)}
+    >
+      {label}<SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
+    </th>
+  );
+}
+
+const SongVirtualList = memo(function SongVirtualList({
+  songs, table, hasUserScores, sortKey, sortDir, onSort,
+}: SongVirtualListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -260,217 +360,316 @@ const SongVirtualList = memo(function SongVirtualList({ songs, table, hasUserSco
     overscan: 10,
   });
 
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
+  const paddingBottom = virtualItems.length > 0
+    ? rowVirtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end
+    : 0;
+  const colCount = hasUserScores ? 16 : 8;
+
   return (
-    <div ref={parentRef} className="[&::-webkit-scrollbar]:hidden" style={{ height: "100%", overflowY: "auto", overscrollBehavior: "contain" }}>
-      {/* Sticky column header */}
-      <div
-        className="sticky top-0 z-10 bg-background border-b px-4 py-1.5 flex items-center gap-2 text-[10px] text-muted-foreground font-medium"
-        style={{ minWidth: 680 }}
-      >
-        <span className="w-10 shrink-0">Level</span>
-        <span className="flex-1 min-w-[140px]">Title / Artist</span>
-        {hasUserScores && (
-          <>
-            <span className="w-16 text-center">Lamp</span>
-            <span className="w-14 text-center">Score</span>
-            <span className="w-14 text-center">Rate</span>
-            <span className="w-10 text-center">Rank</span>
-            <span className="w-12 text-center">BP</span>
-            <span className="w-10 text-center">Env</span>
-          </>
-        )}
-        <span className="w-20 text-center">BPM</span>
-        <span className="w-14 text-center">Notes</span>
-        <span className="w-12 text-center">Length</span>
-        <span className="w-8 shrink-0 text-center">URL1</span>
-        <span className="w-8 shrink-0 text-center">URL2</span>
-        <span className="w-8 shrink-0 text-center">Youtube</span>
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Export toolbar — above table */}
+      <div className="flex items-center justify-between px-4 py-1 border-b shrink-0">
+        <span className="text-label text-muted-foreground">{songs.length}곡</span>
+        <button
+          className="flex items-center gap-1.5 text-label text-muted-foreground hover:text-foreground transition-colors px-3 py-1 rounded-md border border-border/50 hover:border-border hover:bg-secondary/30"
+          title="Export to Excel (.xlsx)"
+          disabled={songs.length === 0}
+          onClick={() => {
+            const columns = [
+              { key: "level", header: "Level" },
+              { key: "title", header: "Title" },
+              { key: "artist", header: "Artist" },
+              ...(hasUserScores ? [
+                { key: "lamp", header: "Lamp" },
+                { key: "bp", header: "BP" },
+                { key: "rate", header: "Rate" },
+                { key: "rank", header: "Rank" },
+                { key: "score", header: "Score" },
+                { key: "plays", header: "Plays" },
+                { key: "option", header: "Option" },
+                { key: "env", header: "Env" },
+              ] : []),
+              { key: "bpm", header: "BPM" },
+              { key: "notes", header: "Notes" },
+              { key: "length", header: "Length" },
+            ];
+            const data = songs.map((song) => {
+              const s = song.user_score;
+              const arrangement = s ? parseArrangement(s.options, s.client_type) : null;
+              return {
+                level: `${table.symbol ?? ""}${song.level.replace(table.symbol ?? "", "")}`,
+                title: song.title ?? "",
+                artist: song.artist ?? "",
+                lamp: s ? (CLEAR_TYPE_LABELS[s.best_clear_type ?? 0] ?? "") : "",
+                bp: s?.best_min_bp ?? "",
+                rate: s?.rate != null ? `${s.rate.toFixed(2)}%` : "",
+                rank: s?.rank ?? "",
+                score: s?.best_exscore ?? "",
+                plays: s?.play_count ?? "",
+                option: arrangement ? (ARRANGEMENT_KANJI[arrangement] ?? arrangement) : "",
+                env: s?.source_client ?? "",
+                bpm: formatBpm(song.bpm_main, song.bpm_min, song.bpm_max),
+                notes: formatNotes(song.notes_total, song.notes_n, song.notes_ln, song.notes_s, song.notes_ls).total,
+                length: String(song.length ?? ""),
+              };
+            });
+            exportToExcel(data, columns, `${table.name}_${new Date().toISOString().slice(0, 10)}`);
+          }}
+        >
+          <FileSpreadsheet className="h-3.5 w-3.5" />
+          Export to Excel
+        </button>
       </div>
 
-      {/* Virtualized rows container */}
+      {/* Scrollable table */}
       <div
-        style={{
-          height: rowVirtualizer.getTotalSize(),
-          width: "100%",
-          position: "relative",
-        }}
+        ref={parentRef}
+        className="flex-1 overflow-y-auto overflow-x-hidden"
+        style={{ overscrollBehavior: "contain" }}
       >
-        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-          const song = songs[virtualRow.index];
-          const levelLabel = `${table.symbol ?? ""}${song.level.replace(table.symbol ?? "", "")}`;
-          const s = song.user_score;
-          const hash = songHash(song);
-          const { total: notesTotal, detail: notesDetail } = formatNotes(
-            song.notes_total, song.notes_n, song.notes_ln, song.notes_s, song.notes_ls
-          );
+        <table className="w-full border-collapse" style={{ tableLayout: "fixed" }}>
+          <colgroup>
+            <col style={{ width: 62 }} />
+            <col />
+            {hasUserScores && (
+              <>
+                <col style={{ width: 80 }} />
+                <col style={{ width: 52 }} />
+                <col style={{ width: 68 }} />
+                <col style={{ width: 56 }} />
+                <col style={{ width: 62 }} />
+                <col style={{ width: 60 }} />
+                <col style={{ width: 68 }} />
+                <col style={{ width: 52 }} />
+              </>
+            )}
+            <col style={{ width: 68 }} />
+            <col style={{ width: 64 }} />
+            <col style={{ width: 70 }} />
+            <col style={{ width: 48 }} />
+            <col style={{ width: 48 }} />
+            <col style={{ width: 72 }} />
+          </colgroup>
 
-          return (
-            <div
-              key={virtualRow.key}
-              style={{
-                position: "absolute",
-                top: virtualRow.start,
-                left: 0,
-                width: "100%",
-                height: virtualRow.size,
-                minWidth: 680,
-              }}
-              className="px-4 flex items-center gap-2 hover:bg-secondary/50 transition-colors border-b border-border/30"
-            >
-              {/* Level badge */}
-              <Badge variant="outline" className="font-mono text-xs shrink-0 px-1.5 py-0 w-10 justify-center">
-                {levelLabel}
-              </Badge>
-
-              {/* Title & Artist */}
-              <div className="flex-1 min-w-[140px] min-w-0 overflow-hidden">
-                {hash ? (
-                  <Link
-                    href={`/songs/${hash}`}
-                    className="text-sm font-medium truncate hover:text-primary transition-colors block"
-                  >
-                    {song.title || "(제목 없음)"}
-                  </Link>
-                ) : (
-                  <p className="text-sm font-medium truncate">{song.title || "(제목 없음)"}</p>
-                )}
-                <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
-                {song.user_tags.length > 0 && (
-                  <div className="flex gap-1 flex-wrap">
-                    {song.user_tags.map((t) => (
-                      <span
-                        key={t.id}
-                        className="text-[10px] px-1.5 py-0 rounded-full border border-primary/30 text-primary/80 bg-primary/10"
-                      >
-                        {t.tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* User score columns */}
+          <thead className="sticky top-0 z-10 bg-background text-label text-foreground font-medium">
+            <tr className="border-b">
+              <Th col="level" label="Level" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th col="title" label="Title / Artist" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               {hasUserScores && (
                 <>
-                  <div className="w-16 flex justify-center">
-                    {s ? clearBadge(s.best_clear_type, "") : (
-                      <span className="text-xs text-muted-foreground">-</span>
-                    )}
-                  </div>
-                  <div className="w-14 text-center text-xs text-muted-foreground">
-                    {s?.best_exscore ?? "-"}
-                  </div>
-                  <div className="w-14 text-center text-xs text-muted-foreground">
-                    {s?.rate != null ? `${s.rate.toFixed(2)}%` : "-"}
-                  </div>
-                  <div className="w-10 text-center text-xs font-mono text-muted-foreground">
-                    {s?.rank ?? "-"}
-                  </div>
-                  <div className="w-12 text-center text-xs text-muted-foreground">
-                    {s?.best_min_bp ?? "-"}
-                  </div>
-                  <div className="w-10 flex justify-center">
-                    {s ? <SourceClientBadge score={s} /> : (
-                      <span className="text-xs text-muted-foreground">-</span>
-                    )}
-                  </div>
+                  <Th col="lamp" label="Lamp" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="min_bp" label="BP" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="rate" label="Rate" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="rank" label="Rank" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="score" label="Score" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="plays" label="Plays" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="option" label="Option" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="env" label="Env" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 </>
               )}
+              <Th col="bpm" label="BPM" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th col="notes" label="Notes" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th col="length" label="Length" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">URL1</th>
+              <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">URL2</th>
+              <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">Youtube</th>
+            </tr>
+          </thead>
 
-              {/* BPM */}
-              <div className="w-20 text-center text-xs text-muted-foreground font-mono">
-                {formatBpm(song.bpm_main, song.bpm_min, song.bpm_max)}
-              </div>
+          <tbody>
+            {paddingTop > 0 && (
+              <tr><td colSpan={colCount} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
+            )}
+            {virtualItems.map((virtualRow) => {
+              const song = songs[virtualRow.index];
+              const levelLabel = `${table.symbol ?? ""}${song.level.replace(table.symbol ?? "", "")}`;
+              const s = song.user_score;
+              const hash = songHash(song);
+              const { total: notesTotal, detail: notesDetail } = formatNotes(
+                song.notes_total, song.notes_n, song.notes_ln, song.notes_s, song.notes_ls
+              );
+              const rowClass = CLEAR_ROW_CLASS[s?.best_clear_type ?? 0] ?? "";
+              const arrangement = s ? parseArrangement(s.options, s.client_type) : null;
+              const arrangementLabel = arrangement ? (ARRANGEMENT_KANJI[arrangement] ?? arrangement) : null;
 
-              {/* Notes */}
-              <div className="w-14 text-center text-xs text-muted-foreground font-mono">
-                {notesTotal === "-" ? "-" : (
-                  notesDetail ? (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="cursor-help inline-flex items-center gap-0.5">
-                            {notesTotal}
-                            <span className="text-[8px] text-accent/70 leading-none">●</span>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="left" className="text-xs font-mono">
-                          <div className="space-y-0.5">
-                            {notesDetail.split(" ").map((part) => {
-                              const [label, val] = part.split(":");
-                              return (
-                                <div key={label} className="flex gap-2 justify-between">
-                                  <span className="text-muted-foreground">{label}</span>
-                                  <span>{val}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  ) : notesTotal
-                )}
-              </div>
+              return (
+                <tr
+                  key={virtualRow.key}
+                  style={{ height: virtualRow.size }}
+                  className={cn(
+                    "border-b border-border/30",
+                    rowClass || "hover:bg-secondary/50",
+                  )}
+                >
+                  {/* Level */}
+                  <td className="px-2">
+                    <span className="text-label">{levelLabel}</span>
+                  </td>
 
-              {/* Length */}
-              <div className="w-12 text-center text-xs text-muted-foreground font-mono">
-                {formatLength(song.length)}
-              </div>
+                  {/* Title & Artist */}
+                  <td className="px-2">
+                    <div className="min-w-0 overflow-hidden">
+                      {hash ? (
+                        <Link
+                          href={`/songs/${hash}`}
+                          className="text-label truncate hover:text-primary transition-colors block"
+                        >
+                          {song.title || "(제목 없음)"}
+                        </Link>
+                      ) : (
+                        <p className="text-label truncate">{song.title || "(제목 없음)"}</p>
+                      )}
+                      <p className="text-caption row-muted truncate">{song.artist}</p>
+                      {song.user_tags.length > 0 && (
+                        <div className="flex gap-1 flex-wrap">
+                          {song.user_tags.map((t) => (
+                            <span
+                              key={t.id}
+                              className="text-caption px-1.5 py-0 rounded-full border border-primary/30 text-primary/80 bg-primary/10"
+                            >
+                              {t.tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </td>
 
-              {/* URL1 (file_url) */}
-              <div className="w-8 flex justify-center shrink-0">
-                {song.file_url ? (
-                  <a
-                    href={song.file_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-muted-foreground hover:text-foreground transition-colors"
-                    title="URL1"
-                  >
-                    <Package className="h-3.5 w-3.5" />
-                  </a>
-                ) : (
-                  <span className="text-muted-foreground/30 text-xs">–</span>
-                )}
-              </div>
+                  {/* User score columns */}
+                  {hasUserScores && (
+                    <>
+                      <td className="px-2">
+                        {s ? clearText(s.best_clear_type, s.source_client ?? "") : (
+                          <span className="text-label row-muted">-</span>
+                        )}
+                      </td>
+                      <td className="px-2 text-label">
+                        {s?.best_min_bp ?? <span className="row-muted">—</span>}
+                      </td>
+                      <td className="px-2 text-label">
+                        {s?.rate != null ? `${s.rate.toFixed(2)}%` : <span className="row-muted">—</span>}
+                      </td>
+                      <td className="px-2 text-label">
+                        {s?.rank ?? <span className="row-muted">—</span>}
+                      </td>
+                      <td className="px-2 text-label">
+                        {s?.best_exscore ?? <span className="row-muted">—</span>}
+                      </td>
+                      <td className="px-2 text-label">
+                        {s?.play_count ?? <span className="row-muted">—</span>}
+                      </td>
+                      <td className="px-2 text-label">
+                        {arrangementLabel ?? <span className="row-muted">—</span>}
+                      </td>
+                      <td className="px-2">
+                        {s ? <SourceClientBadge score={s} /> : (
+                          <span className="text-label row-muted">-</span>
+                        )}
+                      </td>
+                    </>
+                  )}
 
-              {/* URL2 (file_url_diff) */}
-              <div className="w-8 flex justify-center shrink-0">
-                {song.file_url_diff ? (
-                  <a
-                    href={song.file_url_diff}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-muted-foreground hover:text-foreground transition-colors"
-                    title="URL2"
-                  >
-                    <FileCode className="h-3.5 w-3.5" />
-                  </a>
-                ) : (
-                  <span className="text-muted-foreground/30 text-xs">–</span>
-                )}
-              </div>
+                  {/* BPM */}
+                  <td className="px-2 text-label">
+                    {formatBpm(song.bpm_main, song.bpm_min, song.bpm_max)}
+                  </td>
 
-              {/* Youtube */}
-              <div className="w-8 flex justify-center shrink-0">
-                {song.youtube_url ? (
-                  <a
-                    href={song.youtube_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[hsl(var(--destructive)/0.7)] hover:text-[hsl(var(--destructive))] transition-colors"
-                    title="Youtube"
-                  >
-                    <Youtube className="h-3.5 w-3.5" />
-                  </a>
-                ) : (
-                  <span className="text-muted-foreground/30 text-xs">–</span>
-                )}
-              </div>
-            </div>
-          );
-        })}
+                  {/* Notes */}
+                  <td className="px-2 text-label">
+                    {notesTotal === "-" ? "—" : (
+                      notesDetail ? (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-help inline-flex items-center gap-0.5">
+                                {notesTotal}
+                                <span className="text-caption text-accent/70 leading-none">●</span>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="left" className="text-label">
+                              <div className="space-y-0.5">
+                                {notesDetail.split(" ").map((part) => {
+                                  const [label, val] = part.split(":");
+                                  return (
+                                    <div key={label} className="flex gap-2 justify-between">
+                                      <span className="text-muted-foreground">{label}</span>
+                                      <span>{val}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : notesTotal
+                    )}
+                  </td>
+
+                  {/* Length */}
+                  <td className="px-2 text-label">
+                    {formatLength(song.length)}
+                  </td>
+
+                  {/* URL1 */}
+                  <td className="px-2 text-center">
+                    {song.file_url ? (
+                      <a
+                        href={song.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="hover:opacity-70 transition-opacity inline-flex justify-center"
+                        title="URL1"
+                      >
+                        <Package className="h-3.5 w-3.5" />
+                      </a>
+                    ) : (
+                      <span className="text-muted-foreground/30 text-label">–</span>
+                    )}
+                  </td>
+
+                  {/* URL2 */}
+                  <td className="px-2 text-center">
+                    {song.file_url_diff ? (
+                      <a
+                        href={song.file_url_diff}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="hover:opacity-70 transition-opacity inline-flex justify-center"
+                        title="URL2"
+                      >
+                        <FileCode className="h-3.5 w-3.5" />
+                      </a>
+                    ) : (
+                      <span className="text-muted-foreground/30 text-label">–</span>
+                    )}
+                  </td>
+
+                  {/* Youtube */}
+                  <td className="px-2 text-center">
+                    {song.youtube_url ? (
+                      <a
+                        href={song.youtube_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-red-500 hover:text-red-400 transition-colors inline-flex justify-center"
+                        title="Youtube"
+                      >
+                        <Youtube className="h-3.5 w-3.5" />
+                      </a>
+                    ) : (
+                      <span className="text-muted-foreground/30 text-label">–</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {paddingBottom > 0 && (
+              <tr><td colSpan={colCount} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

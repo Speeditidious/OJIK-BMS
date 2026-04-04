@@ -4,7 +4,7 @@ import React, { memo, useState, useMemo, useCallback, useDeferredValue, useRef }
 import { useVirtualizer } from "@tanstack/react-virtual";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
-import { X, ChevronUp, ChevronDown, ChevronsUpDown, Search } from "lucide-react";
+import { X, Search, FileSpreadsheet } from "lucide-react";
 import { useFavoriteTables } from "@/hooks/use-tables";
 import { useTableClearDistribution, TableClearSong } from "@/hooks/use-analysis";
 import {
@@ -21,45 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, levelSortIndex, exportToExcel } from "@/lib/fumen-table-utils";
 
-const ARRANGEMENT_KANJI: Record<string, string> = {
-  NORMAL:        "正",
-  MIRROR:        "鏡",
-  RANDOM:        "乱",
-  "R-RANDOM":    "R乱",
-  "S-RANDOM":    "S乱",
-  SPIRAL:        "螺",
-  "H-RANDOM":    "H乱",
-  "ALL-SCRATCH": "全皿",
-  "EX-RAN":      "EX乱",
-  "EX-S-RAN":    "EXS乱",
-};
-
-// Row background tint by internal clear type (very subtle)
-const CLEAR_ROW_BG: Record<number, string> = {
-  0: "",
-  1: "bg-[hsl(var(--clear-failed)/0.07)]",
-  2: "bg-[hsl(var(--clear-assist)/0.10)]",
-  3: "bg-[hsl(var(--clear-easy)/0.10)]",
-  4: "bg-[hsl(var(--clear-normal)/0.10)]",
-  5: "bg-[hsl(var(--clear-hard)/0.10)]",
-  6: "bg-[hsl(var(--clear-exhard)/0.10)]",
-  7: "bg-[hsl(var(--clear-fc)/0.13)]",
-  8: "bg-[hsl(var(--clear-perfect)/0.13)]",
-  9: "bg-[hsl(var(--clear-max)/0.13)]",
-};
-
-// Pre-compute clear badge styles per clear type to avoid inline object creation
-const CLEAR_BADGE_STYLES: Record<number, React.CSSProperties> = Object.fromEntries(
-  Object.entries(CLEAR_TYPE_COLORS).map(([ct, color]) => [
-    ct,
-    {
-      background: `${color}30`,
-      color: color,
-      border: `1px solid ${color}60`,
-    },
-  ])
-) as Record<number, React.CSSProperties>;
 
 function getClearLabel(clientType: string | null, clearType: number): string {
   if (clientType === "lr2") return LR2_CLEAR_TYPE_LABELS[clearType] ?? String(clearType);
@@ -73,13 +36,8 @@ function formatLevel(level: string, tableSymbol?: string): string {
   return tableSymbol ? `${tableSymbol}${label}` : label;
 }
 
-type SortKey = "level" | "title" | "ex_score" | "rate" | "min_bp" | "clear_type";
+type SortKey = "level" | "title" | "ex_score" | "rate" | "min_bp" | "clear_type" | "plays" | "option";
 type SortDir = "asc" | "desc";
-
-function parseLevel(level: string): number {
-  const n = parseFloat(level);
-  return isNaN(n) ? Infinity : n;
-}
 
 // BMS title sort convention:
 //   0: ASCII punctuation & digits  (!"#$%...0-9)
@@ -91,15 +49,13 @@ function parseLevel(level: string): number {
 function charSortGroup(ch: string): number {
   const code = ch.codePointAt(0) ?? 0;
   if (code >= 0x21 && code <= 0x7E) {
-    // ASCII letters → group 1
     if ((code >= 0x41 && code <= 0x5A) || (code >= 0x61 && code <= 0x7A)) return 1;
-    // ASCII punctuation / digits → group 0
     return 0;
   }
-  if (code >= 0x3040 && code <= 0x309F) return 3; // Hiragana
-  if (code >= 0x30A0 && code <= 0x30FF) return 4; // Katakana
-  if ((code >= 0x4E00 && code <= 0x9FFF) || (code >= 0x3400 && code <= 0x4DBF)) return 5; // CJK
-  return 2; // other non-ASCII symbols (★ ☆ …)
+  if (code >= 0x3040 && code <= 0x309F) return 3;
+  if (code >= 0x30A0 && code <= 0x30FF) return 4;
+  if ((code >= 0x4E00 && code <= 0x9FFF) || (code >= 0x3400 && code <= 0x4DBF)) return 5;
+  return 2;
 }
 
 function compareTitles(a: string, b: string): number {
@@ -111,11 +67,11 @@ function compareTitles(a: string, b: string): number {
   return a.localeCompare(b);
 }
 
-function compareSongs(a: TableClearSong, b: TableClearSong, key: SortKey, dir: SortDir): number {
+function compareSongs(a: TableClearSong, b: TableClearSong, key: SortKey, dir: SortDir, levelOrder: string[]): number {
   let result = 0;
   switch (key) {
     case "level": {
-      const diff = parseLevel(a.level) - parseLevel(b.level);
+      const diff = levelSortIndex(a.level, levelOrder) - levelSortIndex(b.level, levelOrder);
       if (diff !== 0) { result = diff; break; }
       const levCmp = a.level.localeCompare(b.level);
       result = levCmp !== 0 ? levCmp : compareTitles(a.title ?? "", b.title ?? "");
@@ -131,7 +87,6 @@ function compareSongs(a: TableClearSong, b: TableClearSong, key: SortKey, dir: S
       result = (a.rate ?? -1) - (b.rate ?? -1);
       break;
     case "min_bp":
-      // nulls last; lower BP is better so ascending = best BP first when reversed
       if (a.min_bp === null && b.min_bp === null) result = 0;
       else if (a.min_bp === null) result = 1;
       else if (b.min_bp === null) result = -1;
@@ -140,21 +95,30 @@ function compareSongs(a: TableClearSong, b: TableClearSong, key: SortKey, dir: S
     case "clear_type":
       result = a.clear_type - b.clear_type;
       break;
+    case "plays":
+      if (a.play_count === null && b.play_count === null) result = 0;
+      else if (a.play_count === null) result = 1;
+      else if (b.play_count === null) result = -1;
+      else result = a.play_count - b.play_count;
+      break;
+    case "option":
+      result = (parseArrangement(a.options, a.client_type) ?? "").localeCompare(
+        parseArrangement(b.options, b.client_type) ?? ""
+      );
+      break;
   }
   return dir === "asc" ? result : -result;
 }
 
 const SortIcon = memo(function SortIcon({ colKey, sortKey, sortDir }: { colKey: SortKey; sortKey: SortKey; sortDir: SortDir }) {
-  if (colKey !== sortKey) return <ChevronsUpDown className="inline h-3 w-3 ml-0.5 opacity-30" />;
-  return sortDir === "asc"
-    ? <ChevronUp className="inline h-3 w-3 ml-0.5 text-primary" />
-    : <ChevronDown className="inline h-3 w-3 ml-0.5 text-primary" />;
+  if (colKey !== sortKey) return <span className="ml-0.5 text-muted-foreground/35">⇅</span>;
+  return <span className="ml-0.5">{sortDir === "asc" ? "↑" : "↓"}</span>;
 });
 
 const ROW_HEIGHT = 44;
 const MAX_TABLE_HEIGHT = 420;
 
-const SongTable = React.memo(function SongTable({ songs }: { songs: TableClearSong[] }) {
+const SongTable = React.memo(function SongTable({ songs, levelOrder }: { songs: TableClearSong[]; levelOrder: string[] }) {
   const [sortKey, setSortKey] = useState<SortKey>("level");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const parentRef = useRef<HTMLDivElement>(null);
@@ -169,8 +133,8 @@ const SongTable = React.memo(function SongTable({ songs }: { songs: TableClearSo
   };
 
   const sorted = useMemo(
-    () => [...songs].sort((a, b) => compareSongs(a, b, sortKey, sortDir)),
-    [songs, sortKey, sortDir]
+    () => [...songs].sort((a, b) => compareSongs(a, b, sortKey, sortDir, levelOrder)),
+    [songs, sortKey, sortDir, levelOrder]
   );
 
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -183,135 +147,196 @@ const SongTable = React.memo(function SongTable({ songs }: { songs: TableClearSo
 
   if (songs.length === 0) {
     return (
-      <div className="flex items-center justify-center h-24 text-muted-foreground text-sm">
+      <div className="flex items-center justify-center h-24 text-muted-foreground text-body">
         해당 조건의 곡이 없습니다
       </div>
     );
   }
 
-  const thCol = (label: string, key: SortKey, extraClass: string) => (
-    <div
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
+  const paddingBottom = virtualItems.length > 0
+    ? rowVirtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end
+    : 0;
+
+  const thSort = (label: string, key: SortKey, className?: string) => (
+    <th
       className={cn(
-        "cursor-pointer select-none hover:text-foreground transition-colors whitespace-nowrap shrink-0",
-        extraClass
+        "px-2 py-2 text-left font-medium whitespace-nowrap cursor-pointer select-none hover:text-foreground transition-colors",
+        className,
       )}
       onClick={() => handleSort(key)}
     >
       {label}
       <SortIcon colKey={key} sortKey={sortKey} sortDir={sortDir} />
-    </div>
+    </th>
   );
 
   return (
     <div className="rounded-md border border-border overflow-hidden">
-      {/* Sticky header — flex row matching virtual row layout */}
-      <div
-        className="sticky top-0 z-10 bg-card border-b border-border flex items-center px-3 py-2 text-xs font-medium text-muted-foreground"
-        style={{ minWidth: 680 }}
-      >
-        {thCol("Level", "level", "w-14")}
-        {thCol("Title", "title", "flex-1 min-w-[140px] pl-2")}
-        {thCol("Score", "ex_score", "w-20 text-center")}
-        {thCol("Rate", "rate", "w-20 text-center")}
-        {thCol("Rank", "rate", "w-14 text-center")}
-        {thCol("BP", "min_bp", "w-14 text-center")}
-        <div className="w-12 shrink-0 text-center whitespace-nowrap">Option</div>
-        <div className="w-16 shrink-0 text-center whitespace-nowrap">Env</div>
-        {thCol("Lamp", "clear_type", "w-24 text-center")}
+      {/* Export toolbar — above table */}
+      <div className="flex items-center justify-end px-3 py-1 border-b border-border bg-card">
+        <button
+          className="flex items-center gap-1.5 text-label text-muted-foreground hover:text-foreground transition-colors px-3 py-1 rounded-md border border-border/50 hover:border-border hover:bg-secondary/30"
+          title="Export to Excel (.xlsx)"
+          disabled={sorted.length === 0}
+          onClick={() => {
+            const columns = [
+              { key: "level", header: "Level" },
+              { key: "title", header: "Title" },
+              { key: "artist", header: "Artist" },
+              { key: "lamp", header: "Lamp" },
+              { key: "bp", header: "BP" },
+              { key: "rate", header: "Rate" },
+              { key: "rank", header: "Rank" },
+              { key: "score", header: "Score" },
+              { key: "plays", header: "Plays" },
+              { key: "option", header: "Option" },
+              { key: "env", header: "Env" },
+            ];
+            const data = sorted.map((song) => {
+              const arrangementName = parseArrangement(song.options, song.client_type);
+              return {
+                level: song.level,
+                title: song.title ?? "",
+                artist: song.artist ?? "",
+                lamp: getClearLabel(song.client_type, song.clear_type),
+                bp: song.min_bp ?? "",
+                rate: song.rate != null ? `${song.rate.toFixed(2)}%` : "",
+                rank: song.rank ?? "",
+                score: song.ex_score ?? "",
+                plays: song.play_count ?? "",
+                option: arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? arrangementName) : "",
+                env: song.client_type ?? "",
+              };
+            });
+            exportToExcel(data, columns, `table_clear_${new Date().toISOString().slice(0, 10)}`);
+          }}
+        >
+          <FileSpreadsheet className="h-3.5 w-3.5" />
+          Export to Excel
+        </button>
       </div>
 
-      {/* Virtual scroll area */}
+      {/* Scrollable table */}
       <div
         ref={parentRef}
         className="overflow-auto"
         style={{ maxHeight: MAX_TABLE_HEIGHT }}
       >
-        <div style={{ height: rowVirtualizer.getTotalSize(), width: "100%", position: "relative" }}>
-          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-            const song = sorted[virtualRow.index];
-            const arrangement = song.options
-              ? ARRANGEMENT_KANJI[(song.options.arrangement as string) ?? ""] ?? null
-              : null;
-            return (
-              <div
-                key={song.sha256 || virtualRow.index}
-                style={{
-                  position: "absolute",
-                  top: virtualRow.start,
-                  left: 0,
-                  width: "100%",
-                  height: virtualRow.size,
-                  minWidth: 680,
-                }}
-                className={cn(
-                  "flex items-center px-3 border-b border-border/30",
-                  CLEAR_ROW_BG[song.clear_type] ?? ""
-                )}
-              >
-                <div className="w-14 shrink-0 text-xs text-muted-foreground">{song.level}</div>
-                <div className="flex-1 min-w-[140px] min-w-0 overflow-hidden pl-2">
-                  {song.sha256 ? (
-                    <Link
-                      href={`/songs/${song.sha256}`}
-                      className="font-medium text-xs leading-tight truncate max-w-full hover:text-primary transition-colors block"
-                    >
-                      {song.title || "(제목 없음)"}
-                    </Link>
-                  ) : (
-                    <div className="font-medium text-xs leading-tight truncate max-w-full">
-                      {song.title || "(제목 없음)"}
+        <table className="w-full border-collapse" style={{ tableLayout: "fixed", minWidth: 740 }}>
+          <colgroup>
+            <col style={{ width: 56 }} />
+            <col />
+            <col style={{ width: 96 }} />
+            <col style={{ width: 48 }} />
+            <col style={{ width: 74 }} />
+            <col style={{ width: 60 }} />
+            <col style={{ width: 64 }} />
+            <col style={{ width: 60 }} />
+            <col style={{ width: 68 }} />
+            <col style={{ width: 64 }} />
+          </colgroup>
+
+          <thead className="sticky top-0 z-10 bg-background text-label text-foreground font-medium">
+            <tr className="border-b border-border">
+              {thSort("Level", "level")}
+              {thSort("Title", "title")}
+              {thSort("Lamp", "clear_type")}
+              {thSort("BP", "min_bp")}
+              {thSort("Rate", "rate")}
+              {thSort("Rank", "rate")}
+              {thSort("Score", "ex_score")}
+              {thSort("Plays", "plays")}
+              {thSort("Option", "option")}
+              <th className="px-2 py-2 text-left font-medium whitespace-nowrap">Env</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {paddingTop > 0 && (
+              <tr><td colSpan={10} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
+            )}
+            {virtualItems.map((virtualRow) => {
+              const song = sorted[virtualRow.index];
+              const arrangementName = parseArrangement(song.options, song.client_type);
+              const arrangementKanji = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? null) : null;
+              const rowClass = CLEAR_ROW_CLASS[song.clear_type] ?? "";
+              return (
+                <tr
+                  key={song.sha256 || virtualRow.index}
+                  style={{ height: ROW_HEIGHT }}
+                  className={cn(
+                    "border-b border-border/30",
+                    rowClass || "hover:bg-secondary/50",
+                  )}
+                >
+                  <td className="px-2 text-label">{song.level}</td>
+                  <td className="px-2">
+                    <div className="min-w-0 overflow-hidden">
+                      {song.sha256 ? (
+                        <Link
+                          href={`/songs/${song.sha256}`}
+                          className="text-label leading-tight truncate max-w-full hover:text-primary transition-colors block"
+                        >
+                          {song.title || "(제목 없음)"}
+                        </Link>
+                      ) : (
+                        <div className="text-label leading-tight truncate max-w-full">
+                          {song.title || "(제목 없음)"}
+                        </div>
+                      )}
+                      {song.artist && (
+                        <div className="text-caption text-muted-foreground row-muted truncate max-w-full">
+                          {song.artist}
+                        </div>
+                      )}
                     </div>
-                  )}
-                  {song.artist && (
-                    <div className="text-[10px] text-muted-foreground truncate max-w-full">
-                      {song.artist}
-                    </div>
-                  )}
-                </div>
-                <div className="w-20 shrink-0 text-center text-xs font-mono">
-                  {song.ex_score !== null ? song.ex_score : <span className="text-muted-foreground">--</span>}
-                </div>
-                <div className="w-20 shrink-0 text-center text-xs font-mono">
-                  {song.rate !== null ? `${song.rate.toFixed(2)}%` : <span className="text-muted-foreground">--</span>}
-                </div>
-                <div className="w-14 shrink-0 text-center text-xs font-mono">
-                  {song.rank !== null ? song.rank : <span className="text-muted-foreground">--</span>}
-                </div>
-                <div className="w-14 shrink-0 text-center text-xs font-mono">
-                  {song.min_bp !== null ? song.min_bp : <span className="text-muted-foreground">--</span>}
-                </div>
-                <div className="w-12 shrink-0 text-center text-xs">
-                  {arrangement ? (
-                    <span className="text-muted-foreground">{arrangement}</span>
-                  ) : (
-                    <span className="text-muted-foreground/40">–</span>
-                  )}
-                </div>
-                <div className="w-16 shrink-0 text-center">
-                  {song.client_type ? (
-                    <span className="inline-flex items-center rounded px-1.5 py-0 text-[10px] font-medium border border-border/50 text-muted-foreground">
-                      {song.client_type === "beatoraja" ? "BR" : song.client_type.toUpperCase()}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground/40">–</span>
-                  )}
-                </div>
-                <div className="w-24 shrink-0 text-center">
-                  {song.clear_type > 0 ? (
-                    <span
-                      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
-                      style={CLEAR_BADGE_STYLES[song.clear_type]}
-                    >
+                  </td>
+                  <td className="px-2">
+                    <span className="text-label">
                       {getClearLabel(song.client_type, song.clear_type)}
                     </span>
-                  ) : (
-                    <span className="text-[10px] text-muted-foreground">NO PLAY</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                  </td>
+                  <td className="px-2 text-label">
+                    {song.min_bp !== null ? song.min_bp : <span className="text-muted-foreground row-muted">--</span>}
+                  </td>
+                  <td className="px-2 text-label">
+                    {song.rate !== null ? `${song.rate.toFixed(2)}%` : <span className="text-muted-foreground row-muted">--</span>}
+                  </td>
+                  <td className="px-2 text-label">
+                    {song.rank !== null ? song.rank : <span className="text-muted-foreground row-muted">--</span>}
+                  </td>
+                  <td className="px-2 text-label">
+                    {song.ex_score !== null ? song.ex_score : <span className="text-muted-foreground row-muted">--</span>}
+                  </td>
+                  <td className="px-2 text-label">
+                    {song.play_count !== null ? song.play_count : <span className="text-muted-foreground row-muted">--</span>}
+                  </td>
+                  <td className="px-2 text-label">
+                    {arrangementKanji ? (
+                      <span>{arrangementKanji}</span>
+                    ) : (
+                      <span className="text-muted-foreground row-muted">–</span>
+                    )}
+                  </td>
+                  <td className="px-2">
+                    {song.client_type ? (
+                      <span className="text-label">
+                        {song.client_type === "beatoraja" ? "BR" : song.client_type.toUpperCase()}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground row-muted">–</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {paddingBottom > 0 && (
+              <tr><td colSpan={10} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -373,7 +398,7 @@ const FilterPanel = memo(function FilterPanel({
     <div className="rounded-lg border border-border/50 bg-card/50 p-3 space-y-3">
       {/* Clear type toggles */}
       <div className="flex gap-2 items-start">
-        <span className="text-[11px] text-muted-foreground pt-[3px] w-14 shrink-0">클리어</span>
+        <span className="text-caption text-muted-foreground pt-[3px] w-14 shrink-0">클리어</span>
         <div className="flex flex-wrap gap-1">
           {clearTypes.map((ct) => {
             const active = filterClearTypes.has(ct);
@@ -383,7 +408,7 @@ const FilterPanel = memo(function FilterPanel({
                 key={ct}
                 onClick={() => onToggleClearType(ct)}
                 className={cn(
-                  "inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all border",
+                  "inline-flex items-center rounded-full px-2.5 py-0.5 text-caption font-medium transition-all border",
                   active
                     ? "opacity-100"
                     : "opacity-50 hover:opacity-75 border-border/40"
@@ -400,7 +425,7 @@ const FilterPanel = memo(function FilterPanel({
 
       {/* Level toggles */}
       <div className="flex gap-2 items-start">
-        <span className="text-[11px] text-muted-foreground pt-[3px] w-14 shrink-0">레벨</span>
+        <span className="text-caption text-muted-foreground pt-[3px] w-14 shrink-0">레벨</span>
         <div className="flex flex-wrap gap-1 max-h-[72px] overflow-y-auto pr-1">
           {levels.map((lv) => {
             const active = filterLevels.has(lv);
@@ -409,7 +434,7 @@ const FilterPanel = memo(function FilterPanel({
                 key={lv}
                 onClick={() => onToggleLevel(lv)}
                 className={cn(
-                  "inline-flex items-center rounded px-2 py-0.5 text-[11px] font-mono font-medium transition-all border",
+                  "inline-flex items-center rounded px-2 py-0.5 text-caption font-medium transition-all border",
                   active
                     ? "bg-primary/15 text-primary border-primary/50"
                     : "text-muted-foreground border-border/40 hover:border-border hover:text-foreground"
@@ -424,14 +449,14 @@ const FilterPanel = memo(function FilterPanel({
 
       {/* Title search */}
       <div className="flex gap-2 items-center">
-        <span className="text-[11px] text-muted-foreground w-14 shrink-0">검색</span>
+        <span className="text-caption text-muted-foreground w-14 shrink-0">검색</span>
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
           <Input
             value={filterTitle}
             onChange={(e) => onTitleChange(e.target.value)}
             placeholder="곡명 / 아티스트"
-            className="h-7 pl-6 pr-6 text-xs"
+            className="h-7 pl-6 pr-6 text-label"
           />
           {filterTitle && (
             <button
@@ -562,7 +587,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
 
   if (!favTables || favTables.length === 0) {
     return (
-      <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+      <div className="flex items-center justify-center h-48 text-muted-foreground text-body">
         즐겨찾기한 난이도표가 없습니다. 난이도표 페이지에서 즐겨찾기를 추가하세요.
       </div>
     );
@@ -586,10 +611,10 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
             )}
             title={t.name}
           >
-            <span className="text-sm font-bold leading-tight">
+            <span className="text-body font-bold leading-tight">
               {t.symbol ?? t.name.slice(0, 2)}
             </span>
-            <span className="text-xs leading-tight">
+            <span className="text-label leading-tight">
               {t.name}
             </span>
           </button>
@@ -601,7 +626,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
         {distLoading ? (
           <div className="h-48 bg-muted rounded animate-pulse" />
         ) : !dist || dist.levels.length === 0 ? (
-          <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+          <div className="flex items-center justify-center h-48 text-muted-foreground text-body">
             스코어 데이터가 없습니다
           </div>
         ) : (
@@ -631,9 +656,9 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
             {/* Active filters display */}
             {isFiltered && (
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-muted-foreground">필터:</span>
+                <span className="text-label text-muted-foreground">필터:</span>
                 {[...filterLevels].map((lv) => (
-                  <Badge key={lv} variant="secondary" className="text-xs gap-1 h-5">
+                  <Badge key={lv} variant="secondary" className="text-label gap-1 h-5">
                     {formatLevel(lv, tableSymbol)}
                     <button onClick={() => toggleLevel(lv)} className="hover:text-foreground">
                       <X className="h-3 w-3" />
@@ -641,7 +666,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
                   </Badge>
                 ))}
                 {[...filterClearTypes].map((ct) => (
-                  <Badge key={ct} variant="secondary" className="text-xs gap-1 h-5">
+                  <Badge key={ct} variant="secondary" className="text-label gap-1 h-5">
                     {getClearLabel(clientType ?? null, ct)}
                     <button onClick={() => toggleClearType(ct)} className="hover:text-foreground">
                       <X className="h-3 w-3" />
@@ -649,7 +674,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
                   </Badge>
                 ))}
                 {filterTitle && (
-                  <Badge variant="secondary" className="text-xs gap-1 h-5">
+                  <Badge variant="secondary" className="text-label gap-1 h-5">
                     &quot;{filterTitle}&quot;
                     <button onClick={() => updateParams({ [P_Q]: null })} className="hover:text-foreground">
                       <X className="h-3 w-3" />
@@ -659,7 +684,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-5 text-xs px-2"
+                  className="h-5 text-label px-2"
                   onClick={clearFilters}
                 >
                   초기화
@@ -668,7 +693,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
             )}
 
             {/* Song count */}
-            <div className="text-xs text-muted-foreground">
+            <div className="text-label text-muted-foreground">
               {filteredSongs.length}곡
               {dist.songs.length !== filteredSongs.length && (
                 <span> / 전체 {dist.songs.length}곡</span>
@@ -676,7 +701,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
             </div>
 
             {/* Song table */}
-            <SongTable songs={filteredSongs} />
+            <SongTable songs={filteredSongs} levelOrder={orderedLevels} />
           </>
         )}
       </div>

@@ -66,7 +66,7 @@ export function ImportDialog({ open, onOpenChange, onImported }: ImportDialogPro
             disabled={importMutation.isPending}
           />
           {error && (
-            <p className="text-sm text-destructive">{error}</p>
+            <p className="text-body text-destructive">{error}</p>
           )}
           <DialogFooter>
             <Button

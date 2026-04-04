@@ -82,6 +82,7 @@ export interface TableClearSong {
   min_bp: number | null;
   client_type: string | null;
   ex_score: number | null;
+  play_count: number | null;
   options: Record<string, unknown> | null;
 }
 

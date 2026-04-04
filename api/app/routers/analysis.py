@@ -1071,6 +1071,7 @@ async def get_table_clear_distribution(
             UserScore.rate,
             UserScore.rank,
             UserScore.min_bp,
+            UserScore.play_count,
             UserScore.judgments,
             UserScore.options,
         ).where(*score_filter)
@@ -1078,8 +1079,11 @@ async def get_table_clear_distribution(
     score_rows = scores_result.all()
 
     # Pick best score per hash (highest clear_type wins), keyed by sha256 and md5
+    # play_count is accumulated as the max across all rows for the same hash
     score_map_by_sha256: dict[str, dict[str, Any]] = {}
     score_map_by_md5: dict[str, dict[str, Any]] = {}
+    play_count_by_sha256: dict[str, int] = {}
+    play_count_by_md5: dict[str, int] = {}
 
     def _better(existing: dict[str, Any] | None, new_entry: dict[str, Any]) -> bool:
         return existing is None or (new_entry["clear_type"] or 0) > (existing["clear_type"] or 0)
@@ -1097,9 +1101,15 @@ async def get_table_clear_distribution(
         if row.fumen_sha256:
             if _better(score_map_by_sha256.get(row.fumen_sha256), entry):
                 score_map_by_sha256[row.fumen_sha256] = entry
+            if row.play_count is not None:
+                existing_pc = play_count_by_sha256.get(row.fumen_sha256)
+                play_count_by_sha256[row.fumen_sha256] = max(existing_pc or 0, row.play_count)
         if row.fumen_md5:
             if _better(score_map_by_md5.get(row.fumen_md5), entry):
                 score_map_by_md5[row.fumen_md5] = entry
+            if row.play_count is not None:
+                existing_pc = play_count_by_md5.get(row.fumen_md5)
+                play_count_by_md5[row.fumen_md5] = max(existing_pc or 0, row.play_count)
 
     # Build song list and level histogram simultaneously
     songs_out: list[dict[str, Any]] = []
@@ -1136,6 +1146,14 @@ async def get_table_clear_distribution(
             great = j.get("great", 0) or (j.get("egr", 0) + j.get("lgr", 0))
             ex_score = perfect * 2 + great
 
+        # Aggregate play_count across sha256 and md5 maps
+        pc_sha256 = play_count_by_sha256.get(sha256) if sha256 else None
+        pc_md5 = play_count_by_md5.get(md5) if md5 else None
+        if pc_sha256 is not None and pc_md5 is not None:
+            play_count = max(pc_sha256, pc_md5)
+        else:
+            play_count = pc_sha256 if pc_sha256 is not None else pc_md5
+
         songs_out.append({
             "sha256": sha256,
             "title": s["title"],
@@ -1147,6 +1165,7 @@ async def get_table_clear_distribution(
             "min_bp": score_data["min_bp"] if score_data else None,
             "client_type": score_data["client_type"] if score_data else None,
             "ex_score": ex_score,
+            "play_count": play_count,
             "options": score_data["options"] if score_data else None,
         })
 
@@ -1310,31 +1329,33 @@ async def get_score_updates(
     fav_table_ids_str: set[str] = {str(r[0]) for r in fav_rows}
     fav_table_order: dict[str, int] = {str(r[0]): r[1] for r in fav_rows}
 
-    table_symbols: dict[str, str] = {}
+    table_info: dict[str, dict[str, str]] = {}
     if fav_table_ids_str:
         tsym_result = await db.execute(
-            select(DifficultyTable.id, DifficultyTable.symbol)
+            select(DifficultyTable.id, DifficultyTable.symbol, DifficultyTable.slug)
             .where(DifficultyTable.id.in_([uuid.UUID(tid) for tid in fav_table_ids_str]))
         )
-        table_symbols = {str(r.id): r.symbol or "" for r in tsym_result.all()}
+        table_info = {str(r.id): {"symbol": r.symbol or "", "slug": r.slug or ""} for r in tsym_result.all()}
 
     def _get_table_levels(hash_key: str | None) -> list[dict[str, str]]:
         if not hash_key or hash_key not in fumen_meta:
             return []
-        levels: list[dict[str, str, str]] = []
+        levels: list[dict[str, str]] = []
         seen: set[tuple] = set()
         for entry in fumen_meta[hash_key].get("table_entries", []):
             tid = str(entry.get("table_id", ""))
             if tid not in fav_table_ids_str:
                 continue
-            sym = table_symbols.get(tid, "")
+            info = table_info.get(tid, {"symbol": "", "slug": ""})
+            sym = info["symbol"]
+            slug = info["slug"]
             lv = str(entry.get("level", ""))
             key = (sym, lv)
             if key not in seen:
                 seen.add(key)
-                levels.append({"symbol": sym, "level": lv, "_tid": tid})
+                levels.append({"symbol": sym, "slug": slug, "level": lv, "_tid": tid})
         levels.sort(key=lambda x: fav_table_order.get(x["_tid"], 999))
-        return [{"symbol": lv["symbol"], "level": lv["level"]} for lv in levels]
+        return [{"symbol": lv["symbol"], "slug": lv["slug"], "level": lv["level"]} for lv in levels]
 
     # ── 6. Bulk fetch previous rows for fumen records ─────────────────────────
     # For each best row: find the most recent prior row in same (fumen_hash, client_type)
@@ -1441,6 +1462,13 @@ async def get_score_updates(
         table_levels = _get_table_levels(hash_key)
         prev = _find_prev_row(r, prev_rows_map)
 
+        # Compute best_min_bp once for both current_state and individual update items
+        all_rows_for_fumen = prev_rows_map.get(fk, []) + [r]
+        current_best_min_bp = min(
+            (row.min_bp for row in all_rows_for_fumen if row.min_bp is not None),
+            default=None,
+        )
+
         base = {
             "fumen_sha256": r.fumen_sha256,
             "fumen_md5": r.fumen_md5,
@@ -1452,25 +1480,30 @@ async def get_score_updates(
             "is_course": False,
             "course_name": None,
             "dan_title": None,
+            "options": r.options,
+            "current_state": {
+                "clear_type": r.clear_type,
+                "exscore": r.exscore,
+                "rate": r.rate,
+                "rank": r.rank,
+                "min_bp": current_best_min_bp,
+                "max_combo": r.max_combo,
+            },
         }
 
         if r.clear_type is not None and fk not in processed_ct:
             processed_ct.add(fk)
             prev_ct = prev.clear_type if prev else None
             if (r.clear_type or 0) > (prev_ct or 0):
-                all_rows_ct = prev_rows_map.get(fk, []) + [r]
-                best_min_bp_ct = min((row.min_bp for row in all_rows_ct if row.min_bp is not None), default=None)
-                clear_type_updates.append({**base, "prev_clear_type": prev_ct, "new_clear_type": r.clear_type, "best_min_bp": best_min_bp_ct})
+                clear_type_updates.append({**base, "prev_clear_type": prev_ct, "new_clear_type": r.clear_type, "best_min_bp": current_best_min_bp})
 
         if r.exscore is not None and fk not in processed_ex:
             processed_ex.add(fk)
             prev_ex = prev.exscore if prev else None
             prev_rank = prev.rank if prev else None
+            prev_rate = prev.rate if prev else None
             if (r.exscore or 0) > (prev_ex or 0):
-                # Compute best_min_bp across all historical rows (including current) for this fumen+client
-                all_rows = prev_rows_map.get(fk, []) + [r]
-                best_min_bp = min((row.min_bp for row in all_rows if row.min_bp is not None), default=None)
-                exscore_updates.append({**base, "prev_exscore": prev_ex, "new_exscore": r.exscore, "prev_rank": prev_rank, "new_rank": r.rank, "best_min_bp": best_min_bp})
+                exscore_updates.append({**base, "prev_exscore": prev_ex, "new_exscore": r.exscore, "prev_rank": prev_rank, "new_rank": r.rank, "prev_rate": prev_rate, "new_rate": r.rate, "best_min_bp": current_best_min_bp})
 
         if r.max_combo is not None and fk not in processed_mc:
             processed_mc.add(fk)

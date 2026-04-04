@@ -35,7 +35,8 @@ const cardStyles: React.CSSProperties = {
   border: "1px solid hsl(var(--border))",
   borderRadius: "6px",
   padding: "8px 12px",
-  fontSize: 11,
+  fontSize: 'var(--text-caption)',
+  width: "max-content",
 };
 
 interface CustomTooltipProps {
@@ -90,16 +91,17 @@ const CustomTooltip = memo(function CustomTooltip({ active, payload, label, tabl
               display: "flex",
               gap: "4px",
               alignItems: "baseline",
+              whiteSpace: "nowrap",
             }}
           >
             <span style={{ width: 56 }}>{ctLabel}</span>
             <span style={{ width: 20, color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--foreground))", fontWeight: isActive ? 700 : 500 }}>
               {rawCount.toLocaleString()}
             </span>
-            <span style={{ width: 46, color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--foreground))", fontWeight: isActive ? 700 : 400 }}>
+            <span style={{ width: 56, color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--foreground))", fontWeight: isActive ? 700 : 400 }}>
               ({ownPct.toFixed(1)}%)
             </span>
-            <span style={{ width: 64, fontSize: 10, color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--muted-foreground))" }}>
+            <span style={{ width: 80, fontSize: 'var(--text-caption)', color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--muted-foreground))" }}>
               누적 {cumPct.toFixed(1)}%
             </span>
           </div>
@@ -134,7 +136,7 @@ const YAxisTick = memo(function YAxisTick({
         y={0}
         dy={4}
         textAnchor="end"
-        fontSize={11}
+        fontSize='var(--text-caption)'
         fill="hsl(var(--foreground))"
         className={isClickable ? "hist-yaxis-tick" : undefined}
         style={{ cursor: isClickable ? "pointer" : "default" }}
@@ -243,7 +245,7 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
 
   if (levels.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+      <div className="flex items-center justify-center h-32 text-muted-foreground text-body">
         난이도표 데이터가 없습니다
       </div>
     );
@@ -271,7 +273,7 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
           domain={[0, 100]}
           ticks={[0, 25, 50, 75, 100]}
           tickFormatter={(v) => `${v}%`}
-          tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }}
+          tick={{ fontSize: 'var(--text-caption)', fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={false}
         />
@@ -287,6 +289,7 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
         <Tooltip
           content={<CustomTooltip tableSymbol={tableSymbol} clientType={clientType} activeEntry={activeEntry} labelMap={labelMap} />}
           cursor={{ fill: "hsl(var(--accent)/0.08)" }}
+          wrapperStyle={{ width: "max-content" }}
         />
         {[25, 50, 75].map((v) => (
           <ReferenceLine
@@ -356,7 +359,7 @@ export function ClearTypeLegend({ clientType, className }: ClearTypeLegendProps)
             className="w-3 h-3 rounded-sm flex-shrink-0"
             style={{ background: CLEAR_TYPE_COLORS[ct] }}
           />
-          <span className="text-[11px] text-muted-foreground">{labelMap[ct] ?? String(ct)}</span>
+          <span className="text-caption text-muted-foreground">{labelMap[ct] ?? String(ct)}</span>
         </div>
       ))}
     </div>

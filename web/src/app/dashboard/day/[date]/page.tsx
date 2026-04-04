@@ -61,7 +61,7 @@ export default function DayDetailPage({ params, searchParams }: PageProps) {
             <CardTitle className="text-base flex items-center gap-2">
               기록 갱신
               {data && (
-                <span className="text-sm font-normal text-muted-foreground">
+                <span className="text-body font-normal text-muted-foreground">
                   — {data.updates.length}건
                 </span>
               )}
@@ -79,7 +79,7 @@ export default function DayDetailPage({ params, searchParams }: PageProps) {
               </div>
             )}
             {!isLoading && (!data || data.updates.length === 0) && (
-              <p className="text-sm text-muted-foreground py-4 text-center">
+              <p className="text-body text-muted-foreground py-4 text-center">
                 해당 날짜에 기록된 플레이 데이터가 없습니다.
               </p>
             )}

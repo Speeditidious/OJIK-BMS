@@ -14,9 +14,11 @@ import type {
   MinBPUpdateItem,
   TableLevelRef,
 } from "@/types";
-import { clearBadge } from "@/components/dashboard/RecentActivity";
+import { clearText } from "@/components/dashboard/RecentActivity";
 import type { ClientTypeFilter } from "@/hooks/use-analysis";
 import { useScoreUpdates } from "@/hooks/use-analysis";
+import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement } from "@/lib/fumen-table-utils";
+import { compareTitles } from "@/lib/bms-sort";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -25,61 +27,25 @@ const CLEAR_TYPE_LABELS_SIMPLE: Record<number, string> = {
   5: "HARD", 6: "EX HARD", 7: "FULL COMBO", 8: "PERFECT", 9: "MAX",
 };
 
-const CLEAR_TYPE_VAR: Record<number, string> = {
-  0: "no-play", 1: "failed", 2: "assist", 3: "easy", 4: "normal",
-  5: "hard", 6: "exhard", 7: "fc", 8: "perfect", 9: "max",
-};
+/** 개별 <td>에 클리어 타입 CSS 클래스 반환 (globals.css clear-cell-* 참조) */
+function clearTdClass(clearType: number | null | undefined, dim = false): string {
+  const ct = clearType ?? 0;
+  // NO PLAY(0)은 이미 dim한 색 — dim 변형 불필요
+  return (dim && ct !== 0) ? `clear-cell-${ct}-dim` : `clear-cell-${ct}`;
+}
 
-// Row background tint by internal clear type (FumenTab only)
-const CLEAR_ROW_BG: Record<number, string> = {
-  0: "",
-  1: "bg-[hsl(var(--clear-failed)/0.07)]",
-  2: "bg-[hsl(var(--clear-assist)/0.10)]",
-  3: "bg-[hsl(var(--clear-easy)/0.10)]",
-  4: "bg-[hsl(var(--clear-normal)/0.10)]",
-  5: "bg-[hsl(var(--clear-hard)/0.10)]",
-  6: "bg-[hsl(var(--clear-exhard)/0.10)]",
-  7: "bg-[hsl(var(--clear-fc)/0.13)]",
-  8: "bg-[hsl(var(--clear-perfect)/0.13)]",
-  9: "bg-[hsl(var(--clear-max)/0.13)]",
-};
+/** 개별 <td>에 랭크 기반 CSS 클래스 반환 (globals.css rank-cell-* 참조) */
+function rankTdClass(rank: string | null | undefined, dim = false): string {
+  const r = rank ?? "F";
+  // F는 이미 dim한 색 — dim 변형 불필요
+  return (dim && r !== "F") ? `rank-cell-${r}-dim` : `rank-cell-${r}`;
+}
 
-// Rank color styles for Score section (전, 은, 동 + clear type 계열)
-const RANK_COLOR_STYLE: Record<string, React.CSSProperties> = {
-  MAX: { color: "hsl(330 65% 78%)", background: "hsl(330 65% 78% / 0.18)", borderLeft: "2px solid hsl(330 65% 78% / 0.5)" },
-  AAA: { color: "hsl(46 80% 60%)",  background: "hsl(46 80% 60% / 0.18)",  borderLeft: "2px solid hsl(46 80% 60% / 0.5)" },
-  AA:  { color: "hsl(220 15% 72%)", background: "hsl(220 15% 72% / 0.18)", borderLeft: "2px solid hsl(220 15% 72% / 0.5)" },
-  A:   { color: "hsl(27 65% 55%)",  background: "hsl(27 65% 55% / 0.18)",  borderLeft: "2px solid hsl(27 65% 55% / 0.5)" },
-  B:   { color: "hsl(var(--clear-normal))", background: "hsl(var(--clear-normal) / 0.15)", borderLeft: "2px solid hsl(var(--clear-normal) / 0.4)" },
-  C:   { color: "hsl(var(--clear-easy))",   background: "hsl(var(--clear-easy) / 0.15)",   borderLeft: "2px solid hsl(var(--clear-easy) / 0.4)" },
-  D:   { color: "hsl(var(--clear-assist))", background: "hsl(var(--clear-assist) / 0.15)", borderLeft: "2px solid hsl(var(--clear-assist) / 0.4)" },
-  E:   { color: "hsl(var(--clear-failed))", background: "hsl(var(--clear-failed) / 0.12)", borderLeft: "2px solid hsl(var(--clear-failed) / 0.35)" },
-  F:   { color: "hsl(var(--muted-foreground))", background: "hsl(var(--clear-no-play) / 0.5)", borderLeft: "2px solid hsl(var(--muted-foreground) / 0.25)" },
-};
+
 
 const RANK_SORT_ORDER: Record<string, number> = {
   MAX: -1, AAA: 0, AA: 1, A: 2, B: 3, C: 4, D: 5, E: 6, F: 7,
 };
-
-// BMS title sort (bms_title_sort.md 규칙)
-function charSortGroup(ch: string): number {
-  const code = ch.codePointAt(0) ?? 0;
-  if (code >= 0x21 && code <= 0x7e) {
-    if ((code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a)) return 1;
-    return 0;
-  }
-  if (code >= 0x3040 && code <= 0x309f) return 3;
-  if (code >= 0x30a0 && code <= 0x30ff) return 4;
-  if ((code >= 0x4e00 && code <= 0x9fff) || (code >= 0x3400 && code <= 0x4dbf)) return 5;
-  return 2;
-}
-
-function compareTitles(a: string, b: string): number {
-  const ga = charSortGroup([...a][0] ?? "");
-  const gb = charSortGroup([...b][0] ?? "");
-  if (ga !== gb) return ga - gb;
-  return a.localeCompare(b);
-}
 
 /** table_levels 배열을 기준으로 비교. 즐겨찾기 순서(index 기준) 내에서 높은 레벨이 위. */
 function compareByTableLevels(a: TableLevelRef[], b: TableLevelRef[]): number {
@@ -94,41 +60,17 @@ function compareByTableLevels(a: TableLevelRef[], b: TableLevelRef[]): number {
   return 0;
 }
 
-/** 클리어 타입 셀 인라인 스타일 생성. dim=true이면 흐리게 (이전 상태). */
-function clearTypeStyle(clearType: number | null, dim = false): React.CSSProperties {
-  const varName = CLEAR_TYPE_VAR[clearType ?? 0] ?? "no-play";
-  if (dim) {
-    return {
-      color: `hsl(var(--clear-${varName}) / 0.45)`,
-      background: `hsl(var(--clear-${varName}) / 0.06)`,
-      borderLeft: `2px solid hsl(var(--clear-${varName}) / 0.18)`,
-    };
-  }
-  return {
-    color: `hsl(var(--clear-${varName}))`,
-    background: `hsl(var(--clear-${varName}) / 0.18)`,
-    borderLeft: `2px solid hsl(var(--clear-${varName}) / 0.5)`,
-  };
-}
 
 function TableLevelBadges({ levels }: { levels: TableLevelRef[] }) {
-  if (levels.length === 0) return <span className="text-xs text-muted-foreground">-</span>;
+  if (levels.length === 0) return <span className="text-label row-muted">-</span>;
   const visible = levels.slice(0, 3);
   const rest = levels.length - visible.length;
+  const text = visible.map(({ symbol, level }) => `${symbol}${level}`).join(", ");
   return (
-    <div className="flex gap-1 flex-wrap">
-      {visible.map(({ symbol, level }, i) => (
-        <span
-          key={i}
-          className="inline-flex items-center rounded px-1.5 py-0 text-[10px] font-medium border border-primary/40 text-primary bg-primary/10"
-        >
-          {symbol}{level}
-        </span>
-      ))}
-      {rest > 0 && (
-        <span className="text-[10px] text-muted-foreground">+{rest}</span>
-      )}
-    </div>
+    <span className="text-label">
+      {text}
+      {rest > 0 && <span className="text-caption row-muted"> +{rest}</span>}
+    </span>
   );
 }
 
@@ -172,9 +114,9 @@ function CourseUpdateRow({ item }: { item: MergedCourseUpdate }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           {item.dan_title && (
-            <span className="text-xs font-bold text-accent">{item.dan_title}</span>
+            <span className="text-label font-bold text-accent">{item.dan_title}</span>
           )}
-          <span className="text-sm font-medium truncate">
+          <span className="text-body font-medium truncate">
             {item.course_name ?? "(코스 불명)"}
           </span>
         </div>
@@ -182,23 +124,20 @@ function CourseUpdateRow({ item }: { item: MergedCourseUpdate }) {
       <div className="flex items-center gap-2 shrink-0">
         {item.clear && (
           <div className="flex items-center gap-1">
-            <span
-              className="inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-semibold whitespace-nowrap"
-              style={clearTypeStyle(item.clear.prev, true)}
-            >
+            <span className="text-label text-muted-foreground/60">
               {CLEAR_TYPE_LABELS_SIMPLE[item.clear.prev ?? 0] ?? "?"}
             </span>
             <ChevronRight className="w-3 h-3 text-muted-foreground/35" />
-            {clearBadge(item.clear.new, item.client_type)}
+            {clearText(item.clear.new, item.client_type)}
           </div>
         )}
         {item.score != null && (
-          <span className="text-xs font-mono text-muted-foreground">
+          <span className="text-label text-muted-foreground">
             {item.score.prev ?? "–"}{" "}
             <span className="text-foreground font-bold">→ {item.score.new ?? "–"}</span>
           </span>
         )}
-        <span className="text-[10px] text-muted-foreground">{formatTs(item.recorded_at)}</span>
+        <span className="text-caption text-muted-foreground">{formatTs(item.recorded_at)}</span>
       </div>
     </div>
   );
@@ -209,22 +148,39 @@ function CourseUpdateRow({ item }: { item: MergedCourseUpdate }) {
 function SectionTable({
   title,
   count,
+  colWidths = ["110px", "120px", "100px", undefined],
   children,
 }: {
   title: string;
   count: number;
+  /** [Prev, Current, Level, Title] — undefined = auto */
+  colWidths?: [string?, string?, string?, string?];
   children: React.ReactNode;
 }) {
+  const thCls = "px-2 py-2 font-medium whitespace-nowrap text-left";
   return (
     <div className="border border-border/40 rounded-lg overflow-hidden">
       <div className="px-3 py-2 bg-muted/30 border-b border-border/40">
-        <p className="text-sm font-semibold text-foreground">
+        <p className="text-body font-semibold text-foreground">
           {title}{" "}
-          <span className="text-muted-foreground font-normal text-xs">({count})</span>
+          <span className="text-muted-foreground font-normal text-label">({count})</span>
         </p>
       </div>
       <div className="overflow-auto">
-        <table className="w-full text-xs">
+        <table className="w-full table-fixed text-label">
+          <colgroup>
+            {colWidths.map((w, i) => (
+              <col key={i} style={w ? { width: w } : undefined} />
+            ))}
+          </colgroup>
+          <thead className="sticky top-0 z-10 bg-background text-foreground border-b border-border/50">
+            <tr>
+              <th className={cn(thCls, "text-center")}>Prev</th>
+              <th className={cn(thCls, "text-center")}>Current</th>
+              <th className={thCls}>Level</th>
+              <th className={thCls}>Title</th>
+            </tr>
+          </thead>
           <tbody className="divide-y divide-border/20">{children}</tbody>
         </table>
       </div>
@@ -235,146 +191,86 @@ function SectionTable({
 // ── Category tab row components ────────────────────────────────────────────────
 
 function LampUpgradeRow({ item }: { item: ClearTypeUpdateItem }) {
-  const prevStyle = clearTypeStyle(item.prev_clear_type, true);
-  const newStyle = clearTypeStyle(item.new_clear_type, false);
-
+  const newCls = clearTdClass(item.new_clear_type);
   return (
-    <tr className="hover:bg-secondary/30 transition-colors">
-      {/* 이전 상태 */}
-      <td className="pl-3 pr-1 py-2 w-[96px]">
-        <span
-          className="inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-semibold w-full whitespace-nowrap"
-          style={prevStyle}
-        >
+    <tr>
+      <td className={cn("px-2 py-2 whitespace-nowrap text-center", clearTdClass(item.prev_clear_type, true))}>
+        <span className="text-label opacity-80">
           {CLEAR_TYPE_LABELS_SIMPLE[item.prev_clear_type ?? 0] ?? "?"}
         </span>
       </td>
-      {/* 화살표 */}
-      <td className="px-0 w-5">
-        <ChevronRight className="w-3 h-3 text-muted-foreground/35 mx-auto" />
+      <td className={cn("px-2 py-2 whitespace-nowrap text-center font-semibold", newCls)}>
+        {clearText(item.new_clear_type, item.client_type)}
       </td>
-      {/* 현재 상태 */}
-      <td className="pr-3 pl-1 py-2 w-[96px]">
-        <span
-          className="inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-semibold w-full whitespace-nowrap"
-          style={newStyle}
-        >
-          {CLEAR_TYPE_LABELS_SIMPLE[item.new_clear_type ?? 0] ?? "?"}
-        </span>
-      </td>
-      {/* 난이도 */}
-      <td className="px-2 py-2 w-[110px]">
+      <td className={cn("px-2 py-2", newCls)}>
         <TableLevelBadges levels={item.table_levels} />
       </td>
-      {/* 제목 */}
-      <td className="px-2 py-2">
+      <td className={cn("px-2 py-2", newCls)}>
         {(item.fumen_sha256 || item.fumen_md5) ? (
           <Link
             href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
-            className="text-xs font-medium truncate hover:text-primary transition-colors block"
+            className="text-label truncate hover:text-primary transition-colors block"
           >
             {item.title ?? "(알 수 없음)"}
           </Link>
         ) : (
-          <p className="text-xs font-medium truncate">{item.title ?? "(알 수 없음)"}</p>
+          <p className="text-label truncate">{item.title ?? "(알 수 없음)"}</p>
         )}
         {item.artist && (
-          <p className="text-[10px] text-muted-foreground truncate">{item.artist}</p>
+          <p className="text-caption truncate opacity-70">{item.artist}</p>
         )}
       </td>
     </tr>
   );
 }
 
-// Dim (이전 상태) 버전 — 현재 상태 스타일보다 낮은 opacity
-const RANK_DIM_STYLE: Record<string, React.CSSProperties> = {
-  MAX: { color: "hsl(330 65% 78% / 0.4)", background: "hsl(330 65% 78% / 0.06)", borderLeft: "2px solid hsl(330 65% 78% / 0.18)" },
-  AAA: { color: "hsl(46 80% 60% / 0.4)",  background: "hsl(46 80% 60% / 0.06)",  borderLeft: "2px solid hsl(46 80% 60% / 0.18)" },
-  AA:  { color: "hsl(220 15% 72% / 0.4)", background: "hsl(220 15% 72% / 0.06)", borderLeft: "2px solid hsl(220 15% 72% / 0.18)" },
-  A:   { color: "hsl(27 65% 55% / 0.4)",  background: "hsl(27 65% 55% / 0.06)",  borderLeft: "2px solid hsl(27 65% 55% / 0.18)" },
-  B:   { color: "hsl(var(--clear-normal) / 0.4)", background: "hsl(var(--clear-normal) / 0.05)", borderLeft: "2px solid hsl(var(--clear-normal) / 0.15)" },
-  C:   { color: "hsl(var(--clear-easy) / 0.4)",   background: "hsl(var(--clear-easy) / 0.05)",   borderLeft: "2px solid hsl(var(--clear-easy) / 0.15)" },
-  D:   { color: "hsl(var(--clear-assist) / 0.4)", background: "hsl(var(--clear-assist) / 0.05)", borderLeft: "2px solid hsl(var(--clear-assist) / 0.15)" },
-  E:   { color: "hsl(var(--clear-failed) / 0.4)", background: "hsl(var(--clear-failed) / 0.05)", borderLeft: "2px solid hsl(var(--clear-failed) / 0.15)" },
-  F:   { color: "hsl(var(--muted-foreground) / 0.35)", background: "transparent", borderLeft: "2px solid hsl(var(--muted-foreground) / 0.12)" },
-};
 
 function ScoreUpgradeRow({ item }: { item: ExscoreUpdateItem }) {
-  const prevRankStyle = RANK_DIM_STYLE[item.prev_rank ?? "F"] ?? RANK_DIM_STYLE["F"];
-  const newRankStyle = RANK_COLOR_STYLE[item.new_rank ?? "F"] ?? RANK_COLOR_STYLE["F"];
   const scoreDiff =
     item.prev_exscore != null && item.new_exscore != null
       ? item.new_exscore - item.prev_exscore
       : null;
+  const newCls = rankTdClass(item.new_rank);
 
   return (
-    <tr className="hover:bg-secondary/30 transition-colors">
-      {/* 이전 점수/랭크 */}
-      <td className="pl-3 pr-1 py-2 w-[96px]">
-        <div className="flex flex-col items-center gap-0.5">
-          {item.prev_rank == null ? (
-            <span className="text-[9px] text-muted-foreground/40">NO PLAY</span>
-          ) : (
-            <>
-              <span className="text-[10px] font-mono text-muted-foreground/50">
-                {item.prev_exscore ?? "–"}
-              </span>
-              <span
-                className="inline-flex items-center justify-center rounded px-2 py-0 text-[10px] font-bold w-full"
-                style={prevRankStyle}
-              >
-                {item.prev_rank}
-              </span>
-            </>
-          )}
-        </div>
+    <tr>
+      <td className={cn("px-2 py-2 whitespace-nowrap text-center", rankTdClass(item.prev_rank, true))}>
+        {item.prev_rank == null ? (
+          <span className="text-label">NO PLAY</span>
+        ) : (
+          <div className="flex flex-col items-center gap-0.5">
+            <span className="text-label">{item.prev_rank}</span>
+            <span className="text-label">{item.prev_exscore ?? "–"}</span>
+          </div>
+        )}
       </td>
-      {/* 화살표 */}
-      <td className="px-0 w-5">
-        <ChevronRight className="w-3 h-3 text-muted-foreground/35 mx-auto" />
-      </td>
-      {/* 현재 점수/랭크 */}
-      <td className="pr-3 pl-1 py-2 w-[96px]">
+      <td className={cn("px-2 py-2 whitespace-nowrap text-center", newCls)}>
         <div className="flex flex-col items-center gap-0.5">
+          <span className="text-label font-semibold">{item.new_rank ?? "–"}</span>
           <div className="flex items-baseline gap-1">
-            <span className="text-[10px] font-mono font-semibold text-foreground">
-              {item.new_exscore ?? "–"}
-            </span>
+            <span className="text-label font-semibold">{item.new_exscore ?? "–"}</span>
             {scoreDiff != null && scoreDiff > 0 && (
-              <span
-                className="text-[11px] font-bold"
-                style={{ color: "hsl(var(--clear-fc) / 0.85)" }}
-              >
-                ▲{scoreDiff}
-              </span>
+              <span className="text-label font-bold opacity-75">▲{scoreDiff}</span>
             )}
           </div>
-          <span
-            className="inline-flex items-center justify-center rounded px-2 py-0 text-[10px] font-bold w-full"
-            style={newRankStyle}
-          >
-            {item.new_rank ?? "–"}
-          </span>
         </div>
       </td>
-      {/* 난이도 */}
-      <td className="px-2 py-2 w-[110px]">
+      <td className={cn("px-2 py-2", newCls)}>
         <TableLevelBadges levels={item.table_levels} />
       </td>
-      {/* 제목 */}
-      <td className="px-2 py-2">
+      <td className={cn("px-2 py-2", newCls)}>
         {(item.fumen_sha256 || item.fumen_md5) ? (
           <Link
             href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
-            className="text-xs font-medium truncate hover:text-primary transition-colors block"
+            className="text-label truncate hover:text-primary transition-colors block"
           >
             {item.title ?? "(알 수 없음)"}
           </Link>
         ) : (
-          <p className="text-xs font-medium truncate">{item.title ?? "(알 수 없음)"}</p>
+          <p className="text-label truncate">{item.title ?? "(알 수 없음)"}</p>
         )}
         {item.artist && (
-          <p className="text-[10px] text-muted-foreground truncate">{item.artist}</p>
+          <p className="text-caption truncate opacity-70">{item.artist}</p>
         )}
       </td>
     </tr>
@@ -387,55 +283,38 @@ function BPUpgradeRow({ item }: { item: MinBPUpdateItem }) {
   const diff = prev != null && next != null ? prev - next : null;
 
   return (
-    <tr className="hover:bg-secondary/30 transition-colors">
-      {/* 이전 BP */}
-      <td className="pl-3 pr-1 py-2 w-[60px] text-center">
-        {prev == null ? (
-          <span className="text-[9px] text-muted-foreground/40">NO PLAY</span>
-        ) : (
-          <span className="text-[11px] font-mono text-muted-foreground/50">
-            {prev}
-          </span>
-        )}
+    <tr className="transition-all hover:bg-secondary/30">
+      <td className="px-2 py-2 whitespace-nowrap text-center">
+        <span className="text-label text-muted-foreground/60">
+          {prev == null ? "NO PLAY" : prev}
+        </span>
       </td>
-      {/* 화살표 */}
-      <td className="px-0 w-5">
-        <ChevronRight className="w-3 h-3 text-muted-foreground/35 mx-auto" />
-      </td>
-      {/* 현재 BP */}
-      <td className="pr-3 pl-1 py-2 w-[90px] text-center">
-        <div className="flex items-center justify-center gap-1.5">
-          <span className="text-[11px] font-mono font-semibold text-foreground">
-            {next ?? "–"}
-          </span>
+      <td className="px-2 py-2 whitespace-nowrap text-center">
+        <div className="inline-flex items-baseline gap-1.5">
+          <span className="text-label font-semibold">{next ?? "–"}</span>
           {diff != null && diff > 0 && (
-            <span
-              className="text-[11px] font-mono font-bold"
-              style={{ color: "hsl(var(--clear-hard))" }}
-            >
+            <span className="text-label font-bold" style={{ color: "hsl(var(--clear-hard))" }}>
               ▼{diff}
             </span>
           )}
         </div>
       </td>
-      {/* 난이도 */}
-      <td className="px-2 py-2 w-[110px]">
+      <td className="px-2 py-2">
         <TableLevelBadges levels={item.table_levels} />
       </td>
-      {/* 제목 */}
       <td className="px-2 py-2">
         {(item.fumen_sha256 || item.fumen_md5) ? (
           <Link
             href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
-            className="text-xs font-medium truncate hover:text-primary transition-colors block"
+            className="text-label truncate hover:text-primary transition-colors block"
           >
             {item.title ?? "(알 수 없음)"}
           </Link>
         ) : (
-          <p className="text-xs font-medium truncate">{item.title ?? "(알 수 없음)"}</p>
+          <p className="text-label truncate">{item.title ?? "(알 수 없음)"}</p>
         )}
         {item.artist && (
-          <p className="text-[10px] text-muted-foreground truncate">{item.artist}</p>
+          <p className="text-caption text-muted-foreground truncate opacity-70">{item.artist}</p>
         )}
       </td>
     </tr>
@@ -448,55 +327,38 @@ function ComboUpgradeRow({ item }: { item: MaxComboUpdateItem }) {
   const diff = prev != null && next != null ? next - prev : null;
 
   return (
-    <tr className="hover:bg-secondary/30 transition-colors">
-      {/* 이전 Combo */}
-      <td className="pl-3 pr-1 py-2 w-[60px] text-center">
-        {prev == null ? (
-          <span className="text-[9px] text-muted-foreground/40">NO PLAY</span>
-        ) : (
-          <span className="text-[11px] font-mono text-muted-foreground/50">
-            {prev}
-          </span>
-        )}
+    <tr className="transition-all hover:bg-secondary/30">
+      <td className="px-2 py-2 whitespace-nowrap text-center">
+        <span className="text-label text-muted-foreground/60">
+          {prev == null ? "NO PLAY" : prev}
+        </span>
       </td>
-      {/* 화살표 */}
-      <td className="px-0 w-5">
-        <ChevronRight className="w-3 h-3 text-muted-foreground/35 mx-auto" />
-      </td>
-      {/* 현재 Combo */}
-      <td className="pr-3 pl-1 py-2 w-[90px] text-center">
-        <div className="flex items-center justify-center gap-1.5">
-          <span className="text-[11px] font-mono font-semibold text-foreground">
-            {next ?? "–"}
-          </span>
+      <td className="px-2 py-2 whitespace-nowrap text-center">
+        <div className="inline-flex items-baseline gap-1.5">
+          <span className="text-label font-semibold">{next ?? "–"}</span>
           {diff != null && diff > 0 && (
-            <span
-              className="text-[11px] font-mono font-bold"
-              style={{ color: "hsl(var(--clear-fc))" }}
-            >
+            <span className="text-label font-bold" style={{ color: "hsl(var(--clear-fc) / 0.85)" }}>
               ▲{diff}
             </span>
           )}
         </div>
       </td>
-      {/* 난이도 */}
-      <td className="px-2 py-2 w-[110px]">
+      <td className="px-2 py-2">
         <TableLevelBadges levels={item.table_levels} />
       </td>
-      {/* 제목 */}
       <td className="px-2 py-2">
         {(item.fumen_sha256 || item.fumen_md5) ? (
           <Link
             href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
-            className="text-xs font-medium truncate hover:text-primary transition-colors block"
+            className="text-label truncate hover:text-primary transition-colors block"
           >
             {item.title ?? "(알 수 없음)"}
           </Link>
         ) : (
-          <p className="text-xs font-medium truncate">{item.title ?? "(알 수 없음)"}</p>
+          <p className="text-label truncate">{item.title ?? "(알 수 없음)"}</p>
         )}
         {item.artist && (
-          <p className="text-[10px] text-muted-foreground truncate">{item.artist}</p>
+          <p className="text-caption text-muted-foreground truncate opacity-70">{item.artist}</p>
         )}
       </td>
     </tr>
@@ -508,55 +370,54 @@ function ComboUpgradeRow({ item }: { item: MaxComboUpdateItem }) {
 function CategoryTab({ data }: { data: ScoreUpdatesResponse }) {
   const mergedCourses = useMemo(() => buildMergedCourses(data), [data]);
 
-  const sortedLamp = [...data.clear_type_updates]
-    .filter((u) => !u.is_course)
-    .sort((a, b) => {
-      const ct = (b.new_clear_type ?? 0) - (a.new_clear_type ?? 0);
-      if (ct !== 0) return ct;
-      const lv = compareByTableLevels(a.table_levels, b.table_levels);
-      if (lv !== 0) return lv;
-      return compareTitles(a.title ?? "", b.title ?? "");
-    });
+  const lamp = useMemo(() =>
+    [...data.clear_type_updates]
+      .filter((u) => !u.is_course)
+      .sort((a, b) => {
+        const ct = (b.new_clear_type ?? 0) - (a.new_clear_type ?? 0);
+        return ct !== 0 ? ct : compareByTableLevels(a.table_levels, b.table_levels);
+      }),
+  [data]);
 
-  const sortedScore = [...data.exscore_updates]
-    .filter((u) => !u.is_course)
-    .sort((a, b) => {
-      const ra = RANK_SORT_ORDER[a.new_rank ?? "F"] ?? 99;
-      const rb = RANK_SORT_ORDER[b.new_rank ?? "F"] ?? 99;
-      if (ra !== rb) return ra - rb;
-      const lv = compareByTableLevels(a.table_levels, b.table_levels);
-      if (lv !== 0) return lv;
-      return compareTitles(a.title ?? "", b.title ?? "");
-    });
+  const score = useMemo(() =>
+    [...data.exscore_updates]
+      .filter((u) => !u.is_course)
+      .sort((a, b) => {
+        const ra = RANK_SORT_ORDER[a.new_rank ?? "F"] ?? 99;
+        const rb = RANK_SORT_ORDER[b.new_rank ?? "F"] ?? 99;
+        const rank = ra - rb;
+        return rank !== 0 ? rank : compareByTableLevels(a.table_levels, b.table_levels);
+      }),
+  [data]);
 
-  const bpItems = [...data.min_bp_updates].sort((a, b) => {
-    const lv = compareByTableLevels(a.table_levels, b.table_levels);
-    if (lv !== 0) return lv;
-    const da = a.prev_min_bp != null && a.new_min_bp != null ? a.prev_min_bp - a.new_min_bp : -1;
-    const db = b.prev_min_bp != null && b.new_min_bp != null ? b.prev_min_bp - b.new_min_bp : -1;
-    if (da !== db) return db - da;
-    return compareTitles(a.title ?? "", b.title ?? "");
-  });
+  const bp = useMemo(() =>
+    [...data.min_bp_updates].sort((a, b) => {
+      const aDiff = a.prev_min_bp != null && a.new_min_bp != null ? a.prev_min_bp - a.new_min_bp : -1;
+      const bDiff = b.prev_min_bp != null && b.new_min_bp != null ? b.prev_min_bp - b.new_min_bp : -1;
+      const diff = bDiff - aDiff;
+      return diff !== 0 ? diff : compareByTableLevels(a.table_levels, b.table_levels);
+    }),
+  [data]);
 
-  const comboItems = [...data.max_combo_updates].sort((a, b) => {
-    const lv = compareByTableLevels(a.table_levels, b.table_levels);
-    if (lv !== 0) return lv;
-    const da = a.prev_max_combo != null && a.new_max_combo != null ? a.new_max_combo - a.prev_max_combo : -1;
-    const db = b.prev_max_combo != null && b.new_max_combo != null ? b.new_max_combo - b.prev_max_combo : -1;
-    if (da !== db) return db - da;
-    return compareTitles(a.title ?? "", b.title ?? "");
-  });
+  const combo = useMemo(() =>
+    [...data.max_combo_updates].sort((a, b) => {
+      const aDiff = a.prev_max_combo != null && a.new_max_combo != null ? a.new_max_combo - a.prev_max_combo : -1;
+      const bDiff = b.prev_max_combo != null && b.new_max_combo != null ? b.new_max_combo - b.prev_max_combo : -1;
+      const diff = bDiff - aDiff;
+      return diff !== 0 ? diff : compareByTableLevels(a.table_levels, b.table_levels);
+    }),
+  [data]);
 
   const empty =
     mergedCourses.length === 0 &&
-    sortedLamp.length === 0 &&
-    sortedScore.length === 0 &&
-    bpItems.length === 0 &&
-    comboItems.length === 0;
+    lamp.length === 0 &&
+    score.length === 0 &&
+    bp.length === 0 &&
+    combo.length === 0;
 
   if (empty) {
     return (
-      <p className="text-sm text-muted-foreground text-center py-8">
+      <p className="text-body text-muted-foreground text-center py-8">
         기록 갱신 데이터가 없습니다.
       </p>
     );
@@ -567,7 +428,7 @@ function CategoryTab({ data }: { data: ScoreUpdatesResponse }) {
       {/* Course records */}
       {mergedCourses.length > 0 && (
         <div className="border border-border/40 rounded-lg p-3">
-          <p className="text-xs font-semibold text-muted-foreground mb-2">
+          <p className="text-label font-semibold text-muted-foreground mb-2">
             Course Records ({mergedCourses.length})
           </p>
           {mergedCourses.map((c, i) => (
@@ -577,39 +438,24 @@ function CategoryTab({ data }: { data: ScoreUpdatesResponse }) {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {/* Lamp Upgrade */}
-        {sortedLamp.length > 0 && (
-          <SectionTable title="Lamp Upgrade" count={sortedLamp.length}>
-            {sortedLamp.map((item, i) => (
-              <LampUpgradeRow key={i} item={item} />
-            ))}
+        {lamp.length > 0 && (
+          <SectionTable title="Lamp Upgrade" count={lamp.length}>
+            {lamp.map((item, i) => <LampUpgradeRow key={i} item={item} />)}
           </SectionTable>
         )}
-
-        {/* Score Upgrade */}
-        {sortedScore.length > 0 && (
-          <SectionTable title="Score Upgrade" count={sortedScore.length}>
-            {sortedScore.map((item, i) => (
-              <ScoreUpgradeRow key={i} item={item} />
-            ))}
+        {score.length > 0 && (
+          <SectionTable title="Score Upgrade" count={score.length}>
+            {score.map((item, i) => <ScoreUpgradeRow key={i} item={item} />)}
           </SectionTable>
         )}
-
-        {/* BP Upgrade */}
-        {bpItems.length > 0 && (
-          <SectionTable title="BP Upgrade" count={bpItems.length}>
-            {bpItems.map((item, i) => (
-              <BPUpgradeRow key={i} item={item} />
-            ))}
+        {bp.length > 0 && (
+          <SectionTable title="BP Upgrade" count={bp.length}>
+            {bp.map((item, i) => <BPUpgradeRow key={i} item={item} />)}
           </SectionTable>
         )}
-
-        {/* Max Combo Upgrade */}
-        {comboItems.length > 0 && (
-          <SectionTable title="Max Combo Upgrade" count={comboItems.length}>
-            {comboItems.map((item, i) => (
-              <ComboUpgradeRow key={i} item={item} />
-            ))}
+        {combo.length > 0 && (
+          <SectionTable title="Max Combo Upgrade" count={combo.length}>
+            {combo.map((item, i) => <ComboUpgradeRow key={i} item={item} />)}
           </SectionTable>
         )}
       </div>
@@ -627,10 +473,22 @@ interface MergedFumenUpdate {
   table_levels: TableLevelRef[];
   client_type: string;
   client_types: Set<string>;
+  recorded_at: string | null;
+  options: Record<string, unknown> | null;
   clear?: { prev: number | null; new: number | null };
   score?: { prev: number | null; new: number | null; prev_rank: string | null; new_rank: string | null };
+  rate?: { prev: number | null; new: number | null };
   bp?: { prev: number | null; new: number | null };
   combo?: { prev: number | null; new: number | null };
+  playCount?: { prev: number | null; new: number | null };
+  currentState?: {
+    clear_type: number | null;
+    exscore: number | null;
+    rate: number | null;
+    rank: string | null;
+    min_bp: number | null;
+    max_combo: number | null;
+  };
 }
 
 function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
@@ -643,10 +501,13 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
     artist: string | null,
     table_levels: TableLevelRef[],
     client_type: string,
+    recorded_at: string | null,
+    options: Record<string, unknown> | null,
+    currentState?: MergedFumenUpdate["currentState"],
   ): MergedFumenUpdate {
     const key = sha256 ?? md5 ?? `unknown-${Math.random()}`;
     if (!map.has(key)) {
-      map.set(key, { sha256, md5, title, artist, table_levels, client_type, client_types: new Set([client_type]) });
+      map.set(key, { sha256, md5, title, artist, table_levels, client_type, client_types: new Set([client_type]), recorded_at, options, currentState });
     } else {
       map.get(key)!.client_types.add(client_type);
     }
@@ -655,7 +516,7 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
 
   for (const item of data.clear_type_updates) {
     if (item.is_course) continue;
-    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type);
+    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.current_state);
     entry.clear = { prev: item.prev_clear_type, new: item.new_clear_type };
     if (entry.bp == null && item.best_min_bp != null) {
       entry.bp = { prev: null, new: item.best_min_bp };
@@ -664,150 +525,285 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
 
   for (const item of data.exscore_updates) {
     if (item.is_course) continue;
-    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type);
+    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.current_state);
     entry.score = { prev: item.prev_exscore, new: item.new_exscore, prev_rank: item.prev_rank, new_rank: item.new_rank };
-    // Show best historical BP when there's no dedicated BP improvement entry
+    entry.rate = { prev: item.prev_rate, new: item.new_rate };
     if (entry.bp == null && item.best_min_bp != null) {
       entry.bp = { prev: null, new: item.best_min_bp };
     }
   }
 
   for (const item of data.min_bp_updates) {
-    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type);
+    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.current_state);
     entry.bp = { prev: item.prev_min_bp, new: item.new_min_bp };
   }
 
   for (const item of data.max_combo_updates) {
-    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type);
+    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.current_state);
     entry.combo = { prev: item.prev_max_combo, new: item.new_max_combo };
   }
 
-  return Array.from(map.values())
-    .filter((f) => f.clear || f.score || f.bp || f.combo)
-    .sort((a, b) => {
-      const aClear = a.clear?.new ?? -1;
-      const bClear = b.clear?.new ?? -1;
-      if (aClear !== bClear) return bClear - aClear;
+  for (const item of data.play_count_updates) {
+    if (item.is_course) continue;
+    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.current_state);
+    entry.playCount = { prev: item.prev_play_count, new: item.new_play_count };
+  }
 
-      const aRank = a.score?.new_rank ? (RANK_SORT_ORDER[a.score.new_rank] ?? 99) : 99;
-      const bRank = b.score?.new_rank ? (RANK_SORT_ORDER[b.score.new_rank] ?? 99) : 99;
-      if (aRank !== bRank) return aRank - bRank;
-
-      return (a.title ?? "").localeCompare(b.title ?? "");
-    });
+  return Array.from(map.values()).filter((f) => f.clear || f.score || f.bp || f.combo || f.playCount);
 }
 
 function FumenRow({ fumen }: { fumen: MergedFumenUpdate }) {
-  const rowBg = fumen.clear?.new != null ? (CLEAR_ROW_BG[fumen.clear.new] ?? "") : "";
+  const displayClearType = fumen.clear?.new ?? fumen.currentState?.clear_type ?? null;
+  const rowClass = displayClearType != null ? (CLEAR_ROW_CLASS[displayClearType] ?? "") : "";
+
+  const scoreDiff =
+    fumen.score?.prev != null && fumen.score?.new != null
+      ? fumen.score.new - fumen.score.prev
+      : null;
+
+  const arrangementName = parseArrangement(fumen.options, fumen.client_type);
+  const optionLabel = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? arrangementName) : null;
+
+  const rate = fumen.currentState?.rate;
+  const rateLabel = rate != null ? `${rate.toFixed(1)}%` : null;
+
+  const clientLabel =
+    fumen.client_types.size > 1
+      ? "MIX"
+      : fumen.client_type === "lr2"
+      ? "LR"
+      : fumen.client_type === "beatoraja"
+      ? "BR"
+      : fumen.client_type;
 
   return (
-    <tr className={cn("transition-colors hover:bg-secondary/50", rowBg)}>
-      {/* Level: table membership badges */}
-      <td className="px-3 py-2 align-top">
+    <tr className={cn("transition-all", rowClass || "hover:bg-secondary/50")}>
+      {/* Level */}
+      <td className="px-2 py-2 align-top">
         <TableLevelBadges levels={fumen.table_levels} />
       </td>
 
       {/* Title + Artist */}
-      <td className="px-3 py-2 align-top max-w-[220px]">
-        <p className="text-xs font-medium truncate">{fumen.title ?? "(알 수 없음)"}</p>
+      <td className="px-2 py-2 align-top max-w-[220px]">
+        {(fumen.sha256 || fumen.md5) ? (
+          <Link
+            href={`/songs/${fumen.sha256 || fumen.md5}`}
+            className="text-label truncate hover:text-primary transition-colors block"
+          >
+            {fumen.title ?? "(알 수 없음)"}
+          </Link>
+        ) : (
+          <p className="text-label truncate">{fumen.title ?? "(알 수 없음)"}</p>
+        )}
         {fumen.artist && (
-          <p className="text-[10px] text-muted-foreground truncate">{fumen.artist}</p>
+          <p className="text-caption row-muted truncate">{fumen.artist}</p>
         )}
       </td>
 
-      {/* Lamp: prev → new */}
-      <td className="px-3 py-2 align-top">
+      {/* Lamp */}
+      <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
         {fumen.clear ? (
-          <div className="flex items-center gap-1 whitespace-nowrap">
-            <span className="text-[10px] text-muted-foreground">
-              {CLEAR_TYPE_LABELS_SIMPLE[fumen.clear.prev ?? 0] ?? "?"}
-            </span>
-            <span className="text-[10px] text-muted-foreground">→</span>
-            {clearBadge(fumen.clear.new, fumen.client_type)}
-          </div>
-        ) : (
-          <span className="text-xs text-muted-foreground">—</span>
-        )}
-      </td>
-
-      {/* Score: prev → new */}
-      <td className="px-3 py-2 text-right font-mono align-top whitespace-nowrap">
-        {fumen.score ? (
-          <span className="text-xs text-muted-foreground">
-            {fumen.score.prev ?? "?"}{" "}
-            <span className="text-foreground font-bold">→ {fumen.score.new ?? "?"}</span>
+          <span>
+            <span className="opacity-70">{CLEAR_TYPE_LABELS_SIMPLE[fumen.clear.prev ?? 0] ?? "?"}</span>
+            <span className="opacity-70"> → </span>
+            <span className="font-semibold">{clearText(fumen.clear.new, fumen.client_type)}</span>
           </span>
+        ) : fumen.currentState?.clear_type != null ? (
+          clearText(fumen.currentState.clear_type, fumen.client_type)
         ) : (
-          <span className="text-xs text-muted-foreground">—</span>
+          <span className="row-muted">—</span>
         )}
       </td>
 
-      {/* Rank: prev → new */}
-      <td className="px-3 py-2 text-center font-mono align-top whitespace-nowrap">
+      {/* BP */}
+      <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
+        {fumen.bp?.prev != null ? (
+          <span>
+            <span className="opacity-70">{fumen.bp.prev} →</span>
+            <span className="font-semibold">{fumen.bp.new ?? "?"}</span>
+            {fumen.bp.new != null && fumen.bp.prev - fumen.bp.new > 0 && (
+              <span className="text-label font-bold opacity-75"> ▼{fumen.bp.prev - fumen.bp.new}</span>
+            )}
+          </span>
+        ) : fumen.bp?.new != null ? (
+          <span>{fumen.bp.new}</span>
+        ) : fumen.currentState?.min_bp != null ? (
+          <span>{fumen.currentState.min_bp}</span>
+        ) : (
+          <span className="row-muted">—</span>
+        )}
+      </td>
+
+      {/* Rate */}
+      <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
+        {fumen.rate?.prev != null ? (
+          <span>
+            <span className="opacity-70">{fumen.rate.prev.toFixed(1)}% →</span>
+            <span className="font-semibold">{fumen.rate.new?.toFixed(1) ?? "?"}%</span>
+            {fumen.rate.new != null && fumen.rate.new - fumen.rate.prev > 0 && (
+              <span className="text-label font-bold opacity-75"> ▲{(fumen.rate.new - fumen.rate.prev).toFixed(1)}</span>
+            )}
+          </span>
+        ) : fumen.rate?.new != null ? (
+          <span>{fumen.rate.new.toFixed(1)}%</span>
+        ) : rateLabel ? (
+          <span>{rateLabel}</span>
+        ) : (
+          <span className="row-muted">—</span>
+        )}
+      </td>
+
+      {/* Rank */}
+      <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
         {fumen.score?.new_rank ? (
-          <span className="text-xs text-muted-foreground">
-            {fumen.score.prev_rank ?? "?"}
-            {" → "}
-            <span className="text-foreground">{fumen.score.new_rank}</span>
-          </span>
-        ) : (
-          <span className="text-xs text-muted-foreground">—</span>
-        )}
-      </td>
-
-      {/* BP: prev → new (or just current best when no improvement) */}
-      <td className="px-3 py-2 text-right font-mono align-top whitespace-nowrap">
-        {fumen.bp ? (
-          fumen.bp.prev != null ? (
-            <span className="text-xs text-muted-foreground">
-              {fumen.bp.prev}{" "}
-              <span className="text-foreground">→ {fumen.bp.new ?? "?"}</span>
+          fumen.score.prev_rank ? (
+            <span>
+              <span className="opacity-70">{fumen.score.prev_rank} → </span>
+              <span className="font-semibold">{fumen.score.new_rank}</span>
             </span>
           ) : (
-            <span className="text-xs text-foreground">{fumen.bp.new}</span>
+            <span>{fumen.score.new_rank}</span>
           )
+        ) : fumen.currentState?.rank ? (
+          <span>{fumen.currentState.rank}</span>
         ) : (
-          <span className="text-xs text-muted-foreground">—</span>
+          <span className="row-muted">—</span>
         )}
       </td>
 
-      {/* Combo: prev → new */}
-      <td className="px-3 py-2 text-right font-mono align-top whitespace-nowrap">
-        {fumen.combo ? (
-          <span className="text-xs text-muted-foreground">
-            {fumen.combo.prev ?? "?"}{" "}
-            <span className="text-foreground">→ {fumen.combo.new ?? "?"}</span>
+      {/* Score */}
+      <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
+        {fumen.score?.prev != null ? (
+          <span>
+            <span className="opacity-70">{fumen.score.prev} →</span>
+            <span className="font-semibold">{fumen.score.new ?? "–"}</span>
+            {scoreDiff != null && scoreDiff > 0 && (
+              <span className="text-label font-bold opacity-75"> ▲{scoreDiff}</span>
+            )}
           </span>
+        ) : fumen.score?.new != null ? (
+          <span>{fumen.score.new}</span>
+        ) : fumen.currentState?.exscore != null ? (
+          <span>{fumen.currentState.exscore}</span>
         ) : (
-          <span className="text-xs text-muted-foreground">—</span>
+          <span className="row-muted">—</span>
         )}
       </td>
 
-      {/* Client */}
-      <td className="px-3 py-2 text-center align-top">
-        <span className="text-[10px] font-mono px-1 py-0.5 rounded border border-border/60 text-muted-foreground">
-          {fumen.client_types.size > 1
-            ? "MIX"
-            : fumen.client_type === "lr2"
-            ? "LR"
-            : fumen.client_type === "beatoraja"
-            ? "BR"
-            : fumen.client_type}
-        </span>
+      {/* Plays */}
+      <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
+        {fumen.playCount?.prev != null ? (
+          <span>
+            <span className="opacity-70">{fumen.playCount.prev} →</span>
+            <span className="font-semibold">{fumen.playCount.new ?? "–"}</span>
+            {fumen.playCount.new != null && fumen.playCount.new - fumen.playCount.prev > 0 && (
+              <span className="text-label font-bold opacity-75"> ▲{fumen.playCount.new - fumen.playCount.prev}</span>
+            )}
+          </span>
+        ) : fumen.playCount?.new != null ? (
+          <span>{fumen.playCount.new}</span>
+        ) : (
+          <span className="row-muted">—</span>
+        )}
+      </td>
+
+      {/* Option */}
+      <td className="px-2 py-2 align-top text-label">
+        {optionLabel ? (
+          <span>{optionLabel}</span>
+        ) : (
+          <span className="row-muted">—</span>
+        )}
+      </td>
+
+      {/* Env (client) */}
+      <td className="px-2 py-2 align-top text-label">
+        {clientLabel}
       </td>
     </tr>
   );
 }
 
+type FumenSortKey = "recorded_at" | "level" | "title" | "lamp" | "score" | "bp" | "rate" | "rank" | "plays" | "option" | "env";
+
 function FumenTab({ data }: { data: ScoreUpdatesResponse }) {
-  const fumens = useMemo(() => buildMergedFumens(data), [data]);
+  const [sortKey, setSortKey] = useState<FumenSortKey>("level");
+  const [sortAsc, setSortAsc] = useState(true);
+
+  const baseFumens = useMemo(() => buildMergedFumens(data), [data]);
   const mergedCourses = useMemo(() => buildMergedCourses(data), [data]);
+
+  const fumens = useMemo(() => {
+    const sorted = [...baseFumens].sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case "recorded_at":
+          cmp = (a.recorded_at ?? "").localeCompare(b.recorded_at ?? "");
+          break;
+        case "level":
+          cmp = compareByTableLevels(a.table_levels, b.table_levels);
+          break;
+        case "title":
+          cmp = compareTitles(a.title ?? "", b.title ?? "");
+          break;
+        case "lamp":
+          cmp = ((a.clear?.new ?? a.currentState?.clear_type ?? -1)) - ((b.clear?.new ?? b.currentState?.clear_type ?? -1));
+          break;
+        case "score":
+          cmp = ((a.score?.new ?? a.currentState?.exscore ?? -1)) - ((b.score?.new ?? b.currentState?.exscore ?? -1));
+          break;
+        case "bp":
+          cmp = ((a.currentState?.min_bp ?? 99999)) - ((b.currentState?.min_bp ?? 99999));
+          break;
+        case "rank": {
+          const ra = RANK_SORT_ORDER[a.score?.new_rank ?? a.currentState?.rank ?? "F"] ?? 99;
+          const rb = RANK_SORT_ORDER[b.score?.new_rank ?? b.currentState?.rank ?? "F"] ?? 99;
+          cmp = ra - rb;
+          break;
+        }
+        case "rate":
+          cmp = (a.currentState?.rate ?? -1) - (b.currentState?.rate ?? -1);
+          break;
+        case "plays":
+          cmp = (a.playCount?.new ?? -1) - (b.playCount?.new ?? -1);
+          break;
+        case "option":
+          cmp = (parseArrangement(a.options, a.client_type) ?? "").localeCompare(
+            parseArrangement(b.options, b.client_type) ?? ""
+          );
+          break;
+        case "env":
+          cmp = a.client_type.localeCompare(b.client_type);
+          break;
+      }
+      return sortAsc ? cmp : -cmp;
+    });
+    return sorted;
+  }, [baseFumens, sortKey, sortAsc]);
+
+  const toggleSort = (key: FumenSortKey) => {
+    if (sortKey === key) setSortAsc((v: boolean) => !v);
+    else { setSortKey(key); setSortAsc(false); }
+  };
+
+  const thClass = (key: FumenSortKey, center = false) =>
+    cn(
+      "px-2 py-2 font-medium select-none whitespace-nowrap cursor-pointer hover:text-foreground transition-colors",
+      center ? "text-center" : "text-left",
+    );
+
+  const sortIcon = (colKey: FumenSortKey) => {
+    if (sortKey === colKey) {
+      return <span className="ml-1">{sortAsc ? "↑" : "↓"}</span>;
+    }
+    return <span className="ml-1 text-muted-foreground/35">⇅</span>;
+  };
 
   const empty = mergedCourses.length === 0 && fumens.length === 0;
 
   if (empty) {
     return (
-      <p className="text-sm text-muted-foreground text-center py-8">
+      <p className="text-body text-muted-foreground text-center py-8">
         기록 갱신 데이터가 없습니다.
       </p>
     );
@@ -815,10 +811,9 @@ function FumenTab({ data }: { data: ScoreUpdatesResponse }) {
 
   return (
     <div className="space-y-4">
-      {/* Course records */}
       {mergedCourses.length > 0 && (
         <div className="border border-border/40 rounded-lg p-3">
-          <p className="text-xs font-semibold text-muted-foreground mb-2">
+          <p className="text-label font-semibold text-muted-foreground mb-2">
             Course Records ({mergedCourses.length})
           </p>
           {mergedCourses.map((c, i) => (
@@ -827,37 +822,34 @@ function FumenTab({ data }: { data: ScoreUpdatesResponse }) {
         </div>
       )}
 
-      {/* Fumen table */}
       {fumens.length > 0 && (
         <div className="border border-border/40 rounded-lg overflow-hidden">
           <div className="overflow-auto max-h-[480px]">
-            <table className="w-full text-xs min-w-[640px]">
-              <thead className="sticky top-0 z-10 bg-card border-b border-border/50">
+            <table className="w-full text-label min-w-[760px]">
+              <colgroup>
+                <col style={{ width: "100px" }} />
+                <col />
+                <col style={{ width: "140px" }} />
+                <col style={{ width: "100px" }} />
+                <col style={{ width: "120px" }} />
+                <col style={{ width: "90px" }} />
+                <col style={{ width: "120px" }} />
+                <col style={{ width: "90px" }} />
+                <col style={{ width: "50px" }} />
+                <col style={{ width: "50px" }} />
+              </colgroup>
+              <thead className="sticky top-0 z-10 bg-background text-foreground border-b border-border/50">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium text-muted-foreground select-none whitespace-nowrap">
-                    Level
-                  </th>
-                  <th className="px-3 py-2 text-left font-medium text-muted-foreground select-none">
-                    Title
-                  </th>
-                  <th className="px-3 py-2 text-left font-medium text-muted-foreground select-none whitespace-nowrap">
-                    Lamp
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium text-muted-foreground select-none">
-                    Score
-                  </th>
-                  <th className="px-3 py-2 text-center font-medium text-muted-foreground select-none">
-                    Rank
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium text-muted-foreground select-none">
-                    BP
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium text-muted-foreground select-none">
-                    Combo
-                  </th>
-                  <th className="px-3 py-2 text-center font-medium text-muted-foreground select-none">
-                    Client
-                  </th>
+                  <th className={thClass("level")} onClick={() => toggleSort("level")}>Level{sortIcon("level")}</th>
+                  <th className={thClass("title")} onClick={() => toggleSort("title")}>Title{sortIcon("title")}</th>
+                  <th className={thClass("lamp", true)} onClick={() => toggleSort("lamp")}>Lamp{sortIcon("lamp")}</th>
+                  <th className={thClass("bp", true)} onClick={() => toggleSort("bp")}>BP{sortIcon("bp")}</th>
+                  <th className={thClass("rate", true)} onClick={() => toggleSort("rate")}>Rate{sortIcon("rate")}</th>
+                  <th className={thClass("rank", true)} onClick={() => toggleSort("rank")}>Rank{sortIcon("rank")}</th>
+                  <th className={thClass("score", true)} onClick={() => toggleSort("score")}>Score{sortIcon("score")}</th>
+                  <th className={thClass("plays", true)} onClick={() => toggleSort("plays")}>Plays{sortIcon("plays")}</th>
+                  <th className={thClass("option")} onClick={() => toggleSort("option")}>Option{sortIcon("option")}</th>
+                  <th className={thClass("env")} onClick={() => toggleSort("env")}>Env{sortIcon("env")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/30">
@@ -881,14 +873,9 @@ interface ScoreUpdatesProps {
   limit?: number;
 }
 
-const TAB_DESCRIPTIONS: Record<string, string> = {
-  category: "카테고리 기준으로 표시",
-  fumen: "차분 기준으로 표시",
-};
-
 export function ScoreUpdates({ clientType, date, limit = 50 }: ScoreUpdatesProps) {
   const { data, isLoading } = useScoreUpdates(clientType, date, limit);
-  const [activeTab, setActiveTab] = useState<"category" | "fumen">("category");
+  const [viewMode, setViewMode] = useState<"summary" | "all">("summary");
 
   return (
     <Card>
@@ -909,22 +896,19 @@ export function ScoreUpdates({ clientType, date, limit = 50 }: ScoreUpdatesProps
 
         {!isLoading && data && (
           <Tabs
-            value={activeTab}
-            onValueChange={(v) => setActiveTab(v as "category" | "fumen")}
+            value={viewMode}
+            onValueChange={(v) => setViewMode(v as "summary" | "all")}
           >
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex justify-center mb-4">
               <TabsList>
-                <TabsTrigger value="category">카테고리</TabsTrigger>
-                <TabsTrigger value="fumen">차분</TabsTrigger>
+                <TabsTrigger value="summary">요약</TabsTrigger>
+                <TabsTrigger value="all">전체</TabsTrigger>
               </TabsList>
-              <p className="text-[10px] text-muted-foreground">
-                {TAB_DESCRIPTIONS[activeTab]}
-              </p>
             </div>
-            <TabsContent value="category">
+            <TabsContent value="summary">
               <CategoryTab data={data} />
             </TabsContent>
-            <TabsContent value="fumen">
+            <TabsContent value="all">
               <FumenTab data={data} />
             </TabsContent>
           </Tabs>

@@ -22,7 +22,7 @@ const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function getIntensityClass(value: number, max: number, mode: "updates" | "plays" = "updates"): string {
-  if (value === 0 || max === 0) return "bg-card border border-border/30";
+  if (value === 0 || max === 0) return "bg-border/30";
   const ratio = value / max;
   if (mode === "plays") {
     if (ratio < 0.25) return "bg-[hsl(var(--chart-play)/0.20)]";
@@ -34,6 +34,21 @@ function getIntensityClass(value: number, max: number, mode: "updates" | "plays"
   if (ratio < 0.5)  return "bg-primary/45";
   if (ratio < 0.75) return "bg-primary/70";
   return "bg-primary";
+}
+
+interface CellData {
+  date: string;
+  updates: number;
+  plays: number;
+}
+
+interface ColumnData {
+  cells: (CellData | null)[];
+}
+
+interface MonthGroup {
+  month: number;
+  columns: ColumnData[];
 }
 
 export function ActivityHeatmap({ data, year, firstSyncDates, clientType, courseData, viewMode = "updates" }: ActivityHeatmapProps) {
@@ -61,7 +76,7 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
     return map;
   }, [firstSyncDates, clientType]);
 
-  const { grid, monthLabels, maxValue } = useMemo(() => {
+  const { monthGroups, maxValue } = useMemo(() => {
     const updatesMap: Record<string, number> = {};
     const playsMap: Record<string, number> = {};
     let maxValue = 0;
@@ -72,75 +87,70 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
       if (activeVal > maxValue) maxValue = activeVal;
     }
 
-    // Build a 53-week x 7-day grid starting from Jan 1
     const startDate = new Date(year, 0, 1);
     const startDow = startDate.getDay(); // 0=Sun
 
-    const cells: Array<{ date: string | null; updates: number; plays: number; week: number; dow: number }> = [];
-    const monthLabelWeeks: Array<{ month: number; week: number }> = [];
+    // Initialize 12 month groups
+    const groups: MonthGroup[] = Array.from({ length: 12 }, (_, i) => ({ month: i, columns: [] }));
 
-    let currentMonth = -1;
     for (let week = 0; week < 53; week++) {
+      // Build cells for this week, tracking which month each cell belongs to
+      type WeekCell = (CellData & { month: number }) | null;
+      const weekCells: WeekCell[] = [];
+
       for (let dow = 0; dow < 7; dow++) {
         const dayIndex = week * 7 + dow - startDow;
         if (dayIndex < 0 || dayIndex >= 366) {
-          cells.push({ date: null, updates: 0, plays: 0, week, dow });
+          weekCells.push(null);
           continue;
         }
         const d = new Date(year, 0, 1 + dayIndex);
         if (d.getFullYear() !== year) {
-          cells.push({ date: null, updates: 0, plays: 0, week, dow });
+          weekCells.push(null);
           continue;
         }
         const dateStr = d.toISOString().slice(0, 10);
-        if (d.getMonth() !== currentMonth) {
-          currentMonth = d.getMonth();
-          monthLabelWeeks.push({ month: currentMonth, week });
-        }
-        cells.push({ date: dateStr, updates: updatesMap[dateStr] ?? 0, plays: playsMap[dateStr] ?? 0, week, dow });
+        weekCells.push({
+          date: dateStr,
+          updates: updatesMap[dateStr] ?? 0,
+          plays: playsMap[dateStr] ?? 0,
+          month: d.getMonth(),
+        });
+      }
+
+      // Find unique months present in this week (in order of first appearance)
+      const monthsInWeek = new Set<number>();
+      for (const cell of weekCells) {
+        if (cell !== null) monthsInWeek.add(cell.month);
+      }
+
+      // For each month present, add a column to that month's group
+      // with only that month's cells; other slots become null (transparent)
+      for (const m of monthsInWeek) {
+        const col: ColumnData = {
+          cells: weekCells.map((cell) => {
+            if (cell === null || cell.month !== m) return null;
+            return { date: cell.date, updates: cell.updates, plays: cell.plays };
+          }),
+        };
+        groups[m].columns.push(col);
       }
     }
 
-    return { grid: cells, monthLabels: monthLabelWeeks, maxValue };
+    return { monthGroups: groups, maxValue };
   }, [data, year, viewMode]);
-
-  const rows = useMemo(() => {
-    const r: (typeof grid)[] = Array.from({ length: 7 }, () => []);
-    for (const cell of grid) {
-      r[cell.dow].push(cell);
-    }
-    return r;
-  }, [grid]);
-
-  const totalWeeks = 53;
 
   return (
     <div className="w-full overflow-x-auto">
       <div className="inline-block min-w-max">
-        {/* Month labels */}
-        <div className="ml-8 mb-1">
-          <div style={{ width: totalWeeks * 13 }} className="relative h-4">
-            {monthLabels.map(({ month, week }) => (
-              <span
-                key={month}
-                className="text-[10px] text-muted-foreground absolute top-0"
-                style={{ left: week * 13 }}
-              >
-                {MONTHS[month]}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* Grid */}
         <TooltipProvider delayDuration={200}>
-          <div className="flex gap-0.5">
-            {/* Day labels */}
-            <div className="flex flex-col gap-0.5 mr-1">
+          <div className="flex">
+            {/* Day labels column — padded to align with cells (below month label row) */}
+            <div className="flex flex-col gap-0.5 mr-1" style={{ paddingTop: "20px" }}>
               {DAYS_OF_WEEK.map((d, i) => (
                 <div
                   key={d}
-                  className="text-[10px] text-muted-foreground h-3 leading-3 w-6 text-right pr-1"
+                  className="text-caption text-foreground h-3 leading-3 w-6 text-right pr-1"
                   style={{ visibility: i % 2 === 1 ? "visible" : "hidden" }}
                 >
                   {d}
@@ -148,80 +158,92 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
               ))}
             </div>
 
-            {/* Week columns */}
-            {Array.from({ length: totalWeeks }, (_, week) => (
-              <div key={week} className="flex flex-col gap-0.5">
-                {rows.map((row, dow) => {
-                  const cell = row[week];
-                  if (!cell || cell.date === null) {
-                    return <div key={dow} className="w-3 h-3 rounded-[2px] opacity-0" />;
-                  }
-                  const syncClients = cell.date ? (firstSyncMap[cell.date] ?? []) : [];
-                  const courseInfo = cell.date ? courseMap[cell.date] : undefined;
+            {/* Month groups */}
+            <div className="flex gap-3">
+              {monthGroups.map(({ month, columns }) => (
+                <div key={month}>
+                  {/* Month label — normal flow, always above its own columns */}
+                  <div className="text-caption text-foreground mb-1 h-4 leading-4">
+                    {MONTHS[month]}
+                  </div>
+                  {/* Week columns for this month */}
+                  <div className="flex gap-0.5">
+                    {columns.map((col, ci) => (
+                      <div key={ci} className="flex flex-col gap-0.5">
+                        {col.cells.map((cell, dow) => {
+                          if (cell === null) {
+                            return <div key={dow} className="w-3 h-3 rounded-[2px] opacity-0" />;
+                          }
 
-                  const isFirstSync = syncClients.length > 0;
-                  const activeVal = viewMode === "plays" ? cell.plays : cell.updates;
-                  const cellClass = `w-3 h-3 rounded-[2px] cursor-default transition-opacity hover:opacity-80 ${
-                    isFirstSync
-                      ? "bg-accent border border-accent"
-                      : getIntensityClass(activeVal, maxValue, viewMode)
-                  }`;
-                  const syncLabel = isFirstSync
-                    ? syncClients.map((c) => (c === "lr2" ? "LR2" : "Beatoraja")).join(" + ") + " 첫 동기화"
-                    : null;
+                          const syncClients = firstSyncMap[cell.date] ?? [];
+                          const courseInfo = courseMap[cell.date];
+                          const isFirstSync = syncClients.length > 0;
+                          const activeVal = viewMode === "plays" ? cell.plays : cell.updates;
+                          const cellClass = `w-3 h-3 rounded-[2px] cursor-default transition-opacity hover:opacity-80 ${
+                            isFirstSync
+                              ? "bg-accent border border-accent"
+                              : getIntensityClass(activeVal, maxValue, viewMode)
+                          }`;
+                          const syncLabel = isFirstSync
+                            ? syncClients.map((c) => (c === "lr2" ? "LR2" : "Beatoraja")).join(" + ") + " 첫 동기화"
+                            : null;
 
-                  return (
-                    <Tooltip key={dow}>
-                      <TooltipTrigger asChild>
-                        <div className="relative w-3 h-3">
-                          <div className={cellClass} style={{ width: "100%", height: "100%" }} />
-                          {courseInfo && (
-                            <span
-                              className="absolute bottom-0 right-0 w-1.5 h-1.5 rounded-full border border-background"
-                              style={{
-                                backgroundColor: courseInfo.hasFirstClear
-                                  ? "hsl(var(--accent))"
-                                  : "hsl(var(--accent)/0.7)",
-                              }}
-                            />
-                          )}
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p className="font-medium text-xs">{cell.date}</p>
-                        {syncLabel ? (
-                          <p className="text-xs text-muted-foreground">{syncLabel}</p>
-                        ) : activeVal === 0 && cell.updates === 0 && cell.plays === 0 ? (
-                          <p className="text-xs text-muted-foreground">기록 없음</p>
-                        ) : (
-                          <>
-                            <p className="text-xs" style={{ color: viewMode === "plays" ? "hsl(var(--chart-play))" : "hsl(var(--primary))" }}>
-                              {viewMode === "plays" ? `${cell.plays} 플레이` : `${cell.updates} 기록 갱신`}
-                            </p>
-                            {viewMode === "plays" && cell.updates > 0 && (
-                              <p className="text-xs text-muted-foreground">{cell.updates} 기록 갱신</p>
-                            )}
-                            {viewMode === "updates" && cell.plays > 0 && (
-                              <p className="text-xs text-muted-foreground">{cell.plays} 플레이</p>
-                            )}
-                          </>
-                        )}
-                        {courseInfo && (
-                          <p className="text-xs" style={{ color: "hsl(var(--accent))" }}>
-                            {courseInfo.hasFirstClear ? "★ " : ""}코스 클리어 {courseInfo.count}건
-                          </p>
-                        )}
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-              </div>
-            ))}
+                          return (
+                            <Tooltip key={dow}>
+                              <TooltipTrigger asChild>
+                                <div className="relative w-3 h-3">
+                                  <div className={cellClass} style={{ width: "100%", height: "100%" }} />
+                                  {courseInfo && (
+                                    <span
+                                      className="absolute bottom-0 right-0 w-1.5 h-1.5 rounded-full border border-background"
+                                      style={{
+                                        backgroundColor: courseInfo.hasFirstClear
+                                          ? "hsl(var(--accent))"
+                                          : "hsl(var(--accent)/0.7)",
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="font-medium text-label">{cell.date}</p>
+                                {syncLabel ? (
+                                  <p className="text-label text-muted-foreground">{syncLabel}</p>
+                                ) : activeVal === 0 && cell.updates === 0 && cell.plays === 0 ? (
+                                  <p className="text-label text-muted-foreground">기록 없음</p>
+                                ) : (
+                                  <>
+                                    <p className="text-label" style={{ color: viewMode === "plays" ? "hsl(var(--chart-play))" : "hsl(var(--primary))" }}>
+                                      {viewMode === "plays" ? `${cell.plays} 플레이` : `${cell.updates} 기록 갱신`}
+                                    </p>
+                                    {viewMode === "plays" && cell.updates > 0 && (
+                                      <p className="text-label text-muted-foreground">{cell.updates} 기록 갱신</p>
+                                    )}
+                                    {viewMode === "updates" && cell.plays > 0 && (
+                                      <p className="text-label text-muted-foreground">{cell.plays} 플레이</p>
+                                    )}
+                                  </>
+                                )}
+                                {courseInfo && (
+                                  <p className="text-label" style={{ color: "hsl(var(--accent))" }}>
+                                    {courseInfo.hasFirstClear ? "★ " : ""}코스 클리어 {courseInfo.count}건
+                                  </p>
+                                )}
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </TooltipProvider>
 
         {/* Legend */}
-        <div className="flex items-center gap-3 mt-2 ml-8 text-[10px] text-muted-foreground flex-wrap">
+        <div className="flex items-center gap-3 mt-2 ml-7 text-caption text-muted-foreground flex-wrap">
           <div className="flex items-center gap-1">
             <span>Less</span>
             {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (

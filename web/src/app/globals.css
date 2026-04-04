@@ -56,6 +56,18 @@
 
     /* Activity chart: play count (separate from 기록 갱신) */
     --chart-play: 207 50% 55%;
+
+    /* ── Text size tokens ── */
+    --text-caption: 0.8rem;
+    --text-label:   0.875rem;
+    --text-body:    0.875rem;
+    --text-base:    1rem;
+    --text-lg:      1.125rem;
+    --text-xl:      1.25rem;
+    --text-2xl:     1.5rem;
+    --text-stat:    1.5rem;
+    --text-3xl:     1.875rem;
+    --text-hero:    3rem;
   }
 
   .dark {
@@ -111,6 +123,7 @@
 
     /* Activity chart: play count (separate from 기록 갱신) */
     --chart-play: 207 50% 62%;
+
   }
 }
 
@@ -136,3 +149,219 @@
   fill: hsl(var(--primary)) !important;
   transition: fill 0.15s ease;
 }
+
+/* ── Clear-type row styles ── */
+/* Normal: bright bg + dark text (except NO PLAY). Hover: dark saturated bg + white text. */
+
+.clear-row-0 {
+  background-color: hsl(var(--clear-no-play));
+  color: hsl(210 40% 95%);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.clear-row-0:hover { background-color: hsl(220 20% 18%); color: hsl(210 40% 98%); }
+.clear-row-0 .row-muted { color: hsl(215 20% 58%); }
+.clear-row-0:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
+
+/* FAILED: light mode 45% lightness → white text; dark mode 55% → dark text */
+.clear-row-1 {
+  background-color: hsl(var(--clear-failed));
+  color: hsl(210 40% 95%);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.dark .clear-row-1 { color: hsl(220 20% 9%); }
+.clear-row-1:hover { background-color: hsl(0 0% 40%); color: hsl(210 40% 95%); }
+.clear-row-1 .row-muted { color: rgba(255, 255, 255, 0.6); }
+.dark .clear-row-1 .row-muted { color: rgba(0, 0, 0, 0.55); }
+.clear-row-1:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
+
+.clear-row-2 {
+  background-color: hsl(var(--clear-assist));
+  color: hsl(220 20% 9%);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.clear-row-2:hover { background-color: hsl(274 55% 55%); color: hsl(210 40% 95%); }
+.clear-row-2 .row-muted { color: rgba(0, 0, 0, 0.55); }
+.clear-row-2:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
+
+.clear-row-3 {
+  background-color: hsl(var(--clear-easy));
+  color: hsl(220 20% 9%);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.clear-row-3:hover { background-color: hsl(120 55% 50%); color: hsl(210 40% 95%); }
+.clear-row-3 .row-muted { color: rgba(0, 0, 0, 0.55); }
+.clear-row-3:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
+
+.clear-row-4 {
+  background-color: hsl(var(--clear-normal));
+  color: hsl(220 20% 9%);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.clear-row-4:hover { background-color: hsl(228 55% 50%); color: hsl(210 40% 95%); }
+.clear-row-4 .row-muted { color: rgba(0, 0, 0, 0.55); }
+.clear-row-4:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
+
+.clear-row-5 {
+  background-color: hsl(var(--clear-hard));
+  color: hsl(220 20% 9%);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.clear-row-5:hover { background-color: hsl(8 55% 52%); color: hsl(210 40% 95%); }
+.clear-row-5 .row-muted { color: rgba(0, 0, 0, 0.55); }
+.clear-row-5:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
+
+.clear-row-6 {
+  background-color: hsl(var(--clear-exhard));
+  color: hsl(220 20% 9%);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.clear-row-6:hover { background-color: hsl(46 55% 52%); color: hsl(210 40% 95%); }
+.clear-row-6 .row-muted { color: rgba(0, 0, 0, 0.55); }
+.clear-row-6:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
+
+.clear-row-7 {
+  background-color: hsl(var(--clear-fc));
+  color: hsl(220 20% 9%);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.clear-row-7:hover { background-color: hsl(200 55% 50%); color: hsl(210 40% 95%); }
+.clear-row-7 .row-muted { color: rgba(0, 0, 0, 0.55); }
+.clear-row-7:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
+
+.clear-row-8 {
+  background-color: hsl(var(--clear-perfect));
+  color: hsl(220 20% 9%);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.clear-row-8:hover { background-color: hsl(78 60% 45%); color: hsl(210 40% 95%); }
+.clear-row-8 .row-muted { color: rgba(0, 0, 0, 0.55); }
+.clear-row-8:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
+
+.clear-row-9 {
+  background-color: hsl(var(--clear-max));
+  color: hsl(220 20% 9%);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.clear-row-9:hover { background-color: hsl(330 60% 52%); color: hsl(210 40% 95%); }
+.clear-row-9 .row-muted { color: rgba(0, 0, 0, 0.55); }
+.clear-row-9:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
+
+/* Per-cell clear type coloring (for mixed-color rows). Hover triggers on parent tr:hover. */
+.clear-cell-0 { background-color: hsl(var(--clear-no-play)); color: hsl(210 40% 95%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-0 { background-color: hsl(220 20% 18%); color: hsl(210 40% 98%); }
+
+.clear-cell-1 { background-color: hsl(var(--clear-failed)); color: hsl(210 40% 95%); transition: background-color 0.15s ease, color 0.15s ease; }
+.dark .clear-cell-1 { color: hsl(220 20% 9%); }
+tr:hover .clear-cell-1 { background-color: hsl(0 0% 40%); color: hsl(210 40% 95%); }
+
+.clear-cell-2 { background-color: hsl(var(--clear-assist)); color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-2 { background-color: hsl(274 55% 55%); color: hsl(210 40% 95%); }
+
+.clear-cell-3 { background-color: hsl(var(--clear-easy)); color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-3 { background-color: hsl(120 55% 50%); color: hsl(210 40% 95%); }
+
+.clear-cell-4 { background-color: hsl(var(--clear-normal)); color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-4 { background-color: hsl(228 55% 50%); color: hsl(210 40% 95%); }
+
+.clear-cell-5 { background-color: hsl(var(--clear-hard)); color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-5 { background-color: hsl(8 55% 52%); color: hsl(210 40% 95%); }
+
+.clear-cell-6 { background-color: hsl(var(--clear-exhard)); color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-6 { background-color: hsl(46 55% 52%); color: hsl(210 40% 95%); }
+
+.clear-cell-7 { background-color: hsl(var(--clear-fc)); color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-7 { background-color: hsl(200 55% 50%); color: hsl(210 40% 95%); }
+
+.clear-cell-8 { background-color: hsl(var(--clear-perfect)); color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-8 { background-color: hsl(78 60% 45%); color: hsl(210 40% 95%); }
+
+.clear-cell-9 { background-color: hsl(var(--clear-max)); color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-9 { background-color: hsl(330 60% 52%); color: hsl(210 40% 95%); }
+
+/* Dim variants for prev-clear cells */
+.clear-cell-0-dim { background-color: hsl(var(--clear-no-play) / 0.6); color: hsl(210 40% 85%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-0-dim { background-color: hsl(220 20% 18% / 0.8); color: hsl(210 40% 95%); }
+
+.clear-cell-1-dim { background-color: hsl(var(--clear-failed) / 0.6); color: hsl(210 40% 85%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-1-dim { background-color: hsl(0 0% 40% / 0.8); color: hsl(210 40% 95%); }
+
+.clear-cell-2-dim { background-color: hsl(var(--clear-assist) / 0.6); color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-2-dim { background-color: hsl(274 55% 55% / 0.75); color: hsl(210 40% 95%); }
+
+.clear-cell-3-dim { background-color: hsl(var(--clear-easy) / 0.6); color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-3-dim { background-color: hsl(120 55% 50% / 0.75); color: hsl(210 40% 95%); }
+
+.clear-cell-4-dim { background-color: hsl(var(--clear-normal) / 0.6); color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-4-dim { background-color: hsl(228 55% 50% / 0.75); color: hsl(210 40% 95%); }
+
+.clear-cell-5-dim { background-color: hsl(var(--clear-hard) / 0.6); color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-5-dim { background-color: hsl(8 55% 52% / 0.75); color: hsl(210 40% 95%); }
+
+.clear-cell-6-dim { background-color: hsl(var(--clear-exhard) / 0.6); color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-6-dim { background-color: hsl(46 55% 52% / 0.75); color: hsl(210 40% 95%); }
+
+.clear-cell-7-dim { background-color: hsl(var(--clear-fc) / 0.6); color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-7-dim { background-color: hsl(200 55% 50% / 0.75); color: hsl(210 40% 95%); }
+
+.clear-cell-8-dim { background-color: hsl(var(--clear-perfect) / 0.6); color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-8-dim { background-color: hsl(78 60% 45% / 0.75); color: hsl(210 40% 95%); }
+
+.clear-cell-9-dim { background-color: hsl(var(--clear-max) / 0.6); color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-9-dim { background-color: hsl(330 60% 52% / 0.75); color: hsl(210 40% 95%); }
+
+/* Per-cell rank-based coloring (Score Upgrade section). F=no-play, E=failed, D-B=clear tiers, A/AA/AAA/MAX=score tiers */
+.rank-cell-F   { background-color: hsl(var(--clear-no-play)); color: hsl(210 40% 95%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-F   { background-color: hsl(220 20% 18%); color: hsl(210 40% 98%); }
+
+.rank-cell-E   { background-color: hsl(var(--clear-failed));  color: hsl(210 40% 95%); transition: background-color 0.15s ease, color 0.15s ease; }
+.dark .rank-cell-E { color: hsl(220 20% 9%); }
+tr:hover .rank-cell-E   { background-color: hsl(0 0% 40%);    color: hsl(210 40% 95%); }
+
+.rank-cell-D   { background-color: hsl(var(--clear-assist));  color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-D   { background-color: hsl(274 55% 55%); color: hsl(210 40% 95%); }
+
+.rank-cell-C   { background-color: hsl(var(--clear-easy));    color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-C   { background-color: hsl(120 55% 50%); color: hsl(210 40% 95%); }
+
+.rank-cell-B   { background-color: hsl(var(--clear-normal));  color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-B   { background-color: hsl(228 55% 50%); color: hsl(210 40% 95%); }
+
+.rank-cell-A   { background-color: hsl(27 65% 55%);  color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-A   { background-color: hsl(27 60% 45%);  color: hsl(210 40% 95%); }
+
+.rank-cell-AA  { background-color: hsl(220 15% 72%); color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-AA  { background-color: hsl(220 20% 60%); color: hsl(210 40% 95%); }
+
+.rank-cell-AAA { background-color: hsl(46 80% 60%);  color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-AAA { background-color: hsl(46 70% 50%);  color: hsl(210 40% 95%); }
+
+.rank-cell-MAX { background-color: hsl(330 65% 78%); color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-MAX { background-color: hsl(330 55% 65%); color: hsl(210 40% 95%); }
+
+/* Dim variants — F is already dark/dim, reuse full style */
+.rank-cell-F-dim   { background-color: hsl(var(--clear-no-play)); color: hsl(210 40% 95%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-F-dim   { background-color: hsl(220 20% 18%);       color: hsl(210 40% 98%); }
+
+.rank-cell-E-dim   { background-color: hsl(var(--clear-failed) / 0.6);  color: hsl(210 40% 85%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-E-dim   { background-color: hsl(0 0% 40% / 0.8);    color: hsl(210 40% 95%); }
+
+.rank-cell-D-dim   { background-color: hsl(var(--clear-assist) / 0.6);  color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-D-dim   { background-color: hsl(274 55% 55% / 0.75); color: hsl(210 40% 95%); }
+
+.rank-cell-C-dim   { background-color: hsl(var(--clear-easy) / 0.6);    color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-C-dim   { background-color: hsl(120 55% 50% / 0.75); color: hsl(210 40% 95%); }
+
+.rank-cell-B-dim   { background-color: hsl(var(--clear-normal) / 0.6);  color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-B-dim   { background-color: hsl(228 55% 50% / 0.75); color: hsl(210 40% 95%); }
+
+.rank-cell-A-dim   { background-color: hsl(27 65% 55% / 0.6);  color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-A-dim   { background-color: hsl(27 60% 45% / 0.75);  color: hsl(210 40% 95%); }
+
+.rank-cell-AA-dim  { background-color: hsl(220 15% 72% / 0.6); color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-AA-dim  { background-color: hsl(220 20% 60% / 0.75); color: hsl(210 40% 95%); }
+
+.rank-cell-AAA-dim { background-color: hsl(46 80% 60% / 0.6);  color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-AAA-dim { background-color: hsl(46 70% 50% / 0.75);  color: hsl(210 40% 95%); }
+
+.rank-cell-MAX-dim { background-color: hsl(330 65% 78% / 0.6); color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-MAX-dim { background-color: hsl(330 55% 65% / 0.75); color: hsl(210 40% 95%); }

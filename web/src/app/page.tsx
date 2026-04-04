@@ -37,7 +37,7 @@ export default function HomePage() {
       {/* Hero section */}
       <section className="container mx-auto px-4 pt-16 pb-16 text-center">
         <div className="flex justify-center mb-6">
-          <div className="flex items-center gap-3 bg-primary/10 text-primary px-4 py-2 rounded-full text-sm font-medium">
+          <div className="flex items-center gap-3 bg-primary/10 text-primary px-4 py-2 rounded-full text-body font-medium">
             <Music2 className="h-4 w-4" />
             BMS 유저들만을 위한 성과 관리 사이트
           </div>
@@ -47,7 +47,7 @@ export default function HomePage() {
           <Image src="/ojikbms_logo.png" alt="OJIK BMS" width={128} height={128} />
         </div>
 
-        <h1 className="text-5xl font-bold tracking-tight mb-6">
+        <h1 className="text-hero font-bold tracking-tight mb-6">
           OJIK BMS
         </h1>
         <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10">

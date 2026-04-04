@@ -90,6 +90,9 @@ export interface TableFumenScore {
   /** "LR", "BR", "MIX", or null */
   source_client: string | null;
   source_client_detail: Record<string, string> | null;
+  options: Record<string, unknown> | null;
+  client_type: string | null;
+  play_count: number | null;
 }
 
 export interface UserTag {
@@ -211,7 +214,17 @@ export interface ScoreTrendItem {
 
 export interface TableLevelRef {
   symbol: string;
+  slug: string;
   level: string;
+}
+
+export interface CurrentState {
+  clear_type: number | null;
+  exscore: number | null;
+  rate: number | null;
+  rank: string | null;
+  min_bp: number | null;
+  max_combo: number | null;
 }
 
 /** Common base for all score update items. is_course=true means this is a course record. */
@@ -226,6 +239,8 @@ export interface ScoreUpdateBase {
   is_course: boolean;
   course_name: string | null;
   dan_title: string | null;
+  current_state: CurrentState;
+  options: Record<string, unknown> | null;
 }
 
 export interface ClearTypeUpdateItem extends ScoreUpdateBase {
@@ -239,6 +254,8 @@ export interface ExscoreUpdateItem extends ScoreUpdateBase {
   new_exscore: number | null;
   prev_rank: string | null;
   new_rank: string | null;
+  prev_rate: number | null;
+  new_rate: number | null;
   best_min_bp: number | null;
 }
 

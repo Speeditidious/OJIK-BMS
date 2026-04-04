@@ -76,6 +76,9 @@ class TableFumenScore(BaseModel):
     best_min_bp: int | None
     source_client: str | None          # "LR", "BR", "MIX", or None
     source_client_detail: dict | None  # e.g. {"clear_type": "LR", "exscore": "BR", "min_bp": "BR"}
+    options: dict | None = None
+    client_type: str | None = None
+    play_count: int | None = None
 
 
 class UserTagRead(BaseModel):
@@ -278,7 +281,7 @@ async def get_table_songs(
             score_rows = score_rows_result.scalars().all()
 
             # Per-fumen: accumulate per-field best across ALL rows per client_type
-            # Structure: { fumen_key: { client_type: { "clear_type", "exscore", "rate", "rank", "min_bp" } } }
+            # Structure: { fumen_key: { client_type: { "clear_type", "exscore", "rate", "rank", "min_bp", "options", "play_count" } } }
             per_fumen_client: dict[tuple[str | None, str | None], dict[str, dict[str, Any]]] = {}
             for s in score_rows:
                 # Normalize key: md5-only rows for fumens that have sha256 → use (sha256, None)
@@ -289,28 +292,34 @@ async def get_table_songs(
                 per_client = per_fumen_client.setdefault(key, {})
                 ct = s.client_type
                 if ct not in per_client:
-                    per_client[ct] = {"clear_type": None, "exscore": None, "rate": None, "rank": None, "min_bp": None}
+                    per_client[ct] = {"clear_type": None, "exscore": None, "rate": None, "rank": None, "min_bp": None, "options": None, "play_count": None}
                 entry = per_client[ct]
                 if s.clear_type is not None and (entry["clear_type"] is None or s.clear_type > entry["clear_type"]):
                     entry["clear_type"] = s.clear_type
+                    entry["options"] = s.options
                 if s.exscore is not None and (entry["exscore"] is None or s.exscore > entry["exscore"]):
                     entry["exscore"] = s.exscore
                     entry["rate"] = s.rate
                     entry["rank"] = s.rank
                 if s.min_bp is not None and (entry["min_bp"] is None or s.min_bp < entry["min_bp"]):
                     entry["min_bp"] = s.min_bp
+                if s.play_count is not None:
+                    entry["play_count"] = (entry["play_count"] or 0) + s.play_count
 
             for key, per_client in per_fumen_client.items():
                 raw: dict[str, Any] = {
                     "clear_type": None, "clear_type_client": None,
                     "exscore": None, "rate": None, "rank": None, "exscore_client": None,
                     "min_bp": None, "min_bp_client": None,
+                    "options": None, "best_client_type": None, "play_count": None,
                 }
                 for ct, entry in per_client.items():
                     client_label = _CLIENT_LABEL.get(ct, ct)
                     if entry["clear_type"] is not None and (raw["clear_type"] is None or entry["clear_type"] > raw["clear_type"]):
                         raw["clear_type"] = entry["clear_type"]
                         raw["clear_type_client"] = client_label
+                        raw["options"] = entry["options"]
+                        raw["best_client_type"] = ct
                     if entry["exscore"] is not None and (raw["exscore"] is None or entry["exscore"] > raw["exscore"]):
                         raw["exscore"] = entry["exscore"]
                         raw["rate"] = entry["rate"]
@@ -319,6 +328,7 @@ async def get_table_songs(
                     if entry["min_bp"] is not None and (raw["min_bp"] is None or entry["min_bp"] < raw["min_bp"]):
                         raw["min_bp"] = entry["min_bp"]
                         raw["min_bp_client"] = client_label
+                    raw["play_count"] = (raw["play_count"] or 0) + (entry["play_count"] or 0)
 
                 clients = {
                     v for k, v in raw.items()
@@ -358,6 +368,9 @@ async def get_table_songs(
                     best_min_bp=raw["min_bp"],
                     source_client=source_client,
                     source_client_detail=source_client_detail,
+                    options=raw["options"],
+                    client_type=raw["best_client_type"],
+                    play_count=raw["play_count"] or None,
                 )
 
     # Fetch user tags for logged-in user

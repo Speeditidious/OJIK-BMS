@@ -99,14 +99,14 @@ function TablesContent() {
               <Table2 className="h-16 w-16 opacity-20" />
               <div className="text-center">
                 <p className="font-medium">난이도표를 선택하세요</p>
-                <p className="text-sm mt-1">
+                <p className="text-body mt-1">
                   {allTables.length > 0
                     ? `${allTables.length}개의 난이도표가 있습니다`
                     : "난이도표를 불러오는 중..."}
                 </p>
               </div>
               {!isLoggedIn && (
-                <p className="text-xs">
+                <p className="text-label">
                   로그인하면 즐겨찾기 기능을 사용할 수 있습니다.
                 </p>
               )}
