@@ -1,6 +1,7 @@
 """Fumen (BMS chart) list and detail endpoints."""
 from __future__ import annotations
 
+import logging
 import re
 import uuid as _uuid
 from typing import Any
@@ -19,8 +20,6 @@ from app.core.security import (
 )
 from app.models.fumen import Fumen, UserFumenTag
 from app.models.user import User
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -488,7 +487,7 @@ async def sync_fumen_details(
     update_groups: dict[frozenset, list[tuple[str, str, dict]]] = {}
 
     # ── Step 2: Process items in order (Beatoraja first, then LR2) ──
-    _DIAG_MD5 = "0077fe17f69a9db8922c16ac00df960f"  # DIAGNOSTIC: Born [29Another]
+    _diag_md5 = "0077fe17f69a9db8922c16ac00df960f"  # DIAGNOSTIC: Born [29Another]
     for item in body.items:
         sha256 = item.sha256.lower() if item.sha256 else None
         md5 = item.md5.lower() if item.md5 else None
@@ -506,7 +505,7 @@ async def sync_fumen_details(
             existing = existing_by_md5.get(md5)
             hash_key_type, hash_key_val = "md5", md5
 
-        if md5 == _DIAG_MD5:
+        if md5 == _diag_md5:
             logger.warning(
                 "[DIAG] Born md5=%s sha256=%s | sha256_in_existing_by_sha256=%s "
                 "| md5_in_existing_md5_set=%s | hash_key_type=%r "
@@ -565,7 +564,7 @@ async def sync_fumen_details(
                 if md5 not in existing_by_md5:
                     update_vals["md5"] = md5
 
-            if md5 == _DIAG_MD5:
+            if md5 == _diag_md5:
                 logger.warning("[DIAG] Born update_vals=%s", list(update_vals.keys()))
 
             if update_vals:
