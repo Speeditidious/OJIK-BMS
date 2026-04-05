@@ -143,7 +143,7 @@ async def discord_callback(
         default_tables_result = await db.execute(
             select(DifficultyTable)
             .where(DifficultyTable.is_default.is_(True))
-            .order_by(DifficultyTable.id)
+            .order_by(DifficultyTable.default_order.asc().nulls_last(), DifficultyTable.name)
         )
         for order, table in enumerate(default_tables_result.scalars().all()):
             db.add(UserFavoriteDifficultyTable(user_id=user.id, table_id=table.id, display_order=order))
@@ -172,7 +172,7 @@ async def discord_callback(
             default_tables_result = await db.execute(
                 select(DifficultyTable)
                 .where(DifficultyTable.is_default.is_(True))
-                .order_by(DifficultyTable.id)
+                .order_by(DifficultyTable.default_order.asc().nulls_last(), DifficultyTable.name)
             )
             for order, table in enumerate(default_tables_result.scalars().all()):
                 db.add(UserFavoriteDifficultyTable(user_id=user.id, table_id=table.id, display_order=order))
