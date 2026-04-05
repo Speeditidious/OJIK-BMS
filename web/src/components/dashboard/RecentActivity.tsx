@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState, memo } from "react";
+import { useState, memo } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronUp } from "lucide-react";
-import { useRecentUpdates, RecentUpdate, ClientTypeFilter } from "@/hooks/use-analysis";
+import { ChevronDown, ChevronUp, ChevronRight } from "lucide-react";
+import { useRecentUpdates, RecentUpdate, HeatmapDay, ClientTypeFilter } from "@/hooks/use-analysis";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Tooltip,
@@ -64,57 +64,14 @@ export function clearText(clearType: number | null, clientType: string) {
   );
 }
 
-/** Get YYYY-MM-DD group key from a RecentUpdate entry. */
-function getGroupKey(u: RecentUpdate): string {
-  const ts = u.recorded_at ?? u.synced_at;
-  return ts ? ts.slice(0, 10) : "unknown";
-}
-
-/** Format a YYYY-MM-DD date key as a Korean date label. */
-function formatGroupLabel(dateKey: string): string {
-  if (dateKey === "unknown") return "날짜 미상";
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
-
-  const [, m, d] = dateKey.split("-");
-  const base = `${Number(m)}월 ${Number(d)}일`;
-  if (dateKey === todayStr) return `${base} (오늘)`;
-  if (dateKey === yesterdayStr) return `${base} (어제)`;
-  return base;
-}
-
-function isFirstClear(u: RecentUpdate): boolean {
-  return (u.clear_type ?? 0) >= 3;
-}
-
-function formatElapsed(u: RecentUpdate): string {
-  const ts = u.recorded_at ?? u.synced_at;
-  if (!ts) return "";
-  const diff = Date.now() - new Date(ts).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "방금 전";
-  if (mins < 60) return `${mins}분 전`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}시간 전`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}일 전`;
-  const d = new Date(ts);
-  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
-}
-
 export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
   const [expanded, setExpanded] = useState(false);
-  const labels = getClientLabels(u.client_type);
   const songName =
     u.title ??
     (u.fumen_sha256 ? u.fumen_sha256.slice(0, 8) + "…" : null) ??
     (u.fumen_md5 ? u.fumen_md5.slice(0, 8) + "…" : "(알 수 없음)");
   const rankChanged = u.rank !== null;
-  const firstClear = isFirstClear(u);
-  const elapsed = formatElapsed(u);
+  const firstClear = (u.clear_type ?? 0) >= 3;
 
   return (
     <div
@@ -123,7 +80,6 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-col gap-1 min-w-0">
-          {/* First clear badge + song name + subtitle */}
           <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
             {firstClear && (
               <span
@@ -147,7 +103,6 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
             )}
           </div>
 
-          {/* Difficulty level badges */}
           {u.difficulty_levels.length > 0 && (
             <div className="flex gap-1 flex-wrap">
               {u.difficulty_levels.map(({ symbol, level }, i) => (
@@ -161,7 +116,6 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
             </div>
           )}
 
-          {/* Changes: rank, exscore */}
           <div className="flex gap-2 flex-wrap">
             {rankChanged && (
               <span className="text-caption text-muted-foreground">
@@ -185,13 +139,9 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
               <ChevronDown className="h-3 w-3 text-muted-foreground" />
             )}
           </div>
-          {elapsed && (
-            <span className="text-caption text-muted-foreground">{elapsed}</span>
-          )}
         </div>
       </div>
 
-      {/* Expanded detail */}
       {expanded && (
         <div className="border-t border-border/30 pt-2 mt-2 grid grid-cols-2 gap-x-4 gap-y-1">
           {u.min_bp !== null && (
@@ -239,80 +189,101 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
   );
 });
 
-interface Props {
-  clientType?: ClientTypeFilter;
+// ── Thread row helpers ─────────────────────────────────────────────────────────
+
+function formatDateLabel(dateStr: string): string {
+  const [, m, d] = dateStr.split("-").map(Number);
+  return `${m}월 ${d}일`;
 }
 
-export function RecentActivity({ clientType = "all" }: Props) {
-  const { data, isLoading } = useRecentUpdates(50, clientType);
+function formatRelativeTime(dateStr: string): string {
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
 
-  // Group by date key, preserving order
-  const groups = useMemo(() => {
-    if (!data?.updates.length) return [];
-    const order: string[] = [];
-    const map: Record<string, RecentUpdate[]> = {};
-    for (const u of data.updates) {
-      const key = getGroupKey(u);
-      if (!map[key]) { order.push(key); map[key] = []; }
-      map[key].push(u);
-    }
-    return order.map((key) => ({ key, label: formatGroupLabel(key), items: map[key] }));
-  }, [data]);
+  if (dateStr === todayStr) return "오늘";
+  if (dateStr === yesterdayStr) return "어제";
+
+  const diffMs = today.getTime() - new Date(dateStr + "T00:00:00").getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays < 7) return `${diffDays}일 전`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}주 전`;
+  return `${Math.floor(diffDays / 30)}개월 전`;
+}
+
+// ── Thread row list component ──────────────────────────────────────────────────
+
+const PAGE_SIZE = 30;
+
+interface Props {
+  clientType?: ClientTypeFilter;
+  heatmapData?: HeatmapDay[];
+  onDayClick?: (dateStr: string) => void;
+}
+
+export function RecentActivity({ clientType = "all", heatmapData = [], onDayClick }: Props) {
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  const allDays = heatmapData
+    .filter((d) => d.updates > 0 || d.plays > 0)
+    .slice()
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+
+  const visibleDays = allDays.slice(0, visibleCount);
+  const remaining = allDays.length - visibleCount;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>최근 활동</CardTitle>
-        <CardDescription>최근 스코어 갱신 이력</CardDescription>
+        <CardDescription>날짜를 클릭하면 해당 날의 기록을 확인합니다.</CardDescription>
       </CardHeader>
-      <CardContent>
-        {isLoading && (
-          <div className="space-y-3">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="flex items-center gap-3">
-                <div className="h-4 w-32 bg-muted rounded animate-pulse" />
-                <div className="h-4 w-16 bg-muted rounded animate-pulse" />
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!isLoading && groups.length === 0 && (
-          <div className="flex items-center justify-center h-32 text-muted-foreground text-body">
+      <CardContent className="p-0">
+        {allDays.length === 0 ? (
+          <div className="flex items-center justify-center h-32 text-muted-foreground text-body px-6">
             로컬 에이전트를 설치하고 동기화하면 활동 내역이 표시됩니다.
           </div>
-        )}
-
-        {!isLoading && groups.length > 0 && (
-          <div className="space-y-4">
-            {groups.map(({ key, label, items }) => (
-              <div key={key}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-label font-semibold text-muted-foreground">{label}</span>
-                  <div className="flex items-center gap-1">
-                    {(() => {
-                      const updateCount = items.filter(u => !u.is_stat_only).length;
-                      const playOnlyCount = items.filter(u => u.is_stat_only).length;
-                      return (
-                        <>
-                          <span className="text-caption bg-muted rounded px-1.5 py-0.5" style={{ color: "hsl(var(--primary))" }}>
-                            갱신 {updateCount}건
-                          </span>
-                          {playOnlyCount > 0 && (
-                            <span className="text-caption bg-muted rounded px-1.5 py-0.5" style={{ color: "hsl(var(--chart-play))" }}>
-                              플레이 {playOnlyCount}건
-                            </span>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </div>
+        ) : (
+          <div>
+            {visibleDays.map((day) => (
+              <div
+                key={day.date}
+                className="flex items-center justify-between px-6 py-3 border-b border-border/40 cursor-pointer hover:bg-muted/50 transition-colors"
+                onClick={() => onDayClick?.(day.date)}
+              >
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-label font-semibold">{formatDateLabel(day.date)}</span>
+                  <span className="text-caption text-muted-foreground">{formatRelativeTime(day.date)}</span>
                 </div>
-                <div>
-                  {items.map((u) => <UpdateRow key={u.id} u={u} />)}
+                <div className="flex items-center gap-2">
+                  <span
+                    className="text-caption bg-muted rounded px-1.5 py-0.5"
+                    style={{ color: "hsl(var(--primary))" }}
+                  >
+                    갱신 {day.updates}건
+                  </span>
+                  <span
+                    className="text-caption bg-muted rounded px-1.5 py-0.5"
+                    style={{ color: "hsl(var(--chart-play))" }}
+                  >
+                    플레이 {day.plays}회
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
                 </div>
               </div>
             ))}
+
+            {remaining > 0 && (
+              <div
+                className="flex items-center justify-center gap-2 px-6 py-3 cursor-pointer hover:bg-muted/50 transition-colors text-label text-muted-foreground"
+                onClick={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
+              >
+                <span>더보기 ({remaining}개 남음)</span>
+                <ChevronDown className="h-4 w-4" />
+              </div>
+            )}
           </div>
         )}
       </CardContent>

@@ -81,10 +81,12 @@ function CalendarDayDetail({
   date,
   clientType,
   onBack,
+  backLabel = "캘린더로 돌아가기",
 }: {
   date: string;
   clientType: ClientTypeFilter;
   onBack: () => void;
+  backLabel?: string;
 }) {
   const { data } = useRecentUpdates(1, clientType, date);
   const [y, m, d] = date.split("-").map(Number);
@@ -98,7 +100,7 @@ function CalendarDayDetail({
         onClick={onBack}
       >
         <ChevronLeft className="h-4 w-4" />
-        캘린더로 돌아가기
+        {backLabel}
       </Button>
       <div className="flex items-center gap-2">
         <CalendarDays className="h-5 w-5 text-primary" />
@@ -208,6 +210,14 @@ function DashboardContent() {
     router.push(`/dashboard?tab=calendar`, { scroll: false });
   }
 
+  function handleActivityDayClick(dateStr: string) {
+    router.push(`/dashboard?tab=activity&date=${dateStr}`, { scroll: false });
+  }
+
+  function handleBackToActivity() {
+    router.push(`/dashboard?tab=activity`, { scroll: false });
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -263,89 +273,100 @@ function DashboardContent() {
 
           {/* Tab 2: Activity heatmap + trend chart + recent activity feed */}
           <TabsContent value="activity" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>활동 히트맵</CardTitle>
-                    <CardDescription>연도별로 얼마나 열심히 했는지 한 눈에 확인하세요</CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex gap-0.5">
-                      {(["updates", "plays"] as const).map((v) => (
-                        <Button
-                          key={v}
-                          variant={activityView === v ? "secondary" : "ghost"}
-                          size="sm"
-                          className="text-label h-7 px-2"
-                          onClick={() => setActivityView(v)}
-                        >
-                          {v === "updates" ? "기록 갱신" : "플레이 횟수"}
-                        </Button>
-                      ))}
+            {currentTab === "activity" && selectedDate ? (
+              <CalendarDayDetail
+                date={selectedDate}
+                clientType={clientType}
+                onBack={handleBackToActivity}
+                backLabel="활동 요약으로 돌아가기"
+              />
+            ) : (
+              <>
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle>활동 히트맵</CardTitle>
+                        <CardDescription>연도별로 얼마나 열심히 했는지 한 눈에 확인하세요</CardDescription>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex gap-0.5">
+                          {(["updates", "plays"] as const).map((v) => (
+                            <Button
+                              key={v}
+                              variant={activityView === v ? "secondary" : "ghost"}
+                              size="sm"
+                              className="text-label h-7 px-2"
+                              onClick={() => setActivityView(v)}
+                            >
+                              {v === "updates" ? "기록 갱신" : "플레이 횟수"}
+                            </Button>
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setHeatmapYear((y) => y - 1)}
+                          >
+                            ‹
+                          </Button>
+                          <span className="text-body font-medium w-12 text-center">{heatmapYear}</span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setHeatmapYear((y) => Math.min(y + 1, CURRENT_YEAR))}
+                            disabled={heatmapYear >= CURRENT_YEAR}
+                          >
+                            ›
+                          </Button>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setHeatmapYear((y) => y - 1)}
-                      >
-                        ‹
-                      </Button>
-                      <span className="text-body font-medium w-12 text-center">{heatmapYear}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setHeatmapYear((y) => Math.min(y + 1, CURRENT_YEAR))}
-                        disabled={heatmapYear >= CURRENT_YEAR}
-                      >
-                        ›
-                      </Button>
+                  </CardHeader>
+                  <CardContent>
+                    {heatmapLoading ? (
+                      <div className="h-24 bg-muted rounded animate-pulse" />
+                    ) : (
+                      <ActivityHeatmap data={heatmapData?.data ?? []} year={heatmapYear} firstSyncDates={firstSyncDates} clientType={clientType} courseData={heatmapCourseData ?? []} viewMode={activityView} />
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle>활동 그래프</CardTitle>
+                        <CardDescription>기록 갱신 또는 플레이 횟수 추이를 그래프로 확인하세요</CardDescription>
+                      </div>
+                      <div className="flex gap-1">
+                        {BAR_RANGE_OPTIONS.map((d) => (
+                          <Button
+                            key={d}
+                            variant={barDays === d ? "secondary" : "ghost"}
+                            size="sm"
+                            className="text-label h-7 px-2"
+                            onClick={() => setBarDays(d)}
+                          >
+                            {d}일
+                          </Button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {heatmapLoading ? (
-                  <div className="h-24 bg-muted rounded animate-pulse" />
-                ) : (
-                  <ActivityHeatmap data={heatmapData?.data ?? []} year={heatmapYear} firstSyncDates={firstSyncDates} clientType={clientType} courseData={heatmapCourseData ?? []} viewMode={activityView} />
-                )}
-              </CardContent>
-            </Card>
+                  </CardHeader>
+                  <CardContent>
+                    {barLoading ? (
+                      <div className="h-48 bg-muted rounded animate-pulse" />
+                    ) : (
+                      <ActivityBarChart data={barData?.data ?? []} firstSyncDates={firstSyncDates} clientType={clientType} courseData={barCourseData ?? []} viewMode={activityView} />
+                    )}
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>활동 그래프</CardTitle>
-                    <CardDescription>기록 갱신 또는 플레이 횟수 추이를 그래프로 확인하세요</CardDescription>
-                  </div>
-                  <div className="flex gap-1">
-                    {BAR_RANGE_OPTIONS.map((d) => (
-                      <Button
-                        key={d}
-                        variant={barDays === d ? "secondary" : "ghost"}
-                        size="sm"
-                        className="text-label h-7 px-2"
-                        onClick={() => setBarDays(d)}
-                      >
-                        {d}일
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {barLoading ? (
-                  <div className="h-48 bg-muted rounded animate-pulse" />
-                ) : (
-                  <ActivityBarChart data={barData?.data ?? []} firstSyncDates={firstSyncDates} clientType={clientType} courseData={barCourseData ?? []} viewMode={activityView} />
-                )}
-              </CardContent>
-            </Card>
-
-            <RecentActivity clientType={clientType} />
+                <RecentActivity clientType={clientType} heatmapData={heatmapData?.data ?? []} onDayClick={handleActivityDayClick} />
+              </>
+            )}
           </TabsContent>
 
           {/* Tab 3: Monthly calendar */}
@@ -355,6 +376,7 @@ function DashboardContent() {
                 date={selectedDate}
                 clientType={clientType}
                 onBack={handleBackToCalendar}
+                backLabel="캘린더로 돌아가기"
               />
             ) : (
               <Card>
