@@ -20,6 +20,10 @@ from app.core.security import (
 from app.models.fumen import Fumen, UserFumenTag
 from app.models.user import User
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/fumens", tags=["fumens"])
 
 
@@ -484,6 +488,7 @@ async def sync_fumen_details(
     update_groups: dict[frozenset, list[tuple[str, str, dict]]] = {}
 
     # ── Step 2: Process items in order (Beatoraja first, then LR2) ──
+    _DIAG_MD5 = "0077fe17f69a9db8922c16ac00df960f"  # DIAGNOSTIC: Born [29Another]
     for item in body.items:
         sha256 = item.sha256.lower() if item.sha256 else None
         md5 = item.md5.lower() if item.md5 else None
@@ -500,6 +505,19 @@ async def sync_fumen_details(
         elif md5 and md5 in existing_md5_set:
             existing = existing_by_md5.get(md5)
             hash_key_type, hash_key_val = "md5", md5
+
+        if md5 == _DIAG_MD5:
+            logger.warning(
+                "[DIAG] Born md5=%s sha256=%s | sha256_in_existing_by_sha256=%s "
+                "| md5_in_existing_md5_set=%s | hash_key_type=%r "
+                "| existing_sha256=%r | client_type=%s",
+                md5, sha256,
+                sha256 in existing_by_sha256 if sha256 else "N/A",
+                md5 in existing_md5_set,
+                hash_key_type,
+                existing.sha256 if existing is not None else "NO_EXISTING_ROW",
+                item.client_type,
+            )
         elif sha256 and sha256 in inserted_sha256s:
             # Intra-batch dedup: already inserted by Beatoraja in this request — not a
             # pre-existing DB row, so don't count as skipped.
@@ -546,6 +564,9 @@ async def sync_fumen_details(
             if hash_key_type == "sha256" and md5 and existing.md5 is None:
                 if md5 not in existing_by_md5:
                     update_vals["md5"] = md5
+
+            if md5 == _DIAG_MD5:
+                logger.warning("[DIAG] Born update_vals=%s", list(update_vals.keys()))
 
             if update_vals:
                 cols_key = frozenset(update_vals.keys())
