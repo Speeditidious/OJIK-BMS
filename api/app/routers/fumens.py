@@ -351,6 +351,8 @@ async def get_known_hashes(
         *[getattr(Fumen, col).isnot(None) for col in _DETAIL_COLS],
         Fumen.title.isnot(None),
         Fumen.artist.isnot(None),
+        Fumen.sha256.isnot(None),
+        Fumen.md5.isnot(None),
     )
 
     result = await db.execute(
@@ -533,6 +535,17 @@ async def sync_fumen_details(
                 new_val = getattr(item, col)
                 if current_val is None and new_val is not None:
                     update_vals[col] = new_val
+
+            # Hash supplementation: fill in missing sha256/md5 from client data.
+            # Only supplement the hash that was NOT used for matching (to avoid overwriting
+            # the key we matched on), and only if the target hash is currently NULL.
+            if hash_key_type == "md5" and sha256 and existing.sha256 is None:
+                # Collision check: ensure this sha256 isn't already used by another row.
+                if sha256 not in existing_by_sha256:
+                    update_vals["sha256"] = sha256
+            if hash_key_type == "sha256" and md5 and existing.md5 is None:
+                if md5 not in existing_by_md5:
+                    update_vals["md5"] = md5
 
             if update_vals:
                 cols_key = frozenset(update_vals.keys())
