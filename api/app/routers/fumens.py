@@ -192,10 +192,11 @@ async def supplement_fumen_hashes(
         return list(seen.values())
 
     # ── Fetch md5-only rows that need a sha256 ──
+    # Match rows where sha256 is absent: NULL or empty string (legacy data may store '').
     result = await db.execute(
         select(Fumen.md5, Fumen.table_entries).where(
             Fumen.md5 == sa.func.any(sa.cast(sa.literal(all_md5s, sa.ARRAY(sa.String)), sa.ARRAY(sa.String))),
-            Fumen.sha256.is_(None),
+            sa.or_(Fumen.sha256.is_(None), Fumen.sha256 == ""),
         )
     )
     md5_only_rows: dict[str, list | None] = {row.md5: row.table_entries for row in result.all()}
@@ -235,7 +236,7 @@ async def supplement_fumen_hashes(
                     )
                 from sqlalchemy import delete as sa_delete
                 await db.execute(
-                    sa_delete(Fumen).where(Fumen.md5 == md5, Fumen.sha256.is_(None))
+                    sa_delete(Fumen).where(Fumen.md5 == md5, sa.or_(Fumen.sha256.is_(None), Fumen.sha256 == ""))
                 )
                 supplemented += 1
                 newly_supplemented_md5s.add(md5)
@@ -252,7 +253,7 @@ async def supplement_fumen_hashes(
                 update(Fumen)
                 .where(
                     Fumen.md5 == sa.func.any(sa.cast(sa.literal(md5s_to_update, sa.ARRAY(sa.String)), sa.ARRAY(sa.String))),
-                    Fumen.sha256.is_(None),
+                    sa.or_(Fumen.sha256.is_(None), Fumen.sha256 == ""),
                 )
                 .values(sha256=case_expr)
                 .execution_options(synchronize_session=False)
@@ -354,8 +355,8 @@ async def get_known_hashes(
         *[getattr(Fumen, col).isnot(None) for col in _DETAIL_COLS],
         Fumen.title.isnot(None),
         Fumen.artist.isnot(None),
-        Fumen.sha256.isnot(None),
-        Fumen.md5.isnot(None),
+        Fumen.sha256.isnot(None), Fumen.sha256 != "",
+        Fumen.md5.isnot(None), Fumen.md5 != "",
     )
 
     result = await db.execute(
@@ -487,7 +488,6 @@ async def sync_fumen_details(
     update_groups: dict[frozenset, list[tuple[str, str, dict]]] = {}
 
     # ── Step 2: Process items in order (Beatoraja first, then LR2) ──
-    _diag_md5 = "0077fe17f69a9db8922c16ac00df960f"  # DIAGNOSTIC: Born [29Another]
     for item in body.items:
         sha256 = item.sha256.lower() if item.sha256 else None
         md5 = item.md5.lower() if item.md5 else None
@@ -504,19 +504,6 @@ async def sync_fumen_details(
         elif md5 and md5 in existing_md5_set:
             existing = existing_by_md5.get(md5)
             hash_key_type, hash_key_val = "md5", md5
-
-        if md5 == _diag_md5:
-            logger.warning(
-                "[DIAG] Born md5=%s sha256=%s | sha256_in_existing_by_sha256=%s "
-                "| md5_in_existing_md5_set=%s | hash_key_type=%r "
-                "| existing_sha256=%r | client_type=%s",
-                md5, sha256,
-                sha256 in existing_by_sha256 if sha256 else "N/A",
-                md5 in existing_md5_set,
-                hash_key_type,
-                existing.sha256 if existing is not None else "NO_EXISTING_ROW",
-                item.client_type,
-            )
         elif sha256 and sha256 in inserted_sha256s:
             # Intra-batch dedup: already inserted by Beatoraja in this request — not a
             # pre-existing DB row, so don't count as skipped.
@@ -556,16 +543,14 @@ async def sync_fumen_details(
             # Hash supplementation: fill in missing sha256/md5 from client data.
             # Only supplement the hash that was NOT used for matching (to avoid overwriting
             # the key we matched on), and only if the target hash is currently NULL.
-            if hash_key_type == "md5" and sha256 and existing.sha256 is None:
+            # Use `not existing.sha256` to catch both NULL and empty string (legacy data).
+            if hash_key_type == "md5" and sha256 and not existing.sha256:
                 # Collision check: ensure this sha256 isn't already used by another row.
                 if sha256 not in existing_by_sha256:
                     update_vals["sha256"] = sha256
-            if hash_key_type == "sha256" and md5 and existing.md5 is None:
+            if hash_key_type == "sha256" and md5 and not existing.md5:
                 if md5 not in existing_by_md5:
                     update_vals["md5"] = md5
-
-            if md5 == _diag_md5:
-                logger.warning("[DIAG] Born update_vals=%s", list(update_vals.keys()))
 
             if update_vals:
                 cols_key = frozenset(update_vals.keys())
