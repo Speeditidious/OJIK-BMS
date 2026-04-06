@@ -134,3 +134,18 @@ def update_last_synced_at() -> None:
     config = load_config()
     config["last_synced_at"] = datetime.now().isoformat()
     save_config(config)
+
+
+def save_refresh_token_expire_days(days: int) -> None:
+    """Persist the refresh token expiry duration (in days) to local config."""
+    config = load_config()
+    config["refresh_token_expire_days"] = days
+    save_config(config)
+
+
+def get_refresh_token_expire_days() -> int:
+    """Return the stored refresh token expiry duration in days.
+
+    Falls back to 30 if not yet stored (first login before this feature was added).
+    """
+    return load_config().get("refresh_token_expire_days", 30)

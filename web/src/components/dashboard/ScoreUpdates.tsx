@@ -17,7 +17,7 @@ import type {
 import { clearText } from "@/components/dashboard/RecentActivity";
 import type { ClientTypeFilter } from "@/hooks/use-analysis";
 import { useScoreUpdates } from "@/hooks/use-analysis";
-import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement } from "@/lib/fumen-table-utils";
+import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, makeTableCopyHandler } from "@/lib/fumen-table-utils";
 import { compareTitles } from "@/lib/bms-sort";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -145,6 +145,9 @@ function CourseUpdateRow({ item }: { item: MergedCourseUpdate }) {
 
 // ── Shared section table wrapper ───────────────────────────────────────────────
 
+const handleSectionTableCopy = makeTableCopyHandler(3, "tbody tr"); // col 0=Prev, 1=Current, 2=Level, 3=Title/Artist
+const handleFumenTableCopy = makeTableCopyHandler(1, "tbody tr");   // col 0=Level, 1=Title/Artist
+
 function SectionTable({
   title,
   count,
@@ -167,7 +170,7 @@ function SectionTable({
         </p>
       </div>
       <div className="overflow-auto">
-        <table className="w-full table-fixed text-label">
+        <table className="w-full table-fixed text-label" onCopy={handleSectionTableCopy}>
           <colgroup>
             {colWidths.map((w, i) => (
               <col key={i} style={w ? { width: w } : undefined} />
@@ -205,20 +208,20 @@ function LampUpgradeRow({ item }: { item: ClearTypeUpdateItem }) {
       <td className={cn("px-2 py-2", newCls)}>
         <TableLevelBadges levels={item.table_levels} />
       </td>
-      <td className={cn("px-2 py-2", newCls)}>
-        {(item.fumen_sha256 || item.fumen_md5) ? (
-          <Link
-            href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
-            className="text-label truncate hover:text-primary transition-colors block"
-          >
-            {item.title ?? "(알 수 없음)"}
-          </Link>
-        ) : (
-          <p className="text-label truncate">{item.title ?? "(알 수 없음)"}</p>
-        )}
-        {item.artist && (
-          <p className="text-caption truncate opacity-70">{item.artist}</p>
-        )}
+      <td className={cn("px-2 py-2", newCls)} data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
+        <div className="max-w-full truncate">
+          {(item.fumen_sha256 || item.fumen_md5) ? (
+            <Link
+              href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
+              className="text-label hover:text-primary transition-colors"
+            >
+              {item.title ?? "(알 수 없음)"}
+            </Link>
+          ) : (
+            <span className="text-label">{item.title ?? "(알 수 없음)"}</span>
+          )}
+        </div>
+        {item.artist && <div className="text-caption max-w-full truncate opacity-70">{item.artist}</div>}
       </td>
     </tr>
   );
@@ -258,20 +261,20 @@ function ScoreUpgradeRow({ item }: { item: ExscoreUpdateItem }) {
       <td className={cn("px-2 py-2", newCls)}>
         <TableLevelBadges levels={item.table_levels} />
       </td>
-      <td className={cn("px-2 py-2", newCls)}>
-        {(item.fumen_sha256 || item.fumen_md5) ? (
-          <Link
-            href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
-            className="text-label truncate hover:text-primary transition-colors block"
-          >
-            {item.title ?? "(알 수 없음)"}
-          </Link>
-        ) : (
-          <p className="text-label truncate">{item.title ?? "(알 수 없음)"}</p>
-        )}
-        {item.artist && (
-          <p className="text-caption truncate opacity-70">{item.artist}</p>
-        )}
+      <td className={cn("px-2 py-2", newCls)} data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
+        <div className="max-w-full truncate">
+          {(item.fumen_sha256 || item.fumen_md5) ? (
+            <Link
+              href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
+              className="text-label hover:text-primary transition-colors"
+            >
+              {item.title ?? "(알 수 없음)"}
+            </Link>
+          ) : (
+            <span className="text-label">{item.title ?? "(알 수 없음)"}</span>
+          )}
+        </div>
+        {item.artist && <div className="text-caption max-w-full truncate opacity-70">{item.artist}</div>}
       </td>
     </tr>
   );
@@ -302,20 +305,20 @@ function BPUpgradeRow({ item }: { item: MinBPUpdateItem }) {
       <td className="px-2 py-2">
         <TableLevelBadges levels={item.table_levels} />
       </td>
-      <td className="px-2 py-2">
-        {(item.fumen_sha256 || item.fumen_md5) ? (
-          <Link
-            href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
-            className="text-label truncate hover:text-primary transition-colors block"
-          >
-            {item.title ?? "(알 수 없음)"}
-          </Link>
-        ) : (
-          <p className="text-label truncate">{item.title ?? "(알 수 없음)"}</p>
-        )}
-        {item.artist && (
-          <p className="text-caption text-muted-foreground truncate opacity-70">{item.artist}</p>
-        )}
+      <td className="px-2 py-2" data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
+        <div className="max-w-full truncate">
+          {(item.fumen_sha256 || item.fumen_md5) ? (
+            <Link
+              href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
+              className="text-label hover:text-primary transition-colors"
+            >
+              {item.title ?? "(알 수 없음)"}
+            </Link>
+          ) : (
+            <span className="text-label">{item.title ?? "(알 수 없음)"}</span>
+          )}
+        </div>
+        {item.artist && <div className="text-caption text-muted-foreground max-w-full truncate opacity-70">{item.artist}</div>}
       </td>
     </tr>
   );
@@ -346,20 +349,20 @@ function ComboUpgradeRow({ item }: { item: MaxComboUpdateItem }) {
       <td className="px-2 py-2">
         <TableLevelBadges levels={item.table_levels} />
       </td>
-      <td className="px-2 py-2">
-        {(item.fumen_sha256 || item.fumen_md5) ? (
-          <Link
-            href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
-            className="text-label truncate hover:text-primary transition-colors block"
-          >
-            {item.title ?? "(알 수 없음)"}
-          </Link>
-        ) : (
-          <p className="text-label truncate">{item.title ?? "(알 수 없음)"}</p>
-        )}
-        {item.artist && (
-          <p className="text-caption text-muted-foreground truncate opacity-70">{item.artist}</p>
-        )}
+      <td className="px-2 py-2" data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
+        <div className="max-w-full truncate">
+          {(item.fumen_sha256 || item.fumen_md5) ? (
+            <Link
+              href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
+              className="text-label hover:text-primary transition-colors"
+            >
+              {item.title ?? "(알 수 없음)"}
+            </Link>
+          ) : (
+            <span className="text-label">{item.title ?? "(알 수 없음)"}</span>
+          )}
+        </div>
+        {item.artist && <div className="text-caption text-muted-foreground max-w-full truncate opacity-70">{item.artist}</div>}
       </td>
     </tr>
   );
@@ -584,20 +587,18 @@ function FumenRow({ fumen }: { fumen: MergedFumenUpdate }) {
       </td>
 
       {/* Title + Artist */}
-      <td className="px-2 py-2 align-top max-w-[220px]">
+      <td className="px-2 py-2 align-top max-w-[220px]" data-title={fumen.title ?? ""} data-artist={fumen.artist ?? ""}>
         {(fumen.sha256 || fumen.md5) ? (
           <Link
             href={`/songs/${fumen.sha256 || fumen.md5}`}
-            className="text-label truncate hover:text-primary transition-colors block"
+            className="text-label inline-block max-w-full truncate hover:text-primary transition-colors"
           >
             {fumen.title ?? "(알 수 없음)"}
           </Link>
         ) : (
-          <p className="text-label truncate">{fumen.title ?? "(알 수 없음)"}</p>
+          <span className="text-label inline-block max-w-full truncate">{fumen.title ?? "(알 수 없음)"}</span>
         )}
-        {fumen.artist && (
-          <p className="text-caption row-muted truncate">{fumen.artist}</p>
-        )}
+        {fumen.artist && <><br /><span className="text-caption row-muted inline-block max-w-full truncate">{fumen.artist}</span></>}
       </td>
 
       {/* Lamp */}
@@ -825,7 +826,7 @@ function FumenTab({ data }: { data: ScoreUpdatesResponse }) {
       {fumens.length > 0 && (
         <div className="border border-border/40 rounded-lg overflow-hidden">
           <div className="overflow-auto max-h-[480px]">
-            <table className="w-full text-label min-w-[760px]">
+            <table className="w-full text-label min-w-[760px]" onCopy={handleFumenTableCopy}>
               <colgroup>
                 <col style={{ width: "100px" }} />
                 <col />

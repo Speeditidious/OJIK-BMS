@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useRef, memo, useCallback, useState } from "react";
+import { useMemo, useRef, memo, useCallback, useState, useEffect } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useVirtualizer, defaultRangeExtractor } from "@tanstack/react-virtual";
 import {
   ExternalLink, Music, Package, FileCode, Youtube, FileSpreadsheet,
 } from "lucide-react";
@@ -13,7 +13,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { compareTitles } from "@/lib/bms-sort";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
-import { CLEAR_ROW_CLASS, parseArrangement, levelSortIndex, ARRANGEMENT_KANJI, exportToExcel } from "@/lib/fumen-table-utils";
+import { CLEAR_ROW_CLASS, parseArrangement, levelSortIndex, ARRANGEMENT_KANJI, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
 import { CLEAR_TYPE_LABELS } from "@/components/charts/ClearDistributionChart";
 import type { DifficultyTableDetail, TableFumen, TableFumenScore } from "@/types";
 import { clearText } from "@/components/dashboard/RecentActivity";
@@ -42,30 +42,30 @@ function SourceClientBadge({ score }: { score: TableFumenScore }) {
   if (source_client !== "MIX" || !source_client_detail) return badge;
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>{badge}</TooltipTrigger>
-        <TooltipContent side="left" className="text-label">
-          <div className="space-y-0.5">
-            {source_client_detail.clear_type && (
-              <div>Lamp: {source_client_detail.clear_type}</div>
-            )}
-            {source_client_detail.exscore && (
-              <div>Score: {source_client_detail.exscore}</div>
-            )}
-            {source_client_detail.min_bp && (
-              <div>BP: {source_client_detail.min_bp}</div>
-            )}
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>{badge}</TooltipTrigger>
+      <TooltipContent side="left" className="text-label">
+        <div className="space-y-0.5">
+          {source_client_detail.clear_type && (
+            <div>Lamp: {source_client_detail.clear_type}</div>
+          )}
+          {source_client_detail.exscore && (
+            <div>Score: {source_client_detail.exscore}</div>
+          )}
+          {source_client_detail.min_bp && (
+            <div>BP: {source_client_detail.min_bp}</div>
+          )}
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
 function songHash(song: TableFumen): string {
   return song.sha256 || song.md5 || "";
 }
+
+const handleTableCopy = makeTableCopyHandler(1); // col 0=Level, col 1=Title/Artist
 
 const RANK_ORDER: Record<string, number> = {
   MAX: 9, AAA: 8, AA: 7, A: 6, B: 5, C: 4, D: 3, E: 2, F: 1,
@@ -316,6 +316,124 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
 
 // --- Virtualized song table ---
 
+interface SongRowProps {
+  song: TableFumen;
+  index: number;
+  tableSymbol: string | undefined;
+  hasUserScores: boolean;
+}
+
+const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores }: SongRowProps) {
+  const s = song.user_score;
+  const hash = songHash(song);
+  const levelLabel = `${tableSymbol ?? ""}${song.level.replace(tableSymbol ?? "", "")}`;
+  const { total: notesTotal, detail: notesDetail } = formatNotes(
+    song.notes_total, song.notes_n, song.notes_ln, song.notes_s, song.notes_ls
+  );
+  const rowClass = CLEAR_ROW_CLASS[s?.best_clear_type ?? 0] ?? "";
+  const arrangement = s ? parseArrangement(s.options, s.client_type) : null;
+  const arrangementLabel = arrangement ? (ARRANGEMENT_KANJI[arrangement] ?? arrangement) : null;
+
+  return (
+    <tr
+      data-index={index}
+      style={{ height: 44 }}
+      className={cn("border-b border-border/30", rowClass || "hover:bg-secondary/50")}
+    >
+      <td className="px-2">
+        <span className="text-label">{levelLabel}</span>
+      </td>
+      <td className="px-2" data-title={song.title ?? ""} data-artist={song.artist ?? ""}>
+        <div className="min-w-0 overflow-hidden">
+          <div className="max-w-full truncate">
+            {hash ? (
+              <Link href={`/songs/${hash}`} className="text-label hover:text-primary transition-colors">
+                {song.title || "(제목 없음)"}
+              </Link>
+            ) : (
+              <span className="text-label">{song.title || "(제목 없음)"}</span>
+            )}
+          </div>
+          {song.artist && <div className="text-caption row-muted max-w-full truncate">{song.artist}</div>}
+          {song.user_tags.length > 0 && (
+            <div className="flex gap-1 flex-wrap">
+              {song.user_tags.map((t) => (
+                <span key={t.id} className="text-caption px-1.5 py-0 rounded-full border border-primary/30 text-primary/80 bg-primary/10">
+                  {t.tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </td>
+      {hasUserScores && (
+        <>
+          <td className="px-2">
+            {s ? clearText(s.best_clear_type, s.source_client ?? "") : <span className="text-label row-muted">-</span>}
+          </td>
+          <td className="px-2 text-label">{s?.best_min_bp ?? <span className="row-muted">—</span>}</td>
+          <td className="px-2 text-label">{s?.rate != null ? `${s.rate.toFixed(2)}%` : <span className="row-muted">—</span>}</td>
+          <td className="px-2 text-label">{s?.rank ?? <span className="row-muted">—</span>}</td>
+          <td className="px-2 text-label">{s?.best_exscore ?? <span className="row-muted">—</span>}</td>
+          <td className="px-2 text-label">{s?.play_count ?? <span className="row-muted">—</span>}</td>
+          <td className="px-2 text-label">{arrangementLabel ?? <span className="row-muted">—</span>}</td>
+          <td className="px-2">
+            {s ? <SourceClientBadge score={s} /> : <span className="text-label row-muted">-</span>}
+          </td>
+        </>
+      )}
+      <td className="px-2 text-label">{formatBpm(song.bpm_main, song.bpm_min, song.bpm_max)}</td>
+      <td className="px-2 text-label">
+        {notesTotal === "-" ? "—" : notesDetail ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-help inline-flex items-center gap-0.5">
+                {notesTotal}
+                <span className="text-caption text-accent/70 leading-none">●</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-label">
+              <div className="space-y-0.5">
+                {notesDetail.split(" ").map((part) => {
+                  const [label, val] = part.split(":");
+                  return (
+                    <div key={label} className="flex gap-2 justify-between">
+                      <span className="text-muted-foreground">{label}</span>
+                      <span>{val}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        ) : notesTotal}
+      </td>
+      <td className="px-2 text-label">{formatLength(song.length)}</td>
+      <td className="px-2 text-center">
+        {song.file_url ? (
+          <a href={song.file_url} target="_blank" rel="noopener noreferrer" className="hover:opacity-70 transition-opacity inline-flex justify-center" title="URL1">
+            <Package className="h-3.5 w-3.5" />
+          </a>
+        ) : <span className="text-muted-foreground/30 text-label">–</span>}
+      </td>
+      <td className="px-2 text-center">
+        {song.file_url_diff ? (
+          <a href={song.file_url_diff} target="_blank" rel="noopener noreferrer" className="hover:opacity-70 transition-opacity inline-flex justify-center" title="URL2">
+            <FileCode className="h-3.5 w-3.5" />
+          </a>
+        ) : <span className="text-muted-foreground/30 text-label">–</span>}
+      </td>
+      <td className="px-2 text-center">
+        {song.youtube_url ? (
+          <a href={song.youtube_url} target="_blank" rel="noopener noreferrer" className="text-red-500 hover:text-red-400 transition-colors inline-flex justify-center" title="Youtube">
+            <Youtube className="h-3.5 w-3.5" />
+          </a>
+        ) : <span className="text-muted-foreground/30 text-label">–</span>}
+      </td>
+    </tr>
+  );
+});
+
 interface SongVirtualListProps {
   songs: TableFumen[];
   table: DifficultyTableDetail;
@@ -351,6 +469,37 @@ const SongVirtualList = memo(function SongVirtualList({
   songs, table, hasUserScores, sortKey, sortDir, onSort,
 }: SongVirtualListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const pinnedRangeRef = useRef<[number, number] | null>(null);
+
+  useEffect(() => {
+    const toRowIndex = (node: Node | null): number | null => {
+      let el = node as HTMLElement | null;
+      while (el && el.tagName !== "TR") el = el.parentElement;
+      const idx = el?.dataset?.index;
+      return idx !== undefined ? Number(idx) : null;
+    };
+    const handleSelectionChange = () => {
+      const sel = document.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) { pinnedRangeRef.current = null; return; }
+      if (!parentRef.current?.contains(sel.anchorNode as Node)) { pinnedRangeRef.current = null; return; }
+      const anchorIdx = toRowIndex(sel.anchorNode);
+      const focusIdx = toRowIndex(sel.focusNode);
+      if (anchorIdx !== null && focusIdx !== null) {
+        pinnedRangeRef.current = [Math.min(anchorIdx, focusIdx), Math.max(anchorIdx, focusIdx)];
+      } else if (anchorIdx !== null) {
+        const prev = pinnedRangeRef.current;
+        const prevEnd = prev ? Math.max(prev[0], prev[1]) : anchorIdx;
+        pinnedRangeRef.current = [Math.min(anchorIdx, prevEnd), Math.max(anchorIdx, prevEnd)];
+      }
+    };
+    const handleMouseUp = () => { pinnedRangeRef.current = null; };
+    document.addEventListener("selectionchange", handleSelectionChange);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("selectionchange", handleSelectionChange);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, []);
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
@@ -358,6 +507,16 @@ const SongVirtualList = memo(function SongVirtualList({
     getScrollElement: () => parentRef.current,
     estimateSize: () => 44,
     overscan: 10,
+    rangeExtractor: (range) => {
+      const normal = defaultRangeExtractor(range);
+      const pinned = pinnedRangeRef.current;
+      if (!pinned) return normal;
+      const [pinStart, pinEnd] = pinned;
+      if (normal.length === 0) return Array.from({ length: pinEnd - pinStart + 1 }, (_, i) => pinStart + i);
+      const mergedStart = Math.min(normal[0], pinStart);
+      const mergedEnd = Math.max(normal[normal.length - 1], pinEnd);
+      return Array.from({ length: mergedEnd - mergedStart + 1 }, (_, i) => mergedStart + i);
+    },
   });
 
   const virtualItems = rowVirtualizer.getVirtualItems();
@@ -368,6 +527,7 @@ const SongVirtualList = memo(function SongVirtualList({
   const colCount = hasUserScores ? 16 : 8;
 
   return (
+    <TooltipProvider>
     <div className="flex flex-col h-full overflow-hidden">
       {/* Export toolbar — above table */}
       <div className="flex items-center justify-between px-4 py-1 border-b shrink-0">
@@ -429,7 +589,7 @@ const SongVirtualList = memo(function SongVirtualList({
         className="flex-1 overflow-y-auto overflow-x-hidden"
         style={{ overscrollBehavior: "contain" }}
       >
-        <table className="w-full border-collapse" style={{ tableLayout: "fixed" }}>
+        <table className="w-full border-collapse" style={{ tableLayout: "fixed" }} onCopy={handleTableCopy}>
           <colgroup>
             <col style={{ width: 62 }} />
             <col />
@@ -482,189 +642,15 @@ const SongVirtualList = memo(function SongVirtualList({
             {paddingTop > 0 && (
               <tr><td colSpan={colCount} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
             )}
-            {virtualItems.map((virtualRow) => {
-              const song = songs[virtualRow.index];
-              const levelLabel = `${table.symbol ?? ""}${song.level.replace(table.symbol ?? "", "")}`;
-              const s = song.user_score;
-              const hash = songHash(song);
-              const { total: notesTotal, detail: notesDetail } = formatNotes(
-                song.notes_total, song.notes_n, song.notes_ln, song.notes_s, song.notes_ls
-              );
-              const rowClass = CLEAR_ROW_CLASS[s?.best_clear_type ?? 0] ?? "";
-              const arrangement = s ? parseArrangement(s.options, s.client_type) : null;
-              const arrangementLabel = arrangement ? (ARRANGEMENT_KANJI[arrangement] ?? arrangement) : null;
-
-              return (
-                <tr
-                  key={virtualRow.key}
-                  style={{ height: virtualRow.size }}
-                  className={cn(
-                    "border-b border-border/30",
-                    rowClass || "hover:bg-secondary/50",
-                  )}
-                >
-                  {/* Level */}
-                  <td className="px-2">
-                    <span className="text-label">{levelLabel}</span>
-                  </td>
-
-                  {/* Title & Artist */}
-                  <td className="px-2">
-                    <div className="min-w-0 overflow-hidden">
-                      {hash ? (
-                        <Link
-                          href={`/songs/${hash}`}
-                          className="text-label truncate hover:text-primary transition-colors block"
-                        >
-                          {song.title || "(제목 없음)"}
-                        </Link>
-                      ) : (
-                        <p className="text-label truncate">{song.title || "(제목 없음)"}</p>
-                      )}
-                      <p className="text-caption row-muted truncate">{song.artist}</p>
-                      {song.user_tags.length > 0 && (
-                        <div className="flex gap-1 flex-wrap">
-                          {song.user_tags.map((t) => (
-                            <span
-                              key={t.id}
-                              className="text-caption px-1.5 py-0 rounded-full border border-primary/30 text-primary/80 bg-primary/10"
-                            >
-                              {t.tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </td>
-
-                  {/* User score columns */}
-                  {hasUserScores && (
-                    <>
-                      <td className="px-2">
-                        {s ? clearText(s.best_clear_type, s.source_client ?? "") : (
-                          <span className="text-label row-muted">-</span>
-                        )}
-                      </td>
-                      <td className="px-2 text-label">
-                        {s?.best_min_bp ?? <span className="row-muted">—</span>}
-                      </td>
-                      <td className="px-2 text-label">
-                        {s?.rate != null ? `${s.rate.toFixed(2)}%` : <span className="row-muted">—</span>}
-                      </td>
-                      <td className="px-2 text-label">
-                        {s?.rank ?? <span className="row-muted">—</span>}
-                      </td>
-                      <td className="px-2 text-label">
-                        {s?.best_exscore ?? <span className="row-muted">—</span>}
-                      </td>
-                      <td className="px-2 text-label">
-                        {s?.play_count ?? <span className="row-muted">—</span>}
-                      </td>
-                      <td className="px-2 text-label">
-                        {arrangementLabel ?? <span className="row-muted">—</span>}
-                      </td>
-                      <td className="px-2">
-                        {s ? <SourceClientBadge score={s} /> : (
-                          <span className="text-label row-muted">-</span>
-                        )}
-                      </td>
-                    </>
-                  )}
-
-                  {/* BPM */}
-                  <td className="px-2 text-label">
-                    {formatBpm(song.bpm_main, song.bpm_min, song.bpm_max)}
-                  </td>
-
-                  {/* Notes */}
-                  <td className="px-2 text-label">
-                    {notesTotal === "-" ? "—" : (
-                      notesDetail ? (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="cursor-help inline-flex items-center gap-0.5">
-                                {notesTotal}
-                                <span className="text-caption text-accent/70 leading-none">●</span>
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="left" className="text-label">
-                              <div className="space-y-0.5">
-                                {notesDetail.split(" ").map((part) => {
-                                  const [label, val] = part.split(":");
-                                  return (
-                                    <div key={label} className="flex gap-2 justify-between">
-                                      <span className="text-muted-foreground">{label}</span>
-                                      <span>{val}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      ) : notesTotal
-                    )}
-                  </td>
-
-                  {/* Length */}
-                  <td className="px-2 text-label">
-                    {formatLength(song.length)}
-                  </td>
-
-                  {/* URL1 */}
-                  <td className="px-2 text-center">
-                    {song.file_url ? (
-                      <a
-                        href={song.file_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="hover:opacity-70 transition-opacity inline-flex justify-center"
-                        title="URL1"
-                      >
-                        <Package className="h-3.5 w-3.5" />
-                      </a>
-                    ) : (
-                      <span className="text-muted-foreground/30 text-label">–</span>
-                    )}
-                  </td>
-
-                  {/* URL2 */}
-                  <td className="px-2 text-center">
-                    {song.file_url_diff ? (
-                      <a
-                        href={song.file_url_diff}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="hover:opacity-70 transition-opacity inline-flex justify-center"
-                        title="URL2"
-                      >
-                        <FileCode className="h-3.5 w-3.5" />
-                      </a>
-                    ) : (
-                      <span className="text-muted-foreground/30 text-label">–</span>
-                    )}
-                  </td>
-
-                  {/* Youtube */}
-                  <td className="px-2 text-center">
-                    {song.youtube_url ? (
-                      <a
-                        href={song.youtube_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-red-500 hover:text-red-400 transition-colors inline-flex justify-center"
-                        title="Youtube"
-                      >
-                        <Youtube className="h-3.5 w-3.5" />
-                      </a>
-                    ) : (
-                      <span className="text-muted-foreground/30 text-label">–</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+            {virtualItems.map((virtualRow) => (
+              <SongRow
+                key={virtualRow.key}
+                song={songs[virtualRow.index]}
+                index={virtualRow.index}
+                tableSymbol={table.symbol ?? undefined}
+                hasUserScores={hasUserScores}
+              />
+            ))}
             {paddingBottom > 0 && (
               <tr><td colSpan={colCount} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
             )}
@@ -672,5 +658,6 @@ const SongVirtualList = memo(function SongVirtualList({
         </table>
       </div>
     </div>
+    </TooltipProvider>
   );
 });

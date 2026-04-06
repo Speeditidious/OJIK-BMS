@@ -279,7 +279,7 @@ async def _fetch_same_day_rows(
             UserScore.user_id == user_id,
             UserScore.fumen_hash_others.is_(None),
             combined,
-            cast(UserScore.recorded_at, Date).in_([literal(d, Date) for d in dates]),
+            cast(func.timezone("UTC", UserScore.recorded_at), Date).in_([literal(d, Date) for d in dates]),
         )
     )
     for row in rows_result.scalars().all():
@@ -439,8 +439,11 @@ async def sync_data(
                             "max_combo": merged["max_combo"],
                             "play_count": merged["play_count"],
                         })
-                        # Update same_day_map entry with merged state
-                        same_day_map[same_day_key] = existing_same_day  # id unchanged; fields updated above
+                        # Reflect merged field values onto the in-memory object so subsequent
+                        # merges for the same key compare against up-to-date values.
+                        for _f, _v in merged.items():
+                            setattr(existing_same_day, _f, _v)
+                        same_day_map[same_day_key] = existing_same_day
                     else:
                         # No same-day row — insert new
                         values = dict(

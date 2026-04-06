@@ -11,6 +11,10 @@ import keyring
 from ojikbms_client.config import is_local_url
 
 
+class AuthExpiredError(Exception):
+    """Raised when the refresh token has expired and re-login is required."""
+
+
 def _make_client(api_url: str, **kwargs: Any) -> httpx.AsyncClient:
     """Create an AsyncClient, disabling SSL verification for local URLs."""
     if is_local_url(api_url):
@@ -26,6 +30,21 @@ def save_tokens(access_token: str, refresh_token: str) -> None:
     """Save tokens to the system keychain."""
     keyring.set_password(KEYRING_SERVICE, ACCESS_TOKEN_KEY, access_token)
     keyring.set_password(KEYRING_SERVICE, REFRESH_TOKEN_KEY, refresh_token)
+    # Decode refresh token JWT (no signature verification) to store expiry duration.
+    # Used to display a user-friendly "n일 미로그인" message when session expires.
+    try:
+        import base64
+        import json as _json
+        parts = refresh_token.split(".")
+        if len(parts) == 3:
+            padding = "=" * (4 - len(parts[1]) % 4)
+            payload = _json.loads(base64.urlsafe_b64decode(parts[1] + padding))
+            iat, exp = payload.get("iat"), payload.get("exp")
+            if iat and exp and exp > iat:
+                from ojikbms_client.config import save_refresh_token_expire_days
+                save_refresh_token_expire_days((exp - iat) // 86400)
+    except Exception:
+        pass  # 실패 시 무시 — 표시 시 기본값(30) 사용
 
 
 def load_access_token() -> str | None:
@@ -74,13 +93,17 @@ async def refresh_access_token(api_url: str) -> bool:
                 timeout=10.0,
             )
 
-            if response.status_code != 200:
-                clear_tokens()
-                return False
+            if response.status_code == 200:
+                data = response.json()
+                save_tokens(data["access_token"], data["refresh_token"])
+                return True
 
-            data = response.json()
-            save_tokens(data["access_token"], data["refresh_token"])
-            return True
+            # Only clear tokens when the server explicitly rejects the refresh
+            # token as invalid (401/403). Transient errors (5xx, rate limit 503)
+            # should leave the stored tokens intact so the next attempt can retry.
+            if response.status_code in (401, 403):
+                clear_tokens()
+            return False
 
         except httpx.RequestError:
             return False

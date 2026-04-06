@@ -197,7 +197,7 @@ def _build_activity_subquery(user: User, client_type: str | None = None):
         prev_ct, prev_ex, prev_bp, prev_mc, rn, rn_in_day
     """
     effective_ts = func.coalesce(UserScore.recorded_at, UserScore.synced_at)
-    day_col = cast(effective_ts, Date)
+    day_col = cast(func.timezone("UTC", effective_ts), Date)
     # Courses identified by fumen_hash_others; fallback to sha256/md5 for fumens
     hash_col = func.coalesce(
         UserScore.fumen_sha256, UserScore.fumen_md5, UserScore.fumen_hash_others
@@ -509,7 +509,7 @@ async def get_recent_updates(
         recent_filter.append(UserScore.client_type == client_type)
     recent_filter.extend(_initial_sync_exclusion_filters(current_user))
     if date:
-        effective_date = cast(effective_ts, Date)
+        effective_date = cast(func.timezone("UTC", effective_ts), Date)
         recent_filter.append(effective_date == date_cls.fromisoformat(date))
         effective_limit = 200
     else:
@@ -1258,7 +1258,7 @@ async def get_score_updates(
         base_filters.append(UserScore.client_type == client_type)
     base_filters.extend(_initial_sync_exclusion_filters(current_user))
     if date:
-        effective_date = cast(effective_ts, Date)
+        effective_date = cast(func.timezone("UTC", effective_ts), Date)
         base_filters.append(effective_date == date_cls.fromisoformat(date))
 
     inner = (

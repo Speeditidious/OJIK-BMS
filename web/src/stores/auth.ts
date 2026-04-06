@@ -42,7 +42,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     clearTokens();
     set({ user: null });
     if (typeof window !== "undefined") {
-      window.location.href = "/login";
+      window.location.href = "/";
     }
   },
 

@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Music2,
   Table2,
@@ -11,14 +11,21 @@ import {
   LayoutDashboard,
   MessageCircle,
   Download,
-  Settings,
+  User,
   LogOut,
+  UserCircle,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { resolveAvatarUrl } from "@/lib/avatar";
-import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 
 const navItems = [
   { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
@@ -31,6 +38,7 @@ const navItems = [
 
 export function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, isInitialized, fetchUser, logout } = useAuthStore();
 
   useEffect(() => {
@@ -73,33 +81,52 @@ export function Navbar() {
         </div>
 
         {/* Right side */}
-        <div className="flex items-center gap-2">
-          {user && (
-            <div className="flex items-center gap-2">
-              {user.avatar_url ? (
-                <Image
-                  src={resolveAvatarUrl(user.avatar_url)}
-                  alt={user.username}
-                  width={28}
-                  height={28}
-                  className="rounded-full object-cover"
-                />
-              ) : (
-                <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-label font-medium text-primary">
-                  {user.username.charAt(0).toUpperCase()}
-                </div>
-              )}
-              <span className="text-body text-muted-foreground hidden sm:block">{user.username}</span>
-            </div>
+        <div className="flex items-center">
+          {isInitialized && (
+            user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="rounded-full focus:outline-none focus:ring-2 focus:ring-primary/50 cursor-pointer">
+                    {user.avatar_url ? (
+                      <Image
+                        src={resolveAvatarUrl(user.avatar_url)}
+                        alt={user.username}
+                        width={32}
+                        height={32}
+                        className="rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-label font-medium text-primary">
+                        {user.username.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-40">
+                  <DropdownMenuItem onClick={() => router.push("/settings")}>
+                    <User className="h-4 w-4" />
+                    프로필
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={logout}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    로그아웃
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <button
+                onClick={() => router.push("/login")}
+                className="rounded-full p-1 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
+                aria-label="로그인"
+              >
+                <UserCircle className="h-7 w-7" />
+              </button>
+            )
           )}
-          <Link href="/settings">
-            <Button variant="ghost" size="icon" aria-label="설정">
-              <Settings className="h-4 w-4" />
-            </Button>
-          </Link>
-          <Button variant="ghost" size="icon" onClick={logout} aria-label="로그아웃">
-            <LogOut className="h-4 w-4" />
-          </Button>
         </div>
       </div>
     </nav>

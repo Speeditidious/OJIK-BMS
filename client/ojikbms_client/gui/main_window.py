@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QEvent, QObject, QSize, Qt
+from PyQt6.QtCore import QEvent, QObject, QSize, Qt, QUrl
 from PyQt6.QtGui import (
     QDesktopServices,
     QFont,
@@ -600,7 +600,7 @@ class MainWindow(QWidget):
 
         self._log_edit = QTextBrowser()
         self._log_edit.setOpenLinks(False)
-        self._log_edit.anchorClicked.connect(lambda url: QDesktopServices.openUrl(url))
+        self._log_edit.anchorClicked.connect(self._on_log_anchor_clicked)
         self._log_edit.setMinimumHeight(80)
         self._log_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self._log_edit)
@@ -900,6 +900,17 @@ class MainWindow(QWidget):
         self._cancel_sync_btn.setText("동기화 취소")
         self._auth_box.setEnabled(not syncing)
         self._settings_box.setEnabled(not syncing)
+
+    def _on_log_anchor_clicked(self, url: QUrl) -> None:
+        """Handle anchor clicks in the log browser.
+
+        - action:login  → trigger login flow (same as clicking the login button)
+        - anything else → open in external browser
+        """
+        if url.scheme() == "action" and url.host() == "login":
+            self._on_login()
+        else:
+            QDesktopServices.openUrl(url)
 
     # ------------------------------------------------------------------
     # Log helper

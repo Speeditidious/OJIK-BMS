@@ -24,13 +24,18 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -e ".[gui]"
-          pip install pyinstaller
+          pip install pyinstaller Pillow
+
+      - name: Convert logo PNG to ICO
+        working-directory: client
+        run: |
+          python -c "from PIL import Image; img = Image.open('ojikbms_client/gui/assets/ojikbms_logo.png'); img.save('ojikbms_client/gui/assets/ojikbms_logo.ico')"
 
       - name: Build exe with PyInstaller
         working-directory: client
         run: |
           $appName = "ojikbms-client-${{ github.ref_name }}"
-          pyinstaller --onefile --windowed --name $appName --collect-all PyQt6 --add-data "ojikbms_client;ojikbms_client" gui_main.py
+          pyinstaller --onefile --windowed --name $appName --collect-all PyQt6 --add-data "ojikbms_client;ojikbms_client" --icon "ojikbms_client/gui/assets/ojikbms_logo.ico" gui_main.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6

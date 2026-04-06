@@ -8,7 +8,7 @@ import httpx
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from ojikbms_client.auth import make_authenticated_request
+from ojikbms_client.auth import AuthExpiredError, make_authenticated_request
 from ojikbms_client.config import get_api_url, is_local_url, update_last_synced_at
 
 console = Console()
@@ -86,6 +86,8 @@ async def sync_scores(
                 any_batch_succeeded = True
                 if progress_callback:
                     progress_callback(batch_idx, total_batches)
+            elif response.status_code == 401:
+                raise AuthExpiredError()
             else:
                 all_errors.append(
                     f"Batch {batch_idx} failed: HTTP {response.status_code} - {response.text[:200]}"
@@ -165,6 +167,8 @@ async def fetch_known_hashes() -> dict[str, set[str]]:
 async def sync_fumen_details(
     items: list[dict[str, Any]],
     progress_callback: Callable[[int, int], None] | None = None,
+    supplemented_md5s: list[str] | None = None,
+    supplemented_sha256s: list[str] | None = None,
 ) -> dict[str, Any]:
     """Sync fumen detail data to the server in batches.
 
@@ -174,9 +178,11 @@ async def sync_fumen_details(
     Args:
         items: List of fumen detail dicts matching FumenDetailItem schema.
         progress_callback: Optional (current_batch, total_batches) callback.
+        supplemented_md5s: md5s that had sha256 filled by supplement this session.
+        supplemented_sha256s: sha256s that had md5 filled by supplement this session.
 
     Returns:
-        Summary dict with inserted, updated, skipped, errors.
+        Summary dict with inserted, updated, skipped, overlap_count, errors.
     """
     api_url = get_api_url()
     # 15 columns per row × 1024 rows = 15,360 params < asyncpg's 32767 limit
@@ -184,13 +190,18 @@ async def sync_fumen_details(
     total_inserted = 0
     total_updated = 0
     total_skipped = 0
+    total_overlap = 0
     all_errors: list[str] = []
 
     batches = [items[i:i + batch_size] for i in range(0, len(items), batch_size)] if items else []
 
     async with _make_client(timeout=300.0) as client:
         for batch_idx, batch in enumerate(batches, 1):
-            payload = {"items": batch}
+            payload: dict[str, Any] = {"items": batch}
+            if supplemented_md5s:
+                payload["supplemented_md5s"] = supplemented_md5s
+            if supplemented_sha256s:
+                payload["supplemented_sha256s"] = supplemented_sha256s
             response = await make_authenticated_request(
                 client,
                 "POST",
@@ -203,8 +214,11 @@ async def sync_fumen_details(
                 total_inserted += data.get("inserted", 0)
                 total_updated += data.get("updated", 0)
                 total_skipped += data.get("skipped", 0)
+                total_overlap += data.get("overlap_count", 0)
                 if progress_callback:
                     progress_callback(batch_idx, len(batches))
+            elif response.status_code == 401:
+                raise AuthExpiredError()
             else:
                 all_errors.append(
                     f"Batch {batch_idx} failed: HTTP {response.status_code} - {response.text[:200]}"
@@ -214,6 +228,7 @@ async def sync_fumen_details(
         "inserted": total_inserted,
         "updated": total_updated,
         "skipped": total_skipped,
+        "overlap_count": total_overlap,
         "errors": all_errors,
     }
 

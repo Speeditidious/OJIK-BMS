@@ -142,6 +142,8 @@ class SupplementResponse(BaseModel):
 
     supplemented: int
     courses_updated: int
+    supplemented_md5s: list[str] = []    # 방향 1: md5로 매치되어 sha256 채워진 fumen들의 md5
+    supplemented_sha256s: list[str] = [] # 방향 2: sha256로 매치되어 md5 채워진 fumen들의 sha256
 
 
 @router.post("/supplement", response_model=SupplementResponse)
@@ -179,6 +181,7 @@ async def supplement_fumen_hashes(
 
     supplemented = 0
     newly_supplemented_md5s: set[str] = set()
+    newly_supplemented_sha256s: set[str] = set()
 
     def _merge_entries(a: list | None, b: list | None) -> list:
         """Merge two table_entries lists, keeping one entry per table_id."""
@@ -288,6 +291,7 @@ async def supplement_fumen_hashes(
         newly_supplemented_md5s.update(
             sha256_to_md5[s] for s in sha256s_needing_md5 if s in sha256_to_md5
         )
+        newly_supplemented_sha256s.update(sha256s_needing_md5)
 
     await db.flush()
 
@@ -306,7 +310,12 @@ async def supplement_fumen_hashes(
         await db.flush()
 
     await db.commit()
-    return SupplementResponse(supplemented=supplemented, courses_updated=courses_updated)
+    return SupplementResponse(
+        supplemented=supplemented,
+        courses_updated=courses_updated,
+        supplemented_md5s=list(newly_supplemented_md5s),
+        supplemented_sha256s=list(newly_supplemented_sha256s),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +426,8 @@ class FumenDetailSyncRequest(BaseModel):
     """Request body for POST /fumens/sync-details."""
 
     items: list[FumenDetailItem]
+    supplemented_md5s: list[str] = []    # 이번 세션에서 supplement로 sha256 채워진 fumen의 md5
+    supplemented_sha256s: list[str] = [] # 이번 세션에서 supplement로 md5 채워진 fumen의 sha256
 
 
 class FumenDetailSyncResponse(BaseModel):
@@ -425,6 +436,7 @@ class FumenDetailSyncResponse(BaseModel):
     inserted: int
     updated: int
     skipped: int
+    overlap_count: int = 0  # updated 중 supplemented와 겹치는 수 (double-count 보정용)
 
 
 @router.post("/sync-details", response_model=FumenDetailSyncResponse)
@@ -445,6 +457,10 @@ async def sync_fumen_details(
     """
     if not body.items:
         return FumenDetailSyncResponse(inserted=0, updated=0, skipped=0)
+
+    supplemented_md5_set = set(body.supplemented_md5s)
+    supplemented_sha256_set = set(body.supplemented_sha256s)
+    overlap_count = 0
 
     # ── Step 1: Bulk pre-fetch — detail columns only (no table_entries JSONB) ──
     all_sha256s = [it.sha256.lower() for it in body.items if it.sha256]
@@ -557,6 +573,13 @@ async def sync_fumen_details(
                 update_groups.setdefault(cols_key, []).append(
                     (hash_key_type, hash_key_val, update_vals)
                 )
+                # Overlap check: 이번 세션에서 supplement된 fumen이 detail update도 받으면 double-count
+                _is_overlap = (
+                    (sha256 and sha256 in supplemented_sha256_set) or
+                    (md5 and md5 in supplemented_md5_set)
+                )
+                if _is_overlap:
+                    overlap_count += 1
             else:
                 if not already_seen:
                     skipped_count += 1
@@ -635,6 +658,7 @@ async def sync_fumen_details(
         inserted=inserted_count,
         updated=updated_count,
         skipped=skipped_count,
+        overlap_count=overlap_count,
     )
 
 

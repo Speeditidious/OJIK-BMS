@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from ojikbms_client.auth import AuthExpiredError
+
 if TYPE_CHECKING:
     from ojikbms_client.parsers.lr2 import ParseStats
 
@@ -24,6 +26,7 @@ if TYPE_CHECKING:
 _PRIMARY = "#C8E6A0"
 _GREEN = "#80E6A0"
 _MUTED = "#8B8FA8"
+_ACCENT = "#C8A0E6"
 
 
 class SyncMode(enum.Enum):
@@ -279,7 +282,9 @@ class SyncWorker(QThread):
 
     _SUPPLEMENT_BATCH = 5000  # Keep well below asyncpg's 32767-param limit
 
-    def _run_hash_supplement(self, songdata_db_path: str) -> list[dict[str, Any]]:
+    def _run_hash_supplement(
+        self, songdata_db_path: str
+    ) -> tuple[list[dict[str, Any]], int, list[str], list[str]]:
         """Parse songdata.db, send hash supplements to the server, and return parsed items for reuse."""
         self.progress.emit(0, 0, "songdata.db 처리 중...")
         self._log("[INFO] Beatoraja songdata.db 처리 중...")
@@ -287,61 +292,81 @@ class SyncWorker(QThread):
         items = parse_beatoraja_songdata(songdata_db_path)
         if not items:
             self._log(f'[INFO] <span style="color:{_MUTED};">songdata.db: 유효한 항목 없음 (건너뜀)</span>')
-            return []
+            return [], 0, [], []
 
         all_pairs = [{"md5": it["md5"], "sha256": it["sha256"]} for it in items]
         total = len(all_pairs)
         batches = [all_pairs[i:i + self._SUPPLEMENT_BATCH] for i in range(0, total, self._SUPPLEMENT_BATCH)]
-        self._log(
-            f"[INFO] songdata.db: {total:,}개 항목 처리 완료. "
-            f"서버에 전송 중..."
-        )
 
         from ojikbms_client.config import get_api_url
         api_url = get_api_url()
 
         total_supplemented = 0
         total_courses_updated = 0
+        all_supplemented_md5s: list[str] = []
+        all_supplemented_sha256s: list[str] = []
+        supplement_failed = False
         for idx, batch in enumerate(batches, 1):
             self.progress.emit(idx, len(batches), f"해시 보강 중... ({idx}/{len(batches)})")
             payload = {"client_type": "beatoraja", "items": batch}
-            result = asyncio.run(self._post_supplement(api_url, payload))
-            total_supplemented += result.get("supplemented", 0)
-            total_courses_updated += result.get("courses_updated", 0)
+            try:
+                result = asyncio.run(self._post_supplement(api_url, payload))
+                total_supplemented += result.get("supplemented", 0)
+                total_courses_updated += result.get("courses_updated", 0)
+                all_supplemented_md5s.extend(result.get("supplemented_md5s", []))
+                all_supplemented_sha256s.extend(result.get("supplemented_sha256s", []))
+            except Exception as e:
+                err_str = str(e)
+                if "401" in err_str or "403" in err_str:
+                    from ojikbms_client.config import get_refresh_token_expire_days
+                    n = get_refresh_token_expire_days()
+                    self._log(
+                        f'[WARN] <span style="color:#E6C880;font-weight:bold;">로그인 세션이 만료되었습니다 '
+                        f"({n}일 이상 미로그인 시 자동 만료).</span> "
+                        f"차분 데이터 보강을 건너뜁니다. "
+                        f'<a href="action:login" style="color:{_ACCENT};">보강하려면 재로그인 후 전체 동기화를 다시 실행해주세요.</a>'
+                    )
+                else:
+                    self._log(f"[WARN] 해시 보강 오류: {e}")
+                supplement_failed = True
+                break
 
-        self._log(
-            f'[INFO] <span style="color:{_GREEN};font-weight:bold;">'
-            f"songdata.db 서버에 전송 완료</span>"
-        )
-        return items
+        if not supplement_failed:
+            self._log(
+                f'[INFO] <span style="color:{_GREEN};font-weight:bold;">'
+                f"songdata.db 서버에 전송 완료</span>"
+                f' <span style="color:{_MUTED};">- 해시 보강: {total_supplemented:,}개</span>'
+            )
+        # Always return the parsed items so _run_fumen_detail_sync can use them,
+        # even if the supplement POST failed. The detail sync will fill in any
+        # missing sha256/md5 values via its own hash supplementation logic.
+        return items, total_supplemented, all_supplemented_md5s, all_supplemented_sha256s
 
     def _run_fumen_detail_sync(
         self,
         songdata_items: list[dict[str, Any]],
+        total_supplemented: int = 0,
+        supplemented_md5s: list[str] | None = None,
+        supplemented_sha256s: list[str] | None = None,
     ) -> None:
         """Build fumen detail items from local DBs and sync to server.
 
-        Pre-fetches known hashes from server to minimize transfer volume:
-        - complete hashes: skip entirely (all detail fields already filled)
-        - partial hashes: send Beatoraja items only (to fill NULL fields)
-        - unknown hashes: send all (new INSERT)
+        Pre-fetches known hashes from server for LR2 skip logic only.
+        Beatoraja items are always sent in full — the server handles dedup,
+        detail fill, and sha256/md5 hash supplementation.
         """
         include_bea = self._client_filter in (ClientFilter.ALL, ClientFilter.BEA_ONLY)
         include_lr2 = self._client_filter in (ClientFilter.ALL, ClientFilter.LR2_ONLY)
 
-        # ── Pre-fetch known hashes from server ──
+        # ── Pre-fetch known hashes from server (used for LR2 skip only) ──
         self.progress.emit(0, 0, "서버 기존 차분 해시 확인 중...")
         from ojikbms_client.sync import fetch_known_hashes
         known = asyncio.run(fetch_known_hashes())
 
-        complete_sha256: set[str] = known["complete_sha256"]
-        complete_md5: set[str] = known["complete_md5"]
-        partial_md5: set[str] = known["partial_md5"]
-        # "exists" = complete ∪ partial (for LR2 skip logic — md5 only, LR2 has no sha256)
-        exists_md5 = complete_md5 | partial_md5
+        # LR2 items skip if server already knows the md5 (complete or partial)
+        exists_md5: set[str] = known["complete_md5"] | known["partial_md5"]
 
         all_items: list[dict[str, Any]] = []
-        skipped_complete = 0
 
         # ── Beatoraja: songdata + songinfo merge ──
         if include_bea and songdata_items:
@@ -356,12 +381,6 @@ class SyncWorker(QThread):
                 sha256 = sd.get("sha256", "").lower()
                 md5 = sd.get("md5", "").lower()
                 if not sha256 and not md5:
-                    continue
-
-                if (sha256 and sha256 in complete_sha256) or (
-                    not sha256 and md5 and md5 in complete_md5
-                ):
-                    skipped_complete += 1
                     continue
 
                 _title = sd.get("title") or ""
@@ -454,6 +473,7 @@ class SyncWorker(QThread):
         _seen_sha256: set[str] = set()
         _seen_md5: set[str] = set()
         deduped_items: list[dict[str, Any]] = []
+        _before_dedup = len(all_items)  # Stage 2 dedup 전 총 개수 저장
         for _item in all_items:
             _s = (_item.get("sha256") or "").lower()
             _m = (_item.get("md5") or "").lower()
@@ -465,6 +485,10 @@ class SyncWorker(QThread):
             if _m:
                 _seen_md5.add(_m)
         all_items = deduped_items
+        self._log(
+            f'[INFO] <span style="color:{_MUTED};">'
+            f"중복 제거 결과: 전송할 차분 데이터 {len(all_items):,}개</span>"
+        )
 
         # ── Send to server ──
         self.progress.emit(0, 0, "차분 상세 정보 서버 전송 중...")
@@ -473,13 +497,20 @@ class SyncWorker(QThread):
         def _progress(current: int, total: int) -> None:
             self.progress.emit(current, total, f"차분 상세 정보 전송 중... ({current}/{total})")
 
-        result = asyncio.run(sync_fumen_details(all_items, progress_callback=_progress))
+        result = asyncio.run(sync_fumen_details(
+            all_items,
+            progress_callback=_progress,
+            supplemented_md5s=supplemented_md5s or None,
+            supplemented_sha256s=supplemented_sha256s or None,
+        ))
 
+        _overlap = result.get("overlap_count", 0)
+        _combined_updated = total_supplemented + result["updated"] - _overlap
         self._log(
             f'[INFO] <span style="color:{_GREEN};font-weight:bold;">'
             f"차분 상세 정보 동기화 완료</span>"
             f' <span style="color:{_MUTED};">- 신규 {result["inserted"]:,}개, '
-            f'보강 {result["updated"]:,}개, 이미 존재한 데이터 {result["skipped"]:,}개</span>'
+            f'보강 {_combined_updated:,}개, 이미 존재한 데이터 {result["skipped"]:,}개</span>'
         )
         for err in result.get("errors", [])[:5]:
             self._log(f'[WARN] 차분 상세 전송 오류: {err}')
@@ -532,15 +563,24 @@ class SyncWorker(QThread):
 
             # --- Full sync: hash supplementation + fumen detail sync ---
             songdata_items: list[dict] = []
+            total_supplemented: int = 0
+            supplemented_md5s: list[str] = []
+            supplemented_sha256s: list[str] = []
             if self._mode == SyncMode.FULL and bea_songdata_ok and self._beatoraja_songdata_db_path:
-                try:
-                    songdata_items = self._run_hash_supplement(self._beatoraja_songdata_db_path)
-                except Exception as e:
-                    self._log(f"[WARN] 해시 보강 오류: {e}")
+                songdata_items, total_supplemented, supplemented_md5s, supplemented_sha256s = (
+                    self._run_hash_supplement(self._beatoraja_songdata_db_path)
+                )
 
             if self._mode == SyncMode.FULL:
                 try:
-                    self._run_fumen_detail_sync(songdata_items)
+                    self._run_fumen_detail_sync(
+                        songdata_items,
+                        total_supplemented=total_supplemented,
+                        supplemented_md5s=supplemented_md5s or None,
+                        supplemented_sha256s=supplemented_sha256s or None,
+                    )
+                except AuthExpiredError:
+                    raise  # 외부 except AuthExpiredError 에서 처리
                 except Exception as e:
                     self._log(f"[WARN] 차분 상세 정보 동기화 오류: {e}")
 
@@ -610,6 +650,15 @@ class SyncWorker(QThread):
 
             self.finished.emit(result)
 
+        except AuthExpiredError:
+            from ojikbms_client.config import get_refresh_token_expire_days
+            n = get_refresh_token_expire_days()
+            self._log(
+                f'[WARN] <span style="color:#E6C880;font-weight:bold;">로그인 세션이 만료되었습니다 '
+                f"({n}일 이상 미로그인 시 자동 만료).</span> "
+                f'<a href="action:login" style="color:{_ACCENT};">재로그인 후 전체 동기화를 다시 실행해주세요.</a>'
+            )
+            self.finished.emit({"synced_scores": 0, "inserted_scores": 0, "errors": ["auth_expired"]})
         except _SyncCancelledError:
             self._log("[INFO] 동기화가 취소되었습니다.")
             self.cancelled.emit()

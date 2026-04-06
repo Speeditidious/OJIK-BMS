@@ -1,3 +1,4 @@
+import type { ClipboardEvent } from "react";
 import * as XLSX from "xlsx";
 
 export const CLEAR_ROW_CLASS: Record<number, string> = {
@@ -57,6 +58,49 @@ export function parseArrangement(
 export function levelSortIndex(level: string, levelOrder: string[]): number {
   const idx = levelOrder.indexOf(level);
   return idx >= 0 ? idx : 9999;
+}
+
+/**
+ * Returns an onCopy handler for a fumen list table.
+ * - Builds TSV from only the selected rows (Range.intersectsNode).
+ * - The title cell (titleCellIndex) must have data-title / data-artist attributes.
+ *   Its value is written as "title\nartist" (RFC 4180 quoting) so Excel treats it
+ *   as a single cell with an in-cell line break.
+ */
+export function makeTableCopyHandler(
+  titleCellIndex: number,
+  rowSelector = "tbody tr[data-index]",
+) {
+  return (e: ClipboardEvent<HTMLTableElement>) => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+
+    const range = selection.getRangeAt(0);
+    const trs = Array.from(
+      e.currentTarget.querySelectorAll<HTMLTableRowElement>(rowSelector)
+    );
+    const selectedRows = trs.filter((tr) => range.intersectsNode(tr));
+    if (selectedRows.length === 0) return;
+
+    const lines = selectedRows.map((tr) => {
+      const cells = Array.from(tr.querySelectorAll("td"));
+      return cells
+        .map((td, i) => {
+          if (i === titleCellIndex) {
+            const title = td.dataset.title ?? "";
+            const artist = td.dataset.artist ?? "";
+            const raw = artist ? `${title}\n${artist}` : title;
+            // RFC 4180: wrap in quotes, escape inner quotes as ""
+            return `"${raw.replace(/"/g, '""')}"`;
+          }
+          return td.textContent?.trim() ?? "";
+        })
+        .join("\t");
+    }).join("\n");
+
+    e.clipboardData.setData("text/plain", lines);
+    e.preventDefault();
+  };
 }
 
 export function exportToExcel(

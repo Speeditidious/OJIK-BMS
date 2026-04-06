@@ -1,7 +1,7 @@
 "use client";
 
-import React, { memo, useState, useMemo, useCallback, useDeferredValue, useRef } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import React, { memo, useState, useMemo, useCallback, useDeferredValue, useRef, useEffect } from "react";
+import { useVirtualizer, defaultRangeExtractor } from "@tanstack/react-virtual";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { X, Search, FileSpreadsheet } from "lucide-react";
@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, levelSortIndex, exportToExcel } from "@/lib/fumen-table-utils";
+import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, levelSortIndex, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
 
 
 function getClearLabel(clientType: string | null, clearType: number): string {
@@ -118,10 +118,88 @@ const SortIcon = memo(function SortIcon({ colKey, sortKey, sortDir }: { colKey: 
 const ROW_HEIGHT = 44;
 const MAX_TABLE_HEIGHT = 420;
 
+const handleTableCopy = makeTableCopyHandler(1); // col 0=Level, col 1=Title/Artist
+
+const SongRow = React.memo(function SongRow({ song, index }: { song: TableClearSong; index: number }) {
+  const arrangementName = parseArrangement(song.options, song.client_type);
+  const arrangementKanji = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? null) : null;
+  const rowClass = CLEAR_ROW_CLASS[song.clear_type] ?? "";
+  return (
+    <tr
+      data-index={index}
+      style={{ height: ROW_HEIGHT }}
+      className={cn("border-b border-border/30", rowClass || "hover:bg-secondary/50")}
+    >
+      <td className="px-2 text-label">{song.level}</td>
+      <td className="px-2" data-title={song.title ?? ""} data-artist={song.artist ?? ""}>
+        <div className="min-w-0 overflow-hidden">
+          <div className="max-w-full truncate">
+            {song.sha256 ? (
+              <Link href={`/songs/${song.sha256}`} className="text-label leading-tight hover:text-primary transition-colors">
+                {song.title || "(제목 없음)"}
+              </Link>
+            ) : (
+              <span className="text-label leading-tight">{song.title || "(제목 없음)"}</span>
+            )}
+          </div>
+          {song.artist && <div className="text-caption text-muted-foreground row-muted max-w-full truncate">{song.artist}</div>}
+        </div>
+      </td>
+      <td className="px-2"><span className="text-label">{getClearLabel(song.client_type, song.clear_type)}</span></td>
+      <td className="px-2 text-label">{song.min_bp !== null ? song.min_bp : <span className="text-muted-foreground row-muted">--</span>}</td>
+      <td className="px-2 text-label">{song.rate !== null ? `${song.rate.toFixed(2)}%` : <span className="text-muted-foreground row-muted">--</span>}</td>
+      <td className="px-2 text-label">{song.rank !== null ? song.rank : <span className="text-muted-foreground row-muted">--</span>}</td>
+      <td className="px-2 text-label">{song.ex_score !== null ? song.ex_score : <span className="text-muted-foreground row-muted">--</span>}</td>
+      <td className="px-2 text-label">{song.play_count !== null ? song.play_count : <span className="text-muted-foreground row-muted">--</span>}</td>
+      <td className="px-2 text-label">
+        {arrangementKanji ? <span>{arrangementKanji}</span> : <span className="text-muted-foreground row-muted">–</span>}
+      </td>
+      <td className="px-2">
+        {song.client_type ? (
+          <span className="text-label">{song.client_type === "beatoraja" ? "BR" : song.client_type.toUpperCase()}</span>
+        ) : (
+          <span className="text-muted-foreground row-muted">–</span>
+        )}
+      </td>
+    </tr>
+  );
+});
+
 const SongTable = React.memo(function SongTable({ songs, levelOrder }: { songs: TableClearSong[]; levelOrder: string[] }) {
   const [sortKey, setSortKey] = useState<SortKey>("level");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const parentRef = useRef<HTMLDivElement>(null);
+  const pinnedRangeRef = useRef<[number, number] | null>(null);
+
+  useEffect(() => {
+    const toRowIndex = (node: Node | null): number | null => {
+      let el = node as HTMLElement | null;
+      while (el && el.tagName !== "TR") el = el.parentElement;
+      const idx = el?.dataset?.index;
+      return idx !== undefined ? Number(idx) : null;
+    };
+    const handleSelectionChange = () => {
+      const sel = document.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) { pinnedRangeRef.current = null; return; }
+      if (!parentRef.current?.contains(sel.anchorNode as Node)) { pinnedRangeRef.current = null; return; }
+      const anchorIdx = toRowIndex(sel.anchorNode);
+      const focusIdx = toRowIndex(sel.focusNode);
+      if (anchorIdx !== null && focusIdx !== null) {
+        pinnedRangeRef.current = [Math.min(anchorIdx, focusIdx), Math.max(anchorIdx, focusIdx)];
+      } else if (anchorIdx !== null) {
+        const prev = pinnedRangeRef.current;
+        const prevEnd = prev ? Math.max(prev[0], prev[1]) : anchorIdx;
+        pinnedRangeRef.current = [Math.min(anchorIdx, prevEnd), Math.max(anchorIdx, prevEnd)];
+      }
+    };
+    const handleMouseUp = () => { pinnedRangeRef.current = null; };
+    document.addEventListener("selectionchange", handleSelectionChange);
+    document.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      document.removeEventListener("selectionchange", handleSelectionChange);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, []);
 
   const handleSort = (key: SortKey) => {
     if (key === sortKey) {
@@ -143,6 +221,16 @@ const SongTable = React.memo(function SongTable({ songs, levelOrder }: { songs: 
     getScrollElement: () => parentRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 10,
+    rangeExtractor: (range) => {
+      const normal = defaultRangeExtractor(range);
+      const pinned = pinnedRangeRef.current;
+      if (!pinned) return normal;
+      const [pinStart, pinEnd] = pinned;
+      if (normal.length === 0) return Array.from({ length: pinEnd - pinStart + 1 }, (_, i) => pinStart + i);
+      const mergedStart = Math.min(normal[0], pinStart);
+      const mergedEnd = Math.max(normal[normal.length - 1], pinEnd);
+      return Array.from({ length: mergedEnd - mergedStart + 1 }, (_, i) => mergedStart + i);
+    },
   });
 
   if (songs.length === 0) {
@@ -224,7 +312,7 @@ const SongTable = React.memo(function SongTable({ songs, levelOrder }: { songs: 
         className="overflow-auto"
         style={{ maxHeight: MAX_TABLE_HEIGHT }}
       >
-        <table className="w-full border-collapse" style={{ tableLayout: "fixed", minWidth: 740 }}>
+        <table className="w-full border-collapse" style={{ tableLayout: "fixed", minWidth: 740 }} onCopy={handleTableCopy}>
           <colgroup>
             <col style={{ width: 56 }} />
             <col />
@@ -257,81 +345,13 @@ const SongTable = React.memo(function SongTable({ songs, levelOrder }: { songs: 
             {paddingTop > 0 && (
               <tr><td colSpan={10} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
             )}
-            {virtualItems.map((virtualRow) => {
-              const song = sorted[virtualRow.index];
-              const arrangementName = parseArrangement(song.options, song.client_type);
-              const arrangementKanji = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? null) : null;
-              const rowClass = CLEAR_ROW_CLASS[song.clear_type] ?? "";
-              return (
-                <tr
-                  key={song.sha256 || virtualRow.index}
-                  style={{ height: ROW_HEIGHT }}
-                  className={cn(
-                    "border-b border-border/30",
-                    rowClass || "hover:bg-secondary/50",
-                  )}
-                >
-                  <td className="px-2 text-label">{song.level}</td>
-                  <td className="px-2">
-                    <div className="min-w-0 overflow-hidden">
-                      {song.sha256 ? (
-                        <Link
-                          href={`/songs/${song.sha256}`}
-                          className="text-label leading-tight truncate max-w-full hover:text-primary transition-colors block"
-                        >
-                          {song.title || "(제목 없음)"}
-                        </Link>
-                      ) : (
-                        <div className="text-label leading-tight truncate max-w-full">
-                          {song.title || "(제목 없음)"}
-                        </div>
-                      )}
-                      {song.artist && (
-                        <div className="text-caption text-muted-foreground row-muted truncate max-w-full">
-                          {song.artist}
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-2">
-                    <span className="text-label">
-                      {getClearLabel(song.client_type, song.clear_type)}
-                    </span>
-                  </td>
-                  <td className="px-2 text-label">
-                    {song.min_bp !== null ? song.min_bp : <span className="text-muted-foreground row-muted">--</span>}
-                  </td>
-                  <td className="px-2 text-label">
-                    {song.rate !== null ? `${song.rate.toFixed(2)}%` : <span className="text-muted-foreground row-muted">--</span>}
-                  </td>
-                  <td className="px-2 text-label">
-                    {song.rank !== null ? song.rank : <span className="text-muted-foreground row-muted">--</span>}
-                  </td>
-                  <td className="px-2 text-label">
-                    {song.ex_score !== null ? song.ex_score : <span className="text-muted-foreground row-muted">--</span>}
-                  </td>
-                  <td className="px-2 text-label">
-                    {song.play_count !== null ? song.play_count : <span className="text-muted-foreground row-muted">--</span>}
-                  </td>
-                  <td className="px-2 text-label">
-                    {arrangementKanji ? (
-                      <span>{arrangementKanji}</span>
-                    ) : (
-                      <span className="text-muted-foreground row-muted">–</span>
-                    )}
-                  </td>
-                  <td className="px-2">
-                    {song.client_type ? (
-                      <span className="text-label">
-                        {song.client_type === "beatoraja" ? "BR" : song.client_type.toUpperCase()}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground row-muted">–</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
+            {virtualItems.map((virtualRow) => (
+              <SongRow
+                key={sorted[virtualRow.index].sha256 || virtualRow.index}
+                song={sorted[virtualRow.index]}
+                index={virtualRow.index}
+              />
+            ))}
             {paddingBottom > 0 && (
               <tr><td colSpan={10} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
             )}

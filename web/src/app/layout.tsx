@@ -8,6 +8,10 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "OJIK BMS",
   description: "BMS 리듬게임 통합 관리 서비스",
+  icons: {
+    icon: "/ojikbms_logo.png",
+    apple: "/ojikbms_logo.png",
+  },
 };
 
 export default function RootLayout({
