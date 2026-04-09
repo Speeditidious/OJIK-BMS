@@ -32,7 +32,7 @@ class UserRead(BaseModel):
 class UserPublicRead(BaseModel):
     id: str
     username: str
-    is_public: bool
+    avatar_url: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -194,12 +194,36 @@ async def get_my_oauth_accounts(
 
 
 
+@router.get("/by-id/{user_id}")
+async def get_user_profile_by_id(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> UserPublicRead:
+    """Get a user's public profile by UUID."""
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user ID")
+
+    result = await db.execute(select(User).where(User.id == uid))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    return UserPublicRead(
+        id=str(user.id),
+        username=user.username,
+        avatar_url=await _resolve_avatar(user, db),
+    )
+
+
 @router.get("/{username}")
 async def get_user_profile(
     username: str,
     db: AsyncSession = Depends(get_db),
 ) -> UserPublicRead:
-    """Get a user's public profile."""
+    """Get a user's public profile by username."""
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalar_one_or_none()
 
@@ -208,14 +232,9 @@ async def get_user_profile(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
-    if not user.is_public:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User profile is private",
-        )
 
     return UserPublicRead(
         id=str(user.id),
         username=user.username,
-        is_public=user.is_public,
+        avatar_url=await _resolve_avatar(user, db),
     )

@@ -8,10 +8,8 @@ import {
   Music2,
   Table2,
   ListMusic,
-  LayoutDashboard,
-  MessageCircle,
   Download,
-  User,
+  Settings,
   LogOut,
   UserCircle,
 } from "lucide-react";
@@ -28,11 +26,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const navItems = [
-  { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
   { href: "/tables", label: "난이도표", icon: Table2 },
   { href: "/songs", label: "곡 목록", icon: Music2 },
   { href: "/custom", label: "커스텀", icon: ListMusic },
-  { href: "/chat", label: "챗봇", icon: MessageCircle },
   { href: "/download", label: "클라이언트 다운로드", icon: Download },
 ];
 
@@ -102,10 +98,30 @@ export function Navbar() {
                     )}
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-40">
-                  <DropdownMenuItem onClick={() => router.push("/settings")}>
-                    <User className="h-4 w-4" />
+                <DropdownMenuContent align="end" className="w-48">
+                  <div className="px-2 py-1.5 flex items-center gap-2 border-b mb-1 pointer-events-none">
+                    {user.avatar_url ? (
+                      <Image
+                        src={resolveAvatarUrl(user.avatar_url)}
+                        alt={user.username}
+                        width={24}
+                        height={24}
+                        className="rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-medium text-primary">
+                        {user.username.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <span className="text-label font-medium truncate">{user.username}</span>
+                  </div>
+                  <DropdownMenuItem onClick={() => router.push(`/users/${user.id}`)}>
+                    <UserCircle className="h-4 w-4" />
                     프로필
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => router.push("/settings")}>
+                    <Settings className="h-4 w-4" />
+                    설정
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
