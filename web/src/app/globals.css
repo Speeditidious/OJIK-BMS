@@ -4,61 +4,61 @@
 
 @layer base {
   :root {
-    /* Light mode (fallback) */
-    --background: 86 20% 96%;
-    --foreground: 220 20% 9%;
+    /* Light mode */
+    --background: 0 0% 100%;
+    --foreground: 220 20% 14%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 220 20% 9%;
+    --card: 210 15% 97.5%;
+    --card-foreground: 220 20% 14%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 20% 9%;
+    --popover-foreground: 220 20% 14%;
 
-    /* Primary: #C8E6A0 pastel green */
-    --primary: 86 58% 55%;
-    --primary-foreground: 220 20% 9%;
+    /* Primary: rich green — darker than dark-mode pastel for white-bg contrast */
+    --primary: 86 50% 40%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 86 20% 88%;
-    --secondary-foreground: 220 20% 20%;
+    --secondary: 210 12% 93%;
+    --secondary-foreground: 220 20% 25%;
 
-    --muted: 86 10% 92%;
-    --muted-foreground: 220 10% 45%;
+    --muted: 210 8% 95.5%;
+    --muted-foreground: 220 12% 44%;
 
-    /* Accent: #C8A0E6 pastel lavender */
-    --accent: 274 58% 60%;
+    /* Accent: deep lavender */
+    --accent: 274 45% 53%;
     --accent-foreground: 0 0% 100%;
 
-    /* Danger: #E6A0A8 */
-    --destructive: 355 58% 60%;
+    /* Danger: deep red */
+    --destructive: 355 55% 52%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 13% 82%;
-    --input: 220 13% 85%;
-    --ring: 86 58% 55%;
+    --border: 220 10% 88%;
+    --input: 220 10% 91%;
+    --ring: 86 50% 40%;
 
     --radius: 0.5rem;
 
-    /* Warning: general UI warning (yellow) */
-    --warning: 46 58% 55%;
-    --warning-foreground: 220 20% 9%;
+    /* Warning: vivid amber */
+    --warning: 46 70% 46%;
+    --warning-foreground: 0 0% 100%;
 
-    /* BMS clear type lamp colors (light mode — slightly darker for contrast) */
-    --clear-fc:      200 58% 55%;
-    --clear-exhard:  46  58% 55%;
-    --clear-hard:    8   58% 55%;
-    --clear-normal:  228 58% 55%;
-    --clear-easy:    120 58% 55%;
-    --clear-assist:  274 58% 55%;
-    --clear-failed:  0   0%  45%;
-    --clear-no-play: 220 10% 80%;
-    --clear-perfect: 78  65% 52%;   /* lime        — PERFECT (above FC tier) */
-    --clear-max:     330 65% 62%;   /* pink        — MAX (peak achievement) */
+    /* BMS clear type lamp colors — same as dark mode */
+    --clear-fc:      200 58% 76%;   /* sky blue    — FULL COMBO */
+    --clear-exhard:  46  58% 76%;   /* gold/amber  — EX HARD */
+    --clear-hard:    8   58% 76%;   /* coral-red   — HARD CLEAR */
+    --clear-normal:  228 58% 76%;   /* blue        — NORMAL CLEAR */
+    --clear-easy:    120 58% 76%;   /* green       — EASY CLEAR */
+    --clear-assist:  274 58% 76%;   /* purple      — ASSIST EASY */
+    --clear-failed:  0   0%  55%;   /* neutral gray — FAILED */
+    --clear-no-play: 220 10% 86%;   /* light muted gray — NO PLAY (light mode) */
+    --clear-perfect: 78  65% 72%;   /* lime        — PERFECT */
+    --clear-max:     330 65% 78%;   /* pink        — MAX */
 
     /* Activity chart: play count (separate from 기록 갱신) */
-    --chart-play: 207 50% 55%;
+    --chart-play: 207 50% 62%;
 
     /* Activity chart: new plays (first-ever play for a fumen) */
-    --chart-new-play: 38 80% 62%;
+    --chart-new-play: 38 80% 68%;
 
     /* ── Text size tokens ── */
     --text-caption: 0.8rem;
@@ -161,23 +161,21 @@
 
 .clear-row-0 {
   background-color: hsl(var(--clear-no-play));
-  color: hsl(210 40% 95%);
+  color: hsl(220 20% 35%);
   transition: background-color 0.15s ease, color 0.15s ease;
 }
-.clear-row-0:hover { background-color: hsl(220 20% 18%); color: hsl(210 40% 98%); }
-.clear-row-0 .row-muted { color: hsl(215 20% 58%); }
-.clear-row-0:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
+.clear-row-0:hover { background-color: hsl(220 10% 78%); color: hsl(220 20% 20%); }
+.clear-row-0 .row-muted { color: hsl(220 10% 55%); }
+.clear-row-0:hover .row-muted { color: hsl(220 15% 35%); }
 
-/* FAILED: light mode 45% lightness → white text; dark mode 55% → dark text */
+/* FAILED: 55% gray bg → dark text (both modes) */
 .clear-row-1 {
   background-color: hsl(var(--clear-failed));
-  color: hsl(210 40% 95%);
+  color: hsl(220 20% 9%);
   transition: background-color 0.15s ease, color 0.15s ease;
 }
-.dark .clear-row-1 { color: hsl(220 20% 9%); }
 .clear-row-1:hover { background-color: hsl(0 0% 40%); color: hsl(210 40% 95%); }
-.clear-row-1 .row-muted { color: rgba(255, 255, 255, 0.6); }
-.dark .clear-row-1 .row-muted { color: rgba(0, 0, 0, 0.55); }
+.clear-row-1 .row-muted { color: rgba(0, 0, 0, 0.55); }
 .clear-row-1:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
 
 .clear-row-2 {
@@ -253,11 +251,10 @@
 .clear-row-9:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
 
 /* Per-cell clear type coloring (for mixed-color rows). Hover triggers on parent tr:hover. */
-.clear-cell-0 { background-color: hsl(var(--clear-no-play)); color: hsl(210 40% 95%); transition: background-color 0.15s ease, color 0.15s ease; }
-tr:hover .clear-cell-0 { background-color: hsl(220 20% 18%); color: hsl(210 40% 98%); }
+.clear-cell-0 { background-color: hsl(var(--clear-no-play)); color: hsl(220 20% 35%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-0 { background-color: hsl(220 10% 78%); color: hsl(220 20% 20%); }
 
-.clear-cell-1 { background-color: hsl(var(--clear-failed)); color: hsl(210 40% 95%); transition: background-color 0.15s ease, color 0.15s ease; }
-.dark .clear-cell-1 { color: hsl(220 20% 9%); }
+.clear-cell-1 { background-color: hsl(var(--clear-failed)); color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
 tr:hover .clear-cell-1 { background-color: hsl(0 0% 40%); color: hsl(210 40% 95%); }
 
 .clear-cell-2 { background-color: hsl(var(--clear-assist)); color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
@@ -285,8 +282,8 @@ tr:hover .clear-cell-8 { background-color: hsl(78 60% 45%); color: hsl(210 40% 9
 tr:hover .clear-cell-9 { background-color: hsl(330 60% 52%); color: hsl(210 40% 95%); }
 
 /* Dim variants for prev-clear cells */
-.clear-cell-0-dim { background-color: hsl(var(--clear-no-play) / 0.6); color: hsl(210 40% 85%); transition: background-color 0.15s ease, color 0.15s ease; }
-tr:hover .clear-cell-0-dim { background-color: hsl(220 20% 18% / 0.8); color: hsl(210 40% 95%); }
+.clear-cell-0-dim { background-color: hsl(var(--clear-no-play) / 0.6); color: hsl(220 10% 50%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .clear-cell-0-dim { background-color: hsl(220 10% 78% / 0.8); color: hsl(220 20% 20%); }
 
 .clear-cell-1-dim { background-color: hsl(var(--clear-failed) / 0.6); color: hsl(210 40% 85%); transition: background-color 0.15s ease, color 0.15s ease; }
 tr:hover .clear-cell-1-dim { background-color: hsl(0 0% 40% / 0.8); color: hsl(210 40% 95%); }
@@ -316,11 +313,10 @@ tr:hover .clear-cell-8-dim { background-color: hsl(78 60% 45% / 0.75); color: hs
 tr:hover .clear-cell-9-dim { background-color: hsl(330 60% 52% / 0.75); color: hsl(210 40% 95%); }
 
 /* Per-cell rank-based coloring (Score Upgrade section). F=no-play, E=failed, D-B=clear tiers, A/AA/AAA/MAX=score tiers */
-.rank-cell-F   { background-color: hsl(var(--clear-no-play)); color: hsl(210 40% 95%); transition: background-color 0.15s ease, color 0.15s ease; }
-tr:hover .rank-cell-F   { background-color: hsl(220 20% 18%); color: hsl(210 40% 98%); }
+.rank-cell-F   { background-color: hsl(var(--clear-no-play)); color: hsl(220 20% 35%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-F   { background-color: hsl(220 10% 78%); color: hsl(220 20% 20%); }
 
-.rank-cell-E   { background-color: hsl(var(--clear-failed));  color: hsl(210 40% 95%); transition: background-color 0.15s ease, color 0.15s ease; }
-.dark .rank-cell-E { color: hsl(220 20% 9%); }
+.rank-cell-E   { background-color: hsl(var(--clear-failed));  color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
 tr:hover .rank-cell-E   { background-color: hsl(0 0% 40%);    color: hsl(210 40% 95%); }
 
 .rank-cell-D   { background-color: hsl(var(--clear-assist));  color: hsl(220 20% 9%); transition: background-color 0.15s ease, color 0.15s ease; }
@@ -345,8 +341,8 @@ tr:hover .rank-cell-AAA { background-color: hsl(46 70% 50%);  color: hsl(210 40%
 tr:hover .rank-cell-MAX { background-color: hsl(330 55% 65%); color: hsl(210 40% 95%); }
 
 /* Dim variants — F is already dark/dim, reuse full style */
-.rank-cell-F-dim   { background-color: hsl(var(--clear-no-play)); color: hsl(210 40% 95%); transition: background-color 0.15s ease, color 0.15s ease; }
-tr:hover .rank-cell-F-dim   { background-color: hsl(220 20% 18%);       color: hsl(210 40% 98%); }
+.rank-cell-F-dim   { background-color: hsl(var(--clear-no-play)); color: hsl(220 20% 35%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rank-cell-F-dim   { background-color: hsl(220 10% 78%);       color: hsl(220 20% 20%); }
 
 .rank-cell-E-dim   { background-color: hsl(var(--clear-failed) / 0.6);  color: hsl(210 40% 85%); transition: background-color 0.15s ease, color 0.15s ease; }
 tr:hover .rank-cell-E-dim   { background-color: hsl(0 0% 40% / 0.8);    color: hsl(210 40% 95%); }
@@ -371,3 +367,21 @@ tr:hover .rank-cell-AAA-dim { background-color: hsl(46 70% 50% / 0.75);  color: 
 
 .rank-cell-MAX-dim { background-color: hsl(330 65% 78% / 0.6); color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
 tr:hover .rank-cell-MAX-dim { background-color: hsl(330 55% 65% / 0.75); color: hsl(210 40% 95%); }
+
+/* ── NO PLAY dark mode override — restore dark surface appearance ── */
+.dark .clear-row-0 { color: hsl(210 40% 95%); }
+.dark .clear-row-0:hover { background-color: hsl(220 20% 18%); color: hsl(210 40% 98%); }
+.dark .clear-row-0 .row-muted { color: hsl(215 20% 58%); }
+.dark .clear-row-0:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
+
+.dark .clear-cell-0 { color: hsl(210 40% 95%); }
+.dark tr:hover .clear-cell-0 { background-color: hsl(220 20% 18%); color: hsl(210 40% 98%); }
+
+.dark .clear-cell-0-dim { color: hsl(210 40% 85%); }
+.dark tr:hover .clear-cell-0-dim { background-color: hsl(220 20% 18% / 0.8); color: hsl(210 40% 95%); }
+
+.dark .rank-cell-F   { color: hsl(210 40% 95%); }
+.dark tr:hover .rank-cell-F   { background-color: hsl(220 20% 18%); color: hsl(210 40% 98%); }
+
+.dark .rank-cell-F-dim   { color: hsl(210 40% 95%); }
+.dark tr:hover .rank-cell-F-dim   { background-color: hsl(220 20% 18%); color: hsl(210 40% 98%); }

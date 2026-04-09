@@ -3,7 +3,7 @@
 import React, { memo, useState, useMemo, useCallback, useDeferredValue, useRef, useEffect } from "react";
 import { useVirtualizer, defaultRangeExtractor } from "@tanstack/react-virtual";
 import Link from "next/link";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { X, Search, FileSpreadsheet } from "lucide-react";
 import { useFavoriteTables } from "@/hooks/use-tables";
 import { useTableClearDistribution, TableClearSong } from "@/hooks/use-analysis";
@@ -510,6 +510,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
   const { data: favTables, isLoading: tablesLoading } = useFavoriteTables();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const pathname = usePathname();
 
   // URL에서 상태 읽기
   const selectedTableId = searchParams.get(P_TBL);
@@ -530,8 +531,8 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
     for (const [k, v] of Object.entries(updates)) {
       if (v) params.set(k, v); else params.delete(k);
     }
-    router.replace(`/dashboard?${params.toString()}`, { scroll: false });
-  }, [searchParams, router]);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [searchParams, router, pathname]);
 
   // Auto-select first table when loaded
   const effectiveTableId = selectedTableId ?? (favTables?.[0]?.id ?? null);

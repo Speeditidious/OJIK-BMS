@@ -29,7 +29,12 @@ export default function CallbackPage() {
     if (accessToken && refreshToken) {
       setTokens(accessToken, refreshToken);
       fetchUser().then(() => {
-        router.push("/dashboard");
+        const currentUser = useAuthStore.getState().user;
+        if (currentUser) {
+          router.push(`/users/${currentUser.id}`);
+        } else {
+          router.push("/login");
+        }
       });
     } else {
       router.push("/login");

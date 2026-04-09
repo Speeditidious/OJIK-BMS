@@ -12,7 +12,9 @@ import {
   Settings,
   LogOut,
   UserCircle,
+  Github,
 } from "lucide-react";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 import { cn } from "@/lib/utils";
 import { resolveAvatarUrl } from "@/lib/avatar";
@@ -44,10 +46,10 @@ export function Navbar() {
   }, [isInitialized, fetchUser]);
 
   return (
-    <nav className="border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60">
+    <nav className="sticky top-0 z-50 border-b border-white/20 bg-primary/90 backdrop-blur supports-[backdrop-filter]:bg-primary/80 dark:border-border dark:bg-card/95 dark:supports-[backdrop-filter]:dark:bg-card/60">
       <div className="container flex h-16 items-center">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 font-bold text-xl mr-8">
+        <Link href="/" className="flex items-center gap-2 font-bold text-xl mr-8 text-primary-foreground dark:text-foreground">
           <Image src="/ojikbms_logo.png" alt="OJIK BMS" width={24} height={24} />
           <span>OJIK BMS</span>
         </Link>
@@ -65,8 +67,8 @@ export function Navbar() {
                 className={cn(
                   "flex items-center gap-2 px-3 py-2 rounded-md text-body font-medium transition-colors",
                   isActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                    ? "bg-white/20 text-white dark:bg-primary/10 dark:text-primary"
+                    : "text-white hover:bg-white/10 dark:text-foreground dark:hover:bg-secondary"
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -77,7 +79,23 @@ export function Navbar() {
         </div>
 
         {/* Right side */}
-        <div className="flex items-center">
+        <div className="flex items-center gap-1">
+          {/* GitHub */}
+          <a
+            href="https://github.com/Speeditidious/OJIK-BMS"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-md p-2 text-white hover:bg-white/10 dark:text-foreground dark:hover:bg-secondary transition-colors"
+            aria-label="GitHub"
+          >
+            <Github className="h-5 w-5" />
+          </a>
+
+          {/* Dark/Light mode toggle */}
+          <ThemeToggle className="text-white hover:bg-white/10 dark:text-foreground dark:hover:bg-secondary" />
+
+          <div className="w-5" />
+
           {isInitialized && (
             user ? (
               <DropdownMenu>
@@ -92,7 +110,7 @@ export function Navbar() {
                         className="rounded-full object-cover"
                       />
                     ) : (
-                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-label font-medium text-primary">
+                      <div className="w-8 h-8 rounded-full bg-white/25 flex items-center justify-center text-label font-medium text-white dark:bg-primary/20 dark:text-primary">
                         {user.username.charAt(0).toUpperCase()}
                       </div>
                     )}
@@ -109,7 +127,7 @@ export function Navbar() {
                         className="rounded-full object-cover"
                       />
                     ) : (
-                      <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-medium text-primary">
+                      <div className="w-6 h-6 rounded-full bg-white/25 flex items-center justify-center text-[10px] font-medium text-white dark:bg-primary/20 dark:text-primary">
                         {user.username.charAt(0).toUpperCase()}
                       </div>
                     )}
@@ -136,7 +154,7 @@ export function Navbar() {
             ) : (
               <button
                 onClick={() => router.push("/login")}
-                className="rounded-full p-1 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
+                className="rounded-full p-1 text-white hover:bg-white/10 dark:text-foreground dark:hover:bg-secondary transition-colors cursor-pointer"
                 aria-label="로그인"
               >
                 <UserCircle className="h-7 w-7" />
