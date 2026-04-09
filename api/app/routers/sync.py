@@ -466,19 +466,30 @@ async def sync_data(
                             recorded_at=item.recorded_at,
                             synced_at=now,
                         )
+                        _ins = insert(UserScore).values(**values)
                         stmt = (
-                            insert(UserScore)
-                            .values(**values)
-                            .on_conflict_do_nothing(
+                            _ins
+                            .on_conflict_do_update(
                                 index_elements=["scorehash", "user_id", "client_type"],
                                 index_where=text("scorehash IS NOT NULL"),
+                                set_={
+                                    "clear_type": func.coalesce(_ins.excluded.clear_type, UserScore.clear_type),
+                                    "exscore": func.coalesce(_ins.excluded.exscore, UserScore.exscore),
+                                    "rate": func.coalesce(_ins.excluded.rate, UserScore.rate),
+                                    "rank": func.coalesce(_ins.excluded.rank, UserScore.rank),
+                                    "max_combo": func.coalesce(_ins.excluded.max_combo, UserScore.max_combo),
+                                    "min_bp": func.coalesce(_ins.excluded.min_bp, UserScore.min_bp),
+                                    "play_count": func.coalesce(_ins.excluded.play_count, UserScore.play_count),
+                                    "clear_count": func.coalesce(_ins.excluded.clear_count, UserScore.clear_count),
+                                    "judgments": func.coalesce(_ins.excluded.judgments, UserScore.judgments),
+                                    "options": func.coalesce(_ins.excluded.options, UserScore.options),
+                                },
                             )
                             .returning(UserScore.id)
                         )
                         result = await db.execute(stmt)
                         new_id = result.scalar_one_or_none()
                         if new_id is None:
-                            # scorehash already exists on a different day — already synced, skip
                             skipped_scores += 1
                             continue
                         inserted_scores += 1

@@ -311,6 +311,27 @@ def parse_beatoraja_scores(
                 if raw_scorehash and str(raw_scorehash).strip().upper() != "LR2":
                     scorehash_c = str(raw_scorehash).strip() or None
 
+                judgments_c = {
+                    "epg": _int(cols["ep"]),
+                    "lpg": _int(cols["lp"]),
+                    "egr": _int(cols["eg"]),
+                    "lgr": _int(cols["lg"]),
+                    "egd": _int(cols["egd"]),
+                    "lgd": _int(cols["lgd"]),
+                    "ebd": _int(cols["ebd"]),
+                    "lbd": _int(cols["lbd"]),
+                    "epr": _int(cols["epr"]),
+                    "lpr": _int(cols["lpr"]),
+                    "ems": _int(cols["ems"]),
+                    "lms": _int(cols["lms"]),
+                }
+                arrangement_col_c = cols["arrangement"]
+                seed_col_c = cols["seed"]
+                random_raw_col_c = cols["random_raw"]
+                arrangement_val_c = int(row[arrangement_col_c]) if arrangement_col_c and row[arrangement_col_c] is not None else 0
+                seed_val_c = int(row[seed_col_c]) if seed_col_c and row[seed_col_c] is not None else -1
+                random_raw_val_c = int(row[random_raw_col_c]) if random_raw_col_c and row[random_raw_col_c] is not None else 0
+
                 courses.append({
                     "fumen_hash_others": sha256,
                     "client_type": "beatoraja",
@@ -319,9 +340,11 @@ def parse_beatoraja_scores(
                     "notes": notes_c or None,
                     "max_combo": _int(cols["maxcombo"]) or None,
                     "min_bp": _int_or_none(cols["minbp"]),
+                    "judgments": judgments_c,
                     "play_count": _int(cols["playcount"]),
                     "clear_count": _int(cols["clearcount"]),
                     "recorded_at": played_at_c,
+                    "options": _decode_beatoraja_options(mode, arrangement_val_c, seed_val_c, random_raw_val_c),
                     "song_hashes": [
                         {"song_md5": None, "song_sha256": s}
                         for s in song_sha256s

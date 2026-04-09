@@ -237,6 +237,7 @@ export interface ScoreUpdateBase {
   client_type: ClientType;
   recorded_at: string | null;
   is_course: boolean;
+  is_new_play: boolean;
   course_name: string | null;
   dan_title: string | null;
   current_state: CurrentState;

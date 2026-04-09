@@ -227,7 +227,7 @@ export function RecentActivity({ clientType = "all", heatmapData = [], onDayClic
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const allDays = heatmapData
-    .filter((d) => d.updates > 0 || d.plays > 0)
+    .filter((d) => d.updates > 0 || (d.new_plays ?? 0) > 0 || d.plays > 0)
     .slice()
     .sort((a, b) => (a.date < b.date ? 1 : -1));
 
@@ -264,6 +264,14 @@ export function RecentActivity({ clientType = "all", heatmapData = [], onDayClic
                   >
                     갱신 {day.updates}건
                   </span>
+                  {(day.new_plays ?? 0) > 0 && (
+                    <span
+                      className="text-caption bg-muted rounded px-1.5 py-0.5"
+                      style={{ color: "hsl(var(--chart-new-play))" }}
+                    >
+                      신규 {day.new_plays}건
+                    </span>
+                  )}
                   <span
                     className="text-caption bg-muted rounded px-1.5 py-0.5"
                     style={{ color: "hsl(var(--chart-play))" }}

@@ -27,17 +27,20 @@ function toDateString(year: number, month: number, day: number): string {
 
 interface DotItem {
   label: string;
-  color: "primary" | "accent" | "play";
+  color: "primary" | "accent" | "play" | "new-play";
 }
 
 function getDotItems(
   dateStr: string,
   updates: number,
+  newPlays: number,
   plays: number,
   firstSyncDates?: { lr2?: string; beatoraja?: string },
   lr2Updates?: number,
+  lr2NewPlays?: number,
   lr2Plays?: number,
   beatorajaUpdates?: number,
+  beatorajaNewPlays?: number,
   beatorajaPlays?: number,
   courseInfo?: { count: number; hasFirstClear: boolean },
 ): DotItem[] {
@@ -53,10 +56,13 @@ function getDotItems(
   if (lr2Updates !== undefined && beatorajaUpdates !== undefined) {
     if (lr2Updates > 0) dots.push({ label: `갱신 ${lr2Updates}개 (LR2)`, color: "primary" });
     if (beatorajaUpdates > 0) dots.push({ label: `갱신 ${beatorajaUpdates}개 (Beatoraja)`, color: "primary" });
+    if ((lr2NewPlays ?? 0) > 0) dots.push({ label: `신규 ${lr2NewPlays}개 (LR2)`, color: "new-play" });
+    if ((beatorajaNewPlays ?? 0) > 0) dots.push({ label: `신규 ${beatorajaNewPlays}개 (Beatoraja)`, color: "new-play" });
     if ((lr2Plays ?? 0) > 0) dots.push({ label: `플레이 ${lr2Plays}회 (LR2)`, color: "play" });
     if ((beatorajaPlays ?? 0) > 0) dots.push({ label: `플레이 ${beatorajaPlays}회 (Beatoraja)`, color: "play" });
   } else {
     if (updates > 0) dots.push({ label: `갱신 ${updates}개`, color: "primary" });
+    if (newPlays > 0) dots.push({ label: `신규 ${newPlays}개`, color: "new-play" });
     if (plays > 0) dots.push({ label: `플레이 ${plays}회`, color: "play" });
   }
   return dots;
@@ -82,6 +88,12 @@ export function ActivityCalendar({
     return map;
   }, [data]);
 
+  const newPlaysMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const d of data) map[d.date] = d.new_plays ?? 0;
+    return map;
+  }, [data]);
+
   const playsMap = useMemo(() => {
     const map: Record<string, number> = {};
     for (const d of data) map[d.date] = d.plays;
@@ -92,6 +104,13 @@ export function ActivityCalendar({
     if (!dataLr2) return undefined;
     const map: Record<string, number> = {};
     for (const d of dataLr2) map[d.date] = d.updates;
+    return map;
+  }, [dataLr2]);
+
+  const lr2NewPlaysMap = useMemo(() => {
+    if (!dataLr2) return undefined;
+    const map: Record<string, number> = {};
+    for (const d of dataLr2) map[d.date] = d.new_plays ?? 0;
     return map;
   }, [dataLr2]);
 
@@ -109,6 +128,13 @@ export function ActivityCalendar({
     return map;
   }, [dataBeatoraja]);
 
+  const beatorajaNewPlaysMap = useMemo(() => {
+    if (!dataBeatoraja) return undefined;
+    const map: Record<string, number> = {};
+    for (const d of dataBeatoraja) map[d.date] = d.new_plays ?? 0;
+    return map;
+  }, [dataBeatoraja]);
+
   const beatorajaPlaysMap = useMemo(() => {
     if (!dataBeatoraja) return undefined;
     const map: Record<string, number> = {};
@@ -123,7 +149,7 @@ export function ActivityCalendar({
       if (!c.date) continue;
       const existing = map[c.date] ?? { count: 0, hasFirstClear: false };
       existing.count++;
-      // hasFirstClear no longer tracked server-side
+      existing.hasFirstClear = true; // backend only returns first clears
       map[c.date] = existing;
     }
     return map;
@@ -187,16 +213,20 @@ export function ActivityCalendar({
 
           const dateStr = cell.dateStr;
           const updates = updatesMap[dateStr] ?? 0;
+          const newPlays = newPlaysMap[dateStr] ?? 0;
           const plays = playsMap[dateStr] ?? 0;
           const isToday = dateStr === todayStr;
           const dots = getDotItems(
             dateStr,
             updates,
+            newPlays,
             plays,
             firstSyncDates,
             lr2UpdatesMap?.[dateStr] ?? (lr2UpdatesMap ? 0 : undefined),
+            lr2NewPlaysMap?.[dateStr] ?? (lr2NewPlaysMap ? 0 : undefined),
             lr2PlaysMap?.[dateStr] ?? (lr2PlaysMap ? 0 : undefined),
             beatorajaUpdatesMap?.[dateStr] ?? (beatorajaUpdatesMap ? 0 : undefined),
+            beatorajaNewPlaysMap?.[dateStr] ?? (beatorajaNewPlaysMap ? 0 : undefined),
             beatorajaPlaysMap?.[dateStr] ?? (beatorajaPlaysMap ? 0 : undefined),
             courseMap[dateStr],
           );
@@ -212,7 +242,7 @@ export function ActivityCalendar({
                 .filter(Boolean)
                 .join(" ")}
               onClick={() => onDayClick(dateStr)}
-              title={updates > 0 ? `${cell.day}일 — 갱신 ${updates}건` : plays > 0 ? `${cell.day}일 — 플레이 ${plays}회` : String(cell.day)}
+              title={updates > 0 || newPlays > 0 ? `${cell.day}일 — 갱신 ${updates}건 / 신규 ${newPlays}건` : plays > 0 ? `${cell.day}일 — 플레이 ${plays}회` : String(cell.day)}
             >
               {/* Date number top-left — badge on today */}
               {isToday ? (
@@ -230,13 +260,13 @@ export function ActivityCalendar({
                     <div key={di} className="flex items-center gap-0.5 min-w-0">
                       <span
                         className="shrink-0 text-label leading-none"
-                        style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : `hsl(var(--${dot.color}))` }}
+                        style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : dot.color === "new-play" ? "hsl(var(--chart-new-play))" : `hsl(var(--${dot.color}))` }}
                       >
                         ●
                       </span>
                       <span
                         className="text-label leading-tight truncate"
-                        style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : `hsl(var(--${dot.color}))` }}
+                        style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : dot.color === "new-play" ? "hsl(var(--chart-new-play))" : `hsl(var(--${dot.color}))` }}
                       >
                         {dot.label}
                       </span>

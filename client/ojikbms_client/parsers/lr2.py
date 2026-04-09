@@ -252,6 +252,18 @@ def parse_lr2_scores(
                 if scorehash_col_c and row[scorehash_col_c]:
                     scorehash_c = str(row[scorehash_col_c]).strip() or None
 
+                judgments_c = {
+                    "perfect": _int(cols["pg"]),
+                    "great": _int(cols["gr"]),
+                    "good": _int(cols["gd"]),
+                    "bad": _int(cols["bd"]),
+                    "poor": _int(cols["pr"]),
+                }
+                op_best_c = _int(cols["op_best"])
+                op_history_c = _int(cols["op_history"])
+                rseed_col_c = cols["rseed"]
+                rseed_c = int(row[rseed_col_c]) if rseed_col_c and row[rseed_col_c] is not None else None
+
                 courses.append({
                     "fumen_hash_others": songs_part.lower(),
                     "client_type": "lr2",
@@ -260,9 +272,11 @@ def parse_lr2_scores(
                     "notes": _int(cols["totalnotes"]) or None,
                     "max_combo": _int(cols["maxcombo"]) or None,
                     "min_bp": _int_or_none(cols["minbp"]),
+                    "judgments": judgments_c,
                     "play_count": _int(cols["playcount"]),
                     "clear_count": _int(cols["clearcount"]),
                     "recorded_at": played_at_c,
+                    "options": _decode_lr2_options(op_best_c, op_history_c, rseed_c),
                     "song_hashes": [
                         {"song_md5": md5.lower(), "song_sha256": None}
                         for md5 in song_md5s

@@ -110,11 +110,17 @@ function CalendarDayDetail({
       {/* Day summary cards */}
       {data?.day_summary && (
         <TooltipProvider>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
             <DayStatCard
-              title="갱신 수"
+              title="갱신 기록"
               value={`${data.day_summary.total_updates}`}
-              sub="당일 기록 갱신"
+              sub="당일 기록 갱신 개수"
+              icon={TrendingUp}
+            />
+            <DayStatCard
+              title="신규 기록"
+              value={`${data.day_summary.new_plays ?? 0}`}
+              sub="당일 첫 플레이 기록 개수"
               icon={TrendingUp}
             />
             <DayStatCard
@@ -164,7 +170,7 @@ function DashboardContent() {
   const [clientType, setClientType] = useState<ClientTypeFilter>("all");
   const [heatmapYear, setHeatmapYear] = useState(CURRENT_YEAR);
   const [barDays, setBarDays] = useState<(typeof BAR_RANGE_OPTIONS)[number]>(30);
-  const [activityView, setActivityView] = useState<"updates" | "plays">("updates");
+  const [activityView, setActivityView] = useState<"updates" | "plays" | "new_plays">("updates");
 
   // Calendar tab state (local — preserved across URL-only navigation)
   const [calYear, setCalYear] = useState(CURRENT_YEAR);
@@ -291,7 +297,7 @@ function DashboardContent() {
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="flex gap-0.5">
-                          {(["updates", "plays"] as const).map((v) => (
+                          {(["updates", "new_plays", "plays"] as const).map((v) => (
                             <Button
                               key={v}
                               variant={activityView === v ? "secondary" : "ghost"}
@@ -299,7 +305,7 @@ function DashboardContent() {
                               className="text-label h-7 px-2"
                               onClick={() => setActivityView(v)}
                             >
-                              {v === "updates" ? "기록 갱신" : "플레이 횟수"}
+                              {v === "updates" ? "갱신 기록" : v === "new_plays" ? "신규 기록" : "플레이 횟수"}
                             </Button>
                           ))}
                         </div>

@@ -330,23 +330,39 @@ async def get_table_songs(
                         raw["min_bp_client"] = client_label
                     raw["play_count"] = (raw["play_count"] or 0) + (entry["play_count"] or 0)
 
-                clients = {
-                    v for k, v in raw.items()
-                    if k.endswith("_client") and v is not None
-                }
-                if len(clients) > 1:
-                    source_client = "MIX"
-                    source_client_detail = {
-                        "clear_type": raw["clear_type_client"],
-                        "exscore": raw["exscore_client"],
-                        "min_bp": raw["min_bp_client"],
-                    }
-                elif len(clients) == 1:
-                    source_client = next(iter(clients))
+                # Check if a single client achieves all best values (handles tied lamp case).
+                # e.g. lamp tied but one client wins score+BP → that client, not MIX.
+                single_client = None
+                for _ct, _entry in per_client.items():
+                    _label = _CLIENT_LABEL.get(_ct, _ct)
+                    _clear_ok = raw["clear_type"] is None or _entry["clear_type"] == raw["clear_type"]
+                    _score_ok = raw["exscore"] is None or _entry["exscore"] == raw["exscore"]
+                    _bp_ok = raw["min_bp"] is None or _entry["min_bp"] == raw["min_bp"]
+                    if _clear_ok and _score_ok and _bp_ok:
+                        single_client = _label
+                        break
+
+                if single_client is not None:
+                    source_client = single_client
                     source_client_detail = None
                 else:
-                    source_client = None
-                    source_client_detail = None
+                    clients = {
+                        v for k, v in raw.items()
+                        if k.endswith("_client") and v is not None
+                    }
+                    if len(clients) > 1:
+                        source_client = "MIX"
+                        source_client_detail = {
+                            "clear_type": raw["clear_type_client"],
+                            "exscore": raw["exscore_client"],
+                            "min_bp": raw["min_bp_client"],
+                        }
+                    elif len(clients) == 1:
+                        source_client = next(iter(clients))
+                        source_client_detail = None
+                    else:
+                        source_client = None
+                        source_client_detail = None
 
                 # Compute rate/rank from exscore + notes_total when null (e.g. scorelog.db rows)
                 rate = raw["rate"]

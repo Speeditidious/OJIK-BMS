@@ -1,6 +1,7 @@
 """User profile CRUD endpoints."""
 import uuid
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, ConfigDict
@@ -145,6 +146,32 @@ async def upload_avatar(
         is_public=current_user.is_public,
         avatar_url=current_user.avatar_url,
     )
+
+
+class PreferencesUpdateRequest(BaseModel):
+    preferences: dict[str, Any]
+
+
+@router.get("/me/preferences")
+async def get_my_preferences(
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Get current user's stored preferences."""
+    return {"preferences": current_user.preferences or {}}
+
+
+@router.patch("/me/preferences")
+async def update_my_preferences(
+    request: PreferencesUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Partially update current user's preferences (shallow merge with existing)."""
+    existing = current_user.preferences or {}
+    current_user.preferences = {**existing, **request.preferences}
+    db.add(current_user)
+    await db.commit()
+    return {"preferences": current_user.preferences}
 
 
 @router.get("/me/oauth")

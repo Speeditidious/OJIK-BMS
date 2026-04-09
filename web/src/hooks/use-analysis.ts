@@ -12,15 +12,17 @@ export interface PlaySummary {
 }
 
 export interface HeatmapDay {
-  date: string; // YYYY-MM-DD
-  updates: number; // rows where at least one metric improved vs previous play
-  plays: number;   // UserPlayerStats.playcount LAG delta sum; first-sync rows = 0
+  date: string;      // YYYY-MM-DD
+  updates: number;   // rows where at least one metric improved vs previous play (rn > 1)
+  new_plays: number; // first-ever plays for a fumen (rn == 1), separate from updates
+  plays: number;     // UserPlayerStats.playcount LAG delta sum; first-sync rows = 0
 }
 
 export interface ActivityDay {
   date: string;
-  updates: number; // rows where at least one metric improved vs previous play
-  plays: number;   // UserPlayerStats.playcount LAG delta sum; first-sync rows = 0
+  updates: number;   // rows where at least one metric improved vs previous play (rn > 1)
+  new_plays: number; // first-ever plays for a fumen (rn == 1), separate from updates
+  plays: number;     // UserPlayerStats.playcount LAG delta sum; first-sync rows = 0
 }
 
 export interface RecentUpdate {
@@ -47,6 +49,7 @@ export interface RecentUpdate {
 
 export interface DaySummary {
   total_updates: number;
+  new_plays: number;             // first-ever plays for a fumen on this day
   total_play_count: number | null;  // null = 집계 불가 (첫 동기화 기록 포함)
   play_count_uncertain: boolean;
   stat_only_count: number;

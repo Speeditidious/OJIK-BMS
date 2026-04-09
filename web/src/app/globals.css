@@ -57,6 +57,9 @@
     /* Activity chart: play count (separate from 기록 갱신) */
     --chart-play: 207 50% 55%;
 
+    /* Activity chart: new plays (first-ever play for a fumen) */
+    --chart-new-play: 38 80% 62%;
+
     /* ── Text size tokens ── */
     --text-caption: 0.8rem;
     --text-label:   0.875rem;
@@ -123,6 +126,9 @@
 
     /* Activity chart: play count (separate from 기록 갱신) */
     --chart-play: 207 50% 62%;
+
+    /* Activity chart: new plays (first-ever play for a fumen) */
+    --chart-new-play: 38 80% 68%;
 
   }
 }

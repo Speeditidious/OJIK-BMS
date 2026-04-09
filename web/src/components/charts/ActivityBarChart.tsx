@@ -17,7 +17,7 @@ interface ActivityBarChartProps {
   firstSyncDates?: { lr2?: string; beatoraja?: string };
   clientType?: ClientTypeFilter;
   courseData?: CourseActivityItem[];
-  viewMode?: "updates" | "plays";
+  viewMode?: "updates" | "plays" | "new_plays";
 }
 
 function formatDate(dateStr: string): string {
@@ -46,11 +46,12 @@ function SyncLabel({ viewBox, labels }: { viewBox?: { x: number; y: number }; la
   );
 }
 
-function ChartTooltip({ active, payload, viewMode }: { active?: boolean; payload?: any[]; viewMode?: "updates" | "plays" }) {
+function ChartTooltip({ active, payload, viewMode }: { active?: boolean; payload?: any[]; viewMode?: "updates" | "plays" | "new_plays" }) {
   if (!active || !payload?.length) return null;
-  const { fullDate, updates, plays, syncLabels, hideSyncCount, courseLabels } = payload[0].payload as {
+  const { fullDate, updates, new_plays, plays, syncLabels, hideSyncCount, courseLabels } = payload[0].payload as {
     fullDate: string;
     updates: number;
+    new_plays: number;
     plays: number;
     syncLabels?: string[];
     hideSyncCount?: boolean;
@@ -80,10 +81,13 @@ function ChartTooltip({ active, payload, viewMode }: { active?: boolean; payload
           {l}
         </p>
       ))}
-      {showCounts && (updates > 0 || plays > 0) && (
+      {showCounts && (updates > 0 || new_plays > 0 || plays > 0) && (
         <div style={{ marginTop: (hasAnySyncLabel || courseLabels?.length) ? 4 : 0 }}>
           <p style={{ margin: 0, color: "hsl(var(--primary))", fontWeight: viewMode === "updates" ? 600 : 400 }}>
-            기록 갱신: {updates}
+            갱신 기록: {updates}
+          </p>
+          <p style={{ margin: 0, color: "hsl(var(--chart-new-play))", fontWeight: viewMode === "new_plays" ? 600 : 400 }}>
+            신규 기록: {new_plays}
           </p>
           <p style={{ margin: 0, color: "hsl(var(--chart-play))", fontWeight: viewMode === "plays" ? 600 : 400 }}>
             플레이: {plays}
@@ -142,13 +146,13 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData,
     const rangeMin = data.length > 0 ? data[0].date : null;
     for (const date of Object.keys(syncByDate)) {
       if (!seenDates.has(date) && (rangeMin === null || date >= rangeMin)) {
-        injected.push({ date, updates: 0, plays: 0 });
+        injected.push({ date, updates: 0, new_plays: 0, plays: 0 });
         seenDates.add(date);
       }
     }
     for (const date of Object.keys(courseByDate)) {
       if (!seenDates.has(date) && (rangeMin === null || date >= rangeMin)) {
-        injected.push({ date, updates: 0, plays: 0 });
+        injected.push({ date, updates: 0, new_plays: 0, plays: 0 });
         seenDates.add(date);
       }
     }
@@ -157,6 +161,7 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData,
       date: formatDate(d.date),
       fullDate: d.date,
       updates: d.updates,
+      new_plays: d.new_plays ?? 0,
       plays: d.plays,
       syncLabels: syncByDate[d.date]?.labels,
       hideSyncCount: syncByDate[d.date]?.hideCount ?? false,
@@ -208,6 +213,16 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData,
           strokeOpacity={viewMode === "plays" ? 1 : 0.5}
           dot={false}
           activeDot={{ r: viewMode === "plays" ? 3 : 2, fill: "hsl(var(--chart-play))" }}
+        />
+        <Line
+          type="monotone"
+          dataKey="new_plays"
+          stroke="hsl(var(--chart-new-play))"
+          strokeWidth={viewMode === "new_plays" ? 2 : 1.5}
+          strokeDasharray={viewMode === "new_plays" ? undefined : "3 2"}
+          strokeOpacity={viewMode === "new_plays" ? 1 : 0.8}
+          dot={false}
+          activeDot={{ r: viewMode === "new_plays" ? 3 : 2, fill: "hsl(var(--chart-new-play))" }}
         />
         <Line
           type="monotone"

@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Date, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -240,17 +241,19 @@ def _build_activity_subquery(user: User, client_type: str | None = None):
 def _improvement_filter(subq):
     """Return a SQLAlchemy expression that is True when the row improved at least one
     of the four tracked metrics compared with the immediately preceding play.
-    First play for a fumen (rn == 1) always counts as an improvement (from NO PLAY).
+    First plays (rn == 1) are excluded — they are counted separately as new_plays.
     """
-    return or_(
-        subq.c.rn == 1,
-        subq.c.clear_type > func.coalesce(subq.c.prev_ct, 0),
-        subq.c.exscore > func.coalesce(subq.c.prev_ex, 0),
-        and_(
-            subq.c.min_bp.is_not(None),
-            or_(subq.c.prev_bp.is_(None), subq.c.min_bp < subq.c.prev_bp),
-        ),
-        subq.c.max_combo > func.coalesce(subq.c.prev_mc, 0),
+    return and_(
+        subq.c.rn > 1,
+        or_(
+            subq.c.clear_type > func.coalesce(subq.c.prev_ct, 0),
+            subq.c.exscore > func.coalesce(subq.c.prev_ex, 0),
+            and_(
+                subq.c.min_bp.is_not(None),
+                or_(subq.c.prev_bp.is_(None), subq.c.min_bp < subq.c.prev_bp),
+            ),
+            subq.c.max_combo > func.coalesce(subq.c.prev_mc, 0),
+        )
     )
 
 
@@ -403,11 +406,11 @@ async def get_activity_heatmap(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Return per-day record-update and play counts for the given year.
+    """Return per-day record-update, new-play, and play counts for the given year.
 
-    updates = rows where any of (clear_type, exscore, min_bp, max_combo) improved
-              vs the previous play (or first play for a fumen — counted as improvement).
-    plays   = user_scores.play_count LAG delta sum per day (mirrors day_summary logic).
+    updates   = rows where any metric improved vs the previous play (rn > 1).
+    new_plays = first-ever plays for a fumen (rn == 1), counted separately from updates.
+    plays     = user_scores.play_count LAG delta sum per day (mirrors day_summary logic).
     """
     target_year = year if year > 0 else datetime.now(UTC).year
     start = datetime(target_year, 1, 1, tzinfo=UTC)
@@ -422,23 +425,36 @@ async def get_activity_heatmap(
     ]
     outer_filters.extend(_initial_sync_exclusion_for_subq(current_user, subq))
 
-    updates_result = await db.execute(
-        select(subq.c.day, func.count().filter(is_improvement & (subq.c.rn_in_day == 1)).label("updates"))
+    result = await db.execute(
+        select(
+            subq.c.day,
+            func.count().filter(is_improvement & (subq.c.rn_in_day == 1)).label("updates"),
+            func.count().filter(subq.c.rn == 1).label("new_plays"),
+        )
         .where(*outer_filters)
         .group_by(subq.c.day)
         .order_by(subq.c.day)
     )
-    updates_by_day = {str(r.day): r.updates for r in updates_result.all()}
+    updates_by_day: dict[str, int] = {}
+    new_plays_by_day: dict[str, int] = {}
+    for r in result.all():
+        updates_by_day[str(r.day)] = r.updates
+        new_plays_by_day[str(r.day)] = r.new_plays
 
     plays_by_day = await _get_daily_plays(
         current_user, client_type, start.date(), end.date(), db
     )
 
-    all_dates = sorted(set(updates_by_day) | set(plays_by_day))
+    all_dates = sorted(set(updates_by_day) | set(new_plays_by_day) | set(plays_by_day))
     return {
         "year": target_year,
         "data": [
-            {"date": d, "updates": updates_by_day.get(d, 0), "plays": plays_by_day.get(d, 0)}
+            {
+                "date": d,
+                "updates": updates_by_day.get(d, 0),
+                "new_plays": new_plays_by_day.get(d, 0),
+                "plays": plays_by_day.get(d, 0),
+            }
             for d in all_dates
         ],
     }
@@ -451,10 +467,11 @@ async def get_activity_bar(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Return daily record-update and play counts for the last N days.
+    """Return daily record-update, new-play, and play counts for the last N days.
 
-    updates = rows where any metric improved vs the previous play.
-    plays   = user_scores.play_count LAG delta sum per day (mirrors day_summary logic).
+    updates   = rows where any metric improved vs the previous play (rn > 1).
+    new_plays = first-ever plays for a fumen (rn == 1), counted separately from updates.
+    plays     = user_scores.play_count LAG delta sum per day (mirrors day_summary logic).
     """
     now = datetime.now(UTC)
     since = now - timedelta(days=days)
@@ -467,23 +484,36 @@ async def get_activity_bar(
     ]
     outer_filters.extend(_initial_sync_exclusion_for_subq(current_user, subq))
 
-    updates_result = await db.execute(
-        select(subq.c.day, func.count().filter(is_improvement & (subq.c.rn_in_day == 1)).label("updates"))
+    result = await db.execute(
+        select(
+            subq.c.day,
+            func.count().filter(is_improvement & (subq.c.rn_in_day == 1)).label("updates"),
+            func.count().filter(subq.c.rn == 1).label("new_plays"),
+        )
         .where(*outer_filters)
         .group_by(subq.c.day)
         .order_by(subq.c.day)
     )
-    updates_by_day = {str(r.day): r.updates for r in updates_result.all()}
+    updates_by_day: dict[str, int] = {}
+    new_plays_by_day: dict[str, int] = {}
+    for r in result.all():
+        updates_by_day[str(r.day)] = r.updates
+        new_plays_by_day[str(r.day)] = r.new_plays
 
     plays_by_day = await _get_daily_plays(
         current_user, client_type, since.date(), (now.date() + timedelta(days=1)), db
     )
 
-    all_dates = sorted(set(updates_by_day) | set(plays_by_day))
+    all_dates = sorted(set(updates_by_day) | set(new_plays_by_day) | set(plays_by_day))
     return {
         "days": days,
         "data": [
-            {"date": d, "updates": updates_by_day.get(d, 0), "plays": plays_by_day.get(d, 0)}
+            {
+                "date": d,
+                "updates": updates_by_day.get(d, 0),
+                "new_plays": new_plays_by_day.get(d, 0),
+                "plays": plays_by_day.get(d, 0),
+            }
             for d in all_dates
         ],
     }
@@ -673,14 +703,20 @@ async def get_recent_updates(
         is_imp_day = _improvement_filter(subq_day)
         target_date_obj = date_cls.fromisoformat(date)
         excl_day = _initial_sync_exclusion_for_subq(current_user, subq_day)
-        updates_res = await db.execute(
-            select(func.count().filter(is_imp_day & (subq_day.c.rn_in_day == 1)).label("c"))
+        counts_res = await db.execute(
+            select(
+                func.count().filter(is_imp_day & (subq_day.c.rn_in_day == 1)).label("updates"),
+                func.count().filter(subq_day.c.rn == 1).label("new_plays"),
+            )
             .where(subq_day.c.day == target_date_obj, *excl_day)
         )
-        total_updates_authoritative: int = updates_res.scalar() or 0
+        counts_row = counts_res.one()
+        total_updates_authoritative: int = counts_row.updates or 0
+        total_new_plays_authoritative: int = counts_row.new_plays or 0
 
         day_summary_out = {
             "total_updates": total_updates_authoritative,
+            "new_plays": total_new_plays_authoritative,
             "total_play_count": total_play_count_out,
             "play_count_uncertain": day_stats["playcount_uncertain"] or no_stats_but_has_records,
             "stat_only_count": len(stat_only_ids),
@@ -745,9 +781,28 @@ async def get_course_activity(
     """
     effective_ts = func.coalesce(UserScore.recorded_at, UserScore.synced_at)
 
+    # "First clear" = earliest record with clear_type >= 3 for a given (user, course, client_type).
+    # Checks ALL records without sync exclusion so bulk-imported prior clears are not re-shown.
+    earlier = aliased(UserScore)
+    earlier_effective_ts = func.coalesce(earlier.recorded_at, earlier.synced_at)
+    earlier_clear_exists = (
+        select(earlier.id)
+        .where(
+            earlier.user_id == current_user.id,
+            earlier.fumen_hash_others == UserScore.fumen_hash_others,
+            earlier.client_type == UserScore.client_type,
+            earlier.clear_type >= 3,
+            earlier_effective_ts < effective_ts,
+        )
+        .correlate(UserScore)
+        .exists()
+    )
+
     filters = [
         UserScore.user_id == current_user.id,
         UserScore.fumen_hash_others.is_not(None),
+        UserScore.clear_type >= 3,  # exclude NO PLAY / FAILED / ASSIST EASY
+        ~earlier_clear_exists,      # only the first clear (not re-clears or record updates)
     ]
 
     if date:
@@ -1418,14 +1473,23 @@ async def get_score_updates(
         ts = row.recorded_at or row.synced_at
         return ts.isoformat() if ts else None
 
-    # Course updates (is_course=True) — clear_type / exscore only
+    # Course updates (is_course=True) — clear_type / exscore / play_count
     for r in course_best:
-        if r.clear_type is None and r.exscore is None:
+        if r.clear_type is None and r.exscore is None and r.play_count is None:
             continue
         course = _match_course_from_indexes(r.fumen_hash_others or "", r.client_type or "", lr2_idx, bea_idx)
         if course is None:
             continue
         cprev = _find_course_prev_row(r, course_prev_rows_map)
+        all_course_rows = course_prev_rows_map.get((r.fumen_hash_others, r.client_type), [])
+        all_rows = all_course_rows if any(row.id == r.id for row in all_course_rows) else all_course_rows + [r]
+        best_clear = max((row.clear_type for row in all_rows if row.clear_type is not None), default=None)
+        best_exscore = max((row.exscore for row in all_rows if row.exscore is not None), default=None)
+        best_rate = max((row.rate for row in all_rows if row.rate is not None), default=None)
+        best_rank_row = max((row for row in all_rows if row.exscore is not None), key=lambda row: row.exscore or 0, default=None)
+        best_rank = best_rank_row.rank if best_rank_row else None
+        best_min_bp = min((row.min_bp for row in all_rows if row.min_bp is not None), default=None)
+        best_max_combo = max((row.max_combo for row in all_rows if row.max_combo is not None), default=None)
         course_base = {
             "fumen_sha256": None,
             "fumen_md5": None,
@@ -1435,8 +1499,18 @@ async def get_score_updates(
             "client_type": r.client_type,
             "recorded_at": _ts(r),
             "is_course": True,
+            "is_new_play": cprev is None,
             "course_name": course.name,
             "dan_title": course.dan_title or "",
+            "options": r.options,
+            "current_state": {
+                "clear_type": best_clear,
+                "exscore": best_exscore,
+                "rate": best_rate,
+                "rank": best_rank,
+                "min_bp": best_min_bp,
+                "max_combo": best_max_combo,
+            },
         }
         if r.clear_type is not None:
             prev_ct = cprev.clear_type if cprev else None
@@ -1445,8 +1519,18 @@ async def get_score_updates(
         if r.exscore is not None:
             prev_ex = cprev.exscore if cprev else None
             prev_rank = cprev.rank if cprev else None
+            prev_rate = cprev.rate if cprev else None
             if (r.exscore or 0) > (prev_ex or 0):
-                exscore_updates.append({**course_base, "prev_exscore": prev_ex, "new_exscore": r.exscore, "prev_rank": prev_rank, "new_rank": r.rank})
+                exscore_updates.append({**course_base, "prev_exscore": prev_ex, "new_exscore": r.exscore, "prev_rank": prev_rank, "new_rank": r.rank, "prev_rate": prev_rate, "new_rate": r.rate, "best_min_bp": r.min_bp})
+        if r.play_count is not None:
+            prev_pc = cprev.play_count if cprev else None
+            if prev_pc is None or r.play_count > prev_pc:
+                play_count_updates.append({
+                    **course_base,
+                    "prev_play_count": prev_pc,
+                    "new_play_count": r.play_count,
+                    "is_initial_sync": _is_initial_sync_record(r, current_user),
+                })
 
     # Fumen updates (is_course=False)
     processed_ct: set = set()
@@ -1478,6 +1562,7 @@ async def get_score_updates(
             "client_type": r.client_type,
             "recorded_at": _ts(r),
             "is_course": False,
+            "is_new_play": prev is None,
             "course_name": None,
             "dan_title": None,
             "options": r.options,

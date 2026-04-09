@@ -21,6 +21,7 @@ class User(Base, TimestampMixin):
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     first_synced_at: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    preferences: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Relationships
     oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(
