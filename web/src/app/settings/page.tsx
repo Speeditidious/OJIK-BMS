@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -763,7 +763,7 @@ function AccountTab() {
 // Main Settings Page
 // ---------------------------------------------------------------------------
 
-export default function SettingsPage() {
+function SettingsContent() {
   const { isLoading } = useAuth(true);
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -814,5 +814,19 @@ export default function SettingsPage() {
         </main>
       </div>
     </TooltipProvider>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-background">
+          <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" />
+        </div>
+      }
+    >
+      <SettingsContent />
+    </Suspense>
   );
 }

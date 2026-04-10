@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Check } from "lucide-react";
 
-export default function DeleteCallbackPage() {
+function DeleteCallbackContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
   const error = searchParams.get("error");
@@ -38,5 +38,19 @@ export default function DeleteCallbackPage() {
         <p className="text-muted-foreground text-body">이 창은 자동으로 닫힙니다.</p>
       </div>
     </div>
+  );
+}
+
+export default function DeleteCallbackPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-background">
+          <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" />
+        </div>
+      }
+    >
+      <DeleteCallbackContent />
+    </Suspense>
   );
 }
