@@ -121,7 +121,7 @@ async def discord_callback(
 
     if oauth_account is None:
         # Create new user
-        user = User(username=discord_username, is_active=True, is_public=True)
+        user = User(username=discord_username, is_active=True)
         db.add(user)
         await db.flush()
 
@@ -186,6 +186,20 @@ async def discord_callback(
             url=f"{redirect_base}?{error_params}",
             status_code=302,
         )
+
+    # Account deletion verification flow: issue a short-lived delete token and redirect to popup callback.
+    if state and state.startswith("delete_verify"):
+        from app.core.security import create_delete_verification_token
+
+        delete_token = create_delete_verification_token(discord_id)
+        if state == "delete_verify_redirect":
+            # Fallback: popup was blocked, redirect back to settings page
+            redirect_url = (
+                f"{settings.FRONTEND_URL}/settings?tab=account&delete_token={delete_token}"
+            )
+        else:
+            redirect_url = f"{settings.FRONTEND_URL}/auth/delete-callback?token={delete_token}"
+        return RedirectResponse(url=redirect_url, status_code=302)
 
     # Admin panel flow: write session and redirect to /admin instead of issuing JWTs.
     if state == "admin_panel":

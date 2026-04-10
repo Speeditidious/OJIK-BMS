@@ -28,6 +28,8 @@ interface TableClearHistogramProps {
   tableSymbol?: string;
   onSelect?: (level: string, clearType: number) => void;
   onLevelSelect?: (level: string) => void;
+  getDisplayClearType?: (ct: number) => number;
+  hiddenClearTypes?: Set<number>;
 }
 
 const cardStyles: React.CSSProperties = {
@@ -47,9 +49,10 @@ interface CustomTooltipProps {
   clientType?: string;
   activeEntry?: { level: string; ct: number } | null;
   labelMap: Record<number, string>;
+  getDisplayClearType?: (ct: number) => number;
 }
 
-const CustomTooltip = memo(function CustomTooltip({ active, payload, label, tableSymbol, clientType, activeEntry, labelMap }: CustomTooltipProps) {
+const CustomTooltip = memo(function CustomTooltip({ active, payload, label, tableSymbol, clientType, activeEntry, labelMap, getDisplayClearType }: CustomTooltipProps) {
   if (!active || !payload?.length) return null;
   const rowData = payload[0]?.payload as Record<string, number>;
   const total = rowData?._total ?? 0;
@@ -65,48 +68,67 @@ const CustomTooltip = memo(function CustomTooltip({ active, payload, label, tabl
           </div>
         );
       })()}
-      {ALL_CLEAR_TYPES.filter((ct) => {
-        // LR2 has no ASSIST(2) or EXHARD(6)
-        if (clientType === "lr2" && (ct === 2 || ct === 6)) return false;
-        // exclude zero-count entries so the tooltip stays compact
-        const rawCount = rowData?.[`raw_ct_${ct}`] ?? 0;
-        return rawCount > 0;
-      }).map((ct) => {
-        const rawCount = rowData?.[`raw_ct_${ct}`] ?? 0;
-        const ctLabel = labelMap[ct] ?? String(ct);
-        const ownPct = total > 0 ? (rawCount / total) * 100 : 0;
-        let cumRaw = rawCount;
-        for (const o of ALL_CLEAR_TYPES) {
-          if (o > ct) cumRaw += rowData?.[`raw_ct_${o}`] ?? 0;
+      {(() => {
+        // display ct별로 raw 카운트 합산 (숨긴 ct는 그 아래 visible ct로 병합됨)
+        const displayMap = new Map<number, number>();
+        for (const ct of ALL_CLEAR_TYPES) {
+          if (clientType === "lr2" && (ct === 2 || ct === 6)) continue;
+          const rawCount = (rowData?.[`raw_ct_${ct}`] as number) ?? 0;
+          if (rawCount <= 0) continue;
+          const display = getDisplayClearType ? getDisplayClearType(ct) : ct;
+          displayMap.set(display, (displayMap.get(display) ?? 0) + rawCount);
         }
-        const cumPct = total > 0 ? (cumRaw / total) * 100 : 0;
-        const isActive = activeEntry?.ct === ct;
-        return (
-          <div
-            key={ct}
-            style={{
-              color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--muted-foreground))",
-              fontWeight: isActive ? 700 : 400,
-              transition: "color 0.15s, font-weight 0.15s",
-              display: "flex",
-              gap: "4px",
-              alignItems: "baseline",
-              whiteSpace: "nowrap",
-            }}
-          >
-            <span style={{ width: 56 }}>{ctLabel}</span>
-            <span style={{ width: 20, color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--foreground))", fontWeight: isActive ? 700 : 500 }}>
-              {rawCount.toLocaleString()}
-            </span>
-            <span style={{ width: 56, color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--foreground))", fontWeight: isActive ? 700 : 400 }}>
-              ({ownPct.toFixed(1)}%)
-            </span>
-            <span style={{ width: 80, fontSize: 'var(--text-caption)', color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--muted-foreground))" }}>
-              누적 {cumPct.toFixed(1)}%
-            </span>
-          </div>
+
+        // ALL_CLEAR_TYPES 정렬 순서(높은→낮은)로 display ct만 순회
+        const visibleDisplayCts = ALL_CLEAR_TYPES.filter(
+          (ct) => displayMap.has(ct) && (displayMap.get(ct) ?? 0) > 0,
         );
-      })}
+
+        return visibleDisplayCts.map((ct) => {
+          const mergedCount = displayMap.get(ct) ?? 0;
+          const ctLabel = labelMap[ct] ?? String(ct);
+          const ownPct = total > 0 ? (mergedCount / total) * 100 : 0;
+
+          let cumRaw = mergedCount;
+          for (const o of ALL_CLEAR_TYPES) {
+            if (o > ct && displayMap.has(o)) cumRaw += displayMap.get(o) ?? 0;
+          }
+          const cumPct = total > 0 ? (cumRaw / total) * 100 : 0;
+
+          const activeDisplayCt = activeEntry
+            ? getDisplayClearType
+              ? getDisplayClearType(activeEntry.ct)
+              : activeEntry.ct
+            : null;
+          const isActive = activeDisplayCt === ct;
+
+          return (
+            <div
+              key={ct}
+              style={{
+                color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--muted-foreground))",
+                fontWeight: isActive ? 700 : 400,
+                transition: "color 0.15s, font-weight 0.15s",
+                display: "flex",
+                gap: "4px",
+                alignItems: "baseline",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <span style={{ width: 56 }}>{ctLabel}</span>
+              <span style={{ width: 20, color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--foreground))", fontWeight: isActive ? 700 : 500 }}>
+                {mergedCount.toLocaleString()}
+              </span>
+              <span style={{ width: 56, color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--foreground))", fontWeight: isActive ? 700 : 400 }}>
+                ({ownPct.toFixed(1)}%)
+              </span>
+              <span style={{ width: 80, fontSize: 'var(--text-caption)', color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--muted-foreground))" }}>
+                누적 {cumPct.toFixed(1)}%
+              </span>
+            </div>
+          );
+        });
+      })()}
     </div>
   );
 });
@@ -148,7 +170,7 @@ const YAxisTick = memo(function YAxisTick({
   );
 });
 
-export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect, onLevelSelect }: TableClearHistogramProps) {
+export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect, onLevelSelect, getDisplayClearType, hiddenClearTypes }: TableClearHistogramProps) {
   // All hooks at top — no early returns before this block
   const [activeEntry, setActiveEntry] = useState<{ level: string; ct: number } | null>(null);
   const highlightStyleRef = useRef<HTMLStyleElement>(null);
@@ -167,6 +189,7 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
   const chartData = useMemo(
     () =>
       levels.map((l) => {
+        // Apply display remapping: hidden clear types count toward the next visible lower type
         const rawCounts: Record<string, number> = {};
         let total = 0;
         for (const ct of ALL_CLEAR_TYPES) {
@@ -174,14 +197,25 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
           rawCounts[`raw_${ct}`] = raw;
           total += raw;
         }
+        // Remap counts if visibility function is provided
+        const displayCounts: Record<string, number> = { ...rawCounts };
+        if (getDisplayClearType) {
+          const remapped: Record<string, number> = {};
+          for (const ct of ALL_CLEAR_TYPES) remapped[`raw_${ct}`] = 0;
+          for (const ct of ALL_CLEAR_TYPES) {
+            const display = getDisplayClearType(ct);
+            remapped[`raw_${display}`] = (remapped[`raw_${display}`] ?? 0) + (rawCounts[`raw_${ct}`] ?? 0);
+          }
+          Object.assign(displayCounts, remapped);
+        }
         const row: Record<string, string | number> = { level: l.level, _total: total };
         for (const ct of ALL_CLEAR_TYPES) {
-          row[`ct_${ct}`] = total > 0 ? (rawCounts[`raw_${ct}`] / total) * 100 : 0;
+          row[`ct_${ct}`] = total > 0 ? (displayCounts[`raw_${ct}`] / total) * 100 : 0;
           row[`raw_ct_${ct}`] = rawCounts[`raw_${ct}`];
         }
         return row;
       }),
-    [levels]
+    [levels, getDisplayClearType]
   );
 
   const barHeight = useMemo(
@@ -287,7 +321,15 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
           width={tableSymbol ? Math.max(88, tableSymbol.length * 12 + 48) : 80}
         />
         <Tooltip
-          content={<CustomTooltip tableSymbol={tableSymbol} clientType={clientType} activeEntry={activeEntry} labelMap={labelMap} />}
+          content={
+            <CustomTooltip
+              tableSymbol={tableSymbol}
+              clientType={clientType}
+              activeEntry={activeEntry}
+              labelMap={labelMap}
+              getDisplayClearType={getDisplayClearType}
+            />
+          }
           cursor={{ fill: "hsl(var(--accent)/0.08)" }}
           wrapperStyle={{ width: "max-content" }}
         />
@@ -321,7 +363,7 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
           />
         ))}
       </BarChart>
-      <ClearTypeLegend clientType={clientType} className="mb-8" />
+      <ClearTypeLegend clientType={clientType} className="mb-8" hiddenClearTypes={hiddenClearTypes} />
     </div>
   );
 }
@@ -334,9 +376,10 @@ const BEATORAJA_ITEMS = [9, 8, 7, 6, 5, 4, 3, 2, 1, 0] as const;
 interface ClearTypeLegendProps {
   clientType?: string;
   className?: string;
+  hiddenClearTypes?: Set<number>;
 }
 
-export function ClearTypeLegend({ clientType, className }: ClearTypeLegendProps) {
+export function ClearTypeLegend({ clientType, className, hiddenClearTypes }: ClearTypeLegendProps) {
   const labelMap =
     clientType === "lr2"
       ? LR2_CLEAR_TYPE_LABELS
@@ -344,12 +387,18 @@ export function ClearTypeLegend({ clientType, className }: ClearTypeLegendProps)
       ? BEATORAJA_CLEAR_TYPE_LABELS
       : CLEAR_TYPE_LABELS;
 
-  const items =
+  const baseItems =
     clientType === "lr2"
       ? LR2_ITEMS
       : clientType === "beatoraja"
       ? BEATORAJA_ITEMS
       : COMBINED_ITEMS;
+
+  // Hide clear types that the user has hidden in preferences — keeps legend
+  // consistent with the histogram bars and filter panel.
+  const items = hiddenClearTypes
+    ? baseItems.filter((ct) => !hiddenClearTypes.has(ct))
+    : baseItems;
 
   return (
     <div className={`flex flex-wrap justify-center gap-x-4 gap-y-1 mt-1 ${className ?? ""}`}>

@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 export interface UserPublicRead {
   id: string;
   username: string;
+  bio: string | null;
   avatar_url: string | null;
 }
 

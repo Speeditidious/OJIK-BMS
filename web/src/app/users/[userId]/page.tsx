@@ -247,6 +247,7 @@ function UserProfileContent({ userId }: { userId: string }) {
         <ProfileHeader
           username={profileUser.username}
           avatarUrl={profileUser.avatar_url}
+          bio={profileUser.bio}
           isOwner={isOwner}
         />
 

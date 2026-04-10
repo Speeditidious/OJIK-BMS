@@ -5,12 +5,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, verify_delete_token
 from app.models.user import OAuthAccount, User
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -23,8 +23,8 @@ MAX_AVATAR_SIZE = 5 * 1024 * 1024  # 5 MB
 class UserRead(BaseModel):
     id: str
     username: str
+    bio: str | None = None
     is_active: bool
-    is_public: bool
     avatar_url: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
@@ -32,19 +32,28 @@ class UserRead(BaseModel):
 class UserPublicRead(BaseModel):
     id: str
     username: str
+    bio: str | None = None
     avatar_url: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
 class UserUpdateRequest(BaseModel):
     username: str | None = None
-    is_public: bool | None = None
+    bio: str | None = None
 
 
 class OAuthAccountRead(BaseModel):
     provider: str
     provider_username: str | None
     model_config = ConfigDict(from_attributes=True)
+
+
+class DeleteAccountRequest(BaseModel):
+    verification_token: str
+    confirmation_text: str
+
+
+EXPECTED_CONFIRMATION = "Yes, I want to delete my OJIK BMS account"
 
 
 async def _resolve_avatar(user: User, db: AsyncSession) -> str | None:
@@ -61,6 +70,32 @@ async def _resolve_avatar(user: User, db: AsyncSession) -> str | None:
     return oauth.discord_avatar_url if oauth else None
 
 
+async def _delete_all_user_data(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Delete all data associated with a user. Must be called within a transaction."""
+    from app.models.difficulty_table import (
+        CustomCourse,
+        CustomDifficultyTable,
+        UserFavoriteDifficultyTable,
+    )
+    from app.models.fumen import UserFumenTag
+    from app.models.schedule import Schedule
+    from app.models.score import UserPlayerStats, UserScore
+
+    uid = user_id
+
+    await db.execute(delete(UserScore).where(UserScore.user_id == uid))
+    await db.execute(delete(UserPlayerStats).where(UserPlayerStats.user_id == uid))
+    await db.execute(delete(UserFumenTag).where(UserFumenTag.user_id == uid))
+    await db.execute(delete(UserFavoriteDifficultyTable).where(UserFavoriteDifficultyTable.user_id == uid))
+    await db.execute(delete(CustomCourse).where(CustomCourse.owner_id == uid))
+    await db.execute(delete(CustomDifficultyTable).where(CustomDifficultyTable.owner_id == uid))
+    await db.execute(delete(Schedule).where(Schedule.user_id == uid))
+    # users row (oauth_accounts cascade-deleted automatically)
+    await db.execute(delete(User).where(User.id == uid))
+
+    await db.commit()
+
+
 @router.get("/me")
 async def get_my_profile(
     current_user: User = Depends(get_current_user),
@@ -70,8 +105,8 @@ async def get_my_profile(
     return UserRead(
         id=str(current_user.id),
         username=current_user.username,
+        bio=current_user.bio,
         is_active=current_user.is_active,
-        is_public=current_user.is_public,
         avatar_url=await _resolve_avatar(current_user, db),
     )
 
@@ -94,8 +129,8 @@ async def update_my_profile(
             )
         current_user.username = update_data.username
 
-    if update_data.is_public is not None:
-        current_user.is_public = update_data.is_public
+    if update_data.bio is not None:
+        current_user.bio = update_data.bio.strip() or None
 
     await db.commit()
     await db.refresh(current_user)
@@ -103,10 +138,42 @@ async def update_my_profile(
     return UserRead(
         id=str(current_user.id),
         username=current_user.username,
+        bio=current_user.bio,
         is_active=current_user.is_active,
-        is_public=current_user.is_public,
         avatar_url=await _resolve_avatar(current_user, db),
     )
+
+
+@router.delete("/me")
+async def delete_my_account(
+    body: DeleteAccountRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Permanently delete the current user's account and all associated data.
+
+    Requires:
+    1. Active JWT (already authenticated)
+    2. Discord re-auth token (issued within 5 minutes)
+    3. Exact confirmation text
+    """
+    if body.confirmation_text != EXPECTED_CONFIRMATION:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Confirmation text does not match")
+
+    discord_id = verify_delete_token(body.verification_token)
+
+    result = await db.execute(
+        select(OAuthAccount).where(
+            OAuthAccount.user_id == current_user.id,
+            OAuthAccount.provider == "discord",
+        )
+    )
+    oauth = result.scalar_one_or_none()
+    if not oauth or oauth.provider_account_id != discord_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Discord account mismatch")
+
+    await _delete_all_user_data(db, current_user.id)
+    return {"message": "Account deleted successfully"}
 
 
 @router.post("/me/avatar")
@@ -142,8 +209,8 @@ async def upload_avatar(
     return UserRead(
         id=str(current_user.id),
         username=current_user.username,
+        bio=current_user.bio,
         is_active=current_user.is_active,
-        is_public=current_user.is_public,
         avatar_url=current_user.avatar_url,
     )
 
@@ -193,7 +260,6 @@ async def get_my_oauth_accounts(
     ]
 
 
-
 @router.get("/by-id/{user_id}")
 async def get_user_profile_by_id(
     user_id: str,
@@ -214,6 +280,7 @@ async def get_user_profile_by_id(
     return UserPublicRead(
         id=str(user.id),
         username=user.username,
+        bio=user.bio,
         avatar_url=await _resolve_avatar(user, db),
     )
 
@@ -236,5 +303,6 @@ async def get_user_profile(
     return UserPublicRead(
         id=str(user.id),
         username=user.username,
+        bio=user.bio,
         avatar_url=await _resolve_avatar(user, db),
     )

@@ -28,7 +28,7 @@ class UserAdmin(ModelView, model=User):
     name = "User"
     name_plural = "Users"
     icon = "fa-solid fa-user"
-    column_list = [User.id, User.username, User.is_active, User.is_public, User.is_admin, User.created_at]
+    column_list = [User.id, User.username, User.is_active, User.is_admin, User.created_at]
     column_searchable_list = [User.username]
     column_sortable_list = [User.username, User.created_at, User.is_active, User.is_admin]
     can_delete = False  # Deleting a user triggers cascades across all score tables
@@ -61,6 +61,35 @@ class UserAdmin(ModelView, model=User):
                     await db.execute(delete(UserPlayerStats).where(UserPlayerStats.user_id == uid))
                     await db.execute(update(User).where(User.id == uid).values(first_synced_at=null()))
                 await db.commit()
+
+        return RedirectResponse(request.url_for("admin:list", identity="user"), status_code=302)
+
+    @action(
+        name="delete_user_and_data",
+        label="계정 및 모든 데이터 삭제",
+        confirmation_message=(
+            "선택한 유저의 계정과 모든 관련 데이터가 영구 삭제됩니다. "
+            "이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?"
+        ),
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def delete_user_and_data(self, request: Request) -> RedirectResponse:
+        """Permanently delete user account and all associated data (admin only)."""
+        from app.core.database import AsyncSessionLocal
+        from app.routers.users import _delete_all_user_data
+
+        pks = request.query_params.get("pks", "")
+        user_ids = [uid.strip() for uid in pks.split(",") if uid.strip()]
+
+        if user_ids:
+            async with AsyncSessionLocal() as db:
+                for uid_str in user_ids:
+                    try:
+                        uid = uuid.UUID(uid_str)
+                    except ValueError:
+                        continue
+                    await _delete_all_user_data(db, uid)
 
         return RedirectResponse(request.url_for("admin:list", identity="user"), status_code=302)
 

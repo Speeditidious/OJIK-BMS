@@ -4,8 +4,8 @@ import { api, clearTokens, getAccessToken } from "@/lib/api";
 export interface AuthUser {
   id: string;
   username: string;
+  bio: string | null;
   is_active: boolean;
-  is_public: boolean;
   avatar_url: string | null;
 }
 

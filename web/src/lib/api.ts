@@ -161,8 +161,12 @@ export const api = {
       ...options,
     }),
 
-  delete: <T>(path: string, options?: RequestOptions) =>
-    apiFetch<T>(path, { method: "DELETE", ...options }),
+  delete: <T>(path: string, body?: unknown, options?: RequestOptions) =>
+    apiFetch<T>(path, {
+      method: "DELETE",
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      ...options,
+    }),
 
   /** Multipart form upload — does NOT set Content-Type (browser sets boundary automatically). */
   postForm: <T>(path: string, form: FormData, options?: RequestOptions): Promise<T> => {

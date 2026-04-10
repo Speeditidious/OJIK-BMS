@@ -62,6 +62,29 @@ def verify_token(token: str, token_type: str = "access") -> str:
         raise credentials_exception
 
 
+def create_delete_verification_token(discord_id: str) -> str:
+    """Create a short-lived (5 min) JWT for account deletion verification after Discord re-auth."""
+    expire = datetime.now(UTC) + timedelta(minutes=5)
+    payload = {
+        "sub": discord_id,
+        "purpose": "delete_verify",
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def verify_delete_token(token: str) -> str:
+    """Verify a delete verification token and return discord_id. Raises HTTPException on failure."""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("purpose") != "delete_verify":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token purpose")
+        return payload["sub"]
+    except JWTError as exc:
+        msg = "Verification token expired" if "expired" in str(exc) else "Invalid verification token"
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),

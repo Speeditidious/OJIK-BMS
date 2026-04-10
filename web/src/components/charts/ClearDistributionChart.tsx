@@ -50,9 +50,10 @@ export const CLEAR_TYPE_COLORS: Record<number, string> = {
 interface ClearDistributionChartProps {
   data: GradeDistributionItem[];
   clientType?: string; // "lr2" | "beatoraja" — used to resolve ambiguous labels
+  getDisplayClearType?: (ct: number) => number;
 }
 
-export function ClearDistributionChart({ data, clientType }: ClearDistributionChartProps) {
+export function ClearDistributionChart({ data, clientType, getDisplayClearType }: ClearDistributionChartProps) {
   // All hooks at top before any early returns
   const [chartRef, chartWidth] = useChartWidth(150);
 
@@ -66,18 +67,32 @@ export function ClearDistributionChart({ data, clientType }: ClearDistributionCh
     [clientType]
   );
 
-  const chartData = useMemo(
-    () =>
-      data
-        .filter((d) => d.clear_type !== null)
-        .sort((a, b) => (b.clear_type ?? 0) - (a.clear_type ?? 0))
-        .map((d) => ({
-          label: labelMap[d.clear_type ?? 0] ?? String(d.clear_type),
-          count: d.count,
-          type: d.clear_type ?? 0,
-        })),
-    [data, labelMap]
-  );
+  const chartData = useMemo(() => {
+    // Remap counts if display visibility function is provided
+    if (getDisplayClearType) {
+      const remapped = new Map<number, number>();
+      for (const d of data) {
+        if (d.clear_type === null) continue;
+        const display = getDisplayClearType(d.clear_type);
+        remapped.set(display, (remapped.get(display) ?? 0) + d.count);
+      }
+      return Array.from(remapped.entries())
+        .sort((a, b) => b[0] - a[0])
+        .map(([ct, count]) => ({
+          label: labelMap[ct] ?? String(ct),
+          count,
+          type: ct,
+        }));
+    }
+    return data
+      .filter((d) => d.clear_type !== null)
+      .sort((a, b) => (b.clear_type ?? 0) - (a.clear_type ?? 0))
+      .map((d) => ({
+        label: labelMap[d.clear_type ?? 0] ?? String(d.clear_type),
+        count: d.count,
+        type: d.clear_type ?? 0,
+      }));
+  }, [data, labelMap, getDisplayClearType]);
 
   const totalCount = useMemo(
     () => chartData.reduce((acc, d) => acc + d.count, 0),

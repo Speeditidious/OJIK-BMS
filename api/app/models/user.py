@@ -16,8 +16,8 @@ class User(Base, TimestampMixin):
         server_default=text("gen_random_uuid()"),
     )
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    bio: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    is_public: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     first_synced_at: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

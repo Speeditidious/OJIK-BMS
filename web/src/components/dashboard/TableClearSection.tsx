@@ -4,9 +4,10 @@ import React, { memo, useState, useMemo, useCallback, useDeferredValue, useRef, 
 import { useVirtualizer, defaultRangeExtractor } from "@tanstack/react-virtual";
 import Link from "next/link";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { X, Search, FileSpreadsheet } from "lucide-react";
+import { X, Search, FileSpreadsheet, Eye } from "lucide-react";
 import { useFavoriteTables } from "@/hooks/use-tables";
 import { useTableClearDistribution, TableClearSong } from "@/hooks/use-analysis";
+import { useClearTypeVisibility, type ClientVisibilityKey } from "@/hooks/use-preferences";
 import {
   TableClearHistogram,
   ALL_CLEAR_TYPES,
@@ -20,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, levelSortIndex, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
 
@@ -120,10 +122,19 @@ const MAX_TABLE_HEIGHT = 420;
 
 const handleTableCopy = makeTableCopyHandler(1); // col 0=Level, col 1=Title/Artist
 
-const SongRow = React.memo(function SongRow({ song, index }: { song: TableClearSong; index: number }) {
+const SongRow = React.memo(function SongRow({
+  song,
+  index,
+  getDisplayClearType,
+}: {
+  song: TableClearSong;
+  index: number;
+  getDisplayClearType?: (ct: number) => number;
+}) {
   const arrangementName = parseArrangement(song.options, song.client_type);
   const arrangementKanji = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? null) : null;
-  const rowClass = CLEAR_ROW_CLASS[song.clear_type] ?? "";
+  const displayClearType = getDisplayClearType ? getDisplayClearType(song.clear_type) : song.clear_type;
+  const rowClass = CLEAR_ROW_CLASS[displayClearType] ?? "";
   return (
     <tr
       data-index={index}
@@ -145,7 +156,7 @@ const SongRow = React.memo(function SongRow({ song, index }: { song: TableClearS
           {song.artist && <div className="text-caption text-muted-foreground row-muted max-w-full truncate">{song.artist}</div>}
         </div>
       </td>
-      <td className="px-2"><span className="text-label">{getClearLabel(song.client_type, song.clear_type)}</span></td>
+      <td className="px-2"><span className="text-label">{getClearLabel(song.client_type, displayClearType)}</span></td>
       <td className="px-2 text-label">{song.min_bp !== null ? song.min_bp : <span className="text-muted-foreground row-muted">--</span>}</td>
       <td className="px-2 text-label">{song.rate !== null ? `${song.rate.toFixed(2)}%` : <span className="text-muted-foreground row-muted">--</span>}</td>
       <td className="px-2 text-label">{song.rank !== null ? song.rank : <span className="text-muted-foreground row-muted">--</span>}</td>
@@ -165,7 +176,15 @@ const SongRow = React.memo(function SongRow({ song, index }: { song: TableClearS
   );
 });
 
-const SongTable = React.memo(function SongTable({ songs, levelOrder }: { songs: TableClearSong[]; levelOrder: string[] }) {
+const SongTable = React.memo(function SongTable({
+  songs,
+  levelOrder,
+  getDisplayClearType,
+}: {
+  songs: TableClearSong[];
+  levelOrder: string[];
+  getDisplayClearType?: (ct: number) => number;
+}) {
   const [sortKey, setSortKey] = useState<SortKey>("level");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const parentRef = useRef<HTMLDivElement>(null);
@@ -288,7 +307,7 @@ const SongTable = React.memo(function SongTable({ songs, levelOrder }: { songs: 
                 level: song.level,
                 title: song.title ?? "",
                 artist: song.artist ?? "",
-                lamp: getClearLabel(song.client_type, song.clear_type),
+                lamp: getClearLabel(song.client_type, getDisplayClearType ? getDisplayClearType(song.clear_type) : song.clear_type),
                 bp: song.min_bp ?? "",
                 rate: song.rate != null ? `${song.rate.toFixed(2)}%` : "",
                 rank: song.rank ?? "",
@@ -350,6 +369,7 @@ const SongTable = React.memo(function SongTable({ songs, levelOrder }: { songs: 
                 key={sorted[virtualRow.index].sha256 || virtualRow.index}
                 song={sorted[virtualRow.index]}
                 index={virtualRow.index}
+                getDisplayClearType={getDisplayClearType}
               />
             ))}
             {paddingBottom > 0 && (
@@ -373,6 +393,7 @@ interface FilterPanelProps {
   filterLevels: Set<string>;
   filterClearTypes: Set<number>;
   filterTitle: string;
+  hiddenClearTypes?: Set<number>;
   onToggleLevel: (level: string) => void;
   onToggleClearType: (ct: number) => void;
   onTitleChange: (v: string) => void;
@@ -385,6 +406,7 @@ const FilterPanel = memo(function FilterPanel({
   filterLevels,
   filterClearTypes,
   filterTitle,
+  hiddenClearTypes,
   onToggleLevel,
   onToggleClearType,
   onTitleChange,
@@ -393,9 +415,10 @@ const FilterPanel = memo(function FilterPanel({
   const clearTypes = useMemo(() => {
     return (ALL_CLEAR_TYPES as readonly number[]).filter((ct) => {
       if (clientType === "lr2" && (ct === 2 || ct === 6)) return false;
+      if (hiddenClearTypes?.has(ct)) return false; // 설정에서 숨긴 ct는 필터 버튼에서도 제외
       return true;
     });
-  }, [clientType]);
+  }, [clientType, hiddenClearTypes]);
 
   // Pre-compute button styles for all clear types
   const clearTypeButtonStyles = useMemo(() => {
@@ -419,7 +442,7 @@ const FilterPanel = memo(function FilterPanel({
       {/* Clear type toggles */}
       <div className="flex gap-2 items-start">
         <span className="text-caption text-muted-foreground pt-[3px] w-14 shrink-0">클리어</span>
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1 flex-1">
           {clearTypes.map((ct) => {
             const active = filterClearTypes.has(ct);
             const label = getClearLabel(clientType ?? null, ct);
@@ -429,9 +452,7 @@ const FilterPanel = memo(function FilterPanel({
                 onClick={() => onToggleClearType(ct)}
                 className={cn(
                   "inline-flex items-center rounded-full px-2.5 py-0.5 text-caption font-medium transition-all border",
-                  active
-                    ? "opacity-100"
-                    : "opacity-50 hover:opacity-75 border-border/40"
+                  active ? "opacity-100" : "opacity-50 hover:opacity-75 border-border/40"
                 )}
                 style={active ? clearTypeButtonStyles[ct]?.active : clearTypeButtonStyles[ct]?.inactive}
                 title={label}
@@ -441,6 +462,19 @@ const FilterPanel = memo(function FilterPanel({
             );
           })}
         </div>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                href="/settings?tab=preferences#clear-visibility"
+                className="ml-auto text-muted-foreground hover:text-foreground transition-colors shrink-0 pt-[3px]"
+              >
+                <Eye className="h-4 w-4" />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent>클리어 타입 표시 설정</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
       {/* Level toggles */}
@@ -507,6 +541,10 @@ const P_CT  = "d_ct";
 const P_Q   = "d_q";
 
 export function TableClearSection({ clientType }: TableClearSectionProps) {
+  // clientType undefined = 통합 뷰 → visibility 버킷은 "all"
+  const clientKey: ClientVisibilityKey =
+    clientType === "lr2" ? "lr2" : clientType === "beatoraja" ? "beatoraja" : "all";
+  const { hiddenTypes, getDisplayClearType } = useClearTypeVisibility(clientKey);
   const { data: favTables, isLoading: tablesLoading } = useFavoriteTables();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -519,8 +557,12 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
     [searchParams]
   );
   const filterClearTypes = useMemo(
-    () => new Set((searchParams.get(P_CT)?.split(",").filter(Boolean) ?? []).map(Number)),
-    [searchParams]
+    () => {
+      const raw = (searchParams.get(P_CT)?.split(",").filter(Boolean) ?? []).map(Number);
+      // 숨김 설정이 바뀌어 stale해진 ct는 display ct로 정규화 (orphan filter 방지)
+      return new Set(raw.map((ct) => getDisplayClearType(ct)));
+    },
+    [searchParams, getDisplayClearType]
   );
   const filterTitle = searchParams.get(P_Q) ?? "";
   const deferredTitle = useDeferredValue(filterTitle);
@@ -559,11 +601,11 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
     const titleLower = deferredTitle.toLowerCase();
     return dist.songs.filter((s) => {
       if (filterLevels.size > 0 && !filterLevels.has(s.level)) return false;
-      if (filterClearTypes.size > 0 && !filterClearTypes.has(s.clear_type)) return false;
+      if (filterClearTypes.size > 0 && !filterClearTypes.has(getDisplayClearType(s.clear_type))) return false;
       if (titleLower && !s.title?.toLowerCase().includes(titleLower) && !s.artist?.toLowerCase().includes(titleLower)) return false;
       return true;
     });
-  }, [dist, filterLevels, filterClearTypes, deferredTitle]);
+  }, [dist, filterLevels, filterClearTypes, deferredTitle, getDisplayClearType]);
 
   const isFiltered = filterLevels.size > 0 || filterClearTypes.size > 0 || deferredTitle !== "";
 
@@ -659,6 +701,8 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
               tableSymbol={tableSymbol}
               onSelect={handleHistogramSelect}
               onLevelSelect={toggleLevel}
+              getDisplayClearType={getDisplayClearType}
+              hiddenClearTypes={hiddenTypes}
             />
 
             {/* Filter panel */}
@@ -669,6 +713,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
               filterLevels={filterLevels}
               filterClearTypes={filterClearTypes}
               filterTitle={filterTitle}
+              hiddenClearTypes={hiddenTypes}
               onToggleLevel={toggleLevel}
               onToggleClearType={toggleClearType}
               onTitleChange={(v) => updateParams({ [P_Q]: v || null })}
@@ -722,7 +767,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
             </div>
 
             {/* Song table */}
-            <SongTable songs={filteredSongs} levelOrder={orderedLevels} />
+            <SongTable songs={filteredSongs} levelOrder={orderedLevels} getDisplayClearType={getDisplayClearType} />
           </>
         )}
       </div>

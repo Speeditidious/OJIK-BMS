@@ -9,12 +9,13 @@ import { resolveAvatarUrl } from "@/lib/avatar";
 interface ProfileHeaderProps {
   username: string;
   avatarUrl?: string | null;
+  bio?: string | null;
   isOwner: boolean;
 }
 
-export function ProfileHeader({ username, avatarUrl, isOwner }: ProfileHeaderProps) {
+export function ProfileHeader({ username, avatarUrl, bio, isOwner }: ProfileHeaderProps) {
   return (
-    <div className="flex items-center gap-4 mb-8">
+    <div className="flex items-start gap-4 mb-8">
       {avatarUrl ? (
         <Image
           src={resolveAvatarUrl(avatarUrl)}
@@ -31,9 +32,13 @@ export function ProfileHeader({ username, avatarUrl, isOwner }: ProfileHeaderPro
 
       <div className="flex-1">
         <h1 className="text-2xl font-bold">{username}</h1>
-        <p className="text-label text-muted-foreground mt-0.5">
-          {isOwner ? "내 게임 프로필" : `${username}의 게임 프로필`}
-        </p>
+        {bio ? (
+          <p className="text-body text-muted-foreground mt-1 whitespace-pre-line">{bio}</p>
+        ) : (
+          <p className="text-label text-muted-foreground mt-0.5">
+            {isOwner ? "내 게임 프로필" : `${username}의 게임 프로필`}
+          </p>
+        )}
       </div>
 
       {isOwner && (
