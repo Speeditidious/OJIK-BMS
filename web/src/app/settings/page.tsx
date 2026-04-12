@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { Navbar } from "@/components/layout/navbar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -61,6 +62,7 @@ const EXPECTED_CONFIRMATION = "Yes, I want to delete my OJIK BMS account";
 function ProfileTab() {
   const { user } = useAuth(true);
   const { setUser } = useAuthStore();
+  const queryClient = useQueryClient();
 
   const [username, setUsername] = useState("");
   const [bio, setBio] = useState<string>("");
@@ -107,6 +109,7 @@ function ProfileTab() {
         avatar_url: string | null;
       }>("/users/me", patch);
       setUser({ ...updated });
+      queryClient.invalidateQueries({ queryKey: ["user-profile", updated.id] });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err) {
@@ -132,6 +135,7 @@ function ProfileTab() {
         avatar_url: string | null;
       }>("/users/me/avatar", form);
       setUser({ ...updated });
+      queryClient.invalidateQueries({ queryKey: ["user-profile", updated.id] });
     } catch (err) {
       setAvatarError(err instanceof Error ? err.message : "업로드에 실패했습니다.");
     } finally {
