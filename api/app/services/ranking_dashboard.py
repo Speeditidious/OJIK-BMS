@@ -295,7 +295,7 @@ async def build_user_contribution_rows(
         key = (row["sha256"], row["md5"])
         row["rank"] = rank_by_key[key]
         row["is_in_top_n"] = key in top_keys
-        row["value"] = row["raw_value"] if metric == "exp" else (row["raw_value"] if row["is_in_top_n"] else 0.0)
+        row["value"] = row["raw_value"]
 
     if scope == "top":
         filtered = [row for row in value_sorted if (row["sha256"], row["md5"]) in top_keys]
@@ -321,11 +321,9 @@ async def build_user_contribution_rows(
             ),
         )
         total_count = len(filtered)
-        start = max((page - 1) * limit, 0)
-        end = start + limit
-        entries = filtered[start:end]
-        page_out = page
-        limit_out = limit
+        entries = filtered
+        page_out = 1
+        limit_out = total_count
 
     return {
         "top_n": table_cfg.top_n,

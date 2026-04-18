@@ -30,8 +30,6 @@ interface RatingDetailSectionProps {
   onSortChange: (sortBy: RatingContributionSortBy, sortDir: "asc" | "desc") => void;
 }
 
-const PAGE_SIZE = 100;
-
 export function RatingDetailSection({
   profileUser,
   tables,
@@ -50,7 +48,6 @@ export function RatingDetailSection({
     () => tables.find((table) => table.slug === selectedTableSlug) ?? null,
     [selectedTableSlug, tables],
   );
-  const [page, setPage] = useState(1);
   const [searchText, setSearchText] = useState("");
   const deferredSearch = useDeferredValue(searchText.trim());
 
@@ -60,15 +57,9 @@ export function RatingDetailSection({
     scope,
     sortBy,
     sortDir,
-    page,
-    limit: PAGE_SIZE,
     query: scope === "all" ? deferredSearch : "",
     userId,
   });
-
-  const totalPages = contributionQuery.data
-    ? Math.max(1, Math.ceil(contributionQuery.data.total_count / contributionQuery.data.limit))
-    : 1;
   const displayEntries = useMemo(() => {
     const entries = contributionQuery.data?.entries ?? [];
     if (scope !== "top" || !deferredSearch) return entries;
@@ -83,7 +74,6 @@ export function RatingDetailSection({
 
   function handleSort(nextSortBy: RatingContributionSortBy) {
     if (!selectedTableSlug || scope !== "all") return;
-    setPage(1);
     if (nextSortBy === sortBy) {
       onSortChange(nextSortBy, sortDir === "asc" ? "desc" : "asc");
       return;
@@ -97,10 +87,7 @@ export function RatingDetailSection({
         <RankingTableSelector
           tables={tables}
           selected={selectedTableSlug ?? tables[0].slug}
-          onSelect={(slug) => {
-            setPage(1);
-            onSelectTable(slug);
-          }}
+          onSelect={onSelectTable}
         />
       ) : (
         <div className="rounded-xl border border-border bg-card/50 px-6 py-10 text-center text-body text-muted-foreground">
@@ -123,7 +110,6 @@ export function RatingDetailSection({
                 <button
                   type="button"
                   onClick={() => {
-                    setPage(1);
                     onScopeChange("top");
                   }}
                   className={cn(
@@ -136,7 +122,6 @@ export function RatingDetailSection({
                 <button
                   type="button"
                   onClick={() => {
-                    setPage(1);
                     onScopeChange("all");
                   }}
                   className={cn(
@@ -154,7 +139,6 @@ export function RatingDetailSection({
               <input
                 value={searchText}
                 onChange={(event) => {
-                  setPage(1);
                   setSearchText(event.target.value);
                 }}
                 placeholder="제목/아티스트 검색"
@@ -180,30 +164,6 @@ export function RatingDetailSection({
             sortDir={sortDir}
             onSortChange={handleSort}
           />
-
-          {scope === "all" && totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
-                className="px-3 py-1.5 rounded-lg border border-border text-body disabled:opacity-40 hover:bg-secondary transition-colors"
-              >
-                ←
-              </button>
-              <span className="text-label text-muted-foreground">
-                {page} / {totalPages}
-              </span>
-              <button
-                type="button"
-                disabled={page >= totalPages}
-                onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))}
-                className="px-3 py-1.5 rounded-lg border border-border text-body disabled:opacity-40 hover:bg-secondary transition-colors"
-              >
-                →
-              </button>
-            </div>
-          )}
         </>
       ) : tables.length > 0 ? (
         <div className="rounded-xl border border-dashed border-border px-6 py-10 text-center text-body text-muted-foreground">

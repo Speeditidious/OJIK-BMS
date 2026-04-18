@@ -348,6 +348,8 @@ async def get_my_contributions(
     max_synced_at, calculated_at = await get_user_ranking_version(target_user.id, table_cfg.table_id, db)
     effective_sort_by = "value" if scope == "top" else sort_by
     effective_sort_dir = "desc" if scope == "top" else sort_dir
+    effective_page = 1 if scope == "all" else page
+    effective_limit = limit if scope == "top" else 0
     cache_key = (
         str(target_user.id),
         table_slug,
@@ -355,8 +357,8 @@ async def get_my_contributions(
         scope,
         effective_sort_by,
         effective_sort_dir,
-        page,
-        limit,
+        effective_page,
+        effective_limit,
         query or "",
         max_synced_at,
         calculated_at,
