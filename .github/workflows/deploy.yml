@@ -19,6 +19,13 @@ jobs:
             set -e
             cd /opt/ojik-bms
 
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+            touch ~/.ssh/known_hosts
+            chmod 600 ~/.ssh/known_hosts
+            ssh-keygen -F github.com >/dev/null || ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+            chmod 644 ~/.ssh/known_hosts
+
             git pull origin main
 
             docker compose -f docker-compose.prod.yml --env-file .env.prod build
