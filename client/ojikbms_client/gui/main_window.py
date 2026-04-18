@@ -167,6 +167,18 @@ QPushButton#danger:disabled {{
     border-color: #1E2230;
     background-color: #14161E;
 }}
+QPushButton#site-link {{
+    background: transparent;
+    border: 1px solid {_BORDER};
+    border-radius: 4px;
+    color: {_PRIMARY};
+    padding: 3px 10px;
+    font-size: 12px;
+}}
+QPushButton#site-link:hover {{
+    background-color: #1E2A18;
+    border-color: {_PRIMARY};
+}}
 QPushButton#client-quick {{
     background-color: #202E1A;
     border-color: {_PRIMARY};
@@ -422,6 +434,13 @@ class MainWindow(QWidget):
         title.setStyleSheet(f"color: {_PRIMARY};")
         row.addWidget(title)
         row.addStretch()
+
+        site_btn = QPushButton("사이트 바로가기")
+        site_btn.setObjectName("site-link")
+        site_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://www.ojikbms.kr/"))
+        )
+        row.addWidget(site_btn)
 
         self._login_badge = QLabel("로그아웃 상태")
         self._login_badge.setStyleSheet(f"color: {_MUTED}; font-size: 12px;")
@@ -858,6 +877,10 @@ class MainWindow(QWidget):
         self._progress_bar.setMaximum(100)
         self._progress_bar.setVisible(False)
         self._progress_label_container.setVisible(False)
+        self._append_log(
+            f'[INFO] 동기화가 완료되었습니다. — '
+            f'<a href="https://www.ojikbms.kr/" style="color:{_ACCENT};">사이트에서 결과 확인하기 →</a>'
+        )
 
         config = load_config()
         last = config.get("last_synced_at")

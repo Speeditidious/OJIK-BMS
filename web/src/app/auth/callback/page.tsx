@@ -31,7 +31,7 @@ export default function CallbackPage() {
       fetchUser().then(() => {
         const currentUser = useAuthStore.getState().user;
         if (currentUser) {
-          router.push(`/users/${currentUser.id}`);
+          router.push(`/users/${currentUser.id}/dashboard`);
         } else {
           router.push("/login");
         }

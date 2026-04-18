@@ -23,7 +23,7 @@ export default function DashboardDayRedirectPage({
     }
     if (user) {
       const query = client_type ? `&client_type=${client_type}` : "";
-      router.replace(`/users/${user.id}?tab=calendar&date=${date}${query}`);
+      router.replace(`/users/${user.id}/dashboard?tab=calendar&date=${date}${query}`);
     } else {
       router.replace("/login");
     }

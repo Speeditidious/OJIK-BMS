@@ -15,13 +15,13 @@ interface ActivityHeatmapProps {
   firstSyncDates?: { lr2?: string; beatoraja?: string };
   clientType?: ClientTypeFilter;
   courseData?: CourseActivityItem[];
-  viewMode?: "updates" | "plays" | "new_plays";
+  viewMode?: "updates" | "plays" | "new_plays" | "rating_updates";
 }
 
 const DAYS_OF_WEEK = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-function getIntensityClass(value: number, max: number, mode: "updates" | "plays" | "new_plays" = "updates"): string {
+function getIntensityClass(value: number, max: number, mode: "updates" | "plays" | "new_plays" | "rating_updates" = "updates"): string {
   if (value === 0 || max === 0) return "bg-border/30";
   const ratio = value / max;
   if (mode === "plays") {
@@ -36,6 +36,12 @@ function getIntensityClass(value: number, max: number, mode: "updates" | "plays"
     if (ratio < 0.75) return "bg-[hsl(var(--chart-new-play)/0.70)]";
     return "bg-[hsl(var(--chart-new-play))]";
   }
+  if (mode === "rating_updates") {
+    if (ratio < 0.25) return "bg-[hsl(var(--warning)/0.20)]";
+    if (ratio < 0.5)  return "bg-[hsl(var(--warning)/0.45)]";
+    if (ratio < 0.75) return "bg-[hsl(var(--warning)/0.70)]";
+    return "bg-[hsl(var(--warning))]";
+  }
   if (ratio < 0.25) return "bg-primary/20";
   if (ratio < 0.5)  return "bg-primary/45";
   if (ratio < 0.75) return "bg-primary/70";
@@ -47,6 +53,7 @@ interface CellData {
   updates: number;
   new_plays: number;
   plays: number;
+  rating_updates: number;
 }
 
 interface ColumnData {
@@ -87,12 +94,20 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
     const updatesMap: Record<string, number> = {};
     const newPlaysMap: Record<string, number> = {};
     const playsMap: Record<string, number> = {};
+    const ratingUpdatesMap: Record<string, number> = {};
     let maxValue = 0;
     for (const d of data) {
       updatesMap[d.date] = d.updates;
       newPlaysMap[d.date] = d.new_plays ?? 0;
       playsMap[d.date] = d.plays;
-      const activeVal = viewMode === "plays" ? d.plays : viewMode === "new_plays" ? (d.new_plays ?? 0) : d.updates;
+      ratingUpdatesMap[d.date] = d.rating_updates ?? 0;
+      const activeVal = viewMode === "plays"
+        ? d.plays
+        : viewMode === "new_plays"
+          ? (d.new_plays ?? 0)
+          : viewMode === "rating_updates"
+            ? (d.rating_updates ?? 0)
+            : d.updates;
       if (activeVal > maxValue) maxValue = activeVal;
     }
 
@@ -124,6 +139,7 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
           updates: updatesMap[dateStr] ?? 0,
           new_plays: newPlaysMap[dateStr] ?? 0,
           plays: playsMap[dateStr] ?? 0,
+          rating_updates: ratingUpdatesMap[dateStr] ?? 0,
           month: d.getMonth(),
         });
       }
@@ -140,7 +156,13 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
         const col: ColumnData = {
           cells: weekCells.map((cell) => {
             if (cell === null || cell.month !== m) return null;
-            return { date: cell.date, updates: cell.updates, new_plays: cell.new_plays, plays: cell.plays };
+            return {
+              date: cell.date,
+              updates: cell.updates,
+              new_plays: cell.new_plays,
+              plays: cell.plays,
+              rating_updates: cell.rating_updates,
+            };
           }),
         };
         groups[m].columns.push(col);
@@ -188,7 +210,13 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
                           const syncClients = firstSyncMap[cell.date] ?? [];
                           const courseInfo = courseMap[cell.date];
                           const isFirstSync = syncClients.length > 0;
-                          const activeVal = viewMode === "plays" ? cell.plays : viewMode === "new_plays" ? cell.new_plays : cell.updates;
+                          const activeVal = viewMode === "plays"
+                            ? cell.plays
+                            : viewMode === "new_plays"
+                              ? cell.new_plays
+                              : viewMode === "rating_updates"
+                                ? cell.rating_updates
+                                : cell.updates;
                           const cellClass = `w-3 h-3 rounded-[2px] cursor-default transition-opacity hover:opacity-80 ${
                             isFirstSync
                               ? "bg-accent border border-accent"
@@ -219,15 +247,24 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
                                 <p className="font-medium text-label">{cell.date}</p>
                                 {syncLabel ? (
                                   <p className="text-label text-muted-foreground">{syncLabel}</p>
-                                ) : activeVal === 0 && cell.updates === 0 && cell.new_plays === 0 && cell.plays === 0 ? (
+                                ) : activeVal === 0 && cell.updates === 0 && cell.new_plays === 0 && cell.plays === 0 && cell.rating_updates === 0 ? (
                                   <p className="text-label text-muted-foreground">기록 없음</p>
                                 ) : (
                                   <>
-                                    <p className="text-label" style={{ color: viewMode === "plays" ? "hsl(var(--chart-play))" : viewMode === "new_plays" ? "hsl(var(--chart-new-play))" : "hsl(var(--primary))" }}>
-                                      {viewMode === "plays" ? `${cell.plays} 플레이` : viewMode === "new_plays" ? `${cell.new_plays} 신규 기록` : `${cell.updates} 갱신 기록`}
+                                    <p className="text-label" style={{ color: viewMode === "plays" ? "hsl(var(--chart-play))" : viewMode === "new_plays" ? "hsl(var(--chart-new-play))" : viewMode === "rating_updates" ? "hsl(var(--warning))" : "hsl(var(--primary))" }}>
+                                      {viewMode === "plays"
+                                        ? `${cell.plays} 플레이`
+                                        : viewMode === "new_plays"
+                                          ? `${cell.new_plays} 신규 기록`
+                                          : viewMode === "rating_updates"
+                                            ? `${cell.rating_updates} 레이팅 갱신`
+                                            : `${cell.updates} 갱신 기록`}
                                     </p>
                                     {viewMode === "new_plays" && cell.updates > 0 && (
                                       <p className="text-label text-muted-foreground">{cell.updates} 갱신 기록</p>
+                                    )}
+                                    {viewMode !== "rating_updates" && cell.rating_updates > 0 && (
+                                      <p className="text-label" style={{ color: "hsl(var(--warning))" }}>{cell.rating_updates} 레이팅 갱신</p>
                                     )}
                                     {viewMode !== "new_plays" && cell.new_plays > 0 && (
                                       <p className="text-label" style={{ color: "hsl(var(--chart-new-play))" }}>{cell.new_plays} 신규 기록</p>

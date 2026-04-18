@@ -16,6 +16,7 @@ interface ActivityCalendarProps {
   dataLr2?: HeatmapDay[];
   dataBeatoraja?: HeatmapDay[];
   courseData?: CourseActivityItem[];
+  ratingUpdatesData?: Array<{ date: string; count: number }>;
 }
 
 const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -35,6 +36,7 @@ function getDotItems(
   updates: number,
   newPlays: number,
   plays: number,
+  ratingUpdates: number,
   firstSyncDates?: { lr2?: string; beatoraja?: string },
   lr2Updates?: number,
   lr2NewPlays?: number,
@@ -65,6 +67,9 @@ function getDotItems(
     if (newPlays > 0) dots.push({ label: `신규 ${newPlays}개`, color: "new-play" });
     if (plays > 0) dots.push({ label: `플레이 ${plays}회`, color: "play" });
   }
+  if (ratingUpdates > 0) {
+    dots.push({ label: `레이팅 갱신 ${ratingUpdates}건`, color: "accent" });
+  }
   return dots;
 }
 
@@ -78,6 +83,7 @@ export function ActivityCalendar({
   dataLr2,
   dataBeatoraja,
   courseData,
+  ratingUpdatesData,
 }: ActivityCalendarProps) {
   const today = new Date();
   const todayStr = toDateString(today.getFullYear(), today.getMonth() + 1, today.getDate());
@@ -99,6 +105,14 @@ export function ActivityCalendar({
     for (const d of data) map[d.date] = d.plays;
     return map;
   }, [data]);
+
+  const ratingUpdatesMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const item of ratingUpdatesData ?? []) {
+      map[item.date] = item.count;
+    }
+    return map;
+  }, [ratingUpdatesData]);
 
   const lr2UpdatesMap = useMemo(() => {
     if (!dataLr2) return undefined;
@@ -215,12 +229,14 @@ export function ActivityCalendar({
           const updates = updatesMap[dateStr] ?? 0;
           const newPlays = newPlaysMap[dateStr] ?? 0;
           const plays = playsMap[dateStr] ?? 0;
+          const ratingUpdates = ratingUpdatesMap[dateStr] ?? 0;
           const isToday = dateStr === todayStr;
           const dots = getDotItems(
             dateStr,
             updates,
             newPlays,
             plays,
+            ratingUpdates,
             firstSyncDates,
             lr2UpdatesMap?.[dateStr] ?? (lr2UpdatesMap ? 0 : undefined),
             lr2NewPlaysMap?.[dateStr] ?? (lr2NewPlaysMap ? 0 : undefined),
@@ -237,12 +253,12 @@ export function ActivityCalendar({
               className={[
                 "min-h-[88px] rounded-md flex flex-col items-center p-2 relative text-label transition-colors",
                 "hover:bg-accent/20",
-                updates > 0 || plays > 0 || dots.length > 0 ? "font-medium" : "text-muted-foreground",
+                updates > 0 || plays > 0 || ratingUpdates > 0 || dots.length > 0 ? "font-medium" : "text-muted-foreground",
               ]
                 .filter(Boolean)
                 .join(" ")}
               onClick={() => onDayClick(dateStr)}
-              title={updates > 0 || newPlays > 0 ? `${cell.day}일 — 갱신 ${updates}건 / 신규 ${newPlays}건` : plays > 0 ? `${cell.day}일 — 플레이 ${plays}회` : String(cell.day)}
+              title={updates > 0 || newPlays > 0 || ratingUpdates > 0 ? `${cell.day}일 — 갱신 ${updates}건 / 신규 ${newPlays}건 / 레이팅 갱신 ${ratingUpdates}건` : plays > 0 ? `${cell.day}일 — 플레이 ${plays}회` : String(cell.day)}
             >
               {/* Date number top-left — badge on today */}
               {isToday ? (

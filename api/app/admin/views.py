@@ -19,6 +19,7 @@ from app.models.difficulty_table import (
     UserFavoriteDifficultyTable,
 )
 from app.models.fumen import Fumen, UserFumenTag
+from app.models.ranking import UserRanking
 from app.models.schedule import Schedule
 from app.models.score import UserPlayerStats, UserScore
 from app.models.user import OAuthAccount, User
@@ -159,6 +160,39 @@ class DifficultyTableAdmin(ModelView, model=DifficultyTable):
             request.url_for("admin:list", identity="difficultytable"), status_code=302
         )
 
+    @action(
+        name="recalculate_rankings",
+        label="랭킹 재계산",
+        confirmation_message="선택된 난이도표의 전체 유저 랭킹을 재계산합니다. 계속하시겠습니까?",
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def recalculate_rankings(self, request: Request) -> RedirectResponse:
+        """Queue ranking recalculation for selected difficulty tables."""
+        from app.services.ranking_config import get_ranking_config
+        from app.tasks.ranking_calculator import recalculate_all_rankings
+
+        pks = request.query_params.get("pks", "")
+        ids = [p.strip() for p in pks.split(",") if p.strip()]
+
+        try:
+            config = get_ranking_config()
+        except RuntimeError:
+            config = None
+
+        if config is None:
+            recalculate_all_rankings.delay()
+        else:
+            id_to_slug = {str(t.table_id): t.slug for t in config.tables}
+            for pk in ids:
+                slug = id_to_slug.get(pk)
+                if slug:
+                    recalculate_all_rankings.delay(slug)
+
+        return RedirectResponse(
+            request.url_for("admin:list", identity="difficultytable"), status_code=302
+        )
+
 
 class FumenAdmin(ModelView, model=Fumen):
     name = "Fumen"
@@ -290,4 +324,28 @@ class ScheduleAdmin(ModelView, model=Schedule):
     column_searchable_list = [Schedule.title]
     column_sortable_list = [Schedule.scheduled_date, Schedule.is_completed]
 
+
+class UserRankingAdmin(ModelView, model=UserRanking):
+    name = "User Ranking"
+    name_plural = "User Rankings"
+    icon = "fa-solid fa-ranking-star"
+    column_list = [
+        UserRanking.user_id,
+        UserRanking.table_id,
+        UserRanking.exp,
+        UserRanking.exp_level,
+        UserRanking.rating,
+        UserRanking.rating_norm,
+        UserRanking.dan_title,
+        UserRanking.calculated_at,
+    ]
+    column_sortable_list = [
+        UserRanking.exp,
+        UserRanking.rating,
+        UserRanking.rating_norm,
+        UserRanking.calculated_at,
+    ]
+    column_searchable_list = [UserRanking.dan_title]
+    can_create = False  # 계산 파이프라인으로만 생성
+    can_edit = False    # 수동 수정은 데이터 정합성 파괴 위험
 

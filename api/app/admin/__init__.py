@@ -16,6 +16,7 @@ from app.admin.views import (
     UserFavoriteDifficultyTableAdmin,
     UserFumenTagAdmin,
     UserPlayerStatsAdmin,
+    UserRankingAdmin,
     UserScoreAdmin,
 )
 
@@ -46,17 +47,23 @@ def create_admin(app, engine) -> Admin:
         templates_dir=_TEMPLATES_DIR,
     )
 
-    admin.add_view(UserAdmin)
-    admin.add_view(OAuthAccountAdmin)
-    admin.add_view(DifficultyTableAdmin)
-    admin.add_view(FumenAdmin)
-    admin.add_view(UserScoreAdmin)
-    admin.add_view(UserPlayerStatsAdmin)
-    admin.add_view(CourseAdmin)
-    admin.add_view(UserFavoriteDifficultyTableAdmin)
-    admin.add_view(UserFumenTagAdmin)
-    admin.add_view(CustomDifficultyTableAdmin)
-    admin.add_view(CustomCourseAdmin)
-    admin.add_view(ScheduleAdmin)
+    all_admin_views = [
+        UserAdmin,
+        OAuthAccountAdmin,
+        DifficultyTableAdmin,
+        FumenAdmin,
+        UserScoreAdmin,
+        UserPlayerStatsAdmin,
+        CourseAdmin,
+        UserFavoriteDifficultyTableAdmin,
+        UserFumenTagAdmin,
+        CustomDifficultyTableAdmin,
+        CustomCourseAdmin,
+        ScheduleAdmin,
+        UserRankingAdmin,
+    ]
+
+    for view in all_admin_views:
+        admin.add_view(view)
 
     return admin

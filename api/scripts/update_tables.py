@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -90,6 +91,7 @@ async def update_one(slug: str, name: str, url: str, symbol_fallback: str | None
                     if default_order is not None:
                         existing.default_order = default_order
                     existing.level_order = table_data.get("level_order")
+                    existing.updated_at = datetime.now(UTC)
                     table_id = existing.id
                     db_status = "updated"
 

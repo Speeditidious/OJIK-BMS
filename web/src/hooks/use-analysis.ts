@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { RatingBreakdownResponse } from "@/lib/ranking-types";
 import type { ScoreUpdatesResponse } from "@/types";
 
 export interface PlaySummary {
@@ -16,6 +17,7 @@ export interface HeatmapDay {
   updates: number;   // rows where at least one metric improved vs previous play (rn > 1)
   new_plays: number; // first-ever plays for a fumen (rn == 1), separate from updates
   plays: number;     // UserPlayerStats.playcount LAG delta sum; first-sync rows = 0
+  rating_updates?: number;
 }
 
 export interface ActivityDay {
@@ -23,6 +25,7 @@ export interface ActivityDay {
   updates: number;   // rows where at least one metric improved vs previous play (rn > 1)
   new_plays: number; // first-ever plays for a fumen (rn == 1), separate from updates
   plays: number;     // UserPlayerStats.playcount LAG delta sum; first-sync rows = 0
+  rating_updates?: number;
 }
 
 export interface RecentUpdate {
@@ -57,11 +60,61 @@ export interface DaySummary {
   total_notes_hit: number;       // notes hit; from PlayerStats judgments LAG delta
   playtime_uncertain: boolean;   // true when first-sync row caused delta=0
   notes_hit_uncertain: boolean;  // true when first-sync row caused delta=0
+  rating_updates?: number;
 }
 
 export interface RecentUpdatesResponse {
   updates: RecentUpdate[];
   day_summary: DaySummary | null;
+}
+
+export interface RatingUpdateEntry {
+  rank: number;
+  sha256: string | null;
+  md5: string | null;
+  title: string;
+  artist: string | null;
+  level: string;
+  symbol: string;
+  clear_type: number;
+  client_types: string[];
+  source_client?: string | null;
+  source_client_detail?: Record<string, string | null> | null;
+  min_bp: number | null;
+  rate: number | null;
+  rank_grade: string | null;
+  exscore: number | null;
+  value: number;
+  is_in_top_n: boolean;
+}
+
+export interface RatingUpdatesResponse {
+  table_slug: string;
+  calculated_at: string | null;
+  date: string | null;
+  count: number | null;
+  top_n: number;
+  dates: Array<{ date: string; count: number }>;
+  entries: RatingUpdateEntry[];
+}
+
+export interface AggregatedRatingUpdateDay {
+  date: string;
+  count: number;
+}
+
+export interface AggregatedRatingUpdateTable {
+  table_slug: string;
+  display_name: string;
+  count: number;
+  display_order: number;
+}
+
+export interface AggregatedRatingUpdatesResponse {
+  date?: string;
+  count?: number;
+  dates?: AggregatedRatingUpdateDay[];
+  tables?: AggregatedRatingUpdateTable[];
 }
 
 export interface GradeDistributionItem {
@@ -84,6 +137,8 @@ export interface TableClearSong {
   rank: string | null;
   min_bp: number | null;
   client_type: string | null;
+  source_client?: string | null;
+  source_client_detail?: Record<string, string | null> | null;
   ex_score: number | null;
   play_count: number | null;
   options: Record<string, unknown> | null;
@@ -101,35 +156,48 @@ export interface TableClearDistribution {
 
 export type ClientTypeFilter = "all" | "lr2" | "beatoraja";
 
-export function usePlaySummary(clientType: ClientTypeFilter = "all") {
+export function usePlaySummary(clientType: ClientTypeFilter = "all", userId?: string) {
   return useQuery({
-    queryKey: ["analysis", "summary", clientType],
+    queryKey: ["analysis", "summary", clientType, userId ?? null],
     queryFn: () => {
-      const params = clientType !== "all" ? `?client_type=${clientType}` : "";
-      return api.get<PlaySummary>(`/analysis/summary${params}`);
+      const params = new URLSearchParams();
+      if (clientType !== "all") params.set("client_type", clientType);
+      if (userId) params.set("user_id", userId);
+      const suffix = params.size > 0 ? `?${params.toString()}` : "";
+      return api.get<PlaySummary>(`/analysis/summary${suffix}`);
     },
     staleTime: 5 * 60 * 1000, // 5 min — changes only on sync
   });
 }
 
-export function useActivityHeatmap(year: number = 0, clientType: ClientTypeFilter = "all") {
+export function useActivityHeatmap(
+  year: number = 0,
+  clientType: ClientTypeFilter = "all",
+  userId?: string,
+) {
   return useQuery({
-    queryKey: ["analysis", "heatmap", year, clientType],
+    queryKey: ["analysis", "heatmap", year, clientType, userId ?? null],
     queryFn: () => {
       const params = new URLSearchParams({ year: String(year) });
       if (clientType !== "all") params.set("client_type", clientType);
+      if (userId) params.set("user_id", userId);
       return api.get<{ year: number; data: HeatmapDay[] }>(`/analysis/heatmap?${params}`);
     },
     staleTime: 30 * 60 * 1000, // 30 min — historical data
   });
 }
 
-export function useActivityBar(days: number = 30, clientType: ClientTypeFilter = "all") {
+export function useActivityBar(
+  days: number = 30,
+  clientType: ClientTypeFilter = "all",
+  userId?: string,
+) {
   return useQuery({
-    queryKey: ["analysis", "activity", days, clientType],
+    queryKey: ["analysis", "activity", days, clientType, userId ?? null],
     queryFn: () => {
       const params = new URLSearchParams({ days: String(days) });
       if (clientType !== "all") params.set("client_type", clientType);
+      if (userId) params.set("user_id", userId);
       return api.get<{ days: number; data: ActivityDay[] }>(`/analysis/activity?${params}`);
     },
     staleTime: 5 * 60 * 1000, // 5 min — changes only on sync
@@ -139,17 +207,91 @@ export function useActivityBar(days: number = 30, clientType: ClientTypeFilter =
 export function useRecentUpdates(
   limit: number = 20,
   clientType: ClientTypeFilter = "all",
-  date?: string
+  date?: string,
+  tableSlug?: string | null,
+  userId?: string,
 ) {
   return useQuery({
-    queryKey: ["analysis", "recent-updates", limit, clientType, date ?? null],
+    queryKey: ["analysis", "recent-updates", limit, clientType, date ?? null, tableSlug ?? null, userId ?? null],
     queryFn: () => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (clientType !== "all") params.set("client_type", clientType);
       if (date) params.set("date", date);
+      if (tableSlug) params.set("table_slug", tableSlug);
+      if (userId) params.set("user_id", userId);
       return api.get<RecentUpdatesResponse>(`/analysis/recent-updates?${params}`);
     },
     staleTime: 2 * 60 * 1000, // 2 min — more volatile
+  });
+}
+
+interface RatingUpdatesParams {
+  tableSlug: string | null;
+  year?: number;
+  days?: number;
+  date?: string;
+  userId?: string;
+}
+
+export function useRatingUpdates({ tableSlug, year, days, date, userId }: RatingUpdatesParams) {
+  return useQuery({
+    queryKey: ["analysis", "rating-updates", tableSlug, year ?? null, days ?? null, date ?? null, userId ?? null],
+    queryFn: () => {
+      const params = new URLSearchParams({ table_slug: tableSlug! });
+      if (year !== undefined) params.set("year", String(year));
+      if (days !== undefined) params.set("days", String(days));
+      if (date) params.set("date", date);
+      if (userId) params.set("user_id", userId);
+      return api.get<RatingUpdatesResponse>(`/analysis/rating-updates?${params.toString()}`);
+    },
+    enabled: !!tableSlug && [year, days, date].filter((value) => value !== undefined && value !== null).length === 1,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+interface AggregatedRatingUpdatesParams {
+  year?: number;
+  days?: number;
+  date?: string;
+  userId?: string;
+}
+
+export function useAggregatedRatingUpdates({ year, days, date, userId }: AggregatedRatingUpdatesParams) {
+  return useQuery({
+    queryKey: ["analysis", "rating-updates-aggregated", year ?? null, days ?? null, date ?? null, userId ?? null],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (year !== undefined) params.set("year", String(year));
+      if (days !== undefined) params.set("days", String(days));
+      if (date) params.set("date", date);
+      if (userId) params.set("user_id", userId);
+      return api.get<AggregatedRatingUpdatesResponse>(
+        `/analysis/rating-updates/aggregated?${params.toString()}`,
+      );
+    },
+    enabled: [year, days, date].filter((value) => value !== undefined && value !== null).length === 1,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+interface RatingBreakdownParams {
+  tableSlug: string | null;
+  date?: string;
+  userId?: string;
+}
+
+export function useRatingBreakdown({ tableSlug, date, userId }: RatingBreakdownParams) {
+  return useQuery({
+    queryKey: ["analysis", "rating-breakdown", tableSlug, date ?? null, userId ?? null],
+    queryFn: () => {
+      const params = new URLSearchParams({ table_slug: tableSlug!, date: date! });
+      if (userId) params.set("user_id", userId);
+      return api.get<RatingBreakdownResponse>(
+        `/analysis/rating-breakdown?${params.toString()}`,
+      );
+    },
+    enabled: !!tableSlug && !!date,
+    staleTime: 5 * 60 * 1000,
   });
 }
 
@@ -185,42 +327,50 @@ export function useCourseActivity(
   year?: number,
   days?: number,
   clientType?: ClientTypeFilter,
-  date?: string
+  date?: string,
+  userId?: string,
 ) {
   return useQuery({
-    queryKey: ["analysis", "course-activity", year ?? null, days ?? null, clientType ?? "all", date ?? null],
+    queryKey: ["analysis", "course-activity", year ?? null, days ?? null, clientType ?? "all", date ?? null, userId ?? null],
     queryFn: () => {
       const params = new URLSearchParams();
       if (year) params.set("year", String(year));
       if (days) params.set("days", String(days));
       if (clientType && clientType !== "all") params.set("client_type", clientType);
       if (date) params.set("date", date);
+      if (userId) params.set("user_id", userId);
       return api.get<CourseActivityItem[]>(`/analysis/course-activity?${params}`);
     },
     staleTime: 30 * 60 * 1000,
   });
 }
 
-export function useGradeDistribution(clientType?: string) {
+export function useGradeDistribution(clientType?: string, userId?: string) {
   return useQuery({
-    queryKey: ["analysis", "grade-distribution", clientType],
+    queryKey: ["analysis", "grade-distribution", clientType, userId ?? null],
     queryFn: () => {
-      const params = clientType ? `?client_type=${clientType}` : "";
+      const params = new URLSearchParams();
+      if (clientType) params.set("client_type", clientType);
+      if (userId) params.set("user_id", userId);
+      const suffix = params.size > 0 ? `?${params.toString()}` : "";
       return api.get<{ distribution: GradeDistributionItem[] }>(
-        `/analysis/grade-distribution${params}`
+        `/analysis/grade-distribution${suffix}`
       );
     },
     staleTime: 10 * 60 * 1000, // 10 min
   });
 }
 
-export function useTableClearDistribution(tableId: string | null, clientType?: string) {
+export function useTableClearDistribution(tableId: string | null, clientType?: string, userId?: string) {
   return useQuery({
-    queryKey: ["analysis", "table-clear-distribution", tableId, clientType],
+    queryKey: ["analysis", "table-clear-distribution", tableId, clientType, userId ?? null],
     queryFn: () => {
-      const params = clientType ? `?client_type=${clientType}` : "";
+      const params = new URLSearchParams();
+      if (clientType) params.set("client_type", clientType);
+      if (userId) params.set("user_id", userId);
+      const suffix = params.size > 0 ? `?${params.toString()}` : "";
       return api.get<TableClearDistribution>(
-        `/analysis/table/${tableId}/clear-distribution${params}`
+        `/analysis/table/${tableId}/clear-distribution${suffix}`
       );
     },
     enabled: tableId !== null,
@@ -231,14 +381,16 @@ export function useTableClearDistribution(tableId: string | null, clientType?: s
 export function useScoreUpdates(
   clientType?: ClientTypeFilter,
   date?: string,
-  limit: number = 50
+  limit: number = 50,
+  userId?: string,
 ) {
   return useQuery({
-    queryKey: ["analysis", "score-updates", clientType ?? "all", date ?? null, limit],
+    queryKey: ["analysis", "score-updates", clientType ?? "all", date ?? null, limit, userId ?? null],
     queryFn: () => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (clientType && clientType !== "all") params.set("client_type", clientType);
       if (date) params.set("date", date);
+      if (userId) params.set("user_id", userId);
       return api.get<ScoreUpdatesResponse>(`/analysis/score-updates?${params}`);
     },
     staleTime: 2 * 60 * 1000, // 2 min

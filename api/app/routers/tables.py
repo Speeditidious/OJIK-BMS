@@ -23,6 +23,11 @@ from app.models.fumen import Fumen, UserFumenTag
 from app.models.score import UserScore
 from app.models.user import User
 from app.schemas import MessageResponse
+from app.services.client_aggregation import (
+    CLIENT_LABEL,
+    PerClientBest,
+    aggregate_source_client,
+)
 
 router = APIRouter(prefix="/tables", tags=["tables"])
 
@@ -179,6 +184,22 @@ async def get_my_favorites(
     return [DifficultyTableRead.from_orm_with_count(t) for t in tables]
 
 
+@router.get("/favorites/by-user/{user_id}", response_model=list[DifficultyTableRead])
+async def get_user_favorites(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> list[DifficultyTableRead]:
+    """Get a user's favorite tables ordered by display_order."""
+    result = await db.execute(
+        select(DifficultyTable)
+        .join(UserFavoriteDifficultyTable, DifficultyTable.id == UserFavoriteDifficultyTable.table_id)
+        .where(UserFavoriteDifficultyTable.user_id == user_id)
+        .order_by(UserFavoriteDifficultyTable.display_order)
+    )
+    tables = result.scalars().all()
+    return [DifficultyTableRead.from_orm_with_count(t) for t in tables]
+
+
 @router.get("/{table_id}", response_model=TableDetailRead)
 async def get_table(
     table_id: uuid.UUID,
@@ -197,10 +218,6 @@ async def get_table(
 
     obj = DifficultyTableRead.from_orm_with_count(table, song_count)
     return TableDetailRead(**obj.model_dump(), level_order=level_order)
-
-
-_CLIENT_LABEL = {"lr2": "LR", "beatoraja": "BR"}
-
 
 @router.get("/{table_id}/songs", response_model=list[TableFumen])
 async def get_table_songs(
@@ -314,7 +331,7 @@ async def get_table_songs(
                     "options": None, "best_client_type": None, "play_count": None,
                 }
                 for ct, entry in per_client.items():
-                    client_label = _CLIENT_LABEL.get(ct, ct)
+                    client_label = CLIENT_LABEL.get(ct, ct.upper())
                     if entry["clear_type"] is not None and (raw["clear_type"] is None or entry["clear_type"] > raw["clear_type"]):
                         raw["clear_type"] = entry["clear_type"]
                         raw["clear_type_client"] = client_label
@@ -330,39 +347,17 @@ async def get_table_songs(
                         raw["min_bp_client"] = client_label
                     raw["play_count"] = (raw["play_count"] or 0) + (entry["play_count"] or 0)
 
-                # Check if a single client achieves all best values (handles tied lamp case).
-                # e.g. lamp tied but one client wins score+BP → that client, not MIX.
-                single_client = None
-                for _ct, _entry in per_client.items():
-                    _label = _CLIENT_LABEL.get(_ct, _ct)
-                    _clear_ok = raw["clear_type"] is None or _entry["clear_type"] == raw["clear_type"]
-                    _score_ok = raw["exscore"] is None or _entry["exscore"] == raw["exscore"]
-                    _bp_ok = raw["min_bp"] is None or _entry["min_bp"] == raw["min_bp"]
-                    if _clear_ok and _score_ok and _bp_ok:
-                        single_client = _label
-                        break
-
-                if single_client is not None:
-                    source_client = single_client
-                    source_client_detail = None
-                else:
-                    clients = {
-                        v for k, v in raw.items()
-                        if k.endswith("_client") and v is not None
-                    }
-                    if len(clients) > 1:
-                        source_client = "MIX"
-                        source_client_detail = {
-                            "clear_type": raw["clear_type_client"],
-                            "exscore": raw["exscore_client"],
-                            "min_bp": raw["min_bp_client"],
-                        }
-                    elif len(clients) == 1:
-                        source_client = next(iter(clients))
-                        source_client_detail = None
-                    else:
-                        source_client = None
-                        source_client_detail = None
+                source_client, source_client_detail = aggregate_source_client(
+                    PerClientBest(
+                        client_type=ct,
+                        clear_type=entry["clear_type"],
+                        exscore=entry["exscore"],
+                        rate=entry["rate"],
+                        rank=entry["rank"],
+                        min_bp=entry["min_bp"],
+                    )
+                    for ct, entry in per_client.items()
+                )
 
                 # Compute rate/rank from exscore + notes_total when null (e.g. scorelog.db rows)
                 rate = raw["rate"]

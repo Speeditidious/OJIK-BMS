@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SourceClientBadge } from "@/components/common/SourceClientBadge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type {
@@ -29,14 +30,14 @@ const CLEAR_TYPE_LABELS_SIMPLE: Record<number, string> = {
 };
 
 /** 개별 <td>에 클리어 타입 CSS 클래스 반환 (globals.css clear-cell-* 참조) */
-function clearTdClass(clearType: number | null | undefined, dim = false): string {
+export function clearTdClass(clearType: number | null | undefined, dim = false): string {
   const ct = clearType ?? 0;
   // NO PLAY(0)은 이미 dim한 색 — dim 변형 불필요
   return (dim && ct !== 0) ? `clear-cell-${ct}-dim` : `clear-cell-${ct}`;
 }
 
 /** 개별 <td>에 랭크 기반 CSS 클래스 반환 (globals.css rank-cell-* 참조) */
-function rankTdClass(rank: string | null | undefined, dim = false): string {
+export function rankTdClass(rank: string | null | undefined, dim = false): string {
   const r = rank ?? "F";
   // F는 이미 dim한 색 — dim 변형 불필요
   return (dim && r !== "F") ? `rank-cell-${r}-dim` : `rank-cell-${r}`;
@@ -179,16 +180,16 @@ function CourseSectionTable({
           </colgroup>
           <thead className="sticky top-0 z-10 bg-background text-foreground border-b border-border/50">
             <tr>
-              <th className={cn(thCls, "text-center")}>Prev</th>
-              <th className={cn(thCls, "text-center")}>Current</th>
-              <th className={thCls}>Course</th>
+              <th className={cn(thCls, "text-center")}>이전</th>
+              <th className={cn(thCls, "text-center")}>현재</th>
+              <th className={thCls}>코스</th>
               <th className={cn(thCls, "text-center")}>BP</th>
-              <th className={cn(thCls, "text-center")}>Rate</th>
-              <th className={cn(thCls, "text-center")}>Rank</th>
-              <th className={cn(thCls, "text-center")}>Score</th>
-              <th className={cn(thCls, "text-center")}>Plays</th>
-              <th className={thCls}>Option</th>
-              <th className={thCls}>Env</th>
+              <th className={cn(thCls, "text-center")}>판정</th>
+              <th className={cn(thCls, "text-center")}>랭크</th>
+              <th className={cn(thCls, "text-center")}>점수</th>
+              <th className={cn(thCls, "text-center")}>플레이 수</th>
+              <th className={thCls}>배치</th>
+              <th className={thCls}>구동기</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/20">{children}</tbody>
@@ -414,10 +415,10 @@ function SectionTable({
           </colgroup>
           <thead className="sticky top-0 z-10 bg-background text-foreground border-b border-border/50">
             <tr>
-              <th className={cn(thCls, "text-center")}>Prev</th>
-              <th className={cn(thCls, "text-center")}>Current</th>
-              <th className={thCls}>Level</th>
-              <th className={thCls}>Title</th>
+              <th className={cn(thCls, "text-center")}>이전</th>
+              <th className={cn(thCls, "text-center")}>현재</th>
+              <th className={thCls}>레벨</th>
+              <th className={thCls}>제목</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/20">{children}</tbody>
@@ -683,7 +684,7 @@ function CategoryTab({ data }: { data: ScoreUpdatesResponse }) {
   if (empty) {
     return (
       <p className="text-body text-muted-foreground text-center py-8">
-        기록 갱신 데이터가 없습니다.
+        기록 상세 데이터가 없습니다.
       </p>
     );
   }
@@ -692,7 +693,7 @@ function CategoryTab({ data }: { data: ScoreUpdatesResponse }) {
     <div className="space-y-3">
       {/* Course records */}
       {summaryCourses.length > 0 && (
-        <CourseSectionTable title="Course Records" count={summaryCourses.length}>
+        <CourseSectionTable title="코스 기록" count={summaryCourses.length}>
           {summaryCourses.map((c, i) => (
             <CourseTableRow key={i} item={c} />
           ))}
@@ -702,7 +703,7 @@ function CategoryTab({ data }: { data: ScoreUpdatesResponse }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {lampAll.length > 0 && (
           <SectionTable
-            title="Lamp Upgrade"
+            title="클리어 갱신"
             count={lamp.length}
             showNewPlays={prefs.score_updates_lamp_include_new_plays}
             onToggleNewPlays={() => updatePrefs({ score_updates_lamp_include_new_plays: !prefs.score_updates_lamp_include_new_plays })}
@@ -712,7 +713,7 @@ function CategoryTab({ data }: { data: ScoreUpdatesResponse }) {
         )}
         {scoreAll.length > 0 && (
           <SectionTable
-            title="Score Upgrade"
+            title="점수 갱신"
             count={score.length}
             showNewPlays={prefs.score_updates_score_include_new_plays}
             onToggleNewPlays={() => updatePrefs({ score_updates_score_include_new_plays: !prefs.score_updates_score_include_new_plays })}
@@ -722,7 +723,7 @@ function CategoryTab({ data }: { data: ScoreUpdatesResponse }) {
         )}
         {bpAll.length > 0 && (
           <SectionTable
-            title="BP Upgrade"
+            title="BP 갱신"
             count={bp.length}
             showNewPlays={prefs.score_updates_bp_include_new_plays}
             onToggleNewPlays={() => updatePrefs({ score_updates_bp_include_new_plays: !prefs.score_updates_bp_include_new_plays })}
@@ -732,7 +733,7 @@ function CategoryTab({ data }: { data: ScoreUpdatesResponse }) {
         )}
         {comboAll.length > 0 && (
           <SectionTable
-            title="Max Combo Upgrade"
+            title="최대 콤보 갱신"
             count={combo.length}
             showNewPlays={prefs.score_updates_combo_include_new_plays}
             onToggleNewPlays={() => updatePrefs({ score_updates_combo_include_new_plays: !prefs.score_updates_combo_include_new_plays })}
@@ -754,7 +755,8 @@ interface MergedFumenUpdate {
   artist: string | null;
   table_levels: TableLevelRef[];
   client_type: string;
-  client_types: Set<string>;
+  source_client?: string | null;
+  source_client_detail?: Record<string, string | null> | null;
   recorded_at: string | null;
   options: Record<string, unknown> | null;
   clear?: { prev: number | null; new: number | null };
@@ -785,20 +787,32 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
     client_type: string,
     recorded_at: string | null,
     options: Record<string, unknown> | null,
+    source_client?: string | null,
+    source_client_detail?: Record<string, string | null> | null,
     currentState?: MergedFumenUpdate["currentState"],
   ): MergedFumenUpdate {
     const key = sha256 ?? md5 ?? `unknown-${Math.random()}`;
     if (!map.has(key)) {
-      map.set(key, { sha256, md5, title, artist, table_levels, client_type, client_types: new Set([client_type]), recorded_at, options, currentState });
-    } else {
-      map.get(key)!.client_types.add(client_type);
+      map.set(key, {
+        sha256,
+        md5,
+        title,
+        artist,
+        table_levels,
+        client_type,
+        source_client,
+        source_client_detail,
+        recorded_at,
+        options,
+        currentState,
+      });
     }
     return map.get(key)!;
   }
 
   for (const item of data.clear_type_updates) {
     if (item.is_course) continue;
-    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.current_state);
+    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.clear = { prev: item.prev_clear_type, new: item.new_clear_type };
     if (entry.bp == null && item.best_min_bp != null) {
       entry.bp = { prev: null, new: item.best_min_bp };
@@ -807,7 +821,7 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
 
   for (const item of data.exscore_updates) {
     if (item.is_course) continue;
-    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.current_state);
+    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.score = { prev: item.prev_exscore, new: item.new_exscore, prev_rank: item.prev_rank, new_rank: item.new_rank };
     entry.rate = { prev: item.prev_rate, new: item.new_rate };
     if (entry.bp == null && item.best_min_bp != null) {
@@ -816,18 +830,18 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
   }
 
   for (const item of data.min_bp_updates) {
-    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.current_state);
+    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.bp = { prev: item.prev_min_bp, new: item.new_min_bp };
   }
 
   for (const item of data.max_combo_updates) {
-    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.current_state);
+    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.combo = { prev: item.prev_max_combo, new: item.new_max_combo };
   }
 
   for (const item of data.play_count_updates) {
     if (item.is_course) continue;
-    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.current_state);
+    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.playCount = { prev: item.prev_play_count, new: item.new_play_count };
   }
 
@@ -848,15 +862,6 @@ function FumenRow({ fumen }: { fumen: MergedFumenUpdate }) {
 
   const rate = fumen.currentState?.rate;
   const rateLabel = rate != null ? `${rate.toFixed(1)}%` : null;
-
-  const clientLabel =
-    fumen.client_types.size > 1
-      ? "MIX"
-      : fumen.client_type === "lr2"
-      ? "LR"
-      : fumen.client_type === "beatoraja"
-      ? "BR"
-      : fumen.client_type;
 
   return (
     <tr className={cn("transition-all", rowClass || "hover:bg-secondary/50")}>
@@ -998,7 +1003,11 @@ function FumenRow({ fumen }: { fumen: MergedFumenUpdate }) {
 
       {/* Env (client) */}
       <td className="px-2 py-2 align-top text-label">
-        {clientLabel}
+        <SourceClientBadge
+          sourceClient={fumen.source_client}
+          sourceClientDetail={fumen.source_client_detail}
+          fallbackClientTypes={[fumen.client_type]}
+        />
       </td>
     </tr>
   );
@@ -1053,7 +1062,7 @@ function FumenTab({ data }: { data: ScoreUpdatesResponse }) {
           );
           break;
         case "env":
-          cmp = a.client_type.localeCompare(b.client_type);
+          cmp = (a.source_client ?? a.client_type).localeCompare(b.source_client ?? b.client_type);
           break;
       }
       return sortAsc ? cmp : -cmp;
@@ -1084,7 +1093,7 @@ function FumenTab({ data }: { data: ScoreUpdatesResponse }) {
   if (empty) {
     return (
       <p className="text-body text-muted-foreground text-center py-8">
-        기록 갱신 데이터가 없습니다.
+        기록 상세 데이터가 없습니다.
       </p>
     );
   }
@@ -1092,7 +1101,7 @@ function FumenTab({ data }: { data: ScoreUpdatesResponse }) {
   return (
     <div className="space-y-4">
       {mergedCourses.length > 0 && (
-        <CourseSectionTable title="Course Records" count={mergedCourses.length}>
+        <CourseSectionTable title="코스 기록" count={mergedCourses.length}>
           {mergedCourses.map((c, i) => (
             <CourseTableRow key={i} item={c} />
           ))}
@@ -1117,16 +1126,16 @@ function FumenTab({ data }: { data: ScoreUpdatesResponse }) {
               </colgroup>
               <thead className="sticky top-0 z-10 bg-background text-foreground border-b border-border/50">
                 <tr>
-                  <th className={thClass("level")} onClick={() => toggleSort("level")}>Level{sortIcon("level")}</th>
-                  <th className={thClass("title")} onClick={() => toggleSort("title")}>Title{sortIcon("title")}</th>
-                  <th className={thClass("lamp", true)} onClick={() => toggleSort("lamp")}>Lamp{sortIcon("lamp")}</th>
+                  <th className={thClass("level")} onClick={() => toggleSort("level")}>레벨{sortIcon("level")}</th>
+                  <th className={thClass("title")} onClick={() => toggleSort("title")}>제목{sortIcon("title")}</th>
+                  <th className={thClass("lamp", true)} onClick={() => toggleSort("lamp")}>클리어{sortIcon("lamp")}</th>
                   <th className={thClass("bp", true)} onClick={() => toggleSort("bp")}>BP{sortIcon("bp")}</th>
-                  <th className={thClass("rate", true)} onClick={() => toggleSort("rate")}>Rate{sortIcon("rate")}</th>
-                  <th className={thClass("rank", true)} onClick={() => toggleSort("rank")}>Rank{sortIcon("rank")}</th>
-                  <th className={thClass("score", true)} onClick={() => toggleSort("score")}>Score{sortIcon("score")}</th>
-                  <th className={thClass("plays", true)} onClick={() => toggleSort("plays")}>Plays{sortIcon("plays")}</th>
-                  <th className={thClass("option")} onClick={() => toggleSort("option")}>Option{sortIcon("option")}</th>
-                  <th className={thClass("env")} onClick={() => toggleSort("env")}>Env{sortIcon("env")}</th>
+                  <th className={thClass("rate", true)} onClick={() => toggleSort("rate")}>판정{sortIcon("rate")}</th>
+                  <th className={thClass("rank", true)} onClick={() => toggleSort("rank")}>랭크{sortIcon("rank")}</th>
+                  <th className={thClass("score", true)} onClick={() => toggleSort("score")}>점수{sortIcon("score")}</th>
+                  <th className={thClass("plays", true)} onClick={() => toggleSort("plays")}>플레이 수{sortIcon("plays")}</th>
+                  <th className={thClass("option")} onClick={() => toggleSort("option")}>배치{sortIcon("option")}</th>
+                  <th className={thClass("env")} onClick={() => toggleSort("env")}>구동기{sortIcon("env")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/30">
@@ -1148,16 +1157,26 @@ interface ScoreUpdatesProps {
   clientType?: ClientTypeFilter;
   date?: string;
   limit?: number;
+  ratingSlot?: React.ReactNode;
+  ratingBadgeCount?: number;
+  userId?: string;
 }
 
-export function ScoreUpdates({ clientType, date, limit = 50 }: ScoreUpdatesProps) {
-  const { data, isLoading } = useScoreUpdates(clientType, date, limit);
-  const [viewMode, setViewMode] = useState<"summary" | "all">("summary");
+export function ScoreUpdates({
+  clientType,
+  date,
+  limit = 50,
+  ratingSlot,
+  ratingBadgeCount = 0,
+  userId,
+}: ScoreUpdatesProps) {
+  const { data, isLoading } = useScoreUpdates(clientType, date, limit, userId);
+  const [viewMode, setViewMode] = useState<"summary" | "rating" | "all">("summary");
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">기록 갱신</CardTitle>
+        <CardTitle>기록 상세</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading && (
@@ -1174,17 +1193,30 @@ export function ScoreUpdates({ clientType, date, limit = 50 }: ScoreUpdatesProps
         {!isLoading && data && (
           <Tabs
             value={viewMode}
-            onValueChange={(v) => setViewMode(v as "summary" | "all")}
+            onValueChange={(v) => setViewMode(v as "summary" | "rating" | "all")}
           >
             <div className="flex justify-center mb-4">
               <TabsList>
-                <TabsTrigger value="summary">요약</TabsTrigger>
+                <TabsTrigger value="summary">갱신 요약</TabsTrigger>
+                {ratingSlot !== undefined && (
+                  <TabsTrigger value="rating">
+                    레이팅 변동
+                    {ratingBadgeCount > 0 && (
+                      <span className="ml-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary/20 px-1.5 text-caption font-semibold text-primary">
+                        {ratingBadgeCount}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                )}
                 <TabsTrigger value="all">전체</TabsTrigger>
               </TabsList>
             </div>
             <TabsContent value="summary">
               <CategoryTab data={data} />
             </TabsContent>
+            {ratingSlot !== undefined && (
+              <TabsContent value="rating">{ratingSlot}</TabsContent>
+            )}
             <TabsContent value="all">
               <FumenTab data={data} />
             </TabsContent>

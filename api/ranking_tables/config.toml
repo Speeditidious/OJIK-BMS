@@ -1,0 +1,866 @@
+# ============================================================
+# 랭킹 시스템 설정
+# ============================================================
+# 이 파일을 수정한 뒤 서버를 재시작하면 반영됩니다.
+# docker compose restart api celery celery-beat
+#
+# ── 이 파일의 역할 ──
+# 각 난이도표의 파라미터(상수)만 관리합니다.
+# 실제 계산 공식은 api/app/services/ranking_calculator.py 에 구현되어 있습니다.
+#
+# ── 난이도표 추가 ──
+# [[tables]] 블록을 추가하고 서버를 재시작하면
+# 랭킹 페이지에 자동으로 탭이 추가됩니다.
+# slug 는 difficulty_tables 테이블의 slug 컬럼과 일치해야 합니다.
+#
+# ── 단위인정 연동 ──
+# course_name 은 DB 의 Course.name 과 정확히 일치해야 합니다.
+# source_table 은 해당 코스가 import 된 난이도표의 slug 입니다.
+# source_table 생략 시 자기 테이블의 코스를 검색합니다.
+#
+# ── 공식 개요 ──
+# song_rating = C_table × (Base + Bonus)
+# Base = base_lamp_mult[lamp] × rank_mult[rank] × (L(level) + upper_lamp_bonus[lamp])
+# Bonus = bp_weight × f_bp(bp) + rate_weight × f_rate(rate)
+# C_table = high_tier_rating_anchor / (Base_ref + Bonus_ref)  ← reference_20
+# player_level = min(level_from_exp(total_exp, exp_level_step), max_level)
+# ============================================================
+
+# ── Global 기본값 ──────────────────────────────────────────
+[global]
+top_n     = 100                   # 최종 레이팅 합산에 들어가는 top-n개
+high_tier_rating_anchor = 1000    # top-n개 전부 이 수치면 최종 BMSFORCE=20.000
+exp_level_step          = 100     # EXP 레벨 역치 K: threshold(n) = 100 × n × (n+1)
+max_level               = 200     # EXP 레벨 상한. 도달 후 경험치를 더 얻어도 레벨은 max_level 유지.
+                                  # per-table override 가능 (난이도표별 [[tables]] 블록에서 max_level = N 설정)
+
+[global.rank_mult]
+F   = 0.00
+E   = 0.10
+D   = 0.30
+C   = 0.50
+B   = 0.80
+A   = 1.00
+AA  = 1.04
+AAA = 1.08
+
+[global.bonus]
+bp_weight   = 0.15
+rate_weight = 0.40
+bp_floor    = 150
+bp_slope    = 1.0
+rate_floor  = 0.70
+rate_slope  = 1.0
+
+
+# ============================================================
+# 난이도표별 설정
+# ============================================================
+
+# ── Aery ───────────────────────────────────────────────────
+[[tables]]
+slug         = "aery"
+display_name = "5KEYS AERY"
+display_order = 1
+
+  # reference_20: 이 조건으로 song_rating == 1000 이 되도록 C_table 을 역산
+  [tables.reference_20]
+  level = "LEVEL 19+"
+  lamp  = "HARD"
+  bp    = 50
+  rank  = "AA"
+  rate  = 0.80
+
+  [tables.bonus]
+  bp_weight   = 0.20
+  rate_weight = 0.40
+  bp_floor    = 100
+  bp_slope    = 1.0
+  rate_floor  = 0.70
+  rate_slope  = 1.0
+
+  [tables.base_lamp_mult]
+  NOPLAY  = 0.0
+  FAILED  = 0.1
+  ASSIST  = 0.3
+  EASY    = 0.5
+  NORMAL  = 0.6
+  HARD    = 1.0
+  EXHARD  = 1.0
+  FC      = 1.0
+  PERFECT = 1.0
+  MAX     = 1.0
+
+  [tables.upper_lamp_bonus]
+  NOPLAY  = 0.0
+  FAILED  = 0.0
+  ASSIST  = 0.0
+  EASY    = 0.0
+  NORMAL  = 0.0
+  HARD    = 0.0
+  EXHARD  = 0.0
+  FC      = 2.6
+  PERFECT = 2.6
+  MAX     = 2.6
+
+  [tables.level_weights]
+  "LEVEL 1"   = 0.5
+  "LEVEL 2"   = 1.0
+  "LEVEL 3"   = 1.5
+  "LEVEL 4"   = 2.0
+  "LEVEL 5"   = 2.5
+  "LEVEL 6"   = 3.0
+  "LEVEL 7"   = 3.5
+  "LEVEL 8"   = 4.0
+  "LEVEL 9"   = 4.5
+  "LEVEL 10"  = 5.0
+  "LEVEL 11"  = 5.5
+  "LEVEL 12"  = 6.0
+  "LEVEL 13"  = 7.0
+  "LEVEL 14"  = 8.0
+  "LEVEL 15"  = 9.0
+  "LEVEL 15+" = 10.0
+  "LEVEL 16"  = 11.0
+  "LEVEL 16+" = 12.0
+  "LEVEL 17"  = 13.0
+  "LEVEL 17+" = 14.0
+  "LEVEL 18"  = 15.0
+  "LEVEL 18+" = 16.0
+  "LEVEL 19"  = 17.0
+  "LEVEL 19+" = 18.0
+  "LEVEL 20"  = 19.0
+  "LEVEL 20+" = 20.0
+
+  [[tables.dans]]
+  dan_title      = "⑤1段"
+  course_name    = "[5KEYS AERY] 段位認定 1_DAN / ver.24"
+  display_text   = "⑤1"
+  color          = "#9E9E9E"
+  glow_intensity = "none"
+  priority       = 10
+
+  [[tables.dans]]
+  dan_title      = "⑤2段"
+  course_name    = "[5KEYS AERY] 段位認定 2_DAN / ver.24"
+  display_text   = "⑤2"
+  color          = "#A8C878"
+  glow_intensity = "none"
+  priority       = 20
+
+  [[tables.dans]]
+  dan_title      = "⑤3段"
+  course_name    = "[5KEYS AERY] 段位認定 3_DAN / ver.24"
+  display_text   = "⑤3"
+  color          = "#58C858"
+  glow_intensity = "none"
+  priority       = 30
+
+  [[tables.dans]]
+  dan_title      = "⑤4段"
+  course_name    = "[5KEYS AERY] 段位認定 4_DAN / ver.24"
+  display_text   = "⑤4"
+  color          = "#38C898"
+  glow_intensity = "none"
+  priority       = 40
+
+  [[tables.dans]]
+  dan_title      = "⑤5段"
+  course_name    = "[5KEYS AERY] 段位認定 5_DAN / ver.24"
+  display_text   = "⑤5"
+  color          = "#48B8D8"
+  glow_intensity = "none"
+  priority       = 50
+
+  [[tables.dans]]
+  dan_title      = "⑤6段"
+  course_name    = "[5KEYS AERY] 段位認定 6_DAN / ver.24"
+  display_text   = "⑤6"
+  color          = "#5880D8"
+  glow_intensity = "subtle"
+  priority       = 60
+
+  [[tables.dans]]
+  dan_title      = "⑤7段"
+  course_name    = "[5KEYS AERY] 段位認定 7_DAN / ver.24"
+  display_text   = "⑤7"
+  color          = "#7858C8"
+  glow_intensity = "subtle"
+  priority       = 70
+
+  [[tables.dans]]
+  dan_title      = "⑤8段"
+  course_name    = "[5KEYS AERY] 段位認定 8_DAN / ver.24"
+  display_text   = "⑤8"
+  color          = "#B848B0"
+  glow_intensity = "subtle"
+  priority       = 80
+
+  [[tables.dans]]
+  dan_title      = "⑤9段"
+  course_name    = "[5KEYS AERY] 段位認定 9_DAN / ver.24"
+  display_text   = "⑤9"
+  color          = "#D89820"
+  glow_intensity = "subtle"
+  priority       = 90
+
+  [[tables.dans]]
+  dan_title      = "⑤10段"
+  course_name    = "[5KEYS AERY] 段位認定 10_DAN / ver.24"
+  display_text   = "⑤10"
+  color          = "#E87018"
+  glow_intensity = "subtle"
+  priority       = 100
+
+  [[tables.dans]]
+  dan_title      = "⑤皆伝"
+  course_name    = "[5KEYS AERY] 段位認定 皆伝 / ver.24"
+  display_text   = "⑤★★"
+  color          = "#FFD700"
+  glow_intensity = "strong"
+  priority       = 110
+
+  [[tables.dans]]
+  dan_title      = "⑤GORILLA"
+  course_name    = "[5KEYS AERY] 段位認定 GORILLA / ver.24"
+  display_text   = "⑤GORILLA"
+  color          = "#FF5500"
+  glow_intensity = "strong"
+  priority       = 120
+
+  [[tables.dans]]
+  dan_title      = "⑤OVERJOY"
+  course_name    = "[5KEYS AERY] 段位認定 OVERJOY / ver.24"
+  display_text   = "⑤(^^)"
+  color          = "#FF1A44"
+  glow_intensity = "strong"
+  priority       = 130
+
+
+# ── Satellite ──────────────────────────────────────────────
+[[tables]]
+slug           = "satellite"
+display_name   = "SATELLITE"
+display_order  = 2
+cross_dan_peer = "stella"
+cross_dan_tier = 1
+
+  [tables.reference_20]
+  level = "12"
+  lamp  = "EASY"
+  bp    = 100
+  rank  = "AA"
+  rate  = 0.80
+
+  # bonus: global 기본값 사용 (bp_weight=0.15, rate_weight=0.40, bp_floor=150, ...)
+
+  [tables.base_lamp_mult]
+  NOPLAY  = 0.0
+  FAILED  = 0.1
+  ASSIST  = 0.5
+  EASY    = 1.0
+  NORMAL  = 1.0
+  HARD    = 1.0
+  EXHARD  = 1.0
+  FC      = 1.0
+  PERFECT = 1.0
+  MAX     = 1.0
+
+  [tables.upper_lamp_bonus]
+  NOPLAY  = 0.0
+  FAILED  = 0.0
+  ASSIST  = 0.0
+  EASY    = 0.0
+  NORMAL  = 0.3
+  HARD    = 1.6
+  EXHARD  = 1.6
+  FC      = 5.6
+  PERFECT = 5.6
+  MAX     = 5.6
+
+  [tables.level_weights]
+  "0"  = 1.0
+  "1"  = 2.0
+  "2"  = 3.0
+  "3"  = 4.0
+  "4"  = 5.0
+  "5"  = 6.0
+  "6"  = 7.0
+  "7"  = 8.0
+  "8"  = 9.0
+  "9"  = 10.0
+  "10" = 11.0
+  "11" = 12.0
+  "12" = 13.0
+
+  # sl: 하위 티어 — glow 없이 색깔만으로 차별화
+  [[tables.dans]]
+  dan_title      = "sl0"
+  course_name    = "Satellite Skill Analyzer 2nd sl0"
+  display_text   = "sl0"
+  color          = "#9E9E9E"
+  glow_intensity = "none"
+  priority       = 10
+
+  [[tables.dans]]
+  dan_title      = "sl1"
+  course_name    = "Satellite Skill Analyzer 2nd sl1"
+  display_text   = "sl1"
+  color          = "#94B060"
+  glow_intensity = "none"
+  priority       = 20
+
+  [[tables.dans]]
+  dan_title      = "sl2"
+  course_name    = "Satellite Skill Analyzer 2nd sl2"
+  display_text   = "sl2"
+  color          = "#58B858"
+  glow_intensity = "none"
+  priority       = 30
+
+  [[tables.dans]]
+  dan_title      = "sl3"
+  course_name    = "Satellite Skill Analyzer 2nd sl3"
+  display_text   = "sl3"
+  color          = "#38B888"
+  glow_intensity = "none"
+  priority       = 40
+
+  [[tables.dans]]
+  dan_title      = "sl4"
+  course_name    = "Satellite Skill Analyzer 2nd sl4"
+  display_text   = "sl4"
+  color          = "#30A8B0"
+  glow_intensity = "none"
+  priority       = 50
+
+  [[tables.dans]]
+  dan_title      = "sl5"
+  course_name    = "Satellite Skill Analyzer 2nd sl5"
+  display_text   = "sl5"
+  color          = "#4898C8"
+  glow_intensity = "none"
+  priority       = 60
+
+  [[tables.dans]]
+  dan_title      = "sl6"
+  course_name    = "Satellite Skill Analyzer 2nd sl6"
+  display_text   = "sl6"
+  color          = "#4870B8"
+  glow_intensity = "none"
+  priority       = 70
+
+  [[tables.dans]]
+  dan_title      = "sl7"
+  course_name    = "Satellite Skill Analyzer 2nd sl7"
+  display_text   = "sl7"
+  color          = "#6850B0"
+  glow_intensity = "none"
+  priority       = 80
+
+  [[tables.dans]]
+  dan_title      = "sl8"
+  course_name    = "Satellite Skill Analyzer 2nd sl8"
+  display_text   = "sl8"
+  color          = "#A040A8"
+  glow_intensity = "none"
+  priority       = 90
+
+  [[tables.dans]]
+  dan_title      = "sl9"
+  course_name    = "Satellite Skill Analyzer 2nd sl9"
+  display_text   = "sl9"
+  color          = "#C04888"
+  glow_intensity = "none"
+  priority       = 100
+
+  [[tables.dans]]
+  dan_title      = "sl10"
+  course_name    = "Satellite Skill Analyzer 2nd sl10"
+  display_text   = "sl10"
+  color          = "#C87820"
+  glow_intensity = "none"
+  priority       = 110
+
+  [[tables.dans]]
+  dan_title      = "sl11"
+  course_name    = "Satellite Skill Analyzer 2nd sl11"
+  display_text   = "sl11"
+  color          = "#C84820"
+  glow_intensity = "none"
+  priority       = 120
+
+  [[tables.dans]]
+  dan_title      = "sl12"
+  course_name    = "Satellite Skill Analyzer 2nd sl12"
+  display_text   = "sl12"
+  color          = "#C82828"
+  glow_intensity = "none"
+  priority       = 130
+
+
+# ── Stella ─────────────────────────────────────────────────
+[[tables]]
+slug           = "stella"
+display_name   = "STELLA"
+display_order  = 3
+cross_dan_peer = "satellite"
+cross_dan_tier = 2
+
+  [tables.reference_20]
+  level = "10"
+  lamp  = "EASY"
+  bp    = 150
+  rank  = "A"
+  rate  = 0.70
+
+  [tables.base_lamp_mult]
+  NOPLAY  = 0.0
+  FAILED  = 0.1
+  ASSIST  = 0.5
+  EASY    = 1.0
+  NORMAL  = 1.0
+  HARD    = 1.0
+  EXHARD  = 1.0
+  FC      = 1.0
+  PERFECT = 1.0
+  MAX     = 1.0
+
+  [tables.upper_lamp_bonus]
+  NOPLAY  = 0.0
+  FAILED  = 0.0
+  ASSIST  = 0.0
+  EASY    = 0.0
+  NORMAL  = 0.3
+  HARD    = 1.6
+  EXHARD  = 1.6
+  FC      = 5.6
+  PERFECT = 5.6
+  MAX     = 5.6
+
+  # Stella 최상위 레벨 12 는 다른 테이블보다 +1 가중치
+  [tables.level_weights]
+  "0"  = 1.0
+  "1"  = 2.0
+  "2"  = 3.0
+  "3"  = 4.0
+  "4"  = 5.0
+  "5"  = 6.0
+  "6"  = 7.0
+  "7"  = 8.0
+  "8"  = 9.0
+  "9"  = 10.0
+  "10" = 11.0
+  "11" = 12.0
+  "12" = 14.0
+
+  # st: 상위 티어 — 전 단위 glow 적용 (st0~st8 subtle, st9~st12 strong)
+  [[tables.dans]]
+  dan_title      = "st0"
+  course_name    = "Stella Skill Simulator 4th st0"
+  display_text   = "st0"
+  color          = "#B0B0C0"
+  glow_intensity = "subtle"
+  priority       = 10
+
+  [[tables.dans]]
+  dan_title      = "st1"
+  course_name    = "Stella Skill Simulator 4th st1"
+  display_text   = "st1"
+  color          = "#98C870"
+  glow_intensity = "subtle"
+  priority       = 20
+
+  [[tables.dans]]
+  dan_title      = "st2"
+  course_name    = "Stella Skill Simulator 4th st2"
+  display_text   = "st2"
+  color          = "#58D058"
+  glow_intensity = "subtle"
+  priority       = 30
+
+  [[tables.dans]]
+  dan_title      = "st3"
+  course_name    = "Stella Skill Simulator 4th st3"
+  display_text   = "st3"
+  color          = "#38D098"
+  glow_intensity = "subtle"
+  priority       = 40
+
+  [[tables.dans]]
+  dan_title      = "st4"
+  course_name    = "Stella Skill Simulator 4th st4"
+  display_text   = "st4"
+  color          = "#30C8C0"
+  glow_intensity = "subtle"
+  priority       = 50
+
+  [[tables.dans]]
+  dan_title      = "st5"
+  course_name    = "Stella Skill Simulator 4th st5"
+  display_text   = "st5"
+  color          = "#50B8E8"
+  glow_intensity = "subtle"
+  priority       = 60
+
+  [[tables.dans]]
+  dan_title      = "st6"
+  course_name    = "Stella Skill Simulator 4th st6"
+  display_text   = "st6"
+  color          = "#5080E8"
+  glow_intensity = "strong"
+  priority       = 70
+
+  [[tables.dans]]
+  dan_title      = "st7"
+  course_name    = "Stella Skill Simulator 4th st7"
+  display_text   = "st7"
+  color          = "#8050E0"
+  glow_intensity = "strong"
+  priority       = 80
+
+  [[tables.dans]]
+  dan_title      = "st8"
+  course_name    = "Stella Skill Simulator 4th st8"
+  display_text   = "st8"
+  color          = "#C048C0"
+  glow_intensity = "strong"
+  priority       = 90
+
+  [[tables.dans]]
+  dan_title      = "st9"
+  course_name    = "Stella Skill Simulator 4th st9"
+  display_text   = "st9"
+  color          = "#E8B018"
+  glow_intensity = "strong"
+  priority       = 100
+
+  [[tables.dans]]
+  dan_title      = "st10"
+  course_name    = "Stella Skill Simulator 4th st10"
+  display_text   = "st10"
+  color          = "#E87818"
+  glow_intensity = "strong"
+  priority       = 110
+
+  [[tables.dans]]
+  dan_title      = "st11"
+  course_name    = "Stella Skill Simulator 4th st11"
+  display_text   = "st11"
+  color          = "#E84820"
+  glow_intensity = "strong"
+  priority       = 120
+
+  [[tables.dans]]
+  dan_title      = "st12"
+  course_name    = "Stella Skill Simulator 4th st12"
+  display_text   = "st12"
+  color          = "#E02020"
+  glow_intensity = "strong"
+  priority       = 130
+
+
+# ── 発狂 BMS (balgwang) ────────────────────────────────────
+[[tables]]
+slug         = "balgwang"
+display_name = "発狂"
+display_order = 4
+
+  [tables.reference_20]
+  level = "23"
+  lamp  = "EASY"
+  bp    = 100
+  rank  = "A"
+  rate  = 0.70
+
+  [tables.base_lamp_mult]
+  NOPLAY  = 0.0
+  FAILED  = 0.1
+  ASSIST  = 0.5
+  EASY    = 1.0
+  NORMAL  = 1.0
+  HARD    = 1.0
+  EXHARD  = 1.0
+  FC      = 1.0
+  PERFECT = 1.0
+  MAX     = 1.0
+
+  [tables.upper_lamp_bonus]
+  NOPLAY  = 0.0
+  FAILED  = 0.0
+  ASSIST  = 0.0
+  EASY    = 0.0
+  NORMAL  = 0.3
+  HARD    = 1.6
+  EXHARD  = 1.6
+  FC      = 5.6
+  PERFECT = 5.6
+  MAX     = 5.6
+
+  [tables.level_weights]
+  "1"  = 1.0
+  "2"  = 2.0
+  "3"  = 3.0
+  "4"  = 4.0
+  "5"  = 5.0
+  "6"  = 6.0
+  "7"  = 7.0
+  "8"  = 8.0
+  "9"  = 9.0
+  "10" = 10.0
+  "11" = 11.0
+  "12" = 12.0
+  "13" = 13.0
+  "14" = 14.0
+  "15" = 15.0
+  "16" = 16.0
+  "17" = 17.0
+  "18" = 18.0
+  "19" = 19.0
+  "20" = 20.0
+  "21" = 21.0
+  "22" = 22.0
+  "23" = 23.0
+  "24" = 25.0
+  "25" = 27.0
+
+  [[tables.dans]]
+  dan_title      = "発狂初段"
+  course_name    = "GENOCIDE 2018 発狂初段"
+  source_table   = "new_balgwang"
+  display_text   = "★01"
+  color          = "#9E9E9E"
+  glow_intensity = "none"
+  priority       = 10
+
+  [[tables.dans]]
+  dan_title      = "発狂二段"
+  course_name    = "GENOCIDE 2018 発狂二段"
+  source_table   = "new_balgwang"
+  display_text   = "★02"
+  color          = "#A0B870"
+  glow_intensity = "none"
+  priority       = 20
+
+  [[tables.dans]]
+  dan_title      = "発狂三段"
+  course_name    = "GENOCIDE 2018 発狂三段"
+  source_table   = "new_balgwang"
+  display_text   = "★03"
+  color          = "#58B858"
+  glow_intensity = "none"
+  priority       = 30
+
+  [[tables.dans]]
+  dan_title      = "発狂四段"
+  course_name    = "GENOCIDE 2018 発狂四段"
+  source_table   = "new_balgwang"
+  display_text   = "★04"
+  color          = "#38B888"
+  glow_intensity = "none"
+  priority       = 40
+
+  [[tables.dans]]
+  dan_title      = "発狂五段"
+  course_name    = "GENOCIDE 2018 発狂五段"
+  source_table   = "new_balgwang"
+  display_text   = "★05"
+  color          = "#30A8B0"
+  glow_intensity = "none"
+  priority       = 50
+
+  [[tables.dans]]
+  dan_title      = "発狂六段"
+  course_name    = "GENOCIDE 2018 発狂六段"
+  source_table   = "new_balgwang"
+  display_text   = "★06"
+  color          = "#4890C8"
+  glow_intensity = "subtle"
+  priority       = 60
+
+  [[tables.dans]]
+  dan_title      = "発狂七段"
+  course_name    = "GENOCIDE 2018 発狂七段"
+  source_table   = "new_balgwang"
+  display_text   = "★07"
+  color          = "#5870C0"
+  glow_intensity = "subtle"
+  priority       = 70
+
+  [[tables.dans]]
+  dan_title      = "発狂八段"
+  course_name    = "GENOCIDE 2018 発狂八段"
+  source_table   = "new_balgwang"
+  display_text   = "★08"
+  color          = "#7858C0"
+  glow_intensity = "subtle"
+  priority       = 80
+
+  [[tables.dans]]
+  dan_title      = "発狂九段"
+  course_name    = "GENOCIDE 2018 発狂九段"
+  source_table   = "new_balgwang"
+  display_text   = "★09"
+  color          = "#B048A8"
+  glow_intensity = "subtle"
+  priority       = 90
+
+  [[tables.dans]]
+  dan_title      = "発狂十段"
+  course_name    = "GENOCIDE 2018 発狂十段"
+  source_table   = "new_balgwang"
+  display_text   = "★10"
+  color          = "#D09018"
+  glow_intensity = "subtle"
+  priority       = 100
+
+  [[tables.dans]]
+  dan_title      = "発狂皆伝"
+  course_name    = "GENOCIDE 2018 発狂皆伝"
+  source_table   = "new_balgwang"
+  display_text   = "★★"
+  color          = "#FFD700"
+  glow_intensity = "strong"
+  priority       = 110
+
+  [[tables.dans]]
+  dan_title      = "発狂Overjoy"
+  course_name    = "GENOCIDE 2018 overjoy"
+  source_table   = "new_balgwang"
+  display_text   = "(^^)"
+  color          = "#FF1A44"
+  glow_intensity = "strong"
+  priority       = 120
+
+
+# ── NEW GENERATION 発狂 BMS (new_balgwang) ──────────────────────────────
+# balgwang 의 단위인정 코스가 이 테이블에서 import 됨
+[[tables]]
+slug             = "new_balgwang"
+display_name     = "NEW GENERATION 発狂"
+display_order    = 5
+linked_dan_table = "balgwang"
+
+  [tables.reference_20]
+  level = "23"
+  lamp  = "EASY"
+  bp    = 100
+  rank  = "A"
+  rate  = 0.70
+
+  [tables.base_lamp_mult]
+  NOPLAY  = 0.0
+  FAILED  = 0.1
+  ASSIST  = 0.5
+  EASY    = 1.0
+  NORMAL  = 1.0
+  HARD    = 1.0
+  EXHARD  = 1.0
+  FC      = 1.0
+  PERFECT = 1.0
+  MAX     = 1.0
+
+  [tables.upper_lamp_bonus]
+  NOPLAY  = 0.0
+  FAILED  = 0.0
+  ASSIST  = 0.0
+  EASY    = 0.0
+  NORMAL  = 0.3
+  HARD    = 1.6
+  EXHARD  = 1.6
+  FC      = 5.6
+  PERFECT = 5.6
+  MAX     = 5.6
+
+  # L(n) = n + 2, except top level 24 → 27
+  [tables.level_weights]
+  "0-" = 1.0
+  "0"  = 2.0
+  "1"  = 3.0
+  "2"  = 4.0
+  "3"  = 5.0
+  "4"  = 6.0
+  "5"  = 7.0
+  "6"  = 8.0
+  "7"  = 9.0
+  "8"  = 10.0
+  "9"  = 11.0
+  "10" = 12.0
+  "11" = 13.0
+  "12" = 14.0
+  "13" = 15.0
+  "14" = 16.0
+  "15" = 17.0
+  "16" = 18.0
+  "17" = 19.0
+  "18" = 20.0
+  "19" = 21.0
+  "20" = 22.0
+  "21" = 23.0
+  "22" = 24.0
+  "23" = 25.0
+  "24" = 27.0
+
+
+# ── Overjoy ────────────────────────────────────────────────
+# balgwang 계열 — 단위인정은 balgwang 에서 공유
+[[tables]]
+slug            = "overjoy"
+display_name    = "OVERJOY"
+display_order   = 6
+linked_dan_table = "balgwang"
+
+  [tables.reference_20]
+  level = "5"
+  lamp  = "EASY"
+  bp    = 150
+  rank  = "A"
+  rate  = 0.70
+
+  # 기준 램프: EASY (base_lamp_mult=1, upper_lamp_bonus=0)
+  [tables.base_lamp_mult]
+  NOPLAY  = 0.0
+  FAILED  = 0.1
+  ASSIST  = 0.5
+  EASY    = 1.0
+  NORMAL  = 1.0
+  HARD    = 1.0
+  EXHARD  = 1.0
+  FC      = 1.0
+  PERFECT = 1.0
+  MAX     = 1.0
+
+  [tables.upper_lamp_bonus]
+  NOPLAY  = 0.0
+  FAILED  = 0.0
+  ASSIST  = 0.0
+  EASY    = 0.0
+  NORMAL  = 0.6
+  HARD    = 2.6
+  EXHARD  = 2.6
+  FC      = 5.6
+  PERFECT = 5.6
+  MAX     = 5.6
+
+  [tables.level_weights]
+  "0" = 2.0
+  "1" = 2.0
+  "2" = 4.0
+  "3" = 6.0
+  "4" = 8.0
+  "5" = 11.0
+  "6" = 14.0
+  "7" = 17.0
+  "8" = 20.0
+
+  # 특정 차분들은 클리어 종류에 따라 레벨상수 override
+  [[tables.level_overrides]]
+  note         = "★★0 人　身　事　故　で　停　止 (HARD 클리어 시 4레벨, FC 이상 시 5레벨 취급)"
+  fumen_md5    = "c569481923194f107186148d48584351"
+  fumen_sha256 = "63eeb491ad5ad123df92b74ace3b65b9c6f2ec68e002f908b886cc5016c38310"
+
+  [tables.level_overrides.lamp_to_level]
+  HARD    = "4"
+  EXHARD  = "4"
+  FC      = "5"
+  PERFECT = "5"
+  MAX     = "5"

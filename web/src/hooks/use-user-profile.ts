@@ -6,6 +6,8 @@ export interface UserPublicRead {
   username: string;
   bio: string | null;
   avatar_url: string | null;
+  created_at: string;
+  last_synced_at: string | null;
 }
 
 export function useUserProfile(userId: string) {

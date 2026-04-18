@@ -211,6 +211,8 @@ __marimo__/
 # Development docs & AI tooling
 CLAUDE.md
 .claude/
+AGENTS.md
+.codex
 documents/
 
 # Next.js build output & dependencies

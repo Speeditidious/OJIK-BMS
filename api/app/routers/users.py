@@ -1,11 +1,12 @@
 """User profile CRUD endpoints."""
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -34,6 +35,8 @@ class UserPublicRead(BaseModel):
     username: str
     bio: str | None = None
     avatar_url: str | None = None
+    created_at: datetime
+    last_synced_at: datetime | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -68,6 +71,27 @@ async def _resolve_avatar(user: User, db: AsyncSession) -> str | None:
     )
     oauth = result.scalar_one_or_none()
     return oauth.discord_avatar_url if oauth else None
+
+
+async def _resolve_last_synced_at(user_id: uuid.UUID, db: AsyncSession) -> datetime | None:
+    """Return the latest synced_at timestamp for the given user."""
+    result = await db.execute(
+        text("SELECT MAX(synced_at) FROM user_scores WHERE user_id = :uid"),
+        {"uid": str(user_id)},
+    )
+    return result.scalar_one_or_none()
+
+
+async def _build_user_public_read(user: User, db: AsyncSession) -> UserPublicRead:
+    """Build the public user payload with derived profile metadata."""
+    return UserPublicRead(
+        id=str(user.id),
+        username=user.username,
+        bio=user.bio,
+        avatar_url=await _resolve_avatar(user, db),
+        created_at=user.created_at,
+        last_synced_at=await _resolve_last_synced_at(user.id, db),
+    )
 
 
 async def _delete_all_user_data(db: AsyncSession, user_id: uuid.UUID) -> None:
@@ -277,12 +301,7 @@ async def get_user_profile_by_id(
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    return UserPublicRead(
-        id=str(user.id),
-        username=user.username,
-        bio=user.bio,
-        avatar_url=await _resolve_avatar(user, db),
-    )
+    return await _build_user_public_read(user, db)
 
 
 @router.get("/{username}")
@@ -300,9 +319,4 @@ async def get_user_profile(
             detail="User not found",
         )
 
-    return UserPublicRead(
-        id=str(user.id),
-        username=user.username,
-        bio=user.bio,
-        avatar_url=await _resolve_avatar(user, db),
-    )
+    return await _build_user_public_read(user, db)

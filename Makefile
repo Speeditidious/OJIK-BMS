@@ -14,9 +14,9 @@ seed-tables:
 
 ci:
 	@echo "=== API: ruff ==="
-	cd api && ruff check app/ --select E,F,W,I,N,UP --ignore E501
+	cd api && conda run -n ojik_bms ruff check app/ --select E,F,W,I,N,UP --ignore E501
 	@echo "=== Client: ruff ==="
-	cd client && ruff check ojikbms_client/ --select E,F,W,I,N,UP --ignore E501
+	cd client && conda run -n ojik_bms ruff check ojikbms_client/ --select E,F,W,I,N,UP --ignore E501
 	@echo "=== Web: eslint ==="
 	cd web && npm run lint --silent
 	@echo "=== Web: tsc ==="
@@ -29,7 +29,7 @@ ci:
 
 fix:
 	@echo "=== API: ruff fix ==="
-	cd api && ruff check app/ --select E,F,W,I,N,UP --ignore E501 --fix
+	cd api && conda run -n ojik_bms ruff check app/ --select E,F,W,I,N,UP --ignore E501 --fix
 	@echo "=== Client: ruff fix ==="
-	cd client && ruff check ojikbms_client/ --select E,F,W,I,N,UP --ignore E501 --fix
+	cd client && conda run -n ojik_bms ruff check ojikbms_client/ --select E,F,W,I,N,UP --ignore E501 --fix
 	@echo "Fix complete."

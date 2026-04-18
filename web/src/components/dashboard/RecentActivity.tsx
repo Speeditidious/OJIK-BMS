@@ -3,7 +3,7 @@
 import { useState, memo } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronUp, ChevronRight } from "lucide-react";
-import { useRecentUpdates, RecentUpdate, HeatmapDay, ClientTypeFilter } from "@/hooks/use-analysis";
+import { RecentUpdate, HeatmapDay, ClientTypeFilter } from "@/hooks/use-analysis";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Tooltip,
@@ -220,14 +220,21 @@ const PAGE_SIZE = 30;
 interface Props {
   clientType?: ClientTypeFilter;
   heatmapData?: HeatmapDay[];
+  ratingUpdatesByDate?: Record<string, number>;
   onDayClick?: (dateStr: string) => void;
+  emptyMessage?: string;
 }
 
-export function RecentActivity({ clientType = "all", heatmapData = [], onDayClick }: Props) {
+export function RecentActivity({
+  heatmapData = [],
+  ratingUpdatesByDate = {},
+  onDayClick,
+  emptyMessage = "활동 내역이 없습니다.",
+}: Props) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const allDays = heatmapData
-    .filter((d) => d.updates > 0 || (d.new_plays ?? 0) > 0 || d.plays > 0)
+    .filter((d) => d.updates > 0 || (d.new_plays ?? 0) > 0 || d.plays > 0 || (ratingUpdatesByDate[d.date] ?? 0) > 0)
     .slice()
     .sort((a, b) => (a.date < b.date ? 1 : -1));
 
@@ -243,15 +250,23 @@ export function RecentActivity({ clientType = "all", heatmapData = [], onDayClic
       <CardContent className="p-0">
         {allDays.length === 0 ? (
           <div className="flex items-center justify-center h-32 text-muted-foreground text-body px-6">
-            로컬 에이전트를 설치하고 동기화하면 활동 내역이 표시됩니다.
+            {emptyMessage}
           </div>
         ) : (
           <div>
             {visibleDays.map((day) => (
               <div
                 key={day.date}
+                role="button"
+                tabIndex={0}
                 className="flex items-center justify-between px-6 py-3 border-b border-border/40 cursor-pointer hover:bg-muted/50 transition-colors"
                 onClick={() => onDayClick?.(day.date)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onDayClick?.(day.date);
+                  }
+                }}
               >
                 <div className="flex flex-col gap-0.5">
                   <span className="text-label font-semibold">{formatDateLabel(day.date)}</span>
@@ -270,6 +285,14 @@ export function RecentActivity({ clientType = "all", heatmapData = [], onDayClic
                       style={{ color: "hsl(var(--chart-new-play))" }}
                     >
                       신규 {day.new_plays}건
+                    </span>
+                  )}
+                  {(ratingUpdatesByDate[day.date] ?? 0) > 0 && (
+                    <span
+                      className="text-caption bg-muted rounded px-1.5 py-0.5"
+                      style={{ color: "hsl(var(--warning))" }}
+                    >
+                      레이팅 갱신 {ratingUpdatesByDate[day.date]}건
                     </span>
                   )}
                   <span

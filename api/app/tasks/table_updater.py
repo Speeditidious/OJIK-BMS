@@ -79,6 +79,7 @@ async def _async_update_difficulty_table(table_id: uuid.UUID) -> dict:
                 save_table_to_disk(table.slug, table_data)
 
             table.level_order = table_data.get("level_order")
+            table.updated_at = datetime.now(UTC)
 
             cfg_symbol = None
             if table.slug:

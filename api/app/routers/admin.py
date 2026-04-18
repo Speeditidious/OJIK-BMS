@@ -122,6 +122,30 @@ async def update_dan_course(
     }
 
 
+class RankingRecalcRequest(BaseModel):
+    table_slug: str | None = None
+
+
+@router.post("/rankings/recalculate")
+async def recalculate_rankings(
+    body: RankingRecalcRequest,
+    current_user: User = Depends(get_current_admin),
+) -> dict[str, Any]:
+    """Trigger a full ranking recalculation (admin only).
+
+    If table_slug is provided, only that table is recalculated.
+    Otherwise all configured tables are recalculated.
+    """
+    from app.tasks.ranking_calculator import recalculate_all_rankings
+
+    result = recalculate_all_rankings.delay(body.table_slug)
+    return {
+        "status": "enqueued",
+        "task_id": str(result.id),
+        "target": body.table_slug or "all",
+    }
+
+
 @router.delete("/dan-courses/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def deactivate_dan_course(
     course_id: str,

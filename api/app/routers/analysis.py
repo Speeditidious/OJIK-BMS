@@ -5,19 +5,55 @@ from datetime import date as date_cls
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Date, and_, cast, func, or_, select
+from sqlalchemy import Date, and_, cast, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_optional
 from app.models.course import Course
 from app.models.difficulty_table import DifficultyTable, UserFavoriteDifficultyTable
 from app.models.fumen import Fumen
 from app.models.score import UserPlayerStats, UserScore
 from app.models.user import User
+from app.services.client_aggregation import (
+    CLIENT_LABEL,
+    PerClientBest,
+    aggregate_source_client,
+)
+from app.services.ranking_config import get_ranking_config
+from app.services.ranking_dashboard import (
+    compute_rating_breakdown,
+    compute_rating_updates,
+    compute_rating_updates_aggregated,
+    get_user_ranking_version,
+)
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
+_RATING_UPDATES_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+_RATING_UPDATES_AGG_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+_RATING_BREAKDOWN_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+
+async def _resolve_target_user(
+    user_id: uuid.UUID | None,
+    current_user: User | None,
+    db: AsyncSession,
+) -> User:
+    """Resolve the requested dashboard target user."""
+    if user_id is None:
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        return current_user
+
+    if current_user is not None and current_user.id == user_id:
+        return current_user
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    target_user = result.scalar_one_or_none()
+    if target_user is None or not target_user.is_active:
+        raise HTTPException(status_code=404, detail="User not found")
+    return target_user
 
 
 def _initial_sync_exclusion_filters(user: User) -> list:
@@ -107,10 +143,161 @@ def _find_course_prev_row(
     return prev
 
 
+def _canonical_fumen_key(
+    sha256: str | None,
+    md5: str | None,
+    md5_to_sha256: dict[str, str],
+) -> tuple[str | None, str | None]:
+    if sha256:
+        return (sha256, None)
+    if md5 and md5 in md5_to_sha256:
+        return (md5_to_sha256[md5], None)
+    if md5:
+        return (None, md5)
+    return (None, None)
+
+
+def _build_fumen_aggregate(
+    rows: list[Any],
+    md5_to_sha256: dict[str, str],
+) -> dict[tuple[str | None, str | None], dict[str, Any]]:
+    aggregated: dict[tuple[str | None, str | None], dict[str, Any]] = {}
+    per_fumen_client: dict[tuple[str | None, str | None], dict[str, dict[str, Any]]] = {}
+
+    for row in rows:
+        key = _canonical_fumen_key(row.fumen_sha256, row.fumen_md5, md5_to_sha256)
+        if key == (None, None) or not row.client_type:
+            continue
+        per_client = per_fumen_client.setdefault(key, {})
+        entry = per_client.setdefault(
+            row.client_type,
+            {
+                "clear_type": None,
+                "exscore": None,
+                "rate": None,
+                "rank": None,
+                "min_bp": None,
+                "max_combo": None,
+                "options": None,
+                "play_count": None,
+            },
+        )
+        if row.clear_type is not None and (
+            entry["clear_type"] is None or row.clear_type > entry["clear_type"]
+        ):
+            entry["clear_type"] = row.clear_type
+            entry["options"] = row.options
+        if row.exscore is not None and (
+            entry["exscore"] is None or row.exscore > entry["exscore"]
+        ):
+            entry["exscore"] = row.exscore
+            entry["rate"] = row.rate
+            entry["rank"] = row.rank
+        if row.min_bp is not None and (
+            entry["min_bp"] is None or row.min_bp < entry["min_bp"]
+        ):
+            entry["min_bp"] = row.min_bp
+        if row.max_combo is not None and (
+            entry["max_combo"] is None or row.max_combo > entry["max_combo"]
+        ):
+            entry["max_combo"] = row.max_combo
+        if row.play_count is not None:
+            entry["play_count"] = max(entry["play_count"] or 0, row.play_count)
+
+    for key, per_client in per_fumen_client.items():
+        best_clear_type = None
+        best_exscore = None
+        best_rate = None
+        best_rank = None
+        best_min_bp = None
+        best_max_combo = None
+        best_client_type = None
+        options = None
+        play_count = None
+
+        for client_type, entry in per_client.items():
+            if entry["clear_type"] is not None and (
+                best_clear_type is None or entry["clear_type"] > best_clear_type
+            ):
+                best_clear_type = entry["clear_type"]
+                best_client_type = client_type
+                options = entry["options"]
+            if entry["exscore"] is not None and (
+                best_exscore is None or entry["exscore"] > best_exscore
+            ):
+                best_exscore = entry["exscore"]
+                best_rate = entry["rate"]
+                best_rank = entry["rank"]
+            if entry["min_bp"] is not None and (
+                best_min_bp is None or entry["min_bp"] < best_min_bp
+            ):
+                best_min_bp = entry["min_bp"]
+            if entry["max_combo"] is not None and (
+                best_max_combo is None or entry["max_combo"] > best_max_combo
+            ):
+                best_max_combo = entry["max_combo"]
+            play_count = max(play_count or 0, entry["play_count"] or 0)
+
+        source_client, source_client_detail = aggregate_source_client(
+            PerClientBest(
+                client_type=client_type,
+                clear_type=entry["clear_type"],
+                exscore=entry["exscore"],
+                rate=entry["rate"],
+                rank=entry["rank"],
+                min_bp=entry["min_bp"],
+            )
+            for client_type, entry in per_client.items()
+        )
+        aggregated[key] = {
+            "current_state": {
+                "clear_type": best_clear_type,
+                "exscore": best_exscore,
+                "rate": best_rate,
+                "rank": best_rank,
+                "min_bp": best_min_bp,
+                "max_combo": best_max_combo,
+            },
+            "client_type": best_client_type,
+            "options": options,
+            "play_count": play_count or None,
+            "source_client": source_client,
+            "source_client_detail": source_client_detail,
+        }
+    return aggregated
+
+
+async def _get_ranking_aggregate_version(
+    user: User,
+    db: AsyncSession,
+) -> tuple[str | None, str | None]:
+    """Return `(max_synced_at, max_calculated_at)` across ranking tables for cache keys."""
+    synced_row = await db.execute(
+        select(func.max(UserScore.synced_at)).where(UserScore.user_id == user.id)
+    )
+    max_synced_at = synced_row.scalar_one_or_none()
+
+    calculated_row = await db.execute(
+        text("""
+            SELECT MAX(calculated_at)
+            FROM user_rankings
+            WHERE user_id = :user_id
+        """),
+        {"user_id": str(user.id)},
+    )
+    max_calculated_at = calculated_row.scalar_one_or_none()
+
+    return (
+        max_synced_at.isoformat() if max_synced_at else None,
+        max_calculated_at.isoformat() if max_calculated_at else None,
+    )
+
+
 @router.get("/summary")
 async def get_play_summary(
     client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
-    current_user: User = Depends(get_current_user),
+    user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Get a summary of the current user's play statistics.
@@ -118,7 +305,9 @@ async def get_play_summary(
     Pass client_type=lr2 or client_type=beatoraja to filter by game client.
     Omit client_type to get combined stats across all clients.
     """
-    base_filter = [UserScore.user_id == current_user.id]
+    target_user = await _resolve_target_user(user_id, current_user, db)
+
+    base_filter = [UserScore.user_id == target_user.id]
     if client_type:
         base_filter.append(UserScore.client_type == client_type)
 
@@ -133,7 +322,7 @@ async def get_play_summary(
     # Use player table totals (exact) when available; fall back to per-song sum.
     # user_player_stats is now append-only, so take the latest row per client_type
     # via DISTINCT ON before summing.
-    stats_latest_filter = [UserPlayerStats.user_id == current_user.id]
+    stats_latest_filter = [UserPlayerStats.user_id == target_user.id]
     if client_type:
         stats_latest_filter.append(UserPlayerStats.client_type == client_type)
     latest_subq = (
@@ -168,7 +357,7 @@ async def get_play_summary(
         total_notes_hit += sum(j.get(k, 0) for k in keys)
 
     # First sync date per client type — stored on the user object (set on first sync)
-    first_synced_by_client = current_user.first_synced_at or {}
+    first_synced_by_client = target_user.first_synced_at or {}
 
     return {
         "total_scores": row.total_scores or 0,
@@ -403,7 +592,8 @@ async def _get_day_stats(
 async def get_activity_heatmap(
     year: int = Query(default=0, description="Year (0 = current year)"),
     client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
-    current_user: User = Depends(get_current_user),
+    user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Return per-day record-update, new-play, and play counts for the given year.
@@ -412,18 +602,19 @@ async def get_activity_heatmap(
     new_plays = first-ever plays for a fumen (rn == 1), counted separately from updates.
     plays     = user_scores.play_count LAG delta sum per day (mirrors day_summary logic).
     """
+    target_user = await _resolve_target_user(user_id, current_user, db)
     target_year = year if year > 0 else datetime.now(UTC).year
     start = datetime(target_year, 1, 1, tzinfo=UTC)
     end = datetime(target_year + 1, 1, 1, tzinfo=UTC)
 
-    subq = _build_activity_subquery(current_user, client_type)
+    subq = _build_activity_subquery(target_user, client_type)
     is_improvement = _improvement_filter(subq)
 
     outer_filters = [
         subq.c.day >= start.date(),
         subq.c.day < end.date(),
     ]
-    outer_filters.extend(_initial_sync_exclusion_for_subq(current_user, subq))
+    outer_filters.extend(_initial_sync_exclusion_for_subq(target_user, subq))
 
     result = await db.execute(
         select(
@@ -442,7 +633,7 @@ async def get_activity_heatmap(
         new_plays_by_day[str(r.day)] = r.new_plays
 
     plays_by_day = await _get_daily_plays(
-        current_user, client_type, start.date(), end.date(), db
+        target_user, client_type, start.date(), end.date(), db
     )
 
     all_dates = sorted(set(updates_by_day) | set(new_plays_by_day) | set(plays_by_day))
@@ -464,7 +655,8 @@ async def get_activity_heatmap(
 async def get_activity_bar(
     days: int = Query(default=30, ge=7, le=365, description="Number of recent days"),
     client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
-    current_user: User = Depends(get_current_user),
+    user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Return daily record-update, new-play, and play counts for the last N days.
@@ -473,16 +665,17 @@ async def get_activity_bar(
     new_plays = first-ever plays for a fumen (rn == 1), counted separately from updates.
     plays     = user_scores.play_count LAG delta sum per day (mirrors day_summary logic).
     """
+    target_user = await _resolve_target_user(user_id, current_user, db)
     now = datetime.now(UTC)
     since = now - timedelta(days=days)
 
-    subq = _build_activity_subquery(current_user, client_type)
+    subq = _build_activity_subquery(target_user, client_type)
     is_improvement = _improvement_filter(subq)
 
     outer_filters = [
         subq.c.day >= since.date(),
     ]
-    outer_filters.extend(_initial_sync_exclusion_for_subq(current_user, subq))
+    outer_filters.extend(_initial_sync_exclusion_for_subq(target_user, subq))
 
     result = await db.execute(
         select(
@@ -501,7 +694,7 @@ async def get_activity_bar(
         new_plays_by_day[str(r.day)] = r.new_plays
 
     plays_by_day = await _get_daily_plays(
-        current_user, client_type, since.date(), (now.date() + timedelta(days=1)), db
+        target_user, client_type, since.date(), (now.date() + timedelta(days=1)), db
     )
 
     all_dates = sorted(set(updates_by_day) | set(new_plays_by_day) | set(plays_by_day))
@@ -519,12 +712,172 @@ async def get_activity_bar(
     }
 
 
+@router.get("/rating-updates")
+async def get_rating_updates(
+    table_slug: str = Query(..., description="Ranking-enabled table slug"),
+    year: int | None = Query(None, description="Whole-year heatmap mode"),
+    days: int | None = Query(None, ge=1, le=365, description="Recent N days mode"),
+    date: str | None = Query(None, description="YYYY-MM-DD detail mode"),
+    user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    current_user: User | None = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Return rating-update counts or date detail rows for one ranking table."""
+    supplied_modes = sum(value is not None for value in (year, days, date))
+    if supplied_modes != 1:
+        raise HTTPException(status_code=400, detail="Specify exactly one of year, days, or date")
+
+    target_user = await _resolve_target_user(user_id, current_user, db)
+
+    try:
+        config = get_ranking_config()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Ranking config not initialised") from exc
+
+    table_cfg = config.get_table_by_slug(table_slug)
+    if table_cfg is None:
+        raise HTTPException(status_code=404, detail=f"Table '{table_slug}' not found")
+
+    table_row = await db.execute(
+        select(DifficultyTable.symbol).where(DifficultyTable.id == table_cfg.table_id)
+    )
+    table_symbol = table_row.scalar_one_or_none() or ""
+
+    max_synced_at, calculated_at = await get_user_ranking_version(target_user.id, table_cfg.table_id, db)
+    cache_key = (
+        str(target_user.id),
+        table_slug,
+        year,
+        days,
+        date,
+        max_synced_at,
+        calculated_at,
+    )
+    cached = _RATING_UPDATES_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    payload = await compute_rating_updates(
+        user_id=target_user.id,
+        table_cfg=table_cfg,
+        db=db,
+        table_symbol=table_symbol,
+        year=year,
+        days=days,
+        target_date=date_cls.fromisoformat(date) if date else None,
+    )
+    response = {
+        "table_slug": table_slug,
+        "calculated_at": calculated_at,
+        **payload,
+    }
+    _RATING_UPDATES_CACHE[cache_key] = response
+    return response
+
+
+@router.get("/rating-updates/aggregated")
+async def get_rating_updates_aggregated(
+    year: int | None = Query(None, description="Whole-year heatmap mode"),
+    days: int | None = Query(None, ge=1, le=365, description="Recent N days mode"),
+    date: str | None = Query(None, description="YYYY-MM-DD detail mode"),
+    user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    current_user: User | None = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Return rating-update counts aggregated across all ranking-enabled tables."""
+    supplied_modes = sum(value is not None for value in (year, days, date))
+    if supplied_modes != 1:
+        raise HTTPException(status_code=400, detail="Specify exactly one of year, days, or date")
+
+    target_user = await _resolve_target_user(user_id, current_user, db)
+
+    try:
+        config = get_ranking_config()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Ranking config not initialised") from exc
+
+    max_synced_at, max_calculated_at = await _get_ranking_aggregate_version(target_user, db)
+    cache_key = (
+        str(target_user.id),
+        year,
+        days,
+        date,
+        max_synced_at,
+        max_calculated_at,
+    )
+    cached = _RATING_UPDATES_AGG_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    response = await compute_rating_updates_aggregated(
+        user_id=target_user.id,
+        ranking_tables=config.tables,
+        db=db,
+        year=year,
+        days=days,
+        target_date=date_cls.fromisoformat(date) if date else None,
+    )
+    _RATING_UPDATES_AGG_CACHE[cache_key] = response
+    return response
+
+
+@router.get("/rating-breakdown")
+async def get_rating_breakdown(
+    table_slug: str = Query(..., description="Ranking-enabled table slug"),
+    date: str = Query(..., description="YYYY-MM-DD detail mode"),
+    user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    current_user: User | None = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Return EXP/Rating/BMSFORCE breakdown for one date and ranking table."""
+    target_user = await _resolve_target_user(user_id, current_user, db)
+
+    try:
+        config = get_ranking_config()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Ranking config not initialised") from exc
+
+    table_cfg = config.get_table_by_slug(table_slug)
+    if table_cfg is None:
+        raise HTTPException(status_code=404, detail=f"Table '{table_slug}' not found")
+
+    table_row = await db.execute(
+        select(DifficultyTable.symbol).where(DifficultyTable.id == table_cfg.table_id)
+    )
+    table_symbol = table_row.scalar_one_or_none() or ""
+
+    max_synced_at, calculated_at = await get_user_ranking_version(target_user.id, table_cfg.table_id, db)
+    cache_key = (
+        str(target_user.id),
+        table_slug,
+        date,
+        max_synced_at,
+        calculated_at,
+    )
+    cached = _RATING_BREAKDOWN_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    response = await compute_rating_breakdown(
+        user_id=target_user.id,
+        table_cfg=table_cfg,
+        db=db,
+        table_symbol=table_symbol,
+        exp_level_step=config.exp_level_step,
+        target_date=date_cls.fromisoformat(date),
+    )
+    _RATING_BREAKDOWN_CACHE[cache_key] = response
+    return response
+
+
 @router.get("/recent-updates")
 async def get_recent_updates(
     limit: int = Query(default=20, ge=1, le=100),
     client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
     date: str | None = Query(None, description="YYYY-MM-DD — filter by recorded_at date"),
-    current_user: User = Depends(get_current_user),
+    table_slug: str | None = Query(None, description="Optional ranking table for day summary"),
+    user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Return recent score entries ordered by effective play time.
@@ -533,11 +886,12 @@ async def get_recent_updates(
     favorite tables.
     Pass date=YYYY-MM-DD to filter by recorded_at date (returns up to 200 entries).
     """
+    target_user = await _resolve_target_user(user_id, current_user, db)
     effective_ts = func.coalesce(UserScore.recorded_at, UserScore.synced_at)
-    recent_filter = [UserScore.user_id == current_user.id]
+    recent_filter = [UserScore.user_id == target_user.id]
     if client_type:
         recent_filter.append(UserScore.client_type == client_type)
-    recent_filter.extend(_initial_sync_exclusion_filters(current_user))
+    recent_filter.extend(_initial_sync_exclusion_filters(target_user))
     if date:
         effective_date = cast(func.timezone("UTC", effective_ts), Date)
         recent_filter.append(effective_date == date_cls.fromisoformat(date))
@@ -587,9 +941,9 @@ async def get_recent_updates(
     sha256_to_levels_seen: dict[str, set] = {}
     if sha256s:
         fav_result = await db.execute(
-            select(UserFavoriteDifficultyTable.table_id).where(
-                UserFavoriteDifficultyTable.user_id == current_user.id
-            )
+                select(UserFavoriteDifficultyTable.table_id).where(
+                    UserFavoriteDifficultyTable.user_id == target_user.id
+                )
         )
         fav_table_ids = [r[0] for r in fav_result.all()]
         if fav_table_ids:
@@ -661,7 +1015,7 @@ async def get_recent_updates(
             hist_result = await db.execute(
                 select(UserScore)
                 .where(
-                    UserScore.user_id == current_user.id,
+                    UserScore.user_id == target_user.id,
                     UserScore.fumen_hash_others.is_(None),
                     combined_cond,
                 )
@@ -683,7 +1037,7 @@ async def get_recent_updates(
             if _is_stat_only(e, entry_prev.get(str(e.id)))
         }
 
-        day_stats = await _get_day_stats(current_user, client_type, date, db)
+        day_stats = await _get_day_stats(target_user, client_type, date, db)
 
         # Score records exist but no PlayerStats rows → date predates PlayerStats
         # tracking (e.g. Beatoraja recorded_at before first sync) → uncertain.
@@ -699,10 +1053,10 @@ async def get_recent_updates(
         # Compute total_updates using the same _build_activity_subquery logic as the
         # heatmap/activity endpoints — this is the single authoritative source so that
         # all frontend widgets (calendar, bar chart, stat card) always show the same number.
-        subq_day = _build_activity_subquery(current_user, client_type)
+        subq_day = _build_activity_subquery(target_user, client_type)
         is_imp_day = _improvement_filter(subq_day)
         target_date_obj = date_cls.fromisoformat(date)
-        excl_day = _initial_sync_exclusion_for_subq(current_user, subq_day)
+        excl_day = _initial_sync_exclusion_for_subq(target_user, subq_day)
         counts_res = await db.execute(
             select(
                 func.count().filter(is_imp_day & (subq_day.c.rn_in_day == 1)).label("updates"),
@@ -724,7 +1078,28 @@ async def get_recent_updates(
             "total_notes_hit": day_stats["notes_hit"],
             "playtime_uncertain": day_stats["playtime_uncertain"] or no_stats_but_has_records,
             "notes_hit_uncertain": day_stats["notes_hit_uncertain"] or no_stats_but_has_records,
+            "rating_updates": 0,
         }
+        if table_slug:
+            try:
+                ranking_cfg = get_ranking_config()
+            except RuntimeError:
+                ranking_cfg = None
+            if ranking_cfg is not None:
+                selected_table = ranking_cfg.get_table_by_slug(table_slug)
+                if selected_table is not None:
+                    table_row = await db.execute(
+                        select(DifficultyTable.symbol).where(DifficultyTable.id == selected_table.table_id)
+                    )
+                    table_symbol = table_row.scalar_one_or_none() or ""
+                    rating_payload = await compute_rating_updates(
+                        user_id=target_user.id,
+                        table_cfg=selected_table,
+                        db=db,
+                        table_symbol=table_symbol,
+                        target_date=target_date_obj,
+                    )
+                    day_summary_out["rating_updates"] = rating_payload["count"] or 0
 
     return {
         "updates": [
@@ -753,7 +1128,7 @@ async def get_recent_updates(
                 "difficulty_levels": sha256_to_levels.get(e.fumen_sha256 or "", []) if e.fumen_sha256 else [],
                 "play_count": e.play_count,
                 "is_stat_only": str(e.id) in stat_only_ids,
-                "is_initial_sync": _is_initial_sync_record(e, current_user),
+                "is_initial_sync": _is_initial_sync_record(e, target_user),
                 "prev_play_count": (
                     (entry_prev.get(str(e.id)).play_count if entry_prev.get(str(e.id)) else None)
                     if date else None
@@ -771,7 +1146,8 @@ async def get_course_activity(
     days: int | None = Query(None, ge=1, le=730, description="Recent N days (mutually exclusive with year)"),
     client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
     date: str | None = Query(None, description="YYYY-MM-DD — filter by a specific date"),
-    current_user: User = Depends(get_current_user),
+    user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """Return course clearing events for visualization overlays.
@@ -779,6 +1155,7 @@ async def get_course_activity(
     Uses user_scores WHERE fumen_hash_others IS NOT NULL (course records merged in Phase 5).
     Provide year= for the whole year, days= for recent N days, or date=YYYY-MM-DD for a specific day.
     """
+    target_user = await _resolve_target_user(user_id, current_user, db)
     effective_ts = func.coalesce(UserScore.recorded_at, UserScore.synced_at)
 
     # "First clear" = earliest record with clear_type >= 3 for a given (user, course, client_type).
@@ -788,7 +1165,7 @@ async def get_course_activity(
     earlier_clear_exists = (
         select(earlier.id)
         .where(
-            earlier.user_id == current_user.id,
+            earlier.user_id == target_user.id,
             earlier.fumen_hash_others == UserScore.fumen_hash_others,
             earlier.client_type == UserScore.client_type,
             earlier.clear_type >= 3,
@@ -799,7 +1176,7 @@ async def get_course_activity(
     )
 
     filters = [
-        UserScore.user_id == current_user.id,
+        UserScore.user_id == target_user.id,
         UserScore.fumen_hash_others.is_not(None),
         UserScore.clear_type >= 3,  # exclude NO PLAY / FAILED / ASSIST EASY
         ~earlier_clear_exists,      # only the first clear (not re-clears or record updates)
@@ -819,7 +1196,7 @@ async def get_course_activity(
 
     if client_type:
         filters.append(UserScore.client_type == client_type)
-    filters.extend(_initial_sync_exclusion_filters(current_user))
+    filters.extend(_initial_sync_exclusion_filters(target_user))
 
     result = await db.execute(
         select(UserScore)
@@ -887,7 +1264,8 @@ async def get_course_activity(
 @router.get("/grade-distribution")
 async def get_grade_distribution(
     client_type: str | None = Query(None),
-    current_user: User = Depends(get_current_user),
+    user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Get grade/clear type distribution for chart rendering.
@@ -895,9 +1273,10 @@ async def get_grade_distribution(
     Uses best clear_type per unique fumen (sha256 or md5) to avoid counting
     multiple history rows for the same chart.
     """
+    target_user = await _resolve_target_user(user_id, current_user, db)
     # Get best clear_type per unique fumen key (sha256 preferred over md5)
     subq_filters = [
-        UserScore.user_id == current_user.id,
+        UserScore.user_id == target_user.id,
         UserScore.fumen_hash_others.is_(None),  # exclude course records
         or_(UserScore.fumen_sha256.is_not(None), UserScore.fumen_md5.is_not(None)),
     ]
@@ -1030,7 +1409,8 @@ async def get_notes_activity(
 async def get_table_clear_distribution(
     table_id: uuid.UUID,
     client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
-    current_user: User = Depends(get_current_user),
+    user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """
@@ -1041,6 +1421,8 @@ async def get_table_clear_distribution(
         songs: per-song score data (title, level, clear_type, score_rate, min_bp)
         level_order: ordered list of level names from the table header
     """
+    target_user = await _resolve_target_user(user_id, current_user, db)
+
     table_result = await db.execute(
         select(DifficultyTable).where(DifficultyTable.id == table_id)
     )
@@ -1110,7 +1492,7 @@ async def get_table_clear_distribution(
         }
 
     score_filter = [
-        UserScore.user_id == current_user.id,
+        UserScore.user_id == target_user.id,
         or_(*hash_filter),
         UserScore.fumen_hash_others.is_(None),  # exclude course records
     ]
@@ -1123,48 +1505,26 @@ async def get_table_clear_distribution(
             UserScore.fumen_md5,
             UserScore.client_type,
             UserScore.clear_type,
+            UserScore.exscore,
             UserScore.rate,
             UserScore.rank,
             UserScore.min_bp,
+            UserScore.max_combo,
             UserScore.play_count,
-            UserScore.judgments,
             UserScore.options,
         ).where(*score_filter)
     )
     score_rows = scores_result.all()
 
-    # Pick best score per hash (highest clear_type wins), keyed by sha256 and md5
-    # play_count is accumulated as the max across all rows for the same hash
-    score_map_by_sha256: dict[str, dict[str, Any]] = {}
-    score_map_by_md5: dict[str, dict[str, Any]] = {}
-    play_count_by_sha256: dict[str, int] = {}
-    play_count_by_md5: dict[str, int] = {}
-
-    def _better(existing: dict[str, Any] | None, new_entry: dict[str, Any]) -> bool:
-        return existing is None or (new_entry["clear_type"] or 0) > (existing["clear_type"] or 0)
-
-    for row in score_rows:
-        entry = {
-            "clear_type": row.clear_type,
-            "rate": row.rate,
-            "rank": row.rank,
-            "min_bp": row.min_bp,
-            "client_type": row.client_type,
-            "judgments": row.judgments,
-            "options": row.options,
-        }
-        if row.fumen_sha256:
-            if _better(score_map_by_sha256.get(row.fumen_sha256), entry):
-                score_map_by_sha256[row.fumen_sha256] = entry
-            if row.play_count is not None:
-                existing_pc = play_count_by_sha256.get(row.fumen_sha256)
-                play_count_by_sha256[row.fumen_sha256] = max(existing_pc or 0, row.play_count)
-        if row.fumen_md5:
-            if _better(score_map_by_md5.get(row.fumen_md5), entry):
-                score_map_by_md5[row.fumen_md5] = entry
-            if row.play_count is not None:
-                existing_pc = play_count_by_md5.get(row.fumen_md5)
-                play_count_by_md5[row.fumen_md5] = max(existing_pc or 0, row.play_count)
+    md5_to_sha256 = {
+        fumen["md5"]: fumen["sha256"]
+        for fumen in songs_data
+        if fumen["md5"] and fumen["sha256"]
+    }
+    aggregate_map = _build_fumen_aggregate(
+        list(score_rows),
+        md5_to_sha256,
+    )
 
     # Build song list and level histogram simultaneously
     songs_out: list[dict[str, Any]] = []
@@ -1174,18 +1534,10 @@ async def get_table_clear_distribution(
         sha256 = s["sha256"]
         md5 = s["md5"]
         level = s["level"]
-        # Merge sha256 and md5 maps, picking the better clear_type when both exist
-        sha256_entry = score_map_by_sha256.get(sha256) if sha256 else None
-        md5_entry = score_map_by_md5.get(md5) if md5 else None
-        if sha256_entry is None:
-            score_data = md5_entry
-        elif md5_entry is None:
-            score_data = sha256_entry
-        else:
-            score_data = sha256_entry if _better(md5_entry, sha256_entry) else md5_entry
+        score_data = aggregate_map.get(_canonical_fumen_key(sha256 or None, md5 or None, md5_to_sha256))
         clear_type: int = (
-            score_data["clear_type"]
-            if score_data and score_data["clear_type"] is not None
+            score_data["current_state"]["clear_type"]
+            if score_data and score_data["current_state"]["clear_type"] is not None
             else 0
         )
 
@@ -1193,21 +1545,8 @@ async def get_table_clear_distribution(
             level_counts[level] = {}
         level_counts[level][clear_type] = level_counts[level].get(clear_type, 0) + 1
 
-        # Compute EX Score from judgments (perfect*2 + great; LR2 key is "perfect")
-        ex_score: int | None = None
-        if score_data and score_data.get("judgments"):
-            j = score_data["judgments"]
-            perfect = j.get("perfect", 0) or (j.get("epg", 0) + j.get("lpg", 0))
-            great = j.get("great", 0) or (j.get("egr", 0) + j.get("lgr", 0))
-            ex_score = perfect * 2 + great
-
-        # Aggregate play_count across sha256 and md5 maps
-        pc_sha256 = play_count_by_sha256.get(sha256) if sha256 else None
-        pc_md5 = play_count_by_md5.get(md5) if md5 else None
-        if pc_sha256 is not None and pc_md5 is not None:
-            play_count = max(pc_sha256, pc_md5)
-        else:
-            play_count = pc_sha256 if pc_sha256 is not None else pc_md5
+        ex_score = score_data["current_state"]["exscore"] if score_data else None
+        play_count = score_data["play_count"] if score_data else None
 
         songs_out.append({
             "sha256": sha256,
@@ -1215,10 +1554,12 @@ async def get_table_clear_distribution(
             "artist": s["artist"],
             "level": level,
             "clear_type": clear_type,
-            "rate": score_data["rate"] if score_data else None,
-            "rank": score_data["rank"] if score_data else None,
-            "min_bp": score_data["min_bp"] if score_data else None,
+            "rate": score_data["current_state"]["rate"] if score_data else None,
+            "rank": score_data["current_state"]["rank"] if score_data else None,
+            "min_bp": score_data["current_state"]["min_bp"] if score_data else None,
             "client_type": score_data["client_type"] if score_data else None,
+            "source_client": score_data["source_client"] if score_data else None,
+            "source_client_detail": score_data["source_client_detail"] if score_data else None,
             "ex_score": ex_score,
             "play_count": play_count,
             "options": score_data["options"] if score_data else None,
@@ -1287,7 +1628,8 @@ async def get_score_updates(
     client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
     date: str | None = Query(None, description="YYYY-MM-DD — filter by effective date"),
     limit: int = Query(50, ge=1, le=200),
-    current_user: User = Depends(get_current_user),
+    user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Return per-field best score updates for visualization.
@@ -1301,6 +1643,7 @@ async def get_score_updates(
     For each update, the 'previous best' is determined by finding the most
     recent prior row for the same (fumen, client_type) with a lower/worse value.
     """
+    target_user = await _resolve_target_user(user_id, current_user, db)
     effective_ts = func.coalesce(UserScore.recorded_at, UserScore.synced_at)
     hash_expr = func.coalesce(
         UserScore.fumen_sha256, UserScore.fumen_md5, UserScore.fumen_hash_others
@@ -1308,10 +1651,10 @@ async def get_score_updates(
 
     # ── 1. Fetch most-recent row per (hash, client_type) ─────────────────────
     # Use ROW_NUMBER() to pick the latest row per (fumen_hash, client_type) group.
-    base_filters = [UserScore.user_id == current_user.id]
+    base_filters = [UserScore.user_id == target_user.id]
     if client_type:
         base_filters.append(UserScore.client_type == client_type)
-    base_filters.extend(_initial_sync_exclusion_filters(current_user))
+    base_filters.extend(_initial_sync_exclusion_filters(target_user))
     if date:
         effective_date = cast(func.timezone("UTC", effective_ts), Date)
         base_filters.append(effective_date == date_cls.fromisoformat(date))
@@ -1360,25 +1703,30 @@ async def get_score_updates(
 
     # ── 4. Fumen metadata lookup ──────────────────────────────────────────────
     fumen_meta: dict[str, dict] = {}  # sha256 or md5 → {title, artist}
+    md5_to_sha256: dict[str, str] = {}
     if sha256s:
         rows = await db.execute(
-            select(Fumen.sha256, Fumen.title, Fumen.artist, Fumen.table_entries)
+            select(Fumen.sha256, Fumen.md5, Fumen.title, Fumen.artist, Fumen.table_entries)
             .where(Fumen.sha256.in_(sha256s))
         )
         for r in rows.all():
             fumen_meta[r.sha256] = {"title": r.title, "artist": r.artist, "table_entries": r.table_entries or []}
+            if r.md5 and r.sha256:
+                md5_to_sha256[r.md5] = r.sha256
     if md5s:
         rows = await db.execute(
-            select(Fumen.md5, Fumen.title, Fumen.artist, Fumen.table_entries)
+            select(Fumen.md5, Fumen.sha256, Fumen.title, Fumen.artist, Fumen.table_entries)
             .where(Fumen.md5.in_(md5s))
         )
         for r in rows.all():
             fumen_meta[r.md5] = {"title": r.title, "artist": r.artist, "table_entries": r.table_entries or []}
+            if r.md5 and r.sha256:
+                md5_to_sha256[r.md5] = r.sha256
 
     # ── 5. Build table_levels from favorite tables ────────────────────────────
     fav_result = await db.execute(
         select(UserFavoriteDifficultyTable.table_id, UserFavoriteDifficultyTable.display_order)
-        .where(UserFavoriteDifficultyTable.user_id == current_user.id)
+        .where(UserFavoriteDifficultyTable.user_id == target_user.id)
     )
     fav_rows = fav_result.all()
     fav_table_ids_str: set[str] = {str(r[0]) for r in fav_rows}
@@ -1432,9 +1780,10 @@ async def get_score_updates(
             prev_result = await db.execute(
                 select(UserScore)
                 .where(
-                    UserScore.user_id == current_user.id,
+                    UserScore.user_id == target_user.id,
                     UserScore.fumen_hash_others.is_(None),
                     combined,
+                    *( [UserScore.client_type == client_type] if client_type else [] ),
                 )
                 .order_by(effective_ts.asc())
             )
@@ -1443,6 +1792,11 @@ async def get_score_updates(
                 group_key = (hash_key, r.client_type)
                 prev_rows_map.setdefault(group_key, []).append(r)
 
+    aggregate_map = _build_fumen_aggregate(
+        [row for rows in prev_rows_map.values() for row in rows],
+        md5_to_sha256,
+    )
+
     # ── 6b. Bulk fetch previous rows for course records ───────────────────────
     course_hash_set = [r.fumen_hash_others for r in course_best if r.fumen_hash_others]
     course_prev_rows_map: dict[tuple, list] = {}
@@ -1450,8 +1804,9 @@ async def get_score_updates(
         cprev_result = await db.execute(
             select(UserScore)
             .where(
-                UserScore.user_id == current_user.id,
+                UserScore.user_id == target_user.id,
                 UserScore.fumen_hash_others.in_(course_hash_set),
+                *( [UserScore.client_type == client_type] if client_type else [] ),
             )
             .order_by(effective_ts.asc())
         )
@@ -1503,6 +1858,8 @@ async def get_score_updates(
             "course_name": course.name,
             "dan_title": course.dan_title or "",
             "options": r.options,
+            "source_client": CLIENT_LABEL.get(r.client_type or "", (r.client_type or "").upper()) if r.client_type else None,
+            "source_client_detail": None,
             "current_state": {
                 "clear_type": best_clear,
                 "exscore": best_exscore,
@@ -1545,13 +1902,10 @@ async def get_score_updates(
         meta = fumen_meta.get(hash_key or "", {})
         table_levels = _get_table_levels(hash_key)
         prev = _find_prev_row(r, prev_rows_map)
-
-        # Compute best_min_bp once for both current_state and individual update items
-        all_rows_for_fumen = prev_rows_map.get(fk, []) + [r]
-        current_best_min_bp = min(
-            (row.min_bp for row in all_rows_for_fumen if row.min_bp is not None),
-            default=None,
-        )
+        aggregate_key = _canonical_fumen_key(r.fumen_sha256, r.fumen_md5, md5_to_sha256)
+        aggregate = aggregate_map.get(aggregate_key, {})
+        current_state = aggregate.get("current_state", {})
+        current_best_min_bp = current_state.get("min_bp")
 
         base = {
             "fumen_sha256": r.fumen_sha256,
@@ -1559,14 +1913,16 @@ async def get_score_updates(
             "title": meta.get("title"),
             "artist": meta.get("artist"),
             "table_levels": table_levels,
-            "client_type": r.client_type,
+            "client_type": aggregate.get("client_type") if aggregate else r.client_type,
             "recorded_at": _ts(r),
             "is_course": False,
             "is_new_play": prev is None,
             "course_name": None,
             "dan_title": None,
-            "options": r.options,
-            "current_state": {
+            "options": aggregate.get("options") if aggregate else r.options,
+            "source_client": aggregate.get("source_client"),
+            "source_client_detail": aggregate.get("source_client_detail"),
+            "current_state": current_state if current_state else {
                 "clear_type": r.clear_type,
                 "exscore": r.exscore,
                 "rate": r.rate,

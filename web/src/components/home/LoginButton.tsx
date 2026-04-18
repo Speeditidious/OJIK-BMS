@@ -13,7 +13,7 @@ export function LoginButton() {
   function handleClick(e: React.MouseEvent) {
     if (isInitialized && user) {
       e.preventDefault();
-      router.push(`/users/${user.id}`);
+      router.push(`/users/${user.id}/dashboard`);
     }
   }
 

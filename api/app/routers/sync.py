@@ -331,6 +331,47 @@ def _is_improvement(
     return False
 
 
+# ── LR2 course hash healing ───────────────────────────────────────────────────
+
+async def _heal_lr2_course_hash(
+    user_id: Any,
+    item: "ScoreSyncItem",
+    db: AsyncSession,
+) -> bool:
+    """Fix legacy LR2 course rows whose fumen_hash_others was stripped by the old parser.
+
+    If the incoming item is an LR2 course record with a full raw_hash, look up
+    an existing row for the same user+client whose fumen_hash_others equals
+    item.fumen_hash_others[32:] (the old stripped form). If found, update only
+    fumen_hash_others in-place — keep synced_at, recorded_at, and all performance
+    fields untouched — so the data is corrected transparently.
+
+    Returns True if an existing row was healed (the best-key cache should be
+    remapped by the caller to avoid stale-key lookups).
+    """
+    if item.client_type != "lr2" or not item.fumen_hash_others:
+        return False
+    if len(item.fumen_hash_others) <= 32:
+        return False  # nothing to heal; value already short
+
+    stripped_form = item.fumen_hash_others[32:]
+    result = await db.execute(
+        text("""
+            UPDATE user_scores
+               SET fumen_hash_others = :full_hash
+             WHERE user_id = :user_id
+               AND client_type = 'lr2'
+               AND fumen_hash_others = :stripped_hash
+        """),
+        {
+            "user_id": str(user_id),
+            "full_hash": item.fumen_hash_others,
+            "stripped_hash": stripped_form,
+        },
+    )
+    return result.rowcount > 0
+
+
 # ── Endpoint ──────────────────────────────────────────────────────────────────
 
 @router.post("/", response_model=SyncResponse)
@@ -383,6 +424,18 @@ async def sync_data(
     if payload.scores:
         for item in payload.scores:
             try:
+                # ── Legacy LR2 course hash healing (Issue #6) ──────────────
+                # 구버전 클라이언트가 저장한 stripped hash(32자 헤더 제거)를
+                # 수정된 클라이언트가 보내는 full raw_hash로 in-place UPDATE.
+                # synced_at / recorded_at / 기타 성능 필드 전부 불변.
+                if item.fumen_hash_others:
+                    healed = await _heal_lr2_course_hash(current_user.id, item, db)
+                    if healed:
+                        old_key = (None, None, item.fumen_hash_others[32:], item.client_type)
+                        new_key = (None, None, item.fumen_hash_others, item.client_type)
+                        if old_key in current_bests:
+                            current_bests[new_key] = current_bests.pop(old_key)
+
                 exscore, rate, rank = _compute_score_fields(
                     item.client_type, item.judgments, item.notes
                 )
@@ -483,6 +536,10 @@ async def sync_data(
                                     "clear_count": func.coalesce(_ins.excluded.clear_count, UserScore.clear_count),
                                     "judgments": func.coalesce(_ins.excluded.judgments, UserScore.judgments),
                                     "options": func.coalesce(_ins.excluded.options, UserScore.options),
+                                    # Heal legacy stripped fumen_hash_others on re-sync
+                                    "fumen_hash_others": func.coalesce(
+                                        _ins.excluded.fumen_hash_others, UserScore.fumen_hash_others
+                                    ),
                                 },
                             )
                             .returning(UserScore.id)
@@ -617,7 +674,47 @@ async def sync_data(
                 {"uid": str(current_user.id), "ct": ct, "ts": now.isoformat()},
             )
 
+    # fumens.sha256 backfill — Beatoraja sync 에 포함된 (sha256, md5) 페어로
+    # fumens 테이블의 sha256=NULL 행을 즉시 채운다. 이렇게 하면 이후 단위인정
+    # 집계에서 _build_sha256_list 가 user_scores fallback 없이도 sha256 확보.
+    # sync 실패를 막기 위해 try/except 로 격리 — backfill 실패해도 score commit 유지.
+    pairs: list[tuple[str, str]] = [
+        (item.fumen_sha256, item.fumen_md5)
+        for item in payload.scores
+        if item.fumen_sha256 and item.fumen_md5
+    ]
+    if pairs:
+        try:
+            unique_pairs = list({(s, m): None for s, m in pairs}.keys())
+            sha_arr = [s for s, _ in unique_pairs]
+            md5_arr = [m for _, m in unique_pairs]
+            await db.execute(
+                text("""
+                    UPDATE fumens f
+                       SET sha256 = p.sha256
+                      FROM (SELECT UNNEST(CAST(:sha_arr AS TEXT[])) AS sha256,
+                                   UNNEST(CAST(:md5_arr AS TEXT[])) AS md5) AS p
+                     WHERE f.md5 = p.md5
+                       AND f.sha256 IS NULL
+                       AND NOT EXISTS (
+                           SELECT 1 FROM fumens f2
+                           WHERE f2.sha256 = p.sha256
+                       )
+                """),
+                {"sha_arr": sha_arr, "md5_arr": md5_arr},
+            )
+        except Exception:
+            pass  # Non-fatal: backfill failure must not break sync response
+
     await db.commit()
+
+    # Trigger ranking recalculation for this user in the background
+    if synced_scores > 0 or inserted_scores > 0:
+        try:
+            from app.tasks.ranking_calculator import recalculate_user_rankings
+            recalculate_user_rankings.delay(str(current_user.id))
+        except Exception:
+            pass  # Non-fatal: ranking recalc failure should not break sync response
 
     return SyncResponse(
         synced_scores=synced_scores,

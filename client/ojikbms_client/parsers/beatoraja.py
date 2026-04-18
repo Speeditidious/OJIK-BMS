@@ -171,6 +171,17 @@ def _resolve_col(available: set[str], candidates: tuple[str, ...]) -> str | None
     return None
 
 
+def _course_aware_mode_predicate(mode_col: str, hash_col: str = "sha256") -> str:
+    """Return a SQL predicate that keeps the selected mode plus multi-song course rows.
+
+    Some Beatoraja versions store course rows with non-standard raw mode values such
+    as 10000/10020. Those rows still use the concatenated course hash format
+    (sha256 length > 64), so we keep them even when they do not match the requested
+    single-song SP/DP mode.
+    """
+    return f"({mode_col} = ? OR length({hash_col}) > 64)"
+
+
 def parse_beatoraja_scores(
     data_dir: str,
     mode: int = 0,   # 0=SP, 1=DP
@@ -224,6 +235,8 @@ def parse_beatoraja_scores(
 
         # Build SELECT for only existing columns
         select_cols = ["sha256", "clear"]
+        if "mode" in available:
+            select_cols.append("mode")
         # Always include scorehash if present
         if "scorehash" in available:
             select_cols.append("scorehash")
@@ -237,7 +250,7 @@ def parse_beatoraja_scores(
         where_parts = []
         params: list[Any] = []
         if has_mode:
-            where_parts.append("mode = ?")
+            where_parts.append(_course_aware_mode_predicate("mode"))
             params.append(mode)
         if has_player:
             where_parts.append("player = ?")
@@ -270,10 +283,12 @@ def parse_beatoraja_scores(
                     return None
                 return int(row[col])
 
-            sha256 = (row["sha256"] or "").strip().replace("\x00", "").lower()
+            sha256 = (row["sha256"] or "").strip().replace("\x00", "")
             if not sha256:
                 stats.skipped_hash += 1
                 continue
+
+            row_mode = int(row["mode"]) if has_mode and row["mode"] is not None else mode
 
             # Skip rows where scorehash == 'LR2' (Beatoraja marks LR2-imported scores this way).
             # These are not real Beatoraja scores — counted separately, not as hash errors.
@@ -344,7 +359,7 @@ def parse_beatoraja_scores(
                     "play_count": _int(cols["playcount"]),
                     "clear_count": _int(cols["clearcount"]),
                     "recorded_at": played_at_c,
-                    "options": _decode_beatoraja_options(mode, arrangement_val_c, seed_val_c, random_raw_val_c),
+                    "options": _decode_beatoraja_options(row_mode, arrangement_val_c, seed_val_c, random_raw_val_c),
                     "song_hashes": [
                         {"song_md5": None, "song_sha256": s}
                         for s in song_sha256s
@@ -419,7 +434,7 @@ def parse_beatoraja_scores(
                 "play_count": _int(cols["playcount"]),
                 "clear_count": _int(cols["clearcount"]),
                 "recorded_at": played_at,
-                "options": _decode_beatoraja_options(mode, arrangement_val, seed_val, random_raw_val),
+                "options": _decode_beatoraja_options(row_mode, arrangement_val, seed_val, random_raw_val),
             })
 
     stats.parsed = len(scores)
@@ -602,8 +617,8 @@ def parse_beatoraja_songdata(db_path: str) -> list[dict[str, Any]]:
                     continue
 
                 item: dict[str, Any] = {
-                    "sha256": sha256_val.lower(),
-                    "md5":    md5_val.lower(),
+                    "sha256": sha256_val,
+                    "md5":    md5_val,
                 }
                 for col in extra_cols:
                     item[col] = row[col]
@@ -664,7 +679,7 @@ def parse_beatoraja_songinfo(db_path: str) -> dict[str, dict[str, Any]]:
                 sha256_val = row[sha256_col]
                 if not sha256_val or len(sha256_val) != 64:
                     continue
-                key = sha256_val.lower()
+                key = sha256_val
                 entry: dict[str, Any] = {}
                 if n_col:
                     entry["n"] = row[n_col]
@@ -733,7 +748,7 @@ def parse_beatoraja_score_log(
                 where_parts_s: list[str] = []
                 params_s: list[Any] = []
                 if "mode" in score_cols:
-                    where_parts_s.append("mode = ?")
+                    where_parts_s.append(_course_aware_mode_predicate("mode"))
                     params_s.append(mode)
                 if "player" in score_cols:
                     where_parts_s.append("player = ?")
@@ -745,7 +760,7 @@ def parse_beatoraja_score_log(
                 )
                 for s_row in score_cursor.fetchall():
                     if s_row[0] and s_row[1] is not None:
-                        score_db_pairs.add((s_row[0].strip().lower(), int(s_row[1])))
+                        score_db_pairs.add((s_row[0].strip(), int(s_row[1])))
 
     history: list[dict[str, Any]] = []
     stats = ScoreLogStats()
@@ -764,7 +779,7 @@ def parse_beatoraja_score_log(
         where_parts: list[str] = []
         params: list[Any] = []
         if has_mode:
-            where_parts.append("mode = ?")
+            where_parts.append(_course_aware_mode_predicate("mode"))
             params.append(mode)
         if has_player:
             where_parts.append("player = ?")
@@ -792,7 +807,7 @@ def parse_beatoraja_score_log(
         stats.total_queried = len(rows)
 
         for row in rows:
-            sha256 = (row["sha256"] or "").strip().lower()
+            sha256 = (row["sha256"] or "").strip()
             if not sha256 or len(sha256) < 64:
                 stats.skipped_hash += 1
                 continue

@@ -169,7 +169,7 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
             {/* Chart info */}
             <div className="rounded-lg border bg-card p-4 space-y-2">
               <InfoRow label="BPM" value={formatBpm(fumen.bpm_main, fumen.bpm_min, fumen.bpm_max)} />
-              <InfoRow label="Notes" value={notesTotal} />
+              <InfoRow label="노트 수" value={notesTotal} />
               {notesDetail && (
                 <div className="flex gap-2">
                   <span className="text-body text-muted-foreground w-24 shrink-0" />
@@ -177,7 +177,7 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
                 </div>
               )}
               <InfoRow label="TOTAL" value={fumen.total !== null ? String(fumen.total) : "-"} />
-              <InfoRow label="길이" value={formatLength(fumen.length)} />
+              <InfoRow label="곡 길이" value={formatLength(fumen.length)} />
             </div>
 
             {/* Table entries */}
@@ -251,31 +251,31 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
                       <thead className="bg-background text-foreground border-b">
                         <tr>
                           <th className={thClass()} onClick={() => handleSort("clear_type")}>
-                            Lamp<SortIcon col="clear_type" sortKey={sortKey} sortDir={sortDir} />
+                            클리어<SortIcon col="clear_type" sortKey={sortKey} sortDir={sortDir} />
                           </th>
                           <th className={thClass()} onClick={() => handleSort("min_bp")}>
                             BP<SortIcon col="min_bp" sortKey={sortKey} sortDir={sortDir} />
                           </th>
                           <th className={thClass()} onClick={() => handleSort("rate")}>
-                            Rate<SortIcon col="rate" sortKey={sortKey} sortDir={sortDir} />
+                            판정<SortIcon col="rate" sortKey={sortKey} sortDir={sortDir} />
                           </th>
                           <th className={thClass()} onClick={() => handleSort("rank")}>
-                            Rank<SortIcon col="rank" sortKey={sortKey} sortDir={sortDir} />
+                            랭크<SortIcon col="rank" sortKey={sortKey} sortDir={sortDir} />
                           </th>
                           <th className={thClass()} onClick={() => handleSort("exscore")}>
-                            Score<SortIcon col="exscore" sortKey={sortKey} sortDir={sortDir} />
+                            점수<SortIcon col="exscore" sortKey={sortKey} sortDir={sortDir} />
                           </th>
                           <th className={thClass()} onClick={() => handleSort("play_count")}>
-                            Plays<SortIcon col="play_count" sortKey={sortKey} sortDir={sortDir} />
+                            플레이 수<SortIcon col="play_count" sortKey={sortKey} sortDir={sortDir} />
                           </th>
                           <th className={thClass()} onClick={() => handleSort("option")}>
-                            Option<SortIcon col="option" sortKey={sortKey} sortDir={sortDir} />
+                            배치<SortIcon col="option" sortKey={sortKey} sortDir={sortDir} />
                           </th>
                           <th className={thClass()} onClick={() => handleSort("client_type")}>
-                            Env<SortIcon col="client_type" sortKey={sortKey} sortDir={sortDir} />
+                            구동기<SortIcon col="client_type" sortKey={sortKey} sortDir={sortDir} />
                           </th>
                           <th className={thClass()} onClick={() => handleSort("recorded_at")}>
-                            Date<SortIcon col="recorded_at" sortKey={sortKey} sortDir={sortDir} />
+                            기록 일시<SortIcon col="recorded_at" sortKey={sortKey} sortDir={sortDir} />
                           </th>
                         </tr>
                       </thead>

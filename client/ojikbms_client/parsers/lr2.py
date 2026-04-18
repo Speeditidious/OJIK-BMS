@@ -224,11 +224,13 @@ def parse_lr2_scores(
             if len(raw_hash) > 64:
                 # Course (multi-song) record.
                 # LR2 format: 32-char header + N×32-char MD5 (one per song).
-                songs_part = raw_hash[32:]
+                # Preserve the full raw_hash verbatim — the 32-char header is
+                # part of LR2's original identifier; stripping it loses information.
+                # Extract song MD5s from the suffix only for the song_hashes payload.
                 song_md5s = [
-                    songs_part[i : i + 32]
-                    for i in range(0, len(songs_part), 32)
-                    if len(songs_part[i : i + 32]) == 32
+                    raw_hash[i : i + 32]
+                    for i in range(32, len(raw_hash), 32)
+                    if len(raw_hash[i : i + 32]) == 32
                 ]
                 if not song_md5s:
                     stats.skipped_hash += 1
@@ -265,7 +267,7 @@ def parse_lr2_scores(
                 rseed_c = int(row[rseed_col_c]) if rseed_col_c and row[rseed_col_c] is not None else None
 
                 courses.append({
-                    "fumen_hash_others": songs_part.lower(),
+                    "fumen_hash_others": raw_hash,
                     "client_type": "lr2",
                     "scorehash": scorehash_c,
                     "clear_type": LR2_CLEAR_TYPE.get(clear_val_c, 0),
@@ -278,7 +280,7 @@ def parse_lr2_scores(
                     "recorded_at": played_at_c,
                     "options": _decode_lr2_options(op_best_c, op_history_c, rseed_c),
                     "song_hashes": [
-                        {"song_md5": md5.lower(), "song_sha256": None}
+                        {"song_md5": md5, "song_sha256": None}
                         for md5 in song_md5s
                     ],
                 })
@@ -290,13 +292,12 @@ def parse_lr2_scores(
                 continue
 
             # LR2 score.db stores MD5 (32 chars); SHA256 (64 chars) is rare
-            # Normalize to lowercase to ensure consistent matching in the DB
             song_md5: str | None = None
             song_sha256: str | None = None
             if len(raw_hash) == 32:
-                song_md5 = raw_hash.lower()
+                song_md5 = raw_hash
             else:
-                song_sha256 = raw_hash.lower()
+                song_sha256 = raw_hash
 
             played_at = None
             playtime_col = cols["playtime"]
@@ -498,7 +499,7 @@ def parse_lr2_songdata(db_path: str) -> list[dict[str, Any]]:
                 if not hash_val or len(hash_val) != 32:
                     continue
 
-                item: dict[str, Any] = {"md5": hash_val.lower()}
+                item: dict[str, Any] = {"md5": hash_val}
                 if title_col:
                     _title = row[title_col] or ""
                     _subtitle = (row[subtitle_col] or "") if subtitle_col else ""

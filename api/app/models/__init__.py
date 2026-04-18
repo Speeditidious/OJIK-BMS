@@ -7,6 +7,7 @@ from app.models.difficulty_table import (
     UserFavoriteDifficultyTable,
 )
 from app.models.fumen import Fumen, UserFumenTag
+from app.models.ranking import UserRanking
 from app.models.schedule import Schedule
 from app.models.score import UserPlayerStats, UserScore
 from app.models.user import OAuthAccount, User
@@ -26,4 +27,5 @@ __all__ = [
     "CustomDifficultyTable",
     "CustomCourse",
     "Schedule",
+    "UserRanking",
 ]

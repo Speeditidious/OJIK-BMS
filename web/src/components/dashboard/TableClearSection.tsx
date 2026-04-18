@@ -5,7 +5,7 @@ import { useVirtualizer, defaultRangeExtractor } from "@tanstack/react-virtual";
 import Link from "next/link";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { X, Search, FileSpreadsheet, Eye } from "lucide-react";
-import { useFavoriteTables } from "@/hooks/use-tables";
+import { useUserFavoriteTables } from "@/hooks/use-tables";
 import { useTableClearDistribution, TableClearSong } from "@/hooks/use-analysis";
 import { useClearTypeVisibility, type ClientVisibilityKey } from "@/hooks/use-preferences";
 import {
@@ -18,6 +18,7 @@ import {
   LR2_CLEAR_TYPE_LABELS,
   BEATORAJA_CLEAR_TYPE_LABELS,
 } from "@/components/charts/ClearDistributionChart";
+import { SourceClientBadge } from "@/components/common/SourceClientBadge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -38,8 +39,11 @@ function formatLevel(level: string, tableSymbol?: string): string {
   return tableSymbol ? `${tableSymbol}${label}` : label;
 }
 
-type SortKey = "level" | "title" | "ex_score" | "rate" | "min_bp" | "clear_type" | "plays" | "option";
+type SortKey = "level" | "title" | "ex_score" | "rate" | "rank" | "min_bp" | "clear_type" | "plays" | "option";
 type SortDir = "asc" | "desc";
+const RANK_ORDER: Record<string, number> = {
+  MAX: 9, AAA: 8, AA: 7, A: 6, B: 5, C: 4, D: 3, E: 2, F: 1,
+};
 
 // BMS title sort convention:
 //   0: ASCII punctuation & digits  (!"#$%...0-9)
@@ -87,6 +91,9 @@ function compareSongs(a: TableClearSong, b: TableClearSong, key: SortKey, dir: S
       break;
     case "rate":
       result = (a.rate ?? -1) - (b.rate ?? -1);
+      break;
+    case "rank":
+      result = (RANK_ORDER[a.rank ?? ""] ?? 0) - (RANK_ORDER[b.rank ?? ""] ?? 0);
       break;
     case "min_bp":
       if (a.min_bp === null && b.min_bp === null) result = 0;
@@ -166,8 +173,12 @@ const SongRow = React.memo(function SongRow({
         {arrangementKanji ? <span>{arrangementKanji}</span> : <span className="text-muted-foreground row-muted">–</span>}
       </td>
       <td className="px-2">
-        {song.client_type ? (
-          <span className="text-label">{song.client_type === "beatoraja" ? "BR" : song.client_type.toUpperCase()}</span>
+        {song.source_client || song.client_type ? (
+          <SourceClientBadge
+            sourceClient={song.source_client}
+            sourceClientDetail={song.source_client_detail}
+            fallbackClientTypes={song.client_type ? [song.client_type] : undefined}
+          />
         ) : (
           <span className="text-muted-foreground row-muted">–</span>
         )}
@@ -285,21 +296,21 @@ const SongTable = React.memo(function SongTable({
       <div className="flex items-center justify-end px-3 py-1 border-b border-border bg-card">
         <button
           className="flex items-center gap-1.5 text-label text-muted-foreground hover:text-foreground transition-colors px-3 py-1 rounded-md border border-border/50 hover:border-border hover:bg-secondary/30"
-          title="Export to Excel (.xlsx)"
+          title="엑셀 내보내기 (.xlsx)"
           disabled={sorted.length === 0}
           onClick={() => {
             const columns = [
-              { key: "level", header: "Level" },
-              { key: "title", header: "Title" },
-              { key: "artist", header: "Artist" },
-              { key: "lamp", header: "Lamp" },
+              { key: "level", header: "레벨" },
+              { key: "title", header: "제목" },
+              { key: "artist", header: "아티스트" },
+              { key: "lamp", header: "클리어" },
               { key: "bp", header: "BP" },
-              { key: "rate", header: "Rate" },
-              { key: "rank", header: "Rank" },
-              { key: "score", header: "Score" },
-              { key: "plays", header: "Plays" },
-              { key: "option", header: "Option" },
-              { key: "env", header: "Env" },
+              { key: "rate", header: "판정" },
+              { key: "rank", header: "랭크" },
+              { key: "score", header: "점수" },
+              { key: "plays", header: "플레이 수" },
+              { key: "option", header: "배치" },
+              { key: "env", header: "구동기" },
             ];
             const data = sorted.map((song) => {
               const arrangementName = parseArrangement(song.options, song.client_type);
@@ -314,14 +325,14 @@ const SongTable = React.memo(function SongTable({
                 score: song.ex_score ?? "",
                 plays: song.play_count ?? "",
                 option: arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? arrangementName) : "",
-                env: song.client_type ?? "",
+                env: song.source_client ?? song.client_type ?? "",
               };
             });
             exportToExcel(data, columns, `table_clear_${new Date().toISOString().slice(0, 10)}`);
           }}
         >
           <FileSpreadsheet className="h-3.5 w-3.5" />
-          Export to Excel
+          엑셀 내보내기
         </button>
       </div>
 
@@ -347,16 +358,16 @@ const SongTable = React.memo(function SongTable({
 
           <thead className="sticky top-0 z-10 bg-background text-label text-foreground font-medium">
             <tr className="border-b border-border">
-              {thSort("Level", "level")}
-              {thSort("Title", "title")}
-              {thSort("Lamp", "clear_type")}
+              {thSort("레벨", "level")}
+              {thSort("제목", "title")}
+              {thSort("클리어", "clear_type")}
               {thSort("BP", "min_bp")}
-              {thSort("Rate", "rate")}
-              {thSort("Rank", "rate")}
-              {thSort("Score", "ex_score")}
-              {thSort("Plays", "plays")}
-              {thSort("Option", "option")}
-              <th className="px-2 py-2 text-left font-medium whitespace-nowrap">Env</th>
+              {thSort("판정", "rate")}
+              {thSort("랭크", "rank")}
+              {thSort("점수", "ex_score")}
+              {thSort("플레이 수", "plays")}
+              {thSort("배치", "option")}
+              <th className="px-2 py-2 text-left font-medium whitespace-nowrap">구동기</th>
             </tr>
           </thead>
 
@@ -532,6 +543,7 @@ const FilterPanel = memo(function FilterPanel({
 
 interface TableClearSectionProps {
   clientType?: string;
+  userId: string;
 }
 
 // URL param 키 (대시보드 기존 tab/date 파라미터와 충돌하지 않도록 접두사 d_ 사용)
@@ -540,12 +552,12 @@ const P_LV  = "d_lv";
 const P_CT  = "d_ct";
 const P_Q   = "d_q";
 
-export function TableClearSection({ clientType }: TableClearSectionProps) {
+export function TableClearSection({ clientType, userId }: TableClearSectionProps) {
   // clientType undefined = 통합 뷰 → visibility 버킷은 "all"
   const clientKey: ClientVisibilityKey =
     clientType === "lr2" ? "lr2" : clientType === "beatoraja" ? "beatoraja" : "all";
   const { hiddenTypes, getDisplayClearType } = useClearTypeVisibility(clientKey);
-  const { data: favTables, isLoading: tablesLoading } = useFavoriteTables();
+  const { data: favTables, isLoading: tablesLoading } = useUserFavoriteTables(userId);
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -579,7 +591,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
   // Auto-select first table when loaded
   const effectiveTableId = selectedTableId ?? (favTables?.[0]?.id ?? null);
 
-  const { data: dist, isLoading: distLoading } = useTableClearDistribution(effectiveTableId, clientType);
+  const { data: dist, isLoading: distLoading } = useTableClearDistribution(effectiveTableId, clientType, userId);
 
   // Ordered levels list (respects level_order if available)
   const orderedLevels = useMemo(() => {
@@ -651,7 +663,7 @@ export function TableClearSection({ clientType }: TableClearSectionProps) {
   if (!favTables || favTables.length === 0) {
     return (
       <div className="flex items-center justify-center h-48 text-muted-foreground text-body">
-        즐겨찾기한 난이도표가 없습니다. 난이도표 페이지에서 즐겨찾기를 추가하세요.
+        표시할 즐겨찾기 난이도표가 없습니다.
       </div>
     );
   }

@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -75,6 +76,7 @@ async def seed(slug_filter: str | None = None) -> None:
                     existing.default_order = idx
                     if table_data:
                         existing.level_order = table_data.get("level_order")
+                    existing.updated_at = datetime.now(UTC)
                     table_id = existing.id
                     status = "updated"
 

@@ -16,8 +16,16 @@ export interface DifficultyTableItem {
 export function useFavoriteTables() {
   const { isInitialized, user } = useAuthStore();
   return useQuery({
-    queryKey: ["tables", "favorites"],
+    queryKey: ["tables", "favorites", user?.id ?? null],
     queryFn: () => api.get<DifficultyTableItem[]>("/tables/favorites/me"),
     enabled: isInitialized && !!user,
+  });
+}
+
+export function useUserFavoriteTables(userId?: string) {
+  return useQuery({
+    queryKey: ["tables", "favorites", userId ?? null],
+    queryFn: () => api.get<DifficultyTableItem[]>(`/tables/favorites/by-user/${userId}`),
+    enabled: !!userId,
   });
 }

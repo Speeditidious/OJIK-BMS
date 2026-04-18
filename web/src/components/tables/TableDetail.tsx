@@ -9,13 +9,14 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { SourceClientBadge } from "@/components/common/SourceClientBadge";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { compareTitles } from "@/lib/bms-sort";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
 import { CLEAR_ROW_CLASS, parseArrangement, levelSortIndex, ARRANGEMENT_KANJI, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
 import { CLEAR_TYPE_LABELS } from "@/components/charts/ClearDistributionChart";
-import type { DifficultyTableDetail, TableFumen, TableFumenScore } from "@/types";
+import type { DifficultyTableDetail, TableFumen } from "@/types";
 import { clearText } from "@/components/dashboard/RecentActivity";
 
 type SortKey = "level" | "title" | "lamp" | "score" | "rate" | "rank" | "min_bp" | "plays" | "option" | "bpm" | "notes" | "length" | "env";
@@ -26,39 +27,6 @@ interface TableDetailProps {
   isLoggedIn: boolean;
   selectedLevel: string | null;
   onLevelChange: (level: string | null) => void;
-}
-
-function SourceClientBadge({ score }: { score: TableFumenScore }) {
-  const { source_client, source_client_detail } = score;
-  if (!source_client) return null;
-
-  const isMix = source_client === "MIX";
-  const badge = (
-    <span className={`text-label${isMix ? " cursor-help" : ""}`}>
-      {source_client}{isMix && <span className="ml-0.5 text-accent/70 leading-none">●</span>}
-    </span>
-  );
-
-  if (source_client !== "MIX" || !source_client_detail) return badge;
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{badge}</TooltipTrigger>
-      <TooltipContent side="left" className="text-label">
-        <div className="space-y-0.5">
-          {source_client_detail.clear_type && (
-            <div>Lamp: {source_client_detail.clear_type}</div>
-          )}
-          {source_client_detail.exscore && (
-            <div>Score: {source_client_detail.exscore}</div>
-          )}
-          {source_client_detail.min_bp && (
-            <div>BP: {source_client_detail.min_bp}</div>
-          )}
-        </div>
-      </TooltipContent>
-    </Tooltip>
-  );
 }
 
 function songHash(song: TableFumen): string {
@@ -378,7 +346,14 @@ const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores 
           <td className="px-2 text-label">{s?.play_count ?? <span className="row-muted">—</span>}</td>
           <td className="px-2 text-label">{arrangementLabel ?? <span className="row-muted">—</span>}</td>
           <td className="px-2">
-            {s ? <SourceClientBadge score={s} /> : <span className="text-label row-muted">-</span>}
+            {s ? (
+              <SourceClientBadge
+                sourceClient={s.source_client}
+                sourceClientDetail={s.source_client_detail}
+              />
+            ) : (
+              <span className="text-label row-muted">-</span>
+            )}
           </td>
         </>
       )}
@@ -534,26 +509,26 @@ const SongVirtualList = memo(function SongVirtualList({
         <span className="text-label text-muted-foreground">{songs.length}곡</span>
         <button
           className="flex items-center gap-1.5 text-label text-muted-foreground hover:text-foreground transition-colors px-3 py-1 rounded-md border border-border/50 hover:border-border hover:bg-secondary/30"
-          title="Export to Excel (.xlsx)"
+          title="엑셀 내보내기 (.xlsx)"
           disabled={songs.length === 0}
           onClick={() => {
             const columns = [
-              { key: "level", header: "Level" },
-              { key: "title", header: "Title" },
-              { key: "artist", header: "Artist" },
+              { key: "level", header: "레벨" },
+              { key: "title", header: "제목" },
+              { key: "artist", header: "아티스트" },
               ...(hasUserScores ? [
-                { key: "lamp", header: "Lamp" },
+                { key: "lamp", header: "클리어" },
                 { key: "bp", header: "BP" },
-                { key: "rate", header: "Rate" },
-                { key: "rank", header: "Rank" },
-                { key: "score", header: "Score" },
-                { key: "plays", header: "Plays" },
-                { key: "option", header: "Option" },
-                { key: "env", header: "Env" },
+                { key: "rate", header: "판정" },
+                { key: "rank", header: "랭크" },
+                { key: "score", header: "점수" },
+                { key: "plays", header: "플레이 수" },
+                { key: "option", header: "배치" },
+                { key: "env", header: "구동기" },
               ] : []),
               { key: "bpm", header: "BPM" },
-              { key: "notes", header: "Notes" },
-              { key: "length", header: "Length" },
+              { key: "notes", header: "노트 수" },
+              { key: "length", header: "곡 길이" },
             ];
             const data = songs.map((song) => {
               const s = song.user_score;
@@ -579,7 +554,7 @@ const SongVirtualList = memo(function SongVirtualList({
           }}
         >
           <FileSpreadsheet className="h-3.5 w-3.5" />
-          Export to Excel
+          엑셀 내보내기
         </button>
       </div>
 
@@ -615,23 +590,23 @@ const SongVirtualList = memo(function SongVirtualList({
 
           <thead className="sticky top-0 z-10 bg-background text-label text-foreground font-medium">
             <tr className="border-b">
-              <Th col="level" label="Level" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <Th col="title" label="Title / Artist" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th col="level" label="레벨" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th col="title" label="제목 / 아티스트" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               {hasUserScores && (
                 <>
-                  <Th col="lamp" label="Lamp" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="lamp" label="클리어" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                   <Th col="min_bp" label="BP" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <Th col="rate" label="Rate" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <Th col="rank" label="Rank" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <Th col="score" label="Score" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <Th col="plays" label="Plays" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <Th col="option" label="Option" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <Th col="env" label="Env" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="rate" label="판정" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="rank" label="랭크" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="score" label="점수" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="plays" label="플레이 수" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="option" label="배치" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="env" label="구동기" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 </>
               )}
               <Th col="bpm" label="BPM" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <Th col="notes" label="Notes" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <Th col="length" label="Length" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th col="notes" label="노트 수" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th col="length" label="곡 길이" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">URL1</th>
               <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">URL2</th>
               <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">Youtube</th>

@@ -169,12 +169,18 @@ async def remove_stale_entries(db: AsyncSession, table_id: uuid.UUID, seen_keys:
 
 
 async def _build_sha256_list(db: AsyncSession, md5_list: list) -> list:
-    """Build a sha256 list parallel to md5_list by querying the fumens table.
+    """Build a sha256 list parallel to md5_list.
 
-    Each position corresponds to the same position in md5_list.
-    Positions where sha256 is unknown are set to None.
+    Queries the fumens table first (fast path), then falls back to
+    user_scores for any md5 still missing a sha256. This covers cases
+    where fumens.sha256 was never populated from a table header (LR2-only
+    tables), but a Beatoraja user has synced a (fumen_sha256, fumen_md5)
+    pair that supplies the mapping.
+
+    Returns:
+        List of same length as md5_list. Unknown positions are None.
     """
-    from sqlalchemy import select
+    from sqlalchemy import select, text
 
     from app.models.fumen import Fumen
 
@@ -182,13 +188,30 @@ async def _build_sha256_list(db: AsyncSession, md5_list: list) -> list:
     if not non_null_md5s:
         return [None] * len(md5_list)
 
-    result = await db.execute(
+    # 1) Primary: fumens table
+    fumens_result = await db.execute(
         select(Fumen.md5, Fumen.sha256).where(
             Fumen.md5.in_(non_null_md5s),
             Fumen.sha256.isnot(None),
         )
     )
-    md5_to_sha256: dict[str, str] = {row.md5: row.sha256 for row in result.all()}
+    md5_to_sha256: dict[str, str] = {row.md5: row.sha256 for row in fumens_result.all()}
+
+    # 2) Fallback: user_scores for any md5 still missing sha256
+    missing = [m for m in non_null_md5s if m not in md5_to_sha256]
+    if missing:
+        scores_result = await db.execute(
+            text("""
+                SELECT DISTINCT ON (fumen_md5) fumen_md5, fumen_sha256
+                FROM user_scores
+                WHERE fumen_md5 = ANY(:md5s)
+                  AND fumen_sha256 IS NOT NULL
+            """),
+            {"md5s": missing},
+        )
+        for row in scores_result.mappings().all():
+            md5_to_sha256[row["fumen_md5"]] = row["fumen_sha256"]
+
     return [md5_to_sha256.get(m) if m else None for m in md5_list]
 
 

@@ -14,7 +14,7 @@ export default function DashboardRedirectPage() {
       return;
     }
     if (user) {
-      router.replace(`/users/${user.id}`);
+      router.replace(`/users/${user.id}/dashboard`);
     } else {
       router.replace("/login");
     }

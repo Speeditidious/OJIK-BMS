@@ -69,10 +69,11 @@ function StatCard({
 interface StatsGridProps {
   clientType: ClientTypeFilter;
   onClientTypeChange: (ct: ClientTypeFilter) => void;
+  userId?: string;
 }
 
-export function StatsGrid({ clientType, onClientTypeChange }: StatsGridProps) {
-  const { data, isLoading, isError } = usePlaySummary(clientType);
+export function StatsGrid({ clientType, onClientTypeChange, userId }: StatsGridProps) {
+  const { data, isLoading, isError } = usePlaySummary(clientType, userId);
 
   const lastSync = data?.last_synced_at
     ? new Date(data.last_synced_at).toLocaleDateString("ko-KR")

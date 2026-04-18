@@ -12,12 +12,14 @@ import {
 import { useChartWidth } from "@/hooks/use-chart-size";
 import { ActivityDay, ClientTypeFilter, CourseActivityItem } from "@/hooks/use-analysis";
 
+export type ActivitySeries = "updates" | "plays" | "new_plays" | "rating_updates";
+
 interface ActivityBarChartProps {
   data: ActivityDay[];
   firstSyncDates?: { lr2?: string; beatoraja?: string };
   clientType?: ClientTypeFilter;
   courseData?: CourseActivityItem[];
-  viewMode?: "updates" | "plays" | "new_plays";
+  activeModes?: ActivitySeries[];
 }
 
 function formatDate(dateStr: string): string {
@@ -25,7 +27,20 @@ function formatDate(dateStr: string): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-// Custom SVG label that renders multiple lines of text
+function seriesColor(mode: ActivitySeries): string {
+  if (mode === "plays") return "hsl(var(--chart-play))";
+  if (mode === "new_plays") return "hsl(var(--chart-new-play))";
+  if (mode === "rating_updates") return "hsl(var(--warning))";
+  return "hsl(var(--primary))";
+}
+
+function seriesLabel(mode: ActivitySeries): string {
+  if (mode === "plays") return "플레이";
+  if (mode === "new_plays") return "신규 기록";
+  if (mode === "rating_updates") return "레이팅 갱신";
+  return "갱신 기록";
+}
+
 function SyncLabel({ viewBox, labels }: { viewBox?: { x: number; y: number }; labels: string[] }) {
   if (!viewBox) return null;
   return (
@@ -36,7 +51,7 @@ function SyncLabel({ viewBox, labels }: { viewBox?: { x: number; y: number }; la
           x={viewBox.x + 4}
           y={viewBox.y + 12 + i * 12}
           fill="hsl(var(--accent))"
-          fontSize='var(--text-caption)'
+          fontSize="var(--text-caption)"
           textAnchor="start"
         >
           {label}
@@ -46,78 +61,97 @@ function SyncLabel({ viewBox, labels }: { viewBox?: { x: number; y: number }; la
   );
 }
 
-function ChartTooltip({ active, payload, viewMode }: { active?: boolean; payload?: any[]; viewMode?: "updates" | "plays" | "new_plays" }) {
+function ChartTooltip({
+  active,
+  payload,
+  activeModes,
+}: {
+  active?: boolean;
+  payload?: any[];
+  activeModes: ActivitySeries[];
+}) {
   if (!active || !payload?.length) return null;
-  const { fullDate, updates, new_plays, plays, syncLabels, hideSyncCount, courseLabels } = payload[0].payload as {
+  const row = payload[0].payload as {
     fullDate: string;
     updates: number;
     new_plays: number;
     plays: number;
+    rating_updates: number;
     syncLabels?: string[];
     hideSyncCount?: boolean;
     courseLabels?: string[];
   };
-  const hasAnySyncLabel = syncLabels?.length;
-  const showCounts = !hideSyncCount || courseLabels?.length;
+  const hasAnySyncLabel = row.syncLabels?.length;
+  const showCounts = !row.hideSyncCount || row.courseLabels?.length;
   return (
     <div
       style={{
         backgroundColor: "hsl(var(--card))",
         border: "1px solid hsl(var(--border))",
         borderRadius: "6px",
-        fontSize: 'var(--text-label)',
+        fontSize: "var(--text-label)",
         color: "hsl(var(--foreground))",
         padding: "8px 10px",
       }}
     >
-      <p style={{ marginBottom: (hasAnySyncLabel || courseLabels?.length) ? 4 : 0 }}>{fullDate}</p>
-      {hasAnySyncLabel && syncLabels!.map((l) => (
-        <p key={l} style={{ color: "hsl(var(--accent))", margin: 0 }}>
-          {l}
+      <p style={{ marginBottom: (hasAnySyncLabel || row.courseLabels?.length) ? 4 : 0 }}>{row.fullDate}</p>
+      {row.syncLabels?.map((label) => (
+        <p key={label} style={{ color: "hsl(var(--accent))", margin: 0 }}>
+          {label}
         </p>
       ))}
-      {courseLabels?.map((l) => (
-        <p key={l} style={{ color: "hsl(var(--accent))", margin: 0 }}>
-          {l}
+      {row.courseLabels?.map((label) => (
+        <p key={label} style={{ color: "hsl(var(--accent))", margin: 0 }}>
+          {label}
         </p>
       ))}
-      {showCounts && (updates > 0 || new_plays > 0 || plays > 0) && (
-        <div style={{ marginTop: (hasAnySyncLabel || courseLabels?.length) ? 4 : 0 }}>
-          <p style={{ margin: 0, color: "hsl(var(--primary))", fontWeight: viewMode === "updates" ? 600 : 400 }}>
-            갱신 기록: {updates}
+      {showCounts && activeModes.map((mode) => {
+        const value = row[mode];
+        if (value <= 0) return null;
+        return (
+          <p
+            key={mode}
+            style={{
+              margin: 0,
+              marginTop: (hasAnySyncLabel || row.courseLabels?.length) ? 4 : 0,
+              color: seriesColor(mode),
+              fontWeight: 600,
+            }}
+          >
+            {seriesLabel(mode)}: {mode === "plays" ? `${value}회` : `${value}건`}
           </p>
-          <p style={{ margin: 0, color: "hsl(var(--chart-new-play))", fontWeight: viewMode === "new_plays" ? 600 : 400 }}>
-            신규 기록: {new_plays}
-          </p>
-          <p style={{ margin: 0, color: "hsl(var(--chart-play))", fontWeight: viewMode === "plays" ? 600 : 400 }}>
-            플레이: {plays}
-          </p>
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 }
 
-export function ActivityBarChart({ data, firstSyncDates, clientType, courseData, viewMode = "updates" }: ActivityBarChartProps) {
+export function ActivityBarChart({
+  data,
+  firstSyncDates,
+  clientType,
+  courseData,
+  activeModes = ["updates"] as ActivitySeries[],
+}: ActivityBarChartProps) {
   const [chartRef, chartWidth] = useChartWidth(150);
-  // Build per-date sync metadata.
-  // hideCount=true for LR2-only dates: LR2 score.db has no per-play date, so all
-  // records land on the sync day — the count would be misleading.
+  const enabledModes = useMemo<ActivitySeries[]>(
+    () => (activeModes.length > 0 ? activeModes : ["updates"]),
+    [activeModes],
+  );
+
   const syncByDate = useMemo(() => {
     const map: Record<string, { labels: string[]; hideCount: boolean }> = {};
     if (!firstSyncDates) return map;
     if (clientType !== "beatoraja" && firstSyncDates.lr2) {
-      const d = firstSyncDates.lr2;
-      const prev = map[d] ?? { labels: [], hideCount: true };
+      const prev = map[firstSyncDates.lr2] ?? { labels: [], hideCount: true };
       prev.labels.push("LR2 첫 동기화");
-      map[d] = prev;
+      map[firstSyncDates.lr2] = prev;
     }
     if (clientType !== "lr2" && firstSyncDates.beatoraja) {
-      const d = firstSyncDates.beatoraja;
-      const prev = map[d] ?? { labels: [], hideCount: true };
+      const prev = map[firstSyncDates.beatoraja] ?? { labels: [], hideCount: true };
       prev.labels.push("Beatoraja 첫 동기화");
-      prev.hideCount = false; // Beatoraja has real play dates → show count
-      map[d] = prev;
+      prev.hideCount = false;
+      map[firstSyncDates.beatoraja] = prev;
     }
     return map;
   }, [firstSyncDates, clientType]);
@@ -125,49 +159,57 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData,
   const courseByDate = useMemo(() => {
     if (!courseData?.length) return {} as Record<string, string[]>;
     const map: Record<string, string[]> = {};
-    for (const c of courseData) {
-      if (!c.date) continue;
-      const label = c.course_name
-        ? (c.dan_title ? `[${c.dan_title}] ` : "") + c.course_name
-        : `코스 (${c.course_hash.slice(0, 6)}…)`;
-      (map[c.date] ??= []).push(label);
+    for (const course of courseData) {
+      if (!course.date) continue;
+      const label = course.course_name
+        ? (course.dan_title ? `[${course.dan_title}] ` : "") + course.course_name
+        : `코스 (${course.course_hash.slice(0, 6)}…)`;
+      (map[course.date] ??= []).push(label);
     }
     return map;
   }, [courseData]);
 
   const chartData = useMemo(() => {
-    const seenDates = new Set(data.map((d) => d.date));
+    const seenDates = new Set(data.map((day) => day.date));
     const injected = [...data];
-    // When data exists, only inject sync dates at or after the natural data range start to
-    // avoid stretching the X-axis back to old LR2 sync dates in "all" mode.
-    // Sync dates after rangeMax are allowed — they add one point to the right edge
-    // (e.g. user synced today but last play was yesterday).
-    // When data is empty, inject all sync dates so the reference lines still show.
     const rangeMin = data.length > 0 ? data[0].date : null;
     for (const date of Object.keys(syncByDate)) {
       if (!seenDates.has(date) && (rangeMin === null || date >= rangeMin)) {
-        injected.push({ date, updates: 0, new_plays: 0, plays: 0 });
+        injected.push({ date, updates: 0, new_plays: 0, plays: 0, rating_updates: 0 });
         seenDates.add(date);
       }
     }
     for (const date of Object.keys(courseByDate)) {
       if (!seenDates.has(date) && (rangeMin === null || date >= rangeMin)) {
-        injected.push({ date, updates: 0, new_plays: 0, plays: 0 });
+        injected.push({ date, updates: 0, new_plays: 0, plays: 0, rating_updates: 0 });
         seenDates.add(date);
       }
     }
-    injected.sort((a, b) => a.date.localeCompare(b.date));
-    return injected.map((d) => ({
-      date: formatDate(d.date),
-      fullDate: d.date,
-      updates: d.updates,
-      new_plays: d.new_plays ?? 0,
-      plays: d.plays,
-      syncLabels: syncByDate[d.date]?.labels,
-      hideSyncCount: syncByDate[d.date]?.hideCount ?? false,
-      courseLabels: courseByDate[d.date],
+    injected.sort((left, right) => left.date.localeCompare(right.date));
+    return injected.map((day) => ({
+      date: formatDate(day.date),
+      fullDate: day.date,
+      updates: day.updates,
+      new_plays: day.new_plays ?? 0,
+      plays: day.plays,
+      rating_updates: day.rating_updates ?? 0,
+      syncLabels: syncByDate[day.date]?.labels,
+      hideSyncCount: syncByDate[day.date]?.hideCount ?? false,
+      courseLabels: courseByDate[day.date],
     }));
-  }, [data, syncByDate, courseByDate]);
+  }, [courseByDate, data, syncByDate]);
+
+  const yMax = useMemo(() => {
+    const values = chartData.flatMap((row) =>
+      enabledModes.map((mode) => {
+        if (mode === "plays") return row.plays ?? 0;
+        if (mode === "new_plays") return row.new_plays ?? 0;
+        if (mode === "rating_updates") return row.rating_updates ?? 0;
+        return row.updates ?? 0;
+      }),
+    );
+    return Math.max(1, ...values);
+  }, [chartData, enabledModes]);
 
   if (chartData.length === 0) {
     return (
@@ -189,51 +231,33 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData,
       <LineChart width={chartWidth} height={200} data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
         <XAxis
           dataKey="date"
-          tick={{ fontSize: 'var(--text-caption)', fill: "hsl(var(--muted-foreground))" }}
+          tick={{ fontSize: "var(--text-caption)", fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={false}
           interval="preserveStartEnd"
         />
         <YAxis
-          tick={{ fontSize: 'var(--text-caption)', fill: "hsl(var(--muted-foreground))" }}
+          domain={[0, yMax]}
+          tick={{ fontSize: "var(--text-caption)", fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={false}
           allowDecimals={false}
         />
         <Tooltip
-          content={<ChartTooltip viewMode={viewMode} />}
+          content={<ChartTooltip activeModes={enabledModes} />}
           cursor={{ stroke: "hsl(var(--accent))", strokeWidth: 1 }}
         />
-        <Line
-          type="monotone"
-          dataKey="plays"
-          stroke="hsl(var(--chart-play))"
-          strokeWidth={viewMode === "plays" ? 2 : 1.5}
-          strokeDasharray={viewMode === "plays" ? undefined : "3 2"}
-          strokeOpacity={viewMode === "plays" ? 1 : 0.5}
-          dot={false}
-          activeDot={{ r: viewMode === "plays" ? 3 : 2, fill: "hsl(var(--chart-play))" }}
-        />
-        <Line
-          type="monotone"
-          dataKey="new_plays"
-          stroke="hsl(var(--chart-new-play))"
-          strokeWidth={viewMode === "new_plays" ? 2 : 1.5}
-          strokeDasharray={viewMode === "new_plays" ? undefined : "3 2"}
-          strokeOpacity={viewMode === "new_plays" ? 1 : 0.8}
-          dot={false}
-          activeDot={{ r: viewMode === "new_plays" ? 3 : 2, fill: "hsl(var(--chart-new-play))" }}
-        />
-        <Line
-          type="monotone"
-          dataKey="updates"
-          stroke="hsl(var(--primary))"
-          strokeWidth={viewMode === "updates" ? 2 : 1.5}
-          strokeDasharray={viewMode === "updates" ? undefined : "3 2"}
-          strokeOpacity={viewMode === "updates" ? 1 : 0.5}
-          dot={false}
-          activeDot={{ r: viewMode === "updates" ? 3 : 2, fill: "hsl(var(--primary))" }}
-        />
+        {enabledModes.map((mode) => (
+          <Line
+            key={mode}
+            type="monotone"
+            dataKey={mode}
+            stroke={seriesColor(mode)}
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 3, fill: seriesColor(mode) }}
+          />
+        ))}
         {Object.entries(syncByDate)
           .filter(([date]) => date >= minDate && date <= maxDate)
           .map(([date, meta]) => (
@@ -245,7 +269,7 @@ export function ActivityBarChart({ data, firstSyncDates, clientType, courseData,
               strokeWidth={1.5}
               label={
                 meta.labels.length === 1
-                  ? { value: meta.labels[0], position: "insideTopRight", fontSize: 'var(--text-caption)', fill: "hsl(var(--accent))" }
+                  ? { value: meta.labels[0], position: "insideTopRight", fontSize: "var(--text-caption)", fill: "hsl(var(--accent))" }
                   : <SyncLabel labels={meta.labels} />
               }
             />

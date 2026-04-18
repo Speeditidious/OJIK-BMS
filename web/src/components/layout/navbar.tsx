@@ -9,10 +9,11 @@ import {
   Table2,
   ListMusic,
   Download,
+  LayoutDashboard,
   Settings,
   LogOut,
   UserCircle,
-  Github,
+  Trophy,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -28,6 +29,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const navItems = [
+  { href: "/ranking", label: "랭킹", icon: Trophy },
   { href: "/tables", label: "난이도표", icon: Table2 },
   { href: "/songs", label: "곡 목록", icon: Music2 },
   { href: "/custom", label: "커스텀", icon: ListMusic },
@@ -80,17 +82,6 @@ export function Navbar() {
 
         {/* Right side */}
         <div className="flex items-center gap-1">
-          {/* GitHub */}
-          <a
-            href="https://github.com/Speeditidious/OJIK-BMS"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-md p-2 text-white hover:bg-white/10 dark:text-foreground dark:hover:bg-secondary transition-colors"
-            aria-label="GitHub"
-          >
-            <Github className="h-5 w-5" />
-          </a>
-
           {/* Dark/Light mode toggle */}
           <ThemeToggle className="text-white hover:bg-white/10 dark:text-foreground dark:hover:bg-secondary" />
 
@@ -133,6 +124,10 @@ export function Navbar() {
                     )}
                     <span className="text-label font-medium truncate">{user.username}</span>
                   </div>
+                  <DropdownMenuItem onClick={() => router.push(`/users/${user.id}/dashboard`)}>
+                    <LayoutDashboard className="h-4 w-4" />
+                    대시보드
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => router.push(`/users/${user.id}`)}>
                     <UserCircle className="h-4 w-4" />
                     프로필

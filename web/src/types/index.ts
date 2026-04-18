@@ -240,6 +240,8 @@ export interface ScoreUpdateBase {
   is_new_play: boolean;
   course_name: string | null;
   dan_title: string | null;
+  source_client?: string | null;
+  source_client_detail?: Record<string, string | null> | null;
   current_state: CurrentState;
   options: Record<string, unknown> | null;
 }
