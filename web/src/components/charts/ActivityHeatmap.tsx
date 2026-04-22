@@ -31,21 +31,24 @@ function getIntensityClass(value: number, max: number, mode: "updates" | "plays"
     return "bg-[hsl(var(--chart-play))]";
   }
   if (mode === "new_plays") {
-    if (ratio < 0.25) return "bg-[hsl(var(--chart-new-play)/0.20)]";
-    if (ratio < 0.5)  return "bg-[hsl(var(--chart-new-play)/0.45)]";
-    if (ratio < 0.75) return "bg-[hsl(var(--chart-new-play)/0.70)]";
-    return "bg-[hsl(var(--chart-new-play))]";
+    // new_plays uses --primary (lime) to match ActivityBarChart color re-mapping
+    if (ratio < 0.25) return "bg-primary/20";
+    if (ratio < 0.5)  return "bg-primary/45";
+    if (ratio < 0.75) return "bg-primary/70";
+    return "bg-primary";
   }
   if (mode === "rating_updates") {
-    if (ratio < 0.25) return "bg-[hsl(var(--warning)/0.20)]";
-    if (ratio < 0.5)  return "bg-[hsl(var(--warning)/0.45)]";
-    if (ratio < 0.75) return "bg-[hsl(var(--warning)/0.70)]";
-    return "bg-[hsl(var(--warning))]";
+    // rating_updates uses --chart-rating (most prominent)
+    if (ratio < 0.25) return "bg-[hsl(var(--chart-rating)/0.20)]";
+    if (ratio < 0.5)  return "bg-[hsl(var(--chart-rating)/0.45)]";
+    if (ratio < 0.75) return "bg-[hsl(var(--chart-rating)/0.70)]";
+    return "bg-[hsl(var(--chart-rating))]";
   }
-  if (ratio < 0.25) return "bg-primary/20";
-  if (ratio < 0.5)  return "bg-primary/45";
-  if (ratio < 0.75) return "bg-primary/70";
-  return "bg-primary";
+  // updates uses --warning (orange)
+  if (ratio < 0.25) return "bg-[hsl(var(--warning)/0.20)]";
+  if (ratio < 0.5)  return "bg-[hsl(var(--warning)/0.45)]";
+  if (ratio < 0.75) return "bg-[hsl(var(--warning)/0.70)]";
+  return "bg-[hsl(var(--warning))]";
 }
 
 interface CellData {
@@ -210,13 +213,15 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
                           const syncClients = firstSyncMap[cell.date] ?? [];
                           const courseInfo = courseMap[cell.date];
                           const isFirstSync = syncClients.length > 0;
-                          const activeVal = viewMode === "plays"
+                          // First-sync date: force activeVal to 0 for all viewModes (§4.5 / review §1.2)
+                          const rawVal = viewMode === "plays"
                             ? cell.plays
                             : viewMode === "new_plays"
                               ? cell.new_plays
                               : viewMode === "rating_updates"
                                 ? cell.rating_updates
                                 : cell.updates;
+                          const activeVal = isFirstSync ? 0 : rawVal;
                           const cellClass = `w-3 h-3 rounded-[2px] cursor-default transition-opacity hover:opacity-80 ${
                             isFirstSync
                               ? "bg-accent border border-accent"
@@ -251,7 +256,7 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
                                   <p className="text-label text-muted-foreground">기록 없음</p>
                                 ) : (
                                   <>
-                                    <p className="text-label" style={{ color: viewMode === "plays" ? "hsl(var(--chart-play))" : viewMode === "new_plays" ? "hsl(var(--chart-new-play))" : viewMode === "rating_updates" ? "hsl(var(--warning))" : "hsl(var(--primary))" }}>
+                                    <p className="text-label" style={{ color: viewMode === "plays" ? "hsl(var(--chart-play))" : viewMode === "new_plays" ? "hsl(var(--primary))" : viewMode === "rating_updates" ? "hsl(var(--chart-rating))" : "hsl(var(--warning))" }}>
                                       {viewMode === "plays"
                                         ? `${cell.plays} 플레이`
                                         : viewMode === "new_plays"
@@ -264,10 +269,10 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
                                       <p className="text-label text-muted-foreground">{cell.updates} 갱신 기록</p>
                                     )}
                                     {viewMode !== "rating_updates" && cell.rating_updates > 0 && (
-                                      <p className="text-label" style={{ color: "hsl(var(--warning))" }}>{cell.rating_updates} 레이팅 갱신</p>
+                                      <p className="text-label" style={{ color: "hsl(var(--chart-rating))" }}>{cell.rating_updates} 레이팅 갱신</p>
                                     )}
                                     {viewMode !== "new_plays" && cell.new_plays > 0 && (
-                                      <p className="text-label" style={{ color: "hsl(var(--chart-new-play))" }}>{cell.new_plays} 신규 기록</p>
+                                      <p className="text-label" style={{ color: "hsl(var(--primary))" }}>{cell.new_plays} 신규 기록</p>
                                     )}
                                     {viewMode === "plays" && cell.updates > 0 && (
                                       <p className="text-label text-muted-foreground">{cell.updates} 갱신 기록</p>

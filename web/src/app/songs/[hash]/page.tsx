@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useMemo } from "react";
+import { use, useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Package, FileCode, Youtube, ExternalLink } from "lucide-react";
@@ -82,6 +82,16 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
     staleTime: 10 * 60 * 1000,
   });
 
+  // Canonical hash: prefer sha256 to ensure LR2+Beatoraja records are both returned by backend
+  const effectiveHash = fumen?.sha256 ?? fumen?.md5 ?? hash;
+
+  // Canonical URL redirect: if we entered via md5 but fumen has sha256, replace URL once
+  useEffect(() => {
+    if (fumen?.sha256 && fumen.sha256 !== hash) {
+      router.replace(`/songs/${fumen.sha256}`);
+    }
+  }, [fumen?.sha256, hash, router]);
+
   const { data: allTables = [] } = useQuery<DifficultyTable[]>({
     queryKey: ["tables"],
     queryFn: () => api.get("/tables/"),
@@ -91,9 +101,9 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
   const tableSymbolMap = Object.fromEntries(allTables.map((t) => [t.id, t.symbol ?? ""]));
 
   const { data: scores = [] } = useQuery<UserScore[]>({
-    queryKey: ["fumen-scores", hash],
-    queryFn: () => api.get(`/scores/me/fumen/${hash}`),
-    enabled: isLoggedIn,
+    queryKey: ["fumen-scores", effectiveHash],
+    queryFn: () => api.get(`/scores/me/fumen/${effectiveHash}`),
+    enabled: isLoggedIn && !!effectiveHash,
     staleTime: 2 * 60 * 1000,
   });
 
@@ -110,7 +120,6 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
     }
   }
 
-  const effectiveHash = fumen?.sha256 || fumen?.md5 || hash;
   const { total: notesTotal, detail: notesDetail } = formatNotes(
     fumen?.notes_total ?? null,
     fumen?.notes_n ?? null,

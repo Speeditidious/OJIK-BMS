@@ -16,7 +16,7 @@ const LABELS: Record<RankingType, string> = {
 export function RankingTypeToggle({ type, onToggle }: RankingTypeToggleProps) {
   return (
     <div className="inline-flex rounded-lg border border-border bg-secondary p-0.5 gap-0.5">
-      {(["exp", "bmsforce"] as RankingType[]).map((t) => (
+      {(["bmsforce", "exp"] as RankingType[]).map((t) => (
         <button
           key={t}
           onClick={() => onToggle(t)}

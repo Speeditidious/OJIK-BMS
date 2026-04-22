@@ -209,11 +209,14 @@ __marimo__/
 
 # ── OJIK BMS: project-specific ─────────────────────────────────────────────
 # Development docs & AI tooling
+documents/
 CLAUDE.md
 .claude/
 AGENTS.md
 .codex
-documents/
+.orchestry/
+orch_scripts/
+requirements.md
 
 # Next.js build output & dependencies
 web/node_modules/
@@ -230,3 +233,6 @@ client/scan_cache.json
 # Squashed alembic migration archive
 api/alembic/versions/archive/
 web/tsconfig.tsbuildinfo
+
+# Orchestry state
+.orchestry

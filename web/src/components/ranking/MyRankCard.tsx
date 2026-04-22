@@ -9,6 +9,7 @@ import type { AuthUser } from "@/stores/auth";
 import type { MyRankData, RankingType } from "@/lib/ranking-types";
 import { DecoratedUsername } from "./DecoratedUsername";
 import { MetricInfoIcon } from "./RatingMetricInfo";
+import { BmsforceValue } from "./BmsforceValue";
 
 interface MyRankCardProps {
   data: MyRankData | null | undefined;
@@ -120,7 +121,7 @@ export function MyRankCard({
                   <MetricInfoIcon metric="rating" />
                 </p>
                 <p className="text-2xl font-bold tabular-nums">
-                  {data.rating.toFixed(2)}
+                  {Math.round(data.rating).toLocaleString()}
                 </p>
               </div>
               <div>
@@ -129,7 +130,7 @@ export function MyRankCard({
                   <MetricInfoIcon metric="bmsforce" />
                 </p>
                 <p className="text-2xl font-bold tabular-nums">
-                  {data.bms_force.toFixed(3)}
+                  <BmsforceValue value={data.bms_force} />
                 </p>
               </div>
             </>

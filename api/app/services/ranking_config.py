@@ -8,6 +8,7 @@ The loaded config is cached in memory and reloaded on server restart.
 """
 import logging
 import math
+import re
 import tomllib
 import uuid
 from dataclasses import dataclass, field
@@ -22,6 +23,8 @@ ALL_LAMP_KEYS = [
     "HARD", "EXHARD", "FC", "PERFECT", "MAX",
 ]
 ALL_RANK_KEYS = ["F", "E", "D", "C", "B", "A", "AA", "AAA"]
+ALLOWED_GLOW_INTENSITIES = {"none", "subtle", "strong"}
+HEX_COLOR_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
 # Deprecated TOML keys — emit warning once, then ignore
 _DEPRECATED_KEYS = {
@@ -47,6 +50,16 @@ class DanConfig:
     color: str
     glow_intensity: str       # "none" | "subtle" | "strong"
     priority: int
+
+
+@dataclass(frozen=True)
+class BmsForceEmblem:
+    tier: str
+    min_value: float
+    max_value: float | None
+    color: str
+    glow_intensity: str
+    label: str | None = None
 
 
 @dataclass
@@ -115,6 +128,7 @@ class RankingConfig:
     tables: list[TableRankingConfig]
     exp_level_step: float          # global K for threshold(n) = K × n × (n+1)
     high_tier_rating_anchor: float # debug/validation only
+    bmsforce_emblems: list[BmsForceEmblem] = field(default_factory=list)
     max_level: int = 200
 
     def get_table_by_slug(self, slug: str) -> TableRankingConfig | None:
@@ -273,6 +287,129 @@ def _warn_deprecated(slug: str, raw: dict) -> None:
             logger.warning("[%s] deprecated TOML key '%s' — ignored", slug, key)
 
 
+def _float_eq(left: float, right: float) -> bool:
+    return math.isclose(left, right, rel_tol=1e-9, abs_tol=1e-9)
+
+
+def _validate_bmsforce_emblems(raw_emblems: list[dict]) -> list[BmsForceEmblem]:
+    """Validate and normalize global BMSFORCE emblem tiers."""
+    if not raw_emblems:
+        raise RankingConfigError("global.bmsforce_emblems must not be empty")
+    if len(raw_emblems) > 20:
+        raise RankingConfigError("global.bmsforce_emblems must contain at most 20 entries")
+
+    emblems: list[BmsForceEmblem] = []
+    seen_tiers: set[str] = set()
+
+    for index, raw_emblem in enumerate(raw_emblems):
+        if not isinstance(raw_emblem, dict):
+            raise RankingConfigError(
+                f"global.bmsforce_emblems[{index}] must be a table"
+            )
+
+        tier = raw_emblem.get("tier")
+        if not isinstance(tier, str) or not tier.strip():
+            raise RankingConfigError(
+                f"global.bmsforce_emblems[{index}].tier must be a non-empty string"
+            )
+        tier = tier.strip()
+        if tier in seen_tiers:
+            raise RankingConfigError(
+                f"global.bmsforce_emblems tier '{tier}' must be unique"
+            )
+        seen_tiers.add(tier)
+
+        try:
+            min_value = float(raw_emblem["min_value"])
+        except KeyError as exc:
+            raise RankingConfigError(
+                f"global.bmsforce_emblems[{index}].min_value is required"
+            ) from exc
+        except (TypeError, ValueError) as exc:
+            raise RankingConfigError(
+                f"global.bmsforce_emblems[{index}].min_value must be a number"
+            ) from exc
+        if min_value < 0:
+            raise RankingConfigError(
+                f"global.bmsforce_emblems[{index}].min_value must be >= 0"
+            )
+
+        max_raw = raw_emblem.get("max_value")
+        if max_raw is None:
+            max_value = None
+        else:
+            try:
+                max_value = float(max_raw)
+            except (TypeError, ValueError) as exc:
+                raise RankingConfigError(
+                    f"global.bmsforce_emblems[{index}].max_value must be a number or null"
+                ) from exc
+            if max_value <= min_value:
+                raise RankingConfigError(
+                    f"global.bmsforce_emblems[{index}].max_value must be greater than min_value"
+                )
+
+        color = raw_emblem.get("color")
+        if not isinstance(color, str) or not HEX_COLOR_RE.fullmatch(color.strip()):
+            raise RankingConfigError(
+                f"global.bmsforce_emblems[{index}].color must be a hex string"
+            )
+        color = color.strip()
+
+        glow_intensity = raw_emblem.get("glow_intensity")
+        if glow_intensity not in ALLOWED_GLOW_INTENSITIES:
+            raise RankingConfigError(
+                "global.bmsforce_emblems"
+                f"[{index}].glow_intensity must be one of {sorted(ALLOWED_GLOW_INTENSITIES)}"
+            )
+
+        label_raw = raw_emblem.get("label")
+        label = None
+        if label_raw is not None:
+            if not isinstance(label_raw, str):
+                raise RankingConfigError(
+                    f"global.bmsforce_emblems[{index}].label must be a string or null"
+                )
+            stripped_label = label_raw.strip()
+            label = stripped_label or None
+
+        emblems.append(
+            BmsForceEmblem(
+                tier=tier,
+                min_value=min_value,
+                max_value=max_value,
+                color=color,
+                glow_intensity=glow_intensity,
+                label=label,
+            )
+        )
+
+    emblems.sort(key=lambda emblem: emblem.min_value)
+
+    first = emblems[0]
+    if not _float_eq(first.min_value, 0.0):
+        raise RankingConfigError(
+            "global.bmsforce_emblems must start at min_value 0.0"
+        )
+
+    for previous, current in zip(emblems, emblems[1:]):
+        if previous.max_value is None:
+            raise RankingConfigError(
+                f"global.bmsforce_emblems tier '{previous.tier}' cannot be open-ended before the last entry"
+            )
+        if not _float_eq(previous.max_value, current.min_value):
+            raise RankingConfigError(
+                "global.bmsforce_emblems must define continuous, non-overlapping ranges"
+            )
+
+    if emblems[-1].max_value is not None:
+        raise RankingConfigError(
+            "global.bmsforce_emblems must end with an open-ended max_value"
+        )
+
+    return emblems
+
+
 # ── Loader ────────────────────────────────────────────────────────────────────
 
 async def load_ranking_config(db_session) -> RankingConfig:
@@ -311,13 +448,22 @@ async def load_ranking_config(db_session) -> RankingConfig:
         rate_floor=float(global_bonus_raw.get("rate_floor", 0.70)),
         rate_slope=float(global_bonus_raw.get("rate_slope", 1.0)),
     )
+    bmsforce_emblems = _validate_bmsforce_emblems(
+        global_raw.get("bmsforce_emblems", [])
+    )
 
     tables_raw = raw.get("tables", [])
     if not tables_raw:
+        logger.info(
+            "bmsforce_emblems loaded: %d tiers (max tier=%s)",
+            len(bmsforce_emblems),
+            bmsforce_emblems[-1].tier,
+        )
         return RankingConfig(
             tables=[],
             exp_level_step=exp_level_step,
             high_tier_rating_anchor=anchor,
+            bmsforce_emblems=bmsforce_emblems,
             max_level=global_max_level,
         )
 
@@ -514,10 +660,16 @@ async def load_ranking_config(db_session) -> RankingConfig:
                 )
 
     tables.sort(key=lambda x: x.display_order)
+    logger.info(
+        "bmsforce_emblems loaded: %d tiers (max tier=%s)",
+        len(bmsforce_emblems),
+        bmsforce_emblems[-1].tier,
+    )
     return RankingConfig(
         tables=tables,
         exp_level_step=exp_level_step,
         high_tier_rating_anchor=anchor,
+        bmsforce_emblems=bmsforce_emblems,
         max_level=global_max_level,
     )
 

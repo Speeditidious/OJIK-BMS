@@ -118,6 +118,7 @@ export interface RankingContributionEntry {
   was_in_top_n?: boolean;
   delta_exp?: number;
   delta_rating?: number;
+  updated_today?: boolean;
 }
 
 export interface RankingContributionResponse {

@@ -13,10 +13,13 @@ from app.core.security import get_current_user
 from app.models.fumen import Fumen
 from app.models.score import UserScore
 from app.models.user import User
+from app.services.client_aggregation import (
+    CLIENT_LABEL,
+    PerClientBest,
+    aggregate_source_client,
+)
 
 router = APIRouter(prefix="/scores", tags=["scores"])
-
-_CLIENT_LABEL = {"lr2": "LR", "beatoraja": "BR"}
 
 
 def _compute_rate_rank(exscore: int, notes_total: int) -> tuple[float, str]:
@@ -243,41 +246,35 @@ async def get_score_for_song(
             per_client[s.client_type] = s
 
     best = PerFieldBestScore()
-    clients_used: dict[str, str] = {}  # field → client_label
 
     for s in per_client.values():
-        label = _CLIENT_LABEL.get(s.client_type, s.client_type)
+        label = CLIENT_LABEL.get(s.client_type, s.client_type.upper())
         if s.clear_type is not None and (best.best_clear_type is None or s.clear_type > best.best_clear_type):
             best.best_clear_type = s.clear_type
             best.best_clear_type_client = label
-            clients_used["clear_type"] = label
         if s.exscore is not None and (best.best_exscore is None or s.exscore > best.best_exscore):
             best.best_exscore = s.exscore
             best.rate = s.rate
             best.rank = s.rank
             best.best_exscore_client = label
-            clients_used["exscore"] = label
         if s.min_bp is not None and (best.best_min_bp is None or s.min_bp < best.best_min_bp):
             best.best_min_bp = s.min_bp
             best.best_min_bp_client = label
-            clients_used["min_bp"] = label
         if s.max_combo is not None and (best.best_max_combo is None or s.max_combo > best.best_max_combo):
             best.best_max_combo = s.max_combo
             best.best_max_combo_client = label
-            clients_used["max_combo"] = label
 
-    unique_clients = set(clients_used.values())
-    if len(unique_clients) > 1:
-        best.source_client = "MIX"
-        best.source_client_detail = {
-            k: v for k, v in {
-                "clear_type": best.best_clear_type_client,
-                "exscore": best.best_exscore_client,
-                "min_bp": best.best_min_bp_client,
-                "max_combo": best.best_max_combo_client,
-            }.items() if v is not None
-        }
-    elif len(unique_clients) == 1:
-        best.source_client = next(iter(unique_clients))
+    per_client_bests = [
+        PerClientBest(
+            client_type=s.client_type,
+            clear_type=s.clear_type,
+            exscore=s.exscore,
+            rate=s.rate,
+            rank=s.rank,
+            min_bp=s.min_bp,
+        )
+        for s in per_client.values()
+    ]
+    best.source_client, best.source_client_detail = aggregate_source_client(per_client_bests)
 
     return best

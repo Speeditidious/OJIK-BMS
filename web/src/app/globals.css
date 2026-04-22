@@ -60,6 +60,9 @@
     /* Activity chart: new plays (first-ever play for a fumen) */
     --chart-new-play: 38 80% 68%;
 
+    /* Activity chart: rating updates (most prominent series) */
+    --chart-rating: 316 58% 62%;
+
     /* ── Text size tokens ── */
     --text-caption: 0.8rem;
     --text-label:   0.875rem;
@@ -129,6 +132,9 @@
 
     /* Activity chart: new plays (first-ever play for a fumen) */
     --chart-new-play: 38 80% 68%;
+
+    /* Activity chart: rating updates (most prominent series) */
+    --chart-rating: 316 58% 62%;
 
   }
 }
@@ -368,6 +374,12 @@ tr:hover .rank-cell-AAA-dim { background-color: hsl(46 70% 50% / 0.75);  color: 
 .rank-cell-MAX-dim { background-color: hsl(330 65% 78% / 0.6); color: hsl(220 20% 75%); transition: background-color 0.15s ease, color 0.15s ease; }
 tr:hover .rank-cell-MAX-dim { background-color: hsl(330 55% 65% / 0.75); color: hsl(210 40% 95%); }
 
+/* Rating value cell — opaque accent background, independent of row clear type */
+.rating-value-cell { background-color: hsl(274 50% 88%); color: hsl(274 40% 32%); transition: background-color 0.15s ease, color 0.15s ease; }
+tr:hover .rating-value-cell { background-color: hsl(274 50% 82%); }
+.dark .rating-value-cell { background-color: hsl(274 28% 18%); color: hsl(274 58% 76%); }
+.dark tr:hover .rating-value-cell { background-color: hsl(274 28% 23%); }
+
 /* ── NO PLAY dark mode override — restore dark surface appearance ── */
 .dark .clear-row-0 { color: hsl(210 40% 95%); }
 .dark .clear-row-0:hover { background-color: hsl(220 20% 18%); color: hsl(210 40% 98%); }
@@ -385,3 +397,14 @@ tr:hover .rank-cell-MAX-dim { background-color: hsl(330 55% 65% / 0.75); color: 
 
 .dark .rank-cell-F-dim   { color: hsl(210 40% 95%); }
 .dark tr:hover .rank-cell-F-dim   { background-color: hsl(220 20% 18%); color: hsl(210 40% 98%); }
+
+/* ── "이전" / NO PLAY 류 약한 강조 텍스트 — 라이트/다크 공통 가독성 ── */
+/* Light: NO PLAY cell foreground (220 20% 35%) ≈ WCAG AA on white bg       */
+/* Dark:  readable mid-gray on dark bg                                        */
+.row-prev {
+  color: hsl(220 20% 35%);
+  opacity: 1;
+}
+.dark .row-prev {
+  color: hsl(220 15% 65%);
+}

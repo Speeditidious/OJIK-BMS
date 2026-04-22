@@ -35,6 +35,7 @@ import { RatingDetailSection } from "@/components/ranking/RatingDetailSection";
 import { RankingTableSelector } from "@/components/ranking/RankingTableSelector";
 import { RatingChangeTabContent } from "@/components/ranking/RatingChangeTabContent";
 import { ProfileActionBar } from "@/components/profile/ProfileActionBar";
+import { DateRangePicker, type DateRangeValue } from "@/components/common/DateRangePicker";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -57,6 +58,11 @@ import type {
   RatingHistoryMetric,
 } from "@/lib/ranking-types";
 import { cn } from "@/lib/utils";
+import { formatRatingMetric, formatCompactNumber } from "@/lib/rating-format";
+import { rangeFromPreset, daysInRange } from "@/lib/date-range";
+import { ACTIVITY_CATEGORIES } from "@/lib/activity-categories";
+import type { ScoreUpdatesViewMode } from "@/components/dashboard/ScoreUpdates";
+import { pickTickResolution, formatTick, computeTicks } from "@/lib/axis-format";
 import { useAuthStore } from "@/stores/auth";
 
 function formatPlaytime(seconds: number): string {
@@ -65,12 +71,6 @@ function formatPlaytime(seconds: number): string {
   const m = Math.floor((seconds % 3600) / 60);
   if (h > 0) return `${h}시간 ${m}분`;
   return `${m}분`;
-}
-
-function shiftDate(dateStr: string, deltaDays: number): string {
-  const date = new Date(`${dateStr}T00:00:00`);
-  date.setDate(date.getDate() + deltaDays);
-  return date.toISOString().slice(0, 10);
 }
 
 function buildCountMap(items?: Array<{ date: string; count: number }>): Record<string, number> {
@@ -92,12 +92,6 @@ function mergeActivityWithRating<T extends { date: string; rating_updates?: numb
   }));
 }
 
-function formatMetricValue(metric: RatingHistoryMetric, value: number): string {
-  if (metric === "bmsforce") return value.toFixed(3);
-  if (metric === "rating") return value.toFixed(2);
-  return Math.round(value).toLocaleString();
-}
-
 function DayStatCard({
   title,
   value,
@@ -106,6 +100,7 @@ function DayStatCard({
   uncertain,
   uncertainTooltip,
   valueClassName,
+  accentVar,
 }: {
   title: string;
   value: string;
@@ -114,7 +109,13 @@ function DayStatCard({
   uncertain?: boolean;
   uncertainTooltip?: string;
   valueClassName?: string;
+  /** CSS variable for value color, e.g. "var(--warning)". Overrides valueClassName color. */
+  accentVar?: string;
 }) {
+  const numericValue = parseFloat(value);
+  const isZero = !isNaN(numericValue) && numericValue === 0;
+  const valueStyle = accentVar && !isZero ? { color: `hsl(${accentVar})` } : undefined;
+
   return (
     <Card className="border-dashed">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 px-4 pb-1 pt-3">
@@ -122,7 +123,7 @@ function DayStatCard({
         <Icon className="h-3.5 w-3.5 text-muted-foreground" />
       </CardHeader>
       <CardContent className="px-4 pb-3">
-        <div className={cn("text-stat font-bold", valueClassName)}>
+        <div className={cn("text-stat font-bold", isZero ? "text-muted-foreground" : valueClassName)} style={valueStyle}>
           {uncertain && uncertainTooltip ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -143,12 +144,14 @@ function DayStatCard({
   );
 }
 
+type RatingHistoryMetricLocal = RatingHistoryMetric;
+
 function RatingHistoryGraph({
   points,
   metric,
 }: {
   points: Array<{ date: string; exp: number; rating: number; rating_norm: number }>;
-  metric: RatingHistoryMetric;
+  metric: RatingHistoryMetricLocal;
 }) {
   const [chartRef, chartWidth] = useChartWidth(150);
   const color = metric === "exp"
@@ -156,7 +159,7 @@ function RatingHistoryGraph({
     : metric === "rating"
       ? "hsl(var(--accent))"
       : "hsl(var(--clear-exhard))";
-  const dataKey = metric === "exp" ? "exp" : metric === "rating" ? "rating" : "rating_norm";
+  const dataKey = metric === "exp" ? "exp" : metric === "rating" ? "rating" : "rating_norm" as const;
 
   if (points.length === 0) {
     return (
@@ -170,14 +173,30 @@ function RatingHistoryGraph({
     return <div ref={chartRef} style={{ width: "100%", height: 220 }} />;
   }
 
+  const dates = points.map((p) => p.date);
+  const days = daysInRange({ from: dates[0], to: dates[dates.length - 1] });
+  const resolution = pickTickResolution(days);
+  const tickDates = computeTicks(dates, days);
+
+  const values = points.map((p) => p[dataKey]);
+  const dataMin = Math.min(...values);
+  const dataMax = Math.max(...values);
+  const pad = dataMax === dataMin
+    ? (metric === "bmsforce" ? 0.01 : 1)
+    : (dataMax - dataMin) * 0.1;
+
+  const yDomain: [number | string, number | string] = points.length === 0
+    ? [0, 1]
+    : [dataMin - pad, dataMax + pad];
+
   const chartData = points.map((point) => ({
     ...point,
-    label: point.date.slice(5).replace("-", "/"),
+    label: point.date,
   }));
 
   return (
     <div ref={chartRef}>
-      <AreaChart width={chartWidth} height={220} data={chartData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+      <AreaChart width={chartWidth} height={220} data={chartData} margin={{ top: 8, right: 48, left: -4, bottom: 0 }}>
         <defs>
           <linearGradient id={`rating-${metric}`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity={0.34} />
@@ -187,15 +206,26 @@ function RatingHistoryGraph({
         <CartesianGrid stroke="hsl(var(--border)/0.45)" vertical={false} />
         <XAxis
           dataKey="label"
+          ticks={tickDates}
+          tickFormatter={(v: string) => formatTick(v, resolution)}
           tick={{ fontSize: "var(--text-caption)", fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={false}
+          interval="preserveStartEnd"
+          tickMargin={6}
+          minTickGap={36}
+          padding={{ left: 0, right: 8 }}
         />
         <YAxis
+          domain={yDomain}
           tick={{ fontSize: "var(--text-caption)", fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={false}
-          tickFormatter={(value) => formatMetricValue(metric, Number(value))}
+          allowDecimals={metric === "bmsforce"}
+          tickFormatter={(value: number) => {
+            if (metric === "bmsforce") return formatRatingMetric("bmsforce", Number(value));
+            return formatCompactNumber(Number(value));
+          }}
         />
         <RechartsTooltip
           content={({ active, payload }) => {
@@ -205,7 +235,12 @@ function RatingHistoryGraph({
               <div className="rounded-lg border border-border bg-card px-3 py-2 text-label">
                 <p className="font-medium">{row.date}</p>
                 <p style={{ color }}>
-                  {metric === "exp" ? "경험치" : metric === "rating" ? "레이팅" : "BMSFORCE"}: {formatMetricValue(metric, row[dataKey])}
+                  {metric === "exp" ? "경험치" : metric === "rating" ? "레이팅" : "BMSFORCE"}: {
+                    formatRatingMetric(
+                      metric === "bmsforce" ? "bmsforce" : metric,
+                      row[dataKey],
+                    )
+                  }
                 </p>
               </div>
             );
@@ -232,6 +267,10 @@ function CalendarDayDetail({
   rankingTables,
   selectedRankingTable,
   onSelectRankingTable,
+  dayView,
+  onDayViewChange,
+  ratingMetric,
+  onRatingMetricChange,
 }: {
   userId: string;
   date: string;
@@ -251,6 +290,10 @@ function CalendarDayDetail({
   }>;
   selectedRankingTable: string | null;
   onSelectRankingTable: (slug: string) => void;
+  dayView: ScoreUpdatesViewMode;
+  onDayViewChange: (v: ScoreUpdatesViewMode) => void;
+  ratingMetric: RatingHistoryMetric;
+  onRatingMetricChange: (m: RatingHistoryMetric) => void;
 }) {
   const { data } = useRecentUpdates(1, clientType, date, selectedRankingTable, userId);
   const aggregatedRatingDay = useAggregatedRatingUpdates({ date, userId });
@@ -303,19 +346,21 @@ function CalendarDayDetail({
               value={`${data.day_summary.total_updates}`}
               sub="당일 기록 갱신 개수"
               icon={TrendingUp}
+              accentVar="var(--warning)"
             />
             <DayStatCard
               title="신규 기록"
               value={`${data.day_summary.new_plays ?? 0}`}
               sub="당일 첫 플레이 기록 개수"
               icon={Sparkles}
+              accentVar="var(--primary)"
             />
             <DayStatCard
               title="레이팅 갱신"
               value={`${aggregatedRatingDay.data?.count ?? 0}`}
               sub="당일 전체 난이도표 반영 개수"
               icon={Trophy}
-              valueClassName={(aggregatedRatingDay.data?.count ?? 0) > 0 ? "text-warning" : undefined}
+              accentVar="var(--chart-rating)"
             />
             <DayStatCard
               title="플레이 수"
@@ -324,6 +369,7 @@ function CalendarDayDetail({
               icon={Music2}
               uncertain={data.day_summary.play_count_uncertain}
               uncertainTooltip="첫 동기화 당일 혹은 그 이전 기록의 플레이 횟수는 집계할 수 없습니다."
+              accentVar="var(--chart-play)"
             />
             <DayStatCard
               title="플레이 시간"
@@ -350,6 +396,8 @@ function CalendarDayDetail({
         clientType={clientType}
         date={date}
         ratingBadgeCount={aggregatedRatingDay.data?.count ?? 0}
+        viewMode={dayView}
+        onViewModeChange={onDayViewChange}
         ratingSlot={rankingTables.length > 0 ? (
           <RatingChangeTabContent
             userId={userId}
@@ -359,6 +407,8 @@ function CalendarDayDetail({
             onSelectTable={onSelectRankingTable}
             aggregatedTables={updatedTables}
             enableMyRankFallback={true}
+            metric={ratingMetric}
+            onMetricChange={onRatingMetricChange}
           />
         ) : undefined}
       />
@@ -368,8 +418,12 @@ function CalendarDayDetail({
 
 const CURRENT_YEAR = new Date().getFullYear();
 const CURRENT_MONTH = new Date().getMonth() + 1;
-const BAR_RANGE_OPTIONS = [7, 30, 90] as const;
-const RATING_HISTORY_RANGE_OPTIONS = [30, 90, 365] as const;
+
+function makeDefaultRange(days: number): DateRangeValue {
+  const presets = { 7: "week", 30: "month", 90: "3month", 365: "year" } as const;
+  const preset = (presets as Record<number, import("@/lib/date-range").RangePreset | undefined>)[days] ?? "month";
+  return { preset, range: rangeFromPreset(preset === "custom" ? "month" : preset) };
+}
 
 export function UserDashboardContent({ userId }: { userId: string }) {
   const searchParams = useSearchParams();
@@ -383,23 +437,55 @@ export function UserDashboardContent({ userId }: { userId: string }) {
 
   const [clientType, setClientType] = useState<ClientTypeFilter>("all");
   const [heatmapYear, setHeatmapYear] = useState(CURRENT_YEAR);
-  const [barDays, setBarDays] = useState<(typeof BAR_RANGE_OPTIONS)[number]>(30);
+  const [activityRange, setActivityRange] = useState<DateRangeValue>(() => makeDefaultRange(30));
   const [activityView, setActivityView] = useState<"updates" | "plays" | "new_plays" | "rating_updates">("updates");
-  const [activitySeries, setActivitySeries] = useState<ActivitySeries[]>(["updates", "new_plays", "plays"]);
+  const [activitySeries, setActivitySeries] = useState<ActivitySeries[]>(["updates", "new_plays", "plays", "rating_updates"]);
   const [ratingHistoryMetric, setRatingHistoryMetric] = useState<RatingHistoryMetric>("bmsforce");
-  const [ratingHistoryDays, setRatingHistoryDays] = useState<(typeof RATING_HISTORY_RANGE_OPTIONS)[number]>(90);
+  const [ratingHistoryRange, setRatingHistoryRange] = useState<DateRangeValue>(() => makeDefaultRange(90));
   const [calYear, setCalYear] = useState(CURRENT_YEAR);
   const [calMonth, setCalMonth] = useState(CURRENT_MONTH);
 
   const currentTab = searchParams.get("tab") ?? "distribution";
-  const selectedDate = searchParams.get("date");
+  // Separated per-tab date params
+  const activityDate = searchParams.get("activity_date");
+  const calendarDate = searchParams.get("calendar_date");
   const selectedRankingTable = searchParams.get("ranking_table") ?? rankingTables[0]?.slug ?? null;
   const ratingScope = ((searchParams.get("rating_scope") as RatingContributionScope | null) ?? "top");
   const ratingSort = ((searchParams.get("rating_sort") as RatingContributionSortBy | null) ?? "value");
   const ratingDir = ((searchParams.get("rating_dir") as "asc" | "desc" | null) ?? "desc");
+  // URL-controlled state for CalendarDayDetail tabs — preserved on navigation back from /songs/[hash]
+  const dayView = (searchParams.get("day_view") as ScoreUpdatesViewMode | null) ?? "summary";
+  const ratingMetricParam = (searchParams.get("rating_metric") as RatingHistoryMetric | null) ?? "rating";
+
+  // Backward compatibility: migrate legacy ?date= param once on mount
+  const didMigrateRef = useRef(false);
+  useEffect(() => {
+    if (didMigrateRef.current) return;
+    const legacyDate = searchParams.get("date");
+    if (!legacyDate) return;
+    didMigrateRef.current = true;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("date");
+    const tab = searchParams.get("tab") ?? "activity";
+    if (tab === "calendar") {
+      params.set("calendar_date", legacyDate);
+    } else {
+      params.set("activity_date", legacyDate);
+    }
+    router.replace(`/users/${userId}/dashboard?${params.toString()}`, { scroll: false });
+  }, [searchParams, router, userId]);
+
+  // Compute activity bar mode from activityRange
+  const activityBarMode = useMemo(() => {
+    return { kind: "range" as const, from: activityRange.range.from, to: activityRange.range.to };
+  }, [activityRange]);
 
   const { data: heatmapData, isLoading: heatmapLoading } = useActivityHeatmap(heatmapYear, clientType, userId);
-  const { data: barData, isLoading: barLoading } = useActivityBar(barDays, clientType, userId);
+  const { data: barData, isLoading: barLoading } = useActivityBar({
+    mode: activityBarMode,
+    clientType,
+    userId,
+  });
   const { data: summaryData } = usePlaySummary("all", userId);
 
   const { data: calHeatmapData } = useActivityHeatmap(calYear, clientType, userId);
@@ -407,18 +493,22 @@ export function UserDashboardContent({ userId }: { userId: string }) {
   const { data: calBeatorajaData } = useActivityHeatmap(calYear, "beatoraja", userId);
 
   const { data: heatmapCourseData } = useCourseActivity(heatmapYear, undefined, clientType, undefined, userId);
-  const { data: barCourseData } = useCourseActivity(undefined, barDays, clientType, undefined, userId);
+  const { data: barCourseData } = useCourseActivity(undefined, undefined, clientType, undefined, userId);
   const { data: calCourseData } = useCourseActivity(calYear, undefined, clientType, undefined, userId);
 
   const heatmapRatingUpdates = useAggregatedRatingUpdates({ year: heatmapYear, userId });
-  const barRatingUpdates = useAggregatedRatingUpdates({ days: barDays, userId });
+  const barRatingUpdates = useAggregatedRatingUpdates({
+    from: activityRange.range.from,
+    to: activityRange.range.to,
+    userId,
+  });
   const calendarRatingUpdates = useAggregatedRatingUpdates({ year: calYear, userId });
 
   const myRank = useMyRank(selectedRankingTable, userId);
   const ratingHistory = useRankingHistory(
     selectedRankingTable,
-    shiftDate(new Date().toISOString().slice(0, 10), -(ratingHistoryDays - 1)),
-    new Date().toISOString().slice(0, 10),
+    ratingHistoryRange.range.from,
+    ratingHistoryRange.range.to,
     userId,
   );
 
@@ -453,6 +543,15 @@ export function UserDashboardContent({ userId }: { userId: string }) {
     [heatmapRatingUpdates.data?.dates],
   );
 
+  const replaceParams = useCallback((updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === null || value === "") params.delete(key);
+      else params.set(key, value);
+    }
+    router.replace(`/users/${userId}/dashboard?${params.toString()}`, { scroll: false });
+  }, [router, searchParams, userId]);
+
   const updateParams = useCallback((updates: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams.toString());
     for (const [key, value] of Object.entries(updates)) {
@@ -463,23 +562,25 @@ export function UserDashboardContent({ userId }: { userId: string }) {
   }, [router, searchParams, userId]);
 
   function handleTabChange(value: string) {
-    updateParams({ tab: value });
+    replaceParams({ tab: value });
   }
 
+  // Calendar tab day click — sets calendar_date only
   function handleDayClick(dateStr: string) {
-    updateParams({ tab: "calendar", date: dateStr });
+    updateParams({ tab: "calendar", calendar_date: dateStr });
   }
 
   function handleBackToCalendar() {
-    updateParams({ tab: "calendar", date: null });
+    replaceParams({ tab: "calendar", calendar_date: null });
   }
 
+  // Activity tab day click — sets activity_date only
   function handleActivityDayClick(dateStr: string) {
-    updateParams({ tab: "activity", date: dateStr });
+    updateParams({ tab: "activity", activity_date: dateStr });
   }
 
   function handleBackToActivity() {
-    updateParams({ tab: "activity", date: null });
+    replaceParams({ tab: "activity", activity_date: null });
   }
 
   function toggleActivitySeries(series: ActivitySeries) {
@@ -576,16 +677,20 @@ export function UserDashboardContent({ userId }: { userId: string }) {
           </TabsContent>
 
           <TabsContent value="activity" className="space-y-4">
-            {currentTab === "activity" && selectedDate ? (
+            {currentTab === "activity" && activityDate ? (
               <CalendarDayDetail
                 userId={userId}
-                date={selectedDate}
+                date={activityDate}
                 clientType={clientType}
                 onBack={handleBackToActivity}
                 backLabel="활동 요약으로 돌아가기"
                 rankingTables={rankingTables}
                 selectedRankingTable={selectedRankingTable}
                 onSelectRankingTable={(slug) => updateParams({ ranking_table: slug })}
+                dayView={dayView}
+                onDayViewChange={(v) => replaceParams({ day_view: v })}
+                ratingMetric={ratingMetricParam}
+                onRatingMetricChange={(m) => replaceParams({ rating_metric: m })}
               />
             ) : (
               <>
@@ -597,15 +702,15 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                     </div>
                     <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
                       <div className="flex flex-wrap gap-1 lg:justify-end">
-                        {(["updates", "new_plays", "plays", "rating_updates"] as const).map((value) => (
+                        {ACTIVITY_CATEGORIES.map((cat) => (
                           <Button
-                            key={value}
-                            variant={activityView === value ? "secondary" : "ghost"}
+                            key={cat.key}
+                            variant={activityView === cat.key ? "secondary" : "ghost"}
                             size="sm"
                             className="h-7 px-2 text-label"
-                            onClick={() => setActivityView(value)}
+                            onClick={() => setActivityView(cat.key)}
                           >
-                            {value === "updates" ? "갱신 기록" : value === "new_plays" ? "신규 기록" : value === "plays" ? "플레이 횟수" : "레이팅 갱신"}
+                            {cat.label}
                           </Button>
                         ))}
                       </div>
@@ -625,7 +730,9 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                   </CardHeader>
                   <CardContent>
                     {heatmapLoading ? (
-                      <div className="h-24 animate-pulse rounded bg-muted" />
+                      <div className="h-24 animate-pulse rounded bg-muted">
+                        <span className="sr-only">로딩 중</span>
+                      </div>
                     ) : (
                       <ActivityHeatmap
                         data={heatmapWithRating}
@@ -647,41 +754,31 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                     </div>
                     <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
                       <div className="flex flex-wrap gap-1 lg:justify-end">
-                        {([
-                          { key: "updates", label: "갱신 기록" },
-                          { key: "new_plays", label: "신규 기록" },
-                          { key: "plays", label: "플레이 횟수" },
-                          { key: "rating_updates", label: "레이팅 갱신" },
-                        ] as const).map(({ key, label }) => (
+                        {ACTIVITY_CATEGORIES.map((cat) => (
                           <Button
-                            key={key}
-                            variant={activitySeries.includes(key) ? "secondary" : "ghost"}
+                            key={cat.key}
+                            variant={activitySeries.includes(cat.key) ? "secondary" : "ghost"}
                             size="sm"
                             className="h-7 px-2 text-label"
-                            onClick={() => toggleActivitySeries(key)}
+                            onClick={() => toggleActivitySeries(cat.key)}
                           >
-                            {label}
+                            {cat.label}
                           </Button>
                         ))}
                       </div>
-                      <div className="flex gap-1 lg:justify-end">
-                        {BAR_RANGE_OPTIONS.map((days) => (
-                          <Button
-                            key={days}
-                            variant={barDays === days ? "secondary" : "ghost"}
-                            size="sm"
-                            className="h-7 px-2 text-label"
-                            onClick={() => setBarDays(days)}
-                          >
-                            {days}일
-                          </Button>
-                        ))}
-                      </div>
+                      <DateRangePicker
+                        value={activityRange}
+                        onChange={setActivityRange}
+                        maxDays={730}
+                        className="lg:items-end"
+                      />
                     </div>
                   </CardHeader>
                   <CardContent>
                     {barLoading ? (
-                      <div className="h-48 animate-pulse rounded bg-muted" />
+                      <div className="h-48 animate-pulse rounded bg-muted">
+                        <span className="sr-only">로딩 중</span>
+                      </div>
                     ) : (
                       <ActivityBarChart
                         data={barWithRating}
@@ -689,6 +786,8 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                         clientType={clientType}
                         courseData={barCourseData ?? []}
                         activeModes={activitySeries}
+                        rangeFrom={activityRange.range.from}
+                        rangeTo={activityRange.range.to}
                       />
                     )}
                   </CardContent>
@@ -723,19 +822,12 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                           </Button>
                         ))}
                       </div>
-                      <div className="flex gap-1 lg:justify-end">
-                        {RATING_HISTORY_RANGE_OPTIONS.map((days) => (
-                          <Button
-                            key={days}
-                            variant={ratingHistoryDays === days ? "secondary" : "ghost"}
-                            size="sm"
-                            className="h-7 px-2 text-label"
-                            onClick={() => setRatingHistoryDays(days)}
-                          >
-                            {days}일
-                          </Button>
-                        ))}
-                      </div>
+                      <DateRangePicker
+                        value={ratingHistoryRange}
+                        onChange={setRatingHistoryRange}
+                        maxDays={730}
+                        className="lg:items-end"
+                      />
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -756,6 +848,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                   clientType={clientType}
                   heatmapData={heatmapWithRating}
                   ratingUpdatesByDate={heatmapRatingMap}
+                  firstSyncDates={firstSyncDates}
                   onDayClick={handleActivityDayClick}
                   emptyMessage={isOwner ? "동기화된 활동 내역이 없습니다." : "이 유저는 아직 공개된 활동 내역이 없습니다."}
                 />
@@ -764,16 +857,20 @@ export function UserDashboardContent({ userId }: { userId: string }) {
           </TabsContent>
 
           <TabsContent value="calendar" className="space-y-4">
-            {selectedDate ? (
+            {calendarDate ? (
               <CalendarDayDetail
                 userId={userId}
-                date={selectedDate}
+                date={calendarDate}
                 clientType={clientType}
                 onBack={handleBackToCalendar}
                 backLabel="캘린더로 돌아가기"
                 rankingTables={rankingTables}
                 selectedRankingTable={selectedRankingTable}
                 onSelectRankingTable={(slug) => updateParams({ ranking_table: slug })}
+                dayView={dayView}
+                onDayViewChange={(v) => replaceParams({ day_view: v })}
+                ratingMetric={ratingMetricParam}
+                onRatingMetricChange={(m) => replaceParams({ rating_metric: m })}
               />
             ) : (
               <Card>

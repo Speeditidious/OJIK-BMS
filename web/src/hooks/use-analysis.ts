@@ -187,20 +187,45 @@ export function useActivityHeatmap(
   });
 }
 
-export function useActivityBar(
-  days: number = 30,
-  clientType: ClientTypeFilter = "all",
-  userId?: string,
-) {
+export type ActivityBarMode =
+  | { kind: "days"; days: number }
+  | { kind: "range"; from: string; to: string };
+
+export interface ActivityBarArgs {
+  mode?: ActivityBarMode;
+  clientType?: ClientTypeFilter;
+  userId?: string;
+}
+
+export function useActivityBar(argsOrDays: ActivityBarArgs | number = {}, clientTypeOrUndef?: ClientTypeFilter, userIdOrUndef?: string) {
+  // Support both legacy call signature (days, clientType, userId) and new object form
+  const args: ActivityBarArgs = typeof argsOrDays === "number"
+    ? { mode: { kind: "days", days: argsOrDays }, clientType: clientTypeOrUndef, userId: userIdOrUndef }
+    : argsOrDays;
+
+  const mode: ActivityBarMode = args.mode ?? { kind: "days", days: 30 };
+  const clientType: ClientTypeFilter = args.clientType ?? "all";
+  const userId = args.userId;
+
+  const modeKey = mode.kind === "days" ? ["days", mode.days] : ["range", mode.from, mode.to];
+
   return useQuery({
-    queryKey: ["analysis", "activity", days, clientType, userId ?? null],
+    queryKey: ["analysis", "activity", ...modeKey, clientType, userId ?? null],
     queryFn: () => {
-      const params = new URLSearchParams({ days: String(days) });
+      const params = new URLSearchParams();
+      if (mode.kind === "days") {
+        params.set("days", String(mode.days));
+      } else {
+        params.set("from", mode.from);
+        params.set("to", mode.to);
+      }
       if (clientType !== "all") params.set("client_type", clientType);
       if (userId) params.set("user_id", userId);
-      return api.get<{ days: number; data: ActivityDay[] }>(`/analysis/activity?${params}`);
+      return api.get<{ days?: number; from?: string; to?: string; data: ActivityDay[] }>(`/analysis/activity?${params}`);
     },
-    staleTime: 5 * 60 * 1000, // 5 min — changes only on sync
+    staleTime: 60 * 1000, // 1 min
+    placeholderData: (prev) => prev,
+    gcTime: 5 * 60 * 1000,
   });
 }
 
@@ -230,22 +255,31 @@ interface RatingUpdatesParams {
   year?: number;
   days?: number;
   date?: string;
+  from?: string;
+  to?: string;
   userId?: string;
 }
 
-export function useRatingUpdates({ tableSlug, year, days, date, userId }: RatingUpdatesParams) {
+export function useRatingUpdates({ tableSlug, year, days, date, from, to, userId }: RatingUpdatesParams) {
+  const hasRange = from !== undefined && to !== undefined;
   return useQuery({
-    queryKey: ["analysis", "rating-updates", tableSlug, year ?? null, days ?? null, date ?? null, userId ?? null],
+    queryKey: ["analysis", "rating-updates", tableSlug, year ?? null, days ?? null, date ?? null, from ?? null, to ?? null, userId ?? null],
     queryFn: () => {
       const params = new URLSearchParams({ table_slug: tableSlug! });
       if (year !== undefined) params.set("year", String(year));
       if (days !== undefined) params.set("days", String(days));
       if (date) params.set("date", date);
+      if (from) params.set("from", from);
+      if (to) params.set("to", to);
       if (userId) params.set("user_id", userId);
       return api.get<RatingUpdatesResponse>(`/analysis/rating-updates?${params.toString()}`);
     },
-    enabled: !!tableSlug && [year, days, date].filter((value) => value !== undefined && value !== null).length === 1,
-    staleTime: 5 * 60 * 1000,
+    enabled: !!tableSlug && (hasRange
+      ? true
+      : [year, days, date].filter((value) => value !== undefined && value !== null).length === 1),
+    staleTime: 60 * 1000,
+    placeholderData: (prev) => prev,
+    gcTime: 5 * 60 * 1000,
   });
 }
 
@@ -253,24 +287,33 @@ interface AggregatedRatingUpdatesParams {
   year?: number;
   days?: number;
   date?: string;
+  from?: string;
+  to?: string;
   userId?: string;
 }
 
-export function useAggregatedRatingUpdates({ year, days, date, userId }: AggregatedRatingUpdatesParams) {
+export function useAggregatedRatingUpdates({ year, days, date, from, to, userId }: AggregatedRatingUpdatesParams) {
+  const hasRange = from !== undefined && to !== undefined;
   return useQuery({
-    queryKey: ["analysis", "rating-updates-aggregated", year ?? null, days ?? null, date ?? null, userId ?? null],
+    queryKey: ["analysis", "rating-updates-aggregated", year ?? null, days ?? null, date ?? null, from ?? null, to ?? null, userId ?? null],
     queryFn: () => {
       const params = new URLSearchParams();
       if (year !== undefined) params.set("year", String(year));
       if (days !== undefined) params.set("days", String(days));
       if (date) params.set("date", date);
+      if (from) params.set("from", from);
+      if (to) params.set("to", to);
       if (userId) params.set("user_id", userId);
       return api.get<AggregatedRatingUpdatesResponse>(
         `/analysis/rating-updates/aggregated?${params.toString()}`,
       );
     },
-    enabled: [year, days, date].filter((value) => value !== undefined && value !== null).length === 1,
-    staleTime: 5 * 60 * 1000,
+    enabled: hasRange
+      ? true
+      : [year, days, date].filter((value) => value !== undefined && value !== null).length === 1,
+    staleTime: 60 * 1000,
+    placeholderData: (prev) => prev,
+    gcTime: 5 * 60 * 1000,
   });
 }
 

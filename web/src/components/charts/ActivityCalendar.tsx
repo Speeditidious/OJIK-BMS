@@ -28,7 +28,7 @@ function toDateString(year: number, month: number, day: number): string {
 
 interface DotItem {
   label: string;
-  color: "primary" | "accent" | "play" | "new-play";
+  color: "primary" | "accent" | "play" | "new-play" | "rating";
 }
 
 function getDotItems(
@@ -67,8 +67,9 @@ function getDotItems(
     if (newPlays > 0) dots.push({ label: `신규 ${newPlays}개`, color: "new-play" });
     if (plays > 0) dots.push({ label: `플레이 ${plays}회`, color: "play" });
   }
-  if (ratingUpdates > 0) {
-    dots.push({ label: `레이팅 갱신 ${ratingUpdates}건`, color: "accent" });
+  const isFirstSync = firstSyncDates?.lr2 === dateStr || firstSyncDates?.beatoraja === dateStr;
+  if (!isFirstSync && ratingUpdates > 0) {
+    dots.push({ label: `레이팅 갱신 ${ratingUpdates}건`, color: "rating" });
   }
   return dots;
 }
@@ -231,6 +232,7 @@ export function ActivityCalendar({
           const plays = playsMap[dateStr] ?? 0;
           const ratingUpdates = ratingUpdatesMap[dateStr] ?? 0;
           const isToday = dateStr === todayStr;
+          const cellIsFirstSync = firstSyncDates?.lr2 === dateStr || firstSyncDates?.beatoraja === dateStr;
           const dots = getDotItems(
             dateStr,
             updates,
@@ -258,7 +260,7 @@ export function ActivityCalendar({
                 .filter(Boolean)
                 .join(" ")}
               onClick={() => onDayClick(dateStr)}
-              title={updates > 0 || newPlays > 0 || ratingUpdates > 0 ? `${cell.day}일 — 갱신 ${updates}건 / 신규 ${newPlays}건 / 레이팅 갱신 ${ratingUpdates}건` : plays > 0 ? `${cell.day}일 — 플레이 ${plays}회` : String(cell.day)}
+              title={updates > 0 || newPlays > 0 || (!cellIsFirstSync && ratingUpdates > 0) ? `${cell.day}일 — 갱신 ${updates}건 / 신규 ${newPlays}건${!cellIsFirstSync && ratingUpdates > 0 ? ` / 레이팅 갱신 ${ratingUpdates}건` : ""}` : plays > 0 ? `${cell.day}일 — 플레이 ${plays}회` : String(cell.day)}
             >
               {/* Date number top-left — badge on today */}
               {isToday ? (
@@ -276,13 +278,13 @@ export function ActivityCalendar({
                     <div key={di} className="flex items-center gap-0.5 min-w-0">
                       <span
                         className="shrink-0 text-label leading-none"
-                        style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : dot.color === "new-play" ? "hsl(var(--chart-new-play))" : `hsl(var(--${dot.color}))` }}
+                        style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : dot.color === "new-play" ? "hsl(var(--chart-new-play))" : dot.color === "rating" ? "hsl(var(--chart-rating))" : `hsl(var(--${dot.color}))` }}
                       >
                         ●
                       </span>
                       <span
                         className="text-label leading-tight truncate"
-                        style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : dot.color === "new-play" ? "hsl(var(--chart-new-play))" : `hsl(var(--${dot.color}))` }}
+                        style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : dot.color === "new-play" ? "hsl(var(--chart-new-play))" : dot.color === "rating" ? "hsl(var(--chart-rating))" : `hsl(var(--${dot.color}))` }}
                       >
                         {dot.label}
                       </span>

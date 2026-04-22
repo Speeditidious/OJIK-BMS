@@ -1,17 +1,25 @@
 """Regression tests for ranking history best-score merging."""
 
-from datetime import date
 import uuid
+from datetime import date
 
 import pytest
 
-from app.services.ranking_config import BonusConfig, ReferenceCondition, TableRankingConfig
+from app.services.ranking_calculator import (
+    BestScore,
+    _exp_level,
+    _merge_best_score_fields,
+)
+from app.services.ranking_config import (
+    BonusConfig,
+    ReferenceCondition,
+    TableRankingConfig,
+)
 from app.services.ranking_dashboard import (
     _capture_ranks_for_targets,
     _query_table_score_history,
     compute_exp_progress_fields,
 )
-from app.services.ranking_calculator import BestScore, _exp_level, _merge_best_score_fields
 
 
 def test_merge_best_score_fields_preserves_existing_clear_when_exscore_only_improves():

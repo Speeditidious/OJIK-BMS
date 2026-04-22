@@ -103,13 +103,18 @@ export async function apiFetch<T>(
 
   // Attempt token refresh on 401
   if (response.status === 401 && !skipRefresh && !skipAuth) {
-    const refreshed = await refreshTokens();
-    if (refreshed) {
-      // Retry with new token
-      return apiFetch<T>(path, { ...options, skipRefresh: true });
+    const hadRefreshToken = getRefreshToken() !== null;
+    const hadAccessToken = getAccessToken() !== null;
+    if (hadRefreshToken) {
+      const refreshed = await refreshTokens();
+      if (refreshed) {
+        // Retry with new token
+        return apiFetch<T>(path, { ...options, skipRefresh: true });
+      }
     }
-    // Token refresh failed — redirect to login
-    if (typeof window !== "undefined") {
+    // Only redirect to /login when the user was previously logged in
+    // (had tokens). Guests (no tokens at all) should get a graceful error.
+    if ((hadAccessToken || hadRefreshToken) && typeof window !== "undefined") {
       window.location.href = "/login";
     }
     throw new Error("Authentication required");

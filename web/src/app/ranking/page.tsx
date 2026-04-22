@@ -24,7 +24,7 @@ function RankingContent() {
   const tableSlug = searchParams.get("table") ?? tables?.[0]?.slug ?? null;
   const rawType = searchParams.get("type") as RankingType | null;
   const type: RankingType =
-    rawType === "bmsforce" ? rawType : "exp";
+    rawType === "exp" ? rawType : "bmsforce";
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
 
   const updateParams = useCallback(

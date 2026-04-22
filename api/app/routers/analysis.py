@@ -33,6 +33,7 @@ router = APIRouter(prefix="/analysis", tags=["analysis"])
 _RATING_UPDATES_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _RATING_UPDATES_AGG_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _RATING_BREAKDOWN_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+_CUSTOM_RANGE_MAX_DAYS = 730
 
 
 async def _resolve_target_user(
@@ -502,6 +503,73 @@ async def _get_daily_plays(
     return {str(r.day): int(r.plays or 0) for r in result.all()}
 
 
+def _resolve_activity_window(
+    days: int | None,
+    from_: date_cls | None,
+    to: date_cls | None,
+) -> tuple[date_cls, date_cls, dict[str, Any]]:
+    """Resolve activity window into an inclusive start and exclusive end date."""
+    if (from_ is None) != (to is None):
+        raise HTTPException(status_code=400, detail="both 'from' and 'to' must be provided")
+
+    if from_ is not None and to is not None:
+        if days is not None:
+            raise HTTPException(status_code=400, detail="specify either days or from+to")
+        if to < from_:
+            raise HTTPException(status_code=400, detail="'from' must be <= 'to'")
+        if (to - from_).days > _CUSTOM_RANGE_MAX_DAYS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Date range too large (max {_CUSTOM_RANGE_MAX_DAYS} days)",
+            )
+        return (
+            from_,
+            to + timedelta(days=1),
+            {"from": from_.isoformat(), "to": to.isoformat()},
+        )
+
+    resolved_days = days or 30
+    end_date = datetime.now(UTC).date()
+    start_date = end_date - timedelta(days=max(resolved_days - 1, 0))
+    return (start_date, end_date + timedelta(days=1), {"days": resolved_days})
+
+
+def _resolve_rating_update_window(
+    year: int | None,
+    days: int | None,
+    target_date: date_cls | None,
+    from_: date_cls | None,
+    to: date_cls | None,
+) -> tuple[date_cls | None, date_cls | None]:
+    """Validate rating-update query modes and return explicit range values if used."""
+    explicit_range_supplied = from_ is not None or to is not None
+    if explicit_range_supplied and (from_ is None or to is None):
+        raise HTTPException(status_code=400, detail="both 'from' and 'to' must be provided")
+
+    supplied_modes = sum(
+        value is not None
+        for value in (
+            year,
+            days,
+            target_date,
+            from_ if from_ is not None and to is not None else None,
+        )
+    )
+    if supplied_modes != 1:
+        raise HTTPException(status_code=400, detail="Specify exactly one of year, days, date, or from+to")
+
+    if from_ is not None and to is not None:
+        if to < from_:
+            raise HTTPException(status_code=400, detail="'from' must be <= 'to'")
+        if (to - from_).days > _CUSTOM_RANGE_MAX_DAYS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Date range too large (max {_CUSTOM_RANGE_MAX_DAYS} days)",
+            )
+
+    return (from_, to)
+
+
 async def _get_day_stats(
     user: User,
     client_type: str | None,
@@ -653,7 +721,9 @@ async def get_activity_heatmap(
 
 @router.get("/activity")
 async def get_activity_bar(
-    days: int = Query(default=30, ge=7, le=365, description="Number of recent days"),
+    days: int | None = Query(default=None, ge=7, le=365, description="Number of recent days"),
+    from_: date_cls | None = Query(None, alias="from", description="Inclusive start date"),
+    to: date_cls | None = Query(None, description="Inclusive end date"),
     client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
     user_id: uuid.UUID | None = Query(None, description="Target user ID"),
     current_user: User | None = Depends(get_current_user_optional),
@@ -666,14 +736,14 @@ async def get_activity_bar(
     plays     = user_scores.play_count LAG delta sum per day (mirrors day_summary logic).
     """
     target_user = await _resolve_target_user(user_id, current_user, db)
-    now = datetime.now(UTC)
-    since = now - timedelta(days=days)
+    from_date, until_date, window_meta = _resolve_activity_window(days, from_, to)
 
     subq = _build_activity_subquery(target_user, client_type)
     is_improvement = _improvement_filter(subq)
 
     outer_filters = [
-        subq.c.day >= since.date(),
+        subq.c.day >= from_date,
+        subq.c.day < until_date,
     ]
     outer_filters.extend(_initial_sync_exclusion_for_subq(target_user, subq))
 
@@ -694,12 +764,12 @@ async def get_activity_bar(
         new_plays_by_day[str(r.day)] = r.new_plays
 
     plays_by_day = await _get_daily_plays(
-        target_user, client_type, since.date(), (now.date() + timedelta(days=1)), db
+        target_user, client_type, from_date, until_date, db
     )
 
     all_dates = sorted(set(updates_by_day) | set(new_plays_by_day) | set(plays_by_day))
     return {
-        "days": days,
+        **window_meta,
         "data": [
             {
                 "date": d,
@@ -717,15 +787,15 @@ async def get_rating_updates(
     table_slug: str = Query(..., description="Ranking-enabled table slug"),
     year: int | None = Query(None, description="Whole-year heatmap mode"),
     days: int | None = Query(None, ge=1, le=365, description="Recent N days mode"),
-    date: str | None = Query(None, description="YYYY-MM-DD detail mode"),
+    date: date_cls | None = Query(None, description="YYYY-MM-DD detail mode"),
+    from_: date_cls | None = Query(None, alias="from", description="Inclusive start date"),
+    to: date_cls | None = Query(None, description="Inclusive end date"),
     user_id: uuid.UUID | None = Query(None, description="Target user ID"),
     current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Return rating-update counts or date detail rows for one ranking table."""
-    supplied_modes = sum(value is not None for value in (year, days, date))
-    if supplied_modes != 1:
-        raise HTTPException(status_code=400, detail="Specify exactly one of year, days, or date")
+    from_date, to_date = _resolve_rating_update_window(year, days, date, from_, to)
 
     target_user = await _resolve_target_user(user_id, current_user, db)
 
@@ -750,6 +820,8 @@ async def get_rating_updates(
         year,
         days,
         date,
+        from_date,
+        to_date,
         max_synced_at,
         calculated_at,
     )
@@ -764,7 +836,9 @@ async def get_rating_updates(
         table_symbol=table_symbol,
         year=year,
         days=days,
-        target_date=date_cls.fromisoformat(date) if date else None,
+        target_date=date,
+        from_date=from_date,
+        to_date=to_date,
     )
     response = {
         "table_slug": table_slug,
@@ -779,15 +853,15 @@ async def get_rating_updates(
 async def get_rating_updates_aggregated(
     year: int | None = Query(None, description="Whole-year heatmap mode"),
     days: int | None = Query(None, ge=1, le=365, description="Recent N days mode"),
-    date: str | None = Query(None, description="YYYY-MM-DD detail mode"),
+    date: date_cls | None = Query(None, description="YYYY-MM-DD detail mode"),
+    from_: date_cls | None = Query(None, alias="from", description="Inclusive start date"),
+    to: date_cls | None = Query(None, description="Inclusive end date"),
     user_id: uuid.UUID | None = Query(None, description="Target user ID"),
     current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Return rating-update counts aggregated across all ranking-enabled tables."""
-    supplied_modes = sum(value is not None for value in (year, days, date))
-    if supplied_modes != 1:
-        raise HTTPException(status_code=400, detail="Specify exactly one of year, days, or date")
+    from_date, to_date = _resolve_rating_update_window(year, days, date, from_, to)
 
     target_user = await _resolve_target_user(user_id, current_user, db)
 
@@ -802,6 +876,8 @@ async def get_rating_updates_aggregated(
         year,
         days,
         date,
+        from_date,
+        to_date,
         max_synced_at,
         max_calculated_at,
     )
@@ -815,7 +891,9 @@ async def get_rating_updates_aggregated(
         db=db,
         year=year,
         days=days,
-        target_date=date_cls.fromisoformat(date) if date else None,
+        target_date=date,
+        from_date=from_date,
+        to_date=to_date,
     )
     _RATING_UPDATES_AGG_CACHE[cache_key] = response
     return response

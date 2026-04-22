@@ -243,11 +243,11 @@ function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
           : "",
       )}>
         {item.clear ? (
-          <span className="text-label opacity-80">
+          <span className="text-label row-prev">
             {CLEAR_TYPE_LABELS_SIMPLE[item.clear.prev ?? 0] ?? "?"}
           </span>
         ) : isPlayOnly ? (
-          <span className="text-label opacity-80">
+          <span className="text-label row-prev">
             {CLEAR_TYPE_LABELS_SIMPLE[playOnlyCt ?? 0] ?? "?"}
           </span>
         ) : (
@@ -291,7 +291,7 @@ function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
       <td className={cn("px-2 py-2 whitespace-nowrap text-center", rowColorCls)}>
         {item.rate?.prev != null ? (
           <div className="flex items-baseline gap-1 justify-center">
-            <span className="text-label opacity-70">{item.rate.prev.toFixed(1)}% →</span>
+            <span className="text-label row-prev">{item.rate.prev.toFixed(1)}% →</span>
             <span className="text-label font-semibold">{item.rate.new?.toFixed(1) ?? "?"}%</span>
             {item.rate.new != null && item.rate.prev != null && item.rate.new - item.rate.prev > 0 && (
               <span className="text-label font-bold opacity-75">▲{(item.rate.new - item.rate.prev).toFixed(1)}</span>
@@ -309,7 +309,7 @@ function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
         {item.score?.new_rank ? (
           rankPrev ? (
             <span className="text-label">
-              <span className="opacity-70">{rankPrev} → </span>
+              <span className="row-prev">{rankPrev} → </span>
               <span className="font-semibold">{item.score.new_rank}</span>
             </span>
           ) : (
@@ -324,7 +324,7 @@ function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
       <td className={cn("px-2 py-2 whitespace-nowrap text-center", rowColorCls)}>
         {item.score?.prev != null ? (
           <div className="flex items-baseline gap-1 justify-center">
-            <span className="text-label opacity-70">{item.score.prev} →</span>
+            <span className="text-label row-prev">{item.score.prev} →</span>
             <span className="text-label font-semibold">{item.score.new ?? "–"}</span>
             {scoreDiff != null && scoreDiff > 0 && (
               <span className="text-label font-bold opacity-75">▲{scoreDiff}</span>
@@ -341,7 +341,7 @@ function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
       <td className={cn("px-2 py-2 whitespace-nowrap text-center", rowColorCls)}>
         {item.playCount?.prev != null ? (
           <div className="flex items-baseline gap-1 justify-center">
-            <span className="text-label opacity-70">{item.playCount.prev} →</span>
+            <span className="text-label row-prev">{item.playCount.prev} →</span>
             <span className="text-label font-semibold">{item.playCount.new ?? "–"}</span>
             {playsDiff != null && playsDiff > 0 && (
               <span className="text-label font-bold opacity-75">▲{playsDiff}</span>
@@ -435,7 +435,7 @@ function LampUpgradeRow({ item }: { item: ClearTypeUpdateItem }) {
   return (
     <tr>
       <td className={cn("px-2 py-2 whitespace-nowrap text-center", clearTdClass(item.prev_clear_type, true))}>
-        <span className="text-label opacity-80">
+        <span className="text-label row-prev">
           {CLEAR_TYPE_LABELS_SIMPLE[item.prev_clear_type ?? 0] ?? "?"}
         </span>
       </td>
@@ -476,11 +476,11 @@ function ScoreUpgradeRow({ item }: { item: ExscoreUpdateItem }) {
     <tr>
       <td className={cn("px-2 py-2 whitespace-nowrap text-center", rankTdClass(item.prev_rank, true))}>
         {item.prev_rank == null ? (
-          <span className="text-label">NO PLAY</span>
+          <span className="text-label row-prev">NO PLAY</span>
         ) : (
           <div className="flex flex-col items-center gap-0.5">
-            <span className="text-label">{item.prev_rank}</span>
-            <span className="text-label">{item.prev_exscore ?? "–"}</span>
+            <span className="text-label row-prev">{item.prev_rank}</span>
+            <span className="text-label row-prev">{item.prev_exscore ?? "–"}</span>
           </div>
         )}
       </td>
@@ -525,7 +525,7 @@ function BPUpgradeRow({ item }: { item: MinBPUpdateItem }) {
   return (
     <tr className="transition-all hover:bg-secondary/30">
       <td className="px-2 py-2 whitespace-nowrap text-center">
-        <span className="text-label text-muted-foreground/60">
+        <span className="text-label row-prev">
           {prev == null ? "NO PLAY" : prev}
         </span>
       </td>
@@ -569,7 +569,7 @@ function ComboUpgradeRow({ item }: { item: MaxComboUpdateItem }) {
   return (
     <tr className="transition-all hover:bg-secondary/30">
       <td className="px-2 py-2 whitespace-nowrap text-center">
-        <span className="text-label text-muted-foreground/60">
+        <span className="text-label row-prev">
           {prev == null ? "NO PLAY" : prev}
         </span>
       </td>
@@ -1153,6 +1153,8 @@ function FumenTab({ data }: { data: ScoreUpdatesResponse }) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
+export type ScoreUpdatesViewMode = "summary" | "rating" | "all";
+
 interface ScoreUpdatesProps {
   clientType?: ClientTypeFilter;
   date?: string;
@@ -1160,6 +1162,10 @@ interface ScoreUpdatesProps {
   ratingSlot?: React.ReactNode;
   ratingBadgeCount?: number;
   userId?: string;
+  /** Controlled view mode. If provided, internal useState is not used. */
+  viewMode?: ScoreUpdatesViewMode;
+  /** Called when user changes view mode. Required when `viewMode` prop is provided. */
+  onViewModeChange?: (v: ScoreUpdatesViewMode) => void;
 }
 
 export function ScoreUpdates({
@@ -1169,9 +1175,17 @@ export function ScoreUpdates({
   ratingSlot,
   ratingBadgeCount = 0,
   userId,
+  viewMode: viewModeProp,
+  onViewModeChange,
 }: ScoreUpdatesProps) {
   const { data, isLoading } = useScoreUpdates(clientType, date, limit, userId);
-  const [viewMode, setViewMode] = useState<"summary" | "rating" | "all">("summary");
+  const [viewModeLocal, setViewModeLocal] = useState<ScoreUpdatesViewMode>("summary");
+  // Controlled: use prop when provided; otherwise use local state
+  const viewMode = viewModeProp !== undefined ? viewModeProp : viewModeLocal;
+  function setViewMode(v: ScoreUpdatesViewMode) {
+    if (onViewModeChange) onViewModeChange(v);
+    else setViewModeLocal(v);
+  }
 
   return (
     <Card>
@@ -1193,7 +1207,7 @@ export function ScoreUpdates({
         {!isLoading && data && (
           <Tabs
             value={viewMode}
-            onValueChange={(v) => setViewMode(v as "summary" | "rating" | "all")}
+            onValueChange={(v) => setViewMode(v as ScoreUpdatesViewMode)}
           >
             <div className="flex justify-center mb-4">
               <TabsList>

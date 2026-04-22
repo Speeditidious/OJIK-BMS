@@ -52,6 +52,94 @@ bp_slope    = 1.0
 rate_floor  = 0.70
 rate_slope  = 1.0
 
+# BMSFORCE 엠블렘 (임시로 텍스트 색깔만 꾸밈).
+# min_value <= rating_norm < max_value, 마지막 구간은 max_value 키를 생략해 open-ended 처리.
+[[global.bmsforce_emblems]]
+tier           = "rookie"
+min_value      = 0.000
+max_value      = 2.000
+color          = "#9E9E9E"
+glow_intensity = "none"
+label          = "Rookie"
+
+[[global.bmsforce_emblems]]
+tier           = "bronze"
+min_value      = 2.000
+max_value      = 4.000
+color          = "#A67C52"
+glow_intensity = "none"
+label          = "Bronze"
+
+[[global.bmsforce_emblems]]
+tier           = "silver"
+min_value      = 4.000
+max_value      = 6.000
+color          = "#BFC7D5"
+glow_intensity = "none"
+label          = "Silver"
+
+[[global.bmsforce_emblems]]
+tier           = "gold"
+min_value      = 6.000
+max_value      = 8.000
+color          = "#D4AF37"
+glow_intensity = "none"
+label          = "Gold"
+
+[[global.bmsforce_emblems]]
+tier           = "emerald"
+min_value      = 8.000
+max_value      = 10.000
+color          = "#FFD700"
+glow_intensity = "none"
+label          = "YellowTopaz"
+
+[[global.bmsforce_emblems]]
+tier           = "sapphire"
+min_value      = 10.000
+max_value      = 12.000
+color          = "#2DBE7F"
+glow_intensity = "subtle"
+label          = "Emerald"
+
+[[global.bmsforce_emblems]]
+tier           = "amethyst"
+min_value      = 12.000
+max_value      = 14.000
+color          = "#3E8BFF"
+glow_intensity = "subtle"
+label          = "Sapphire"
+
+[[global.bmsforce_emblems]]
+tier           = "ruby"
+min_value      = 14.000
+max_value      = 16.000
+color          = "#8A63FF"
+glow_intensity = "subtle"
+label          = "Amethyst"
+
+[[global.bmsforce_emblems]]
+tier           = "obsidian"
+min_value      = 16.000
+max_value      = 18.000
+color          = "#5B4D91"
+glow_intensity = "subtle"
+label          = "Obsidian"
+
+[[global.bmsforce_emblems]]
+tier           = "mythic"
+min_value      = 18.000
+max_value      = 20.000
+color          = "#FF6BBA"
+glow_intensity = "subtle"
+label          = "Mythic"
+
+[[global.bmsforce_emblems]]
+tier           = "legend"
+min_value      = 20.000
+color          = "#E25555"
+glow_intensity = "strong"
+label          = "Ruby"
 
 # ============================================================
 # 난이도표별 설정

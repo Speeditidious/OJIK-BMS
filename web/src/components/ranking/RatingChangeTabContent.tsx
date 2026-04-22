@@ -14,11 +14,20 @@ import { MetricInfoIcon, type RatingMetricKey } from "./RatingMetricInfo";
 
 function formatDelta(value: number, digits: number): string {
   if (Math.abs(value) < 1e-9) return "-";
+  if (digits === 0) {
+    const rounded = Math.round(Math.abs(value));
+    return `${value > 0 ? "+" : "-"}${rounded.toLocaleString()}`;
+  }
   return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
 }
 
 function entryKey(sha256: string | null, md5: string | null): string {
   return sha256 ?? md5 ?? "";
+}
+
+function displayMetricValue(value: number, digits: number): number {
+  if (digits === 0) return Math.round(value);
+  return Number(value.toFixed(digits));
 }
 
 function SummaryCard({
@@ -43,16 +52,24 @@ function SummaryCard({
   onSelect: () => void;
 }) {
   const hasPrev = previous !== null && current !== null;
-  const delta = hasPrev ? current - previous : 0;
-  const isZero = !hasPrev || Math.abs(delta) < 1e-9;
+  const previousDisplay = previous === null ? null : displayMetricValue(previous, digits);
+  const currentDisplay = current === null ? null : displayMetricValue(current, digits);
+  const delta = hasPrev && previousDisplay !== null && currentDisplay !== null ? currentDisplay - previousDisplay : 0;
+  const isZero = !hasPrev || delta === 0;
   const showLoading = loading && current === null;
+
+  function formatValue(v: number): string {
+    if (digits === 0) return Math.round(v).toLocaleString();
+    return v.toFixed(digits);
+  }
+
   const caption = current === null
     ? "-"
     : !hasPrev
       ? "비교 기준 없음"
       : isZero
-      ? current.toFixed(digits)
-      : `${previous!.toFixed(digits)} → ${current.toFixed(digits)}`;
+      ? formatValue(currentDisplay!)
+      : `${formatValue(previousDisplay!)} → ${formatValue(currentDisplay!)}`;
 
   return (
     <div
@@ -112,6 +129,10 @@ interface RatingChangeTabContentProps {
   aggregatedTables?: AggregatedRatingUpdateTable[];
   enableMyRankFallback?: boolean;
   userId?: string | null;
+  /** Controlled metric selection. If provided, internal useState is not used. */
+  metric?: RatingHistoryMetric;
+  /** Called when user changes metric. Required when `metric` prop is provided. */
+  onMetricChange?: (metric: RatingHistoryMetric) => void;
 }
 
 export function RatingChangeTabContent({
@@ -122,8 +143,16 @@ export function RatingChangeTabContent({
   aggregatedTables = [],
   enableMyRankFallback = false,
   userId,
+  metric: metricProp,
+  onMetricChange,
 }: RatingChangeTabContentProps) {
-  const [metric, setMetric] = useState<RatingHistoryMetric>("rating");
+  const [metricLocal, setMetricLocal] = useState<RatingHistoryMetric>("rating");
+  // Controlled: use prop when provided; otherwise use local state
+  const metric = metricProp !== undefined ? metricProp : metricLocal;
+  function setMetric(m: RatingHistoryMetric) {
+    if (onMetricChange) onMetricChange(m);
+    else setMetricLocal(m);
+  }
   const [sortBy, setSortBy] = useState<RatingContributionSortBy>("value");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const fallbackTableSlug = aggregatedTables[0]?.table_slug ?? tables[0]?.slug ?? null;
@@ -251,7 +280,7 @@ export function RatingChangeTabContent({
             infoMetric="exp"
             previous={previousSnapshot?.exp ?? null}
             current={currentSnapshot?.exp ?? null}
-            digits={1}
+            digits={0}
             extra={expExtra}
             loading={summaryLoading}
             selected={metric === "exp"}
@@ -262,7 +291,7 @@ export function RatingChangeTabContent({
             infoMetric="rating"
             previous={previousSnapshot?.rating ?? null}
             current={currentSnapshot?.rating ?? null}
-            digits={2}
+            digits={0}
             loading={summaryLoading}
             selected={metric === "rating"}
             onSelect={() => setMetric("rating")}

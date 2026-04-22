@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +30,7 @@ export function SourceClientBadge({
   if (!label) return null;
 
   const isMix = label === "MIX";
+
   const badge = (
     <span className={cn("text-label", isMix && "cursor-help", className)}>
       {label}
@@ -38,22 +40,29 @@ export function SourceClientBadge({
 
   if (label !== "MIX" || !sourceClientDetail) return badge;
 
+  // Check if there's any detail to display
+  const hasDetail = sourceClientDetail.clear_type || sourceClientDetail.exscore || sourceClientDetail.min_bp;
+
   return (
-    <TooltipProvider delayDuration={200}>
+    <TooltipProvider delayDuration={100}>
       <Tooltip>
         <TooltipTrigger asChild>{badge}</TooltipTrigger>
         <TooltipContent side="left" className="text-label">
-          <div className="space-y-0.5">
-            {sourceClientDetail.clear_type && (
-              <div>클리어: {sourceClientDetail.clear_type}</div>
-            )}
-            {sourceClientDetail.exscore && (
-              <div>점수: {sourceClientDetail.exscore}</div>
-            )}
-            {sourceClientDetail.min_bp && (
-              <div>BP: {sourceClientDetail.min_bp}</div>
-            )}
-          </div>
+          {hasDetail ? (
+            <div className="space-y-0.5">
+              {sourceClientDetail.clear_type && (
+                <div>클리어: {sourceClientDetail.clear_type}</div>
+              )}
+              {sourceClientDetail.exscore && (
+                <div>점수: {sourceClientDetail.exscore}</div>
+              )}
+              {sourceClientDetail.min_bp && (
+                <div>BP: {sourceClientDetail.min_bp}</div>
+              )}
+            </div>
+          ) : (
+            <div>LR2 + Beatoraja 혼합 기록</div>
+          )}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

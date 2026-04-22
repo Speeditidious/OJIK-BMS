@@ -22,6 +22,11 @@ class PerClientBest:
     min_bp: int | None = None
 
 
+def _client_label(client_type: str) -> str:
+    """Return the short client label used by dashboard responses."""
+    return CLIENT_LABEL.get(client_type, client_type.upper())
+
+
 def aggregate_source_client(
     per_client_entries: Iterable[PerClientBest],
 ) -> tuple[str | None, dict[str, str] | None]:
@@ -30,55 +35,72 @@ def aggregate_source_client(
     if not entries:
         return (None, None)
 
-    raw: dict[str, object | None] = {
-        "clear_type": None,
-        "clear_type_client": None,
-        "exscore": None,
-        "exscore_client": None,
-        "min_bp": None,
-        "min_bp_client": None,
+    best_clear = max(
+        (entry.clear_type for entry in entries if entry.clear_type is not None),
+        default=None,
+    )
+    best_exscore = max(
+        (entry.exscore for entry in entries if entry.exscore is not None),
+        default=None,
+    )
+    best_min_bp = min(
+        (entry.min_bp for entry in entries if entry.min_bp is not None),
+        default=None,
+    )
+
+    if best_clear is None and best_exscore is None and best_min_bp is None:
+        return (None, None)
+
+    def is_dominant(entry: PerClientBest) -> bool:
+        matches_best = False
+
+        if best_clear is not None and entry.clear_type is not None:
+            if entry.clear_type < best_clear:
+                return False
+            matches_best = matches_best or entry.clear_type == best_clear
+        if best_exscore is not None and entry.exscore is not None:
+            if entry.exscore < best_exscore:
+                return False
+            matches_best = matches_best or entry.exscore == best_exscore
+        if best_min_bp is not None and entry.min_bp is not None:
+            if entry.min_bp > best_min_bp:
+                return False
+            matches_best = matches_best or entry.min_bp == best_min_bp
+
+        return matches_best
+
+    winner_labels = {
+        _client_label(entry.client_type)
+        for entry in entries
+        if is_dominant(entry)
     }
+    if len(winner_labels) == 1:
+        return (next(iter(winner_labels)), None)
 
-    for entry in entries:
-        label = CLIENT_LABEL.get(entry.client_type, entry.client_type.upper())
-        if entry.clear_type is not None and (
-            raw["clear_type"] is None or entry.clear_type > raw["clear_type"]
-        ):
-            raw["clear_type"] = entry.clear_type
-            raw["clear_type_client"] = label
-        if entry.exscore is not None and (
-            raw["exscore"] is None or entry.exscore > raw["exscore"]
-        ):
-            raw["exscore"] = entry.exscore
-            raw["exscore_client"] = label
-        if entry.min_bp is not None and (
-            raw["min_bp"] is None or entry.min_bp < raw["min_bp"]
-        ):
-            raw["min_bp"] = entry.min_bp
-            raw["min_bp_client"] = label
-
-    for entry in entries:
-        label = CLIENT_LABEL.get(entry.client_type, entry.client_type.upper())
-        clear_ok = raw["clear_type"] is None or entry.clear_type == raw["clear_type"]
-        score_ok = raw["exscore"] is None or entry.exscore == raw["exscore"]
-        bp_ok = raw["min_bp"] is None or entry.min_bp == raw["min_bp"]
-        if clear_ok and score_ok and bp_ok:
-            return (label, None)
-
-    clients = {
-        value
-        for key, value in raw.items()
-        if key.endswith("_client") and isinstance(value, str) and value
+    detail = {
+        "clear_type": next(
+            (
+                _client_label(entry.client_type)
+                for entry in entries
+                if best_clear is not None and entry.clear_type == best_clear
+            ),
+            None,
+        ),
+        "exscore": next(
+            (
+                _client_label(entry.client_type)
+                for entry in entries
+                if best_exscore is not None and entry.exscore == best_exscore
+            ),
+            None,
+        ),
+        "min_bp": next(
+            (
+                _client_label(entry.client_type)
+                for entry in entries
+                if best_min_bp is not None and entry.min_bp == best_min_bp
+            ),
+            None,
+        ),
     }
-    if len(clients) > 1:
-        return (
-            "MIX",
-            {
-                "clear_type": raw["clear_type_client"],
-                "exscore": raw["exscore_client"],
-                "min_bp": raw["min_bp_client"],
-            },
-        )
-    if len(clients) == 1:
-        return (next(iter(clients)), None)
-    return (None, None)
+    return ("MIX", {key: value for key, value in detail.items() if value is not None})

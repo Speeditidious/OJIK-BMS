@@ -163,6 +163,23 @@ def _contribution_value(
     return value, resolved_level
 
 
+def _display_whole_metric_value(value: float | None) -> int:
+    """Return the integer-rounded value shown in the UI for EXP/rating."""
+    return int(round(value or 0.0))
+
+
+def _display_whole_metric_delta(previous_value: float | None, current_value: float | None) -> int:
+    """Return the displayed EXP/rating delta using UI rounding semantics."""
+    return _display_whole_metric_value(current_value) - _display_whole_metric_value(previous_value)
+
+
+def _display_top_n_contribution_value(value: float | None, is_in_top_n: bool) -> int:
+    """Return the displayed Top-N contribution value for one chart."""
+    if not is_in_top_n:
+        return 0
+    return _display_whole_metric_value(value)
+
+
 def _compare_nullable(a: Any, b: Any) -> int:
     if a is None and b is None:
         return 0
@@ -530,7 +547,13 @@ def _resolve_date_window(
     year: int | None = None,
     days: int | None = None,
     target_date: date | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
 ) -> tuple[date, date]:
+    if from_date is not None or to_date is not None:
+        if from_date is None or to_date is None:
+            raise ValueError("Both from_date and to_date must be provided together")
+        return (from_date, to_date)
     now = datetime.now(UTC).date()
     if target_date is not None:
         return (target_date, target_date)
@@ -703,7 +726,12 @@ async def _compute_rating_update_sweep(
 
     current_date = start_date
     while current_date <= end_date:
-        previous_top_set_snapshot = set(top_set)
+        previous_values_snapshot = dict(current_values)
+        previous_top_keys_snapshot = _top_keys_from_values(
+            previous_values_snapshot,
+            targets_by_key,
+            table_cfg.top_n,
+        )
         day_updated_keys: set[tuple[str | None, str | None]] = set()
 
         while row_index < len(history_rows):
@@ -726,10 +754,17 @@ async def _compute_rating_update_sweep(
                 day_updated_keys.add(canonical)
             row_index += 1
 
+        current_top_keys = _top_keys_from_values(current_values, targets_by_key, table_cfg.top_n)
         updated_top_keys = {
             key
-            for key in (day_updated_keys | (top_set - previous_top_set_snapshot))
-            if key in top_set and current_values.get(key, 0.0) > 0
+            for key in (previous_top_keys_snapshot | current_top_keys)
+            if _display_top_n_contribution_value(
+                previous_values_snapshot.get(key, 0.0),
+                key in previous_top_keys_snapshot,
+            ) != _display_top_n_contribution_value(
+                current_values.get(key, 0.0),
+                key in current_top_keys,
+            )
         }
         date_key = current_date.isoformat()
         counts_by_date[date_key] = len(updated_top_keys)
@@ -754,7 +789,7 @@ async def _compute_rating_update_sweep(
                     value=current_values.get(key, 0.0),
                 )
                 for key in ordered_top_keys
-                if key in updated_top_keys
+                if key in updated_top_keys and key in current_top_keys
             ]
 
         current_date += timedelta(days=1)
@@ -775,9 +810,17 @@ async def compute_rating_updates(
     year: int | None = None,
     days: int | None = None,
     target_date: date | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
 ) -> dict[str, Any]:
     """Compute rating-update counts via a single chronological sweep."""
-    start_date, end_date = _resolve_date_window(year=year, days=days, target_date=target_date)
+    start_date, end_date = _resolve_date_window(
+        year=year,
+        days=days,
+        target_date=target_date,
+        from_date=from_date,
+        to_date=to_date,
+    )
     sweep = await _compute_rating_update_sweep(
         user_id=user_id,
         table_cfg=table_cfg,
@@ -805,9 +848,17 @@ async def compute_rating_updates_aggregated(
     year: int | None = None,
     days: int | None = None,
     target_date: date | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
 ) -> dict[str, Any]:
     """Aggregate rating-update counts across every ranking-enabled table with key dedupe."""
-    start_date, end_date = _resolve_date_window(year=year, days=days, target_date=target_date)
+    start_date, end_date = _resolve_date_window(
+        year=year,
+        days=days,
+        target_date=target_date,
+        from_date=from_date,
+        to_date=to_date,
+    )
     aggregated_by_date: dict[str, set[tuple[str | None, str | None]]] = {}
     target_tables: list[dict[str, Any]] = []
     target_date_key = target_date.isoformat() if target_date is not None else None
@@ -869,6 +920,7 @@ def _build_breakdown_entry(
     source_client: str | None,
     source_client_detail: dict[str, str] | None,
     extra: dict[str, float],
+    updated_today: bool = True,
 ) -> dict[str, Any]:
     resolved_level = target["level"]
     preferred_score = current_score or previous_score
@@ -905,6 +957,7 @@ def _build_breakdown_entry(
         "is_in_top_n": False,
         "source_client": source_client,
         "source_client_detail": source_client_detail,
+        "updated_today": updated_today,
         **{name: round(delta, 3) for name, delta in extra.items()},
     }
 
@@ -963,6 +1016,7 @@ async def compute_rating_breakdown(
         for key, per_client_map in per_client_prev.items()
     }
     day_updated_keys: set[tuple[str | None, str | None]] = set()
+    day_rows_by_key: dict[tuple[str | None, str | None], list[PerClientBest]] = {}
 
     while row_index < len(history_rows):
         row = history_rows[row_index]
@@ -981,6 +1035,19 @@ async def compute_rating_breakdown(
         )
         if changed and canonical is not None:
             day_updated_keys.add(canonical)
+        # Collect per-client rows for this day regardless of whether best-score changed
+        canon = _canonical_key(row["fumen_sha256"], row["fumen_md5"], sha256_to_md5, md5_to_sha256)
+        if canon != (None, None) and canon in targets_by_key and row.get("client_type"):
+            day_rows_by_key.setdefault(canon, []).append(
+                PerClientBest(
+                    client_type=str(row["client_type"]),
+                    clear_type=row.get("clear_type"),
+                    exscore=row.get("exscore"),
+                    rate=float(row["rate"]) if row.get("rate") is not None else None,
+                    rank=row.get("rank"),
+                    min_bp=row.get("min_bp"),
+                )
+            )
         row_index += 1
 
     previous_top_keys = _top_keys_from_values(prev_values, targets_by_key, table_cfg.top_n)
@@ -999,13 +1066,15 @@ async def compute_rating_breakdown(
             continue
         exp_prev = prev_values.get(key, 0.0)
         exp_curr = curr_values.get(key, 0.0)
-        delta_exp = exp_curr - exp_prev
-        if delta_exp <= 0:
+        delta_exp = _display_whole_metric_delta(exp_prev, exp_curr)
+        if delta_exp == 0:
             continue
         exp_candidate_keys.add(key)
-        source_client, source_client_detail = aggregate_source_client(
-            (per_client_curr.get(key) or per_client_prev.get(key) or {}).values()
-        )
+        day_rows = day_rows_by_key.get(key, [])
+        if day_rows:
+            source_client, source_client_detail = aggregate_source_client(day_rows)
+        else:
+            source_client, source_client_detail = None, None
         exp_contributions.append(
             _build_breakdown_entry(
                 key=key,
@@ -1020,7 +1089,8 @@ async def compute_rating_breakdown(
                 previous_rank=exp_previous_rank_map.get(key),
                 source_client=source_client,
                 source_client_detail=source_client_detail,
-                extra={"delta_exp": delta_exp},
+                extra={"delta_exp": float(delta_exp)},
+                updated_today=bool(day_rows),
             )
         )
 
@@ -1037,14 +1107,18 @@ async def compute_rating_breakdown(
         target = targets_by_key.get(key)
         if target is None:
             continue
-        prev_rating_value = prev_values.get(key, 0.0) if key in previous_top_keys else 0.0
-        curr_rating_value = curr_values.get(key, 0.0) if key in current_top_keys else 0.0
-        delta_rating = curr_rating_value - prev_rating_value
-        if abs(delta_rating) <= 1e-9:
+        prev_rating_value = prev_values.get(key, 0.0)
+        curr_rating_value = curr_values.get(key, 0.0)
+        previous_top_n_display = _display_top_n_contribution_value(prev_rating_value, key in previous_top_keys)
+        current_top_n_display = _display_top_n_contribution_value(curr_rating_value, key in current_top_keys)
+        if previous_top_n_display == current_top_n_display:
             continue
-        source_client, source_client_detail = aggregate_source_client(
-            (per_client_curr.get(key) or per_client_prev.get(key) or {}).values()
-        )
+        delta_rating = _display_whole_metric_delta(prev_rating_value, curr_rating_value)
+        rating_day_rows = day_rows_by_key.get(key, [])
+        if rating_day_rows:
+            source_client, source_client_detail = aggregate_source_client(rating_day_rows)
+        else:
+            source_client, source_client_detail = None, None
         rating_contributions.append(
             _build_breakdown_entry(
                 key=key,
@@ -1054,12 +1128,13 @@ async def compute_rating_breakdown(
                 table_cfg=table_cfg,
                 table_symbol=table_symbol,
                 value=curr_values.get(key, 0.0),
-                previous_value=prev_values.get(key, 0.0) if key in previous_top_keys else None,
+                previous_value=prev_values.get(key, 0.0),
                 rank=rating_rank_map.get(key, 0),
                 previous_rank=rating_previous_rank_map.get(key),
                 source_client=source_client,
                 source_client_detail=source_client_detail,
-                extra={"delta_rating": delta_rating},
+                extra={"delta_rating": float(delta_rating)},
+                updated_today=bool(rating_day_rows),
             )
         )
 

@@ -92,7 +92,7 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
             {clearBadge(u.clear_type, u.client_type)}
             {(u.fumen_sha256 || u.fumen_md5) ? (
               <Link
-                href={`/songs/${u.fumen_sha256 || u.fumen_md5}`}
+                href={`/songs/${u.fumen_sha256 ?? u.fumen_md5}`}
                 className="text-label font-medium truncate max-w-[200px] hover:text-primary transition-colors"
                 onClick={(e) => e.stopPropagation()}
               >
@@ -221,6 +221,7 @@ interface Props {
   clientType?: ClientTypeFilter;
   heatmapData?: HeatmapDay[];
   ratingUpdatesByDate?: Record<string, number>;
+  firstSyncDates?: { lr2?: string; beatoraja?: string };
   onDayClick?: (dateStr: string) => void;
   emptyMessage?: string;
 }
@@ -228,13 +229,18 @@ interface Props {
 export function RecentActivity({
   heatmapData = [],
   ratingUpdatesByDate = {},
+  firstSyncDates,
   onDayClick,
   emptyMessage = "활동 내역이 없습니다.",
 }: Props) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const allDays = heatmapData
-    .filter((d) => d.updates > 0 || (d.new_plays ?? 0) > 0 || d.plays > 0 || (ratingUpdatesByDate[d.date] ?? 0) > 0)
+    .filter((d) => {
+      const isFirstSync = firstSyncDates?.lr2 === d.date || firstSyncDates?.beatoraja === d.date;
+      const ratingCount = isFirstSync ? 0 : (ratingUpdatesByDate[d.date] ?? 0);
+      return d.updates > 0 || (d.new_plays ?? 0) > 0 || d.plays > 0 || ratingCount > 0;
+    })
     .slice()
     .sort((a, b) => (a.date < b.date ? 1 : -1));
 
@@ -273,24 +279,25 @@ export function RecentActivity({
                   <span className="text-caption text-muted-foreground">{formatRelativeTime(day.date)}</span>
                 </div>
                 <div className="flex items-center gap-2">
+                  {/* Order: 갱신 기록 → 신규 기록 → 레이팅 갱신 → 플레이 횟수 */}
                   <span
                     className="text-caption bg-muted rounded px-1.5 py-0.5"
-                    style={{ color: "hsl(var(--primary))" }}
+                    style={{ color: "hsl(var(--warning))" }}
                   >
                     갱신 {day.updates}건
                   </span>
                   {(day.new_plays ?? 0) > 0 && (
                     <span
                       className="text-caption bg-muted rounded px-1.5 py-0.5"
-                      style={{ color: "hsl(var(--chart-new-play))" }}
+                      style={{ color: "hsl(var(--primary))" }}
                     >
                       신규 {day.new_plays}건
                     </span>
                   )}
-                  {(ratingUpdatesByDate[day.date] ?? 0) > 0 && (
+                  {(ratingUpdatesByDate[day.date] ?? 0) > 0 && !(firstSyncDates?.lr2 === day.date || firstSyncDates?.beatoraja === day.date) && (
                     <span
                       className="text-caption bg-muted rounded px-1.5 py-0.5"
-                      style={{ color: "hsl(var(--warning))" }}
+                      style={{ color: "hsl(var(--chart-rating))" }}
                     >
                       레이팅 갱신 {ratingUpdatesByDate[day.date]}건
                     </span>

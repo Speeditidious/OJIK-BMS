@@ -123,6 +123,29 @@ async def list_ranking_tables() -> list[dict[str, Any]]:
     ]
 
 
+@router.get("/display-config")
+async def get_ranking_display_config() -> dict[str, Any]:
+    """Return public ranking display metadata shared across views."""
+    try:
+        config = get_ranking_config()
+    except RuntimeError:
+        return {"bmsforce_emblems": []}
+
+    return {
+        "bmsforce_emblems": [
+            {
+                "tier": emblem.tier,
+                "min_value": emblem.min_value,
+                "max_value": emblem.max_value,
+                "color": emblem.color,
+                "glow_intensity": emblem.glow_intensity,
+                "label": emblem.label,
+            }
+            for emblem in config.bmsforce_emblems
+        ]
+    }
+
+
 # ── GET /rankings/{table_slug} ────────────────────────────────────────────────
 
 @router.get("/{table_slug}/history")
@@ -146,8 +169,8 @@ async def get_ranking_history(
         raise HTTPException(status_code=401, detail="Authentication required")
     if to < from_:
         raise HTTPException(status_code=400, detail="'from' must be <= 'to'")
-    if (to - from_).days > 400:
-        raise HTTPException(status_code=400, detail="Date range too large (max 400 days)")
+    if (to - from_).days > 730:
+        raise HTTPException(status_code=400, detail="Date range too large (max 730 days)")
 
     table_cfg = config.get_table_by_slug(table_slug)
     if table_cfg is None:

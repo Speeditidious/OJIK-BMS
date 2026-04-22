@@ -41,7 +41,12 @@ interface ContributionTableProps {
   sortBy?: RatingContributionSortBy;
   sortDir?: "asc" | "desc";
   onSortChange?: (sortBy: RatingContributionSortBy) => void;
-  presentation?: "default" | "day-detail";
+  /**
+   * "default"     — standard virtualized table (default)
+   * "day-detail"  — comparison columns, center-aligned layout
+   * "rating-detail" — no scroll/virtualization (for rating detail tab TOP view)
+   */
+  presentation?: "default" | "day-detail" | "rating-detail";
 }
 
 type SectionKey = "kept" | "entered" | "dropped";
@@ -71,7 +76,7 @@ const DEFAULT_COLUMNS: TableColumn[] = [
   { width: 140, align: "left" },
   { width: 120, align: "left" },
   { width: 72, align: "left" },
-  { width: 176, align: "left" },
+  { width: 200, align: "center" },
 ];
 
 const DAY_DETAIL_COLUMNS: TableColumn[] = [
@@ -79,10 +84,10 @@ const DAY_DETAIL_COLUMNS: TableColumn[] = [
   { width: 92, align: "left" },
   { align: "left" },
   { width: 160, align: "center" },
-  { width: 120, align: "center" },
+  { width: 140, align: "center" },
   { width: 180, align: "center" },
   { width: 116, align: "center" },
-  { width: 60, align: "center" },
+  { width: 72, align: "center" },
   { width: 220, align: "center" },
 ];
 
@@ -124,7 +129,7 @@ function cellAlignClass(align: TableColumn["align"]): string {
 }
 
 function comparisonEnabled(
-  presentation: "default" | "day-detail",
+  presentation: "default" | "day-detail" | "rating-detail",
   section: SectionKey | undefined,
   hasPrevious: boolean,
 ): boolean {
@@ -273,8 +278,8 @@ function InlineComparison({
 }) {
   return (
     <div className="inline-flex flex-wrap items-center gap-1 whitespace-nowrap">
-      <span className="text-muted-foreground opacity-70">{previous}</span>
-      <span className="text-muted-foreground opacity-70">→</span>
+      <span className="opacity-70">{previous}</span>
+      <span className="opacity-70">→</span>
       <span className="font-semibold">{current}</span>
       {diff ? <span className="font-bold opacity-75">{diff}</span> : null}
     </div>
@@ -282,7 +287,7 @@ function InlineComparison({
 }
 
 function ValueFallback() {
-  return <span className="text-muted-foreground row-muted">--</span>;
+  return <span className="row-prev">--</span>;
 }
 
 function RankCell({
@@ -292,7 +297,7 @@ function RankCell({
 }: {
   entry: RankingContributionEntry;
   section?: SectionKey;
-  presentation: "default" | "day-detail";
+  presentation: "default" | "day-detail" | "rating-detail";
 }) {
   const displayRank = section === "dropped" ? entry.previous_rank ?? entry.rank : entry.rank;
   const previousRank = entry.previous_rank ?? null;
@@ -306,11 +311,11 @@ function RankCell({
         />
       );
     }
-    return <span className="font-semibold tabular-nums">{entry.rank}</span>;
+    return <span className="tabular-nums">{entry.rank}</span>;
   }
 
   if (section !== "kept" || previousRank == null || previousRank === entry.rank) {
-    return <span className="font-semibold tabular-nums">{displayRank}</span>;
+    return <span className="tabular-nums">{displayRank}</span>;
   }
 
   const diff = previousRank - entry.rank;
@@ -333,10 +338,11 @@ function ClearCell({
   entry: RankingContributionEntry;
   section?: SectionKey;
   clientType: string;
-  presentation: "default" | "day-detail";
+  presentation: "default" | "day-detail" | "rating-detail";
 }) {
   const previousClearType = entry.previous_clear_type ?? null;
-  const showComparison = comparisonEnabled(presentation, section, previousClearType != null);
+  const effectivePresentation = presentation === "rating-detail" ? "default" : presentation;
+  const showComparison = comparisonEnabled(effectivePresentation, section, previousClearType != null);
 
   if (!showComparison) {
     return clearText(entry.clear_type, clientType);
@@ -363,7 +369,7 @@ function BpCell({
 }: {
   entry: RankingContributionEntry;
   section?: SectionKey;
-  presentation: "default" | "day-detail";
+  presentation: "default" | "day-detail" | "rating-detail";
 }) {
   const showComparison = comparisonEnabled(
     presentation,
@@ -375,10 +381,10 @@ function BpCell({
     return <ValueFallback />;
   }
   if (!showComparison || entry.previous_min_bp == null) {
-    return <span className="tabular-nums font-semibold">{entry.min_bp}</span>;
+    return <span className="tabular-nums">{entry.min_bp}</span>;
   }
   if (entry.previous_min_bp === entry.min_bp) {
-    return <span className="tabular-nums font-semibold">{entry.min_bp}</span>;
+    return <span className="tabular-nums">{entry.min_bp}</span>;
   }
 
   const diff = entry.previous_min_bp - entry.min_bp;
@@ -398,7 +404,7 @@ function RateCell({
 }: {
   entry: RankingContributionEntry;
   section?: SectionKey;
-  presentation: "default" | "day-detail";
+  presentation: "default" | "day-detail" | "rating-detail";
 }) {
   const showComparison = comparisonEnabled(
     presentation,
@@ -410,10 +416,10 @@ function RateCell({
     return <ValueFallback />;
   }
   if (!showComparison || entry.previous_rate == null) {
-    return <span className="tabular-nums font-semibold">{entry.rate.toFixed(1)}%</span>;
+    return <span className="tabular-nums">{entry.rate.toFixed(1)}%</span>;
   }
   if (Math.abs(entry.rate - entry.previous_rate) < 1e-9) {
-    return <span className="tabular-nums font-semibold">{entry.rate.toFixed(1)}%</span>;
+    return <span className="tabular-nums">{entry.rate.toFixed(1)}%</span>;
   }
 
   const diff = entry.rate - entry.previous_rate;
@@ -433,7 +439,7 @@ function RankGradeCell({
 }: {
   entry: RankingContributionEntry;
   section?: SectionKey;
-  presentation: "default" | "day-detail";
+  presentation: "default" | "day-detail" | "rating-detail";
 }) {
   const showComparison = comparisonEnabled(
     presentation,
@@ -445,10 +451,10 @@ function RankGradeCell({
     return <ValueFallback />;
   }
   if (!showComparison || !entry.previous_rank_grade) {
-    return <span className="font-semibold">{entry.rank_grade}</span>;
+    return <span>{entry.rank_grade}</span>;
   }
   if (entry.previous_rank_grade === entry.rank_grade) {
-    return <span className="font-semibold">{entry.rank_grade}</span>;
+    return <span>{entry.rank_grade}</span>;
   }
 
   return (
@@ -457,6 +463,10 @@ function RankGradeCell({
       current={entry.rank_grade}
     />
   );
+}
+
+function formatValueMetric(v: number): string {
+  return Math.round(v).toLocaleString();
 }
 
 function ValueCell({
@@ -468,28 +478,29 @@ function ValueCell({
   entry: RankingContributionEntry;
   metric: RatingContributionMetric;
   section?: SectionKey;
-  presentation: "default" | "day-detail";
+  presentation: "default" | "day-detail" | "rating-detail";
 }) {
-  const digits = metric === "exp" ? 1 : 2;
-  const delta = metric === "exp" ? entry.delta_exp : entry.delta_rating;
   const previousValue = entry.previous_value ?? null;
-  const showComparison = comparisonEnabled(presentation, section, previousValue != null);
+  const effectivePresentation = presentation === "rating-detail" ? "default" : presentation;
+  const showComparison = comparisonEnabled(effectivePresentation, section, previousValue != null);
+  const currentDisplayValue = Math.round(entry.value);
+  const previousDisplayValue = previousValue == null ? null : Math.round(previousValue);
 
   if (!showComparison || previousValue == null) {
-    return <span className="tabular-nums font-semibold">{entry.value.toFixed(digits)}</span>;
+    return <span className="tabular-nums">{formatValueMetric(entry.value)}</span>;
   }
-  if (Math.abs(entry.value - previousValue) < 1e-9) {
-    return <span className="tabular-nums font-semibold">{entry.value.toFixed(digits)}</span>;
+  const previousDisplay = previousDisplayValue ?? 0;
+  if (previousDisplay === currentDisplayValue) {
+    return <span className="tabular-nums">{currentDisplayValue.toLocaleString()}</span>;
   }
+  const displayDelta = currentDisplayValue - previousDisplay;
 
   return (
     <InlineComparison
-      previous={previousValue.toFixed(digits)}
-      current={entry.value.toFixed(digits)}
+      previous={previousDisplay.toLocaleString()}
+      current={currentDisplayValue.toLocaleString()}
       diff={
-        delta == null || Math.abs(delta) < 1e-9
-          ? null
-          : `${delta > 0 ? "▲" : "▼"}${Math.abs(delta).toFixed(digits)}`
+        `${displayDelta > 0 ? "▲" : "▼"}${Math.abs(displayDelta).toLocaleString()}`
       }
     />
   );
@@ -505,10 +516,10 @@ function ContributionRow({
   entry: RankingContributionEntry;
   metric: RatingContributionMetric;
   section?: SectionKey;
-  presentation: "default" | "day-detail";
+  presentation: "default" | "day-detail" | "rating-detail";
   columns: TableColumn[];
 }) {
-  const songHref = `/songs/${entry.sha256 || entry.md5}`;
+  const songHref = `/songs/${entry.sha256 ?? entry.md5}`;
   const rowClass = CLEAR_ROW_CLASS[entry.clear_type] ?? "";
   const clearClient = entry.client_types[0] ?? "beatoraja";
 
@@ -520,10 +531,10 @@ function ContributionRow({
       <td className={cn("px-2 text-label tabular-nums", cellAlignClass(columns[0].align))}>
         <RankCell entry={entry} section={section} presentation={presentation} />
       </td>
-      <td className={cn("px-2 text-label font-medium", cellAlignClass(columns[1].align))}>{entry.symbol}{entry.level}</td>
+      <td className={cn("px-2 text-label", cellAlignClass(columns[1].align))}>{entry.symbol}{entry.level}</td>
       <td className="px-2">
         <div className="min-w-0 overflow-hidden">
-          <Link href={songHref} className="block max-w-full truncate text-label leading-tight font-medium transition-colors hover:text-primary">
+          <Link href={songHref} className="block max-w-full truncate text-label leading-tight transition-colors hover:text-primary">
             {entry.title}
           </Link>
           {entry.artist && (
@@ -544,13 +555,17 @@ function ContributionRow({
         <RankGradeCell entry={entry} section={section} presentation={presentation} />
       </td>
       <td className={cn("px-2 text-label", cellAlignClass(columns[7].align))}>
-        <SourceClientBadge
-          sourceClient={entry.source_client}
-          sourceClientDetail={entry.source_client_detail}
-          fallbackClientTypes={entry.client_types}
-        />
+        {entry.updated_today === false ? (
+          <span className="row-prev">—</span>
+        ) : (
+          <SourceClientBadge
+            sourceClient={entry.source_client}
+            sourceClientDetail={entry.source_client_detail}
+            fallbackClientTypes={entry.client_types}
+          />
+        )}
       </td>
-      <td className={cn("px-2 text-label tabular-nums", cellAlignClass(columns[8].align))}>
+      <td className="rating-value-cell px-3 text-center w-32 font-bold tabular-nums text-base">
         <ValueCell entry={entry} metric={metric} section={section} presentation={presentation} />
       </td>
     </tr>
@@ -622,8 +637,8 @@ function TableHeader({
             align={columns[7].align}
           />
         </th>
-        <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[8].align))}>
-          <SortableHeader label={valueLabel} sortKey="value" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[8].align} />
+        <th className="px-2 py-2 font-bold whitespace-nowrap text-center w-32 text-base">
+          <SortableHeader label={valueLabel} sortKey="value" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align="center" />
         </th>
       </tr>
     </thead>
@@ -647,7 +662,7 @@ function SectionCard({
   colSpan: number;
   topN?: number;
   valueLabel: string;
-  presentation: "default" | "day-detail";
+  presentation: "default" | "day-detail" | "rating-detail";
 }) {
   const meta = sectionMeta(section, topN);
   const columns = presentation === "day-detail" ? DAY_DETAIL_COLUMNS : DEFAULT_COLUMNS;
@@ -685,7 +700,7 @@ function SectionCard({
             {rows.map((row) => (
               row.kind === "ellipsis"
                 ? <EllipsisRow key={row.id} colSpan={colSpan} />
-                : <ContributionRow key={row.id} entry={row.entry} metric="rating" section={section} presentation={presentation} columns={columns} />
+                : <ContributionRow key={row.id} entry={row.entry} metric="rating" section={section} presentation={presentation === "rating-detail" ? "default" : presentation} columns={columns} />
             ))}
           </tbody>
         </table>
@@ -711,9 +726,11 @@ export function ContributionTable({
 }: ContributionTableProps) {
   const parentRef = useRef<HTMLDivElement | null>(null);
   const shouldRenderSections = metric === "rating" && !!previousTopKeys && !!currentTopKeys;
-  const shouldVirtualize = !shouldRenderSections && entries.length >= 50;
+  // rating-detail: no virtualization (render all, no scroll container)
+  const shouldVirtualize = !shouldRenderSections && presentation !== "rating-detail" && entries.length >= 50;
   const colSpan = 9;
   const valueLabel = metric === "exp" ? "경험치" : "레이팅";
+  // rating-detail uses same column layout as default
   const columns = presentation === "day-detail" ? DAY_DETAIL_COLUMNS : DEFAULT_COLUMNS;
 
   const sortedEntries = useMemo(() => {
@@ -754,7 +771,7 @@ export function ContributionTable({
       }
     }
 
-    const orderedSections: SectionKey[] = ["kept", "entered", "dropped"];
+    const orderedSections: SectionKey[] = ["entered", "kept", "dropped"];
     return orderedSections
       .map<SectionModel | null>((section) => {
         const bucket = [...buckets[section]].sort(
@@ -821,11 +838,12 @@ export function ContributionTable({
   }
 
   if (sectionModels) {
+    const sectionMaxHeight = presentation === "rating-detail" ? undefined : MAX_TABLE_HEIGHT;
     return (
       <div
         ref={parentRef}
         className="space-y-3 overflow-auto pr-1"
-        style={{ maxHeight: MAX_TABLE_HEIGHT }}
+        style={sectionMaxHeight !== undefined ? { maxHeight: sectionMaxHeight } : undefined}
       >
         {sectionModels.map((section) => (
           <SectionCard
@@ -854,12 +872,15 @@ export function ContributionTable({
     ? virtualRows.map((virtualRow) => sortedEntries[virtualRow.index])
     : sortedEntries;
 
+  // rating-detail: no max height — render all rows without scroll
+  const tableMaxHeight = presentation === "rating-detail" ? undefined : MAX_TABLE_HEIGHT;
+
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card/60">
       <div
         ref={parentRef}
         className="overflow-auto"
-        style={{ maxHeight: MAX_TABLE_HEIGHT }}
+        style={tableMaxHeight !== undefined ? { maxHeight: tableMaxHeight } : undefined}
       >
         <table className="w-full border-collapse" style={{ tableLayout: "fixed", minWidth: 960 }}>
           <colgroup>

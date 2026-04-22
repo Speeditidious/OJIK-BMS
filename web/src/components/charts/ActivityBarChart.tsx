@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import {
+  CartesianGrid,
   Line,
   LineChart,
   ReferenceLine,
@@ -11,6 +12,10 @@ import {
 } from "recharts";
 import { useChartWidth } from "@/hooks/use-chart-size";
 import { ActivityDay, ClientTypeFilter, CourseActivityItem } from "@/hooks/use-analysis";
+import { ChartLegend, type LegendItem } from "@/components/charts/ChartLegend";
+import { daysInRange, type DateRange } from "@/lib/date-range";
+import { pickTickResolution, formatTick, computeTicks } from "@/lib/axis-format";
+import { formatCompactNumber } from "@/lib/rating-format";
 
 export type ActivitySeries = "updates" | "plays" | "new_plays" | "rating_updates";
 
@@ -20,18 +25,16 @@ interface ActivityBarChartProps {
   clientType?: ClientTypeFilter;
   courseData?: CourseActivityItem[];
   activeModes?: ActivitySeries[];
+  rangeFrom?: string;
+  rangeTo?: string;
 }
 
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00");
-  return `${d.getMonth() + 1}/${d.getDate()}`;
-}
-
+// Color order: rating_updates (most prominent) > updates > new_plays > plays (least)
 function seriesColor(mode: ActivitySeries): string {
-  if (mode === "plays") return "hsl(var(--chart-play))";
-  if (mode === "new_plays") return "hsl(var(--chart-new-play))";
-  if (mode === "rating_updates") return "hsl(var(--warning))";
-  return "hsl(var(--primary))";
+  if (mode === "rating_updates") return "hsl(var(--chart-rating))";
+  if (mode === "updates") return "hsl(var(--warning))";
+  if (mode === "new_plays") return "hsl(var(--primary))";
+  return "hsl(var(--chart-play))";
 }
 
 function seriesLabel(mode: ActivitySeries): string {
@@ -132,6 +135,8 @@ export function ActivityBarChart({
   clientType,
   courseData,
   activeModes = ["updates"] as ActivitySeries[],
+  rangeFrom,
+  rangeTo,
 }: ActivityBarChartProps) {
   const [chartRef, chartWidth] = useChartWidth(150);
   const enabledModes = useMemo<ActivitySeries[]>(
@@ -186,17 +191,21 @@ export function ActivityBarChart({
       }
     }
     injected.sort((left, right) => left.date.localeCompare(right.date));
-    return injected.map((day) => ({
-      date: formatDate(day.date),
-      fullDate: day.date,
-      updates: day.updates,
-      new_plays: day.new_plays ?? 0,
-      plays: day.plays,
-      rating_updates: day.rating_updates ?? 0,
-      syncLabels: syncByDate[day.date]?.labels,
-      hideSyncCount: syncByDate[day.date]?.hideCount ?? false,
-      courseLabels: courseByDate[day.date],
-    }));
+    return injected.map((day) => {
+      // First-sync date: zero out all counts including rating_updates (§4.2/4.5)
+      const isFirstSync = syncByDate[day.date]?.hideCount ?? false;
+      return {
+        date: day.date,
+        fullDate: day.date,
+        updates: isFirstSync ? 0 : day.updates,
+        new_plays: isFirstSync ? 0 : (day.new_plays ?? 0),
+        plays: isFirstSync ? 0 : day.plays,
+        rating_updates: isFirstSync ? 0 : (day.rating_updates ?? 0),
+        syncLabels: syncByDate[day.date]?.labels,
+        hideSyncCount: syncByDate[day.date]?.hideCount ?? false,
+        courseLabels: courseByDate[day.date],
+      };
+    });
   }, [courseByDate, data, syncByDate]);
 
   const yMax = useMemo(() => {
@@ -210,6 +219,20 @@ export function ActivityBarChart({
     );
     return Math.max(1, ...values);
   }, [chartData, enabledModes]);
+
+  // Compute x-axis ticks based on range
+  const { tickDates, tickInterval } = useMemo(() => {
+    const allDates = chartData.map((r) => r.fullDate);
+    const effectiveRange: DateRange | null = rangeFrom && rangeTo
+      ? { from: rangeFrom, to: rangeTo }
+      : allDates.length >= 2
+        ? { from: allDates[0], to: allDates[allDates.length - 1] }
+        : null;
+    const days = effectiveRange ? daysInRange(effectiveRange) : allDates.length;
+    const ticks = computeTicks(allDates, days);
+    const resolution = pickTickResolution(days);
+    return { tickDates: ticks, tickInterval: resolution };
+  }, [chartData, rangeFrom, rangeTo]);
 
   if (chartData.length === 0) {
     return (
@@ -226,15 +249,27 @@ export function ActivityBarChart({
   const minDate = chartData[0].fullDate;
   const maxDate = chartData[chartData.length - 1].fullDate;
 
+  const legendItems: LegendItem[] = enabledModes.map((mode) => ({
+    key: mode,
+    label: seriesLabel(mode),
+    color: seriesColor(mode),
+  }));
+
   return (
-    <div ref={chartRef}>
-      <LineChart width={chartWidth} height={200} data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+    <div ref={chartRef} className="space-y-2">
+      <LineChart width={chartWidth} height={200} data={chartData} margin={{ top: 4, right: 48, left: -8, bottom: 0 }}>
+        <CartesianGrid stroke="hsl(var(--border)/0.45)" vertical={false} />
         <XAxis
-          dataKey="date"
+          dataKey="fullDate"
+          ticks={tickDates}
+          tickFormatter={(v: string) => formatTick(v, tickInterval)}
           tick={{ fontSize: "var(--text-caption)", fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={false}
           interval="preserveStartEnd"
+          tickMargin={6}
+          minTickGap={36}
+          padding={{ left: 0, right: 8 }}
         />
         <YAxis
           domain={[0, yMax]}
@@ -242,6 +277,7 @@ export function ActivityBarChart({
           tickLine={false}
           axisLine={false}
           allowDecimals={false}
+          tickFormatter={formatCompactNumber}
         />
         <Tooltip
           content={<ChartTooltip activeModes={enabledModes} />}
@@ -263,15 +299,11 @@ export function ActivityBarChart({
           .map(([date, meta]) => (
             <ReferenceLine
               key={`sync-${date}`}
-              x={formatDate(date)}
+              x={date}
               stroke="hsl(var(--accent))"
               strokeDasharray="4 3"
               strokeWidth={1.5}
-              label={
-                meta.labels.length === 1
-                  ? { value: meta.labels[0], position: "insideTopRight", fontSize: "var(--text-caption)", fill: "hsl(var(--accent))" }
-                  : <SyncLabel labels={meta.labels} />
-              }
+              label={<SyncLabel labels={meta.labels} />}
             />
           ))}
         {Object.entries(courseByDate)
@@ -279,13 +311,16 @@ export function ActivityBarChart({
           .map(([date]) => (
             <ReferenceLine
               key={`course-${date}`}
-              x={formatDate(date)}
+              x={date}
               stroke="hsl(var(--accent)/0.6)"
               strokeDasharray="2 2"
               strokeWidth={1}
             />
           ))}
       </LineChart>
+      {legendItems.length > 0 && (
+        <ChartLegend items={legendItems} align="center" />
+      )}
     </div>
   );
 }

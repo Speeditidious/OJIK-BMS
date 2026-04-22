@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "./toaster";
 import { refreshTokens, getRefreshToken } from "@/lib/api";
+import { RankingDisplayConfigProvider } from "@/components/ranking/RankingDisplayConfigProvider";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -31,7 +32,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
       <QueryClientProvider client={queryClient}>
-        {children}
+        <RankingDisplayConfigProvider>
+          {children}
+        </RankingDisplayConfigProvider>
         <Toaster />
       </QueryClientProvider>
     </ThemeProvider>

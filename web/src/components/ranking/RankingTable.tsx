@@ -7,6 +7,7 @@ import { resolveAvatarUrl } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
 import { DecoratedUsername } from "./DecoratedUsername";
 import { MetricInfoIcon } from "./RatingMetricInfo";
+import { BmsforceValue } from "./BmsforceValue";
 import type { RankingEntry, RankingType } from "@/lib/ranking-types";
 
 interface RankingTableProps {
@@ -132,7 +133,7 @@ export function RankingTable({
               )}
               {type === "bmsforce" && (
                 <div className="text-right tabular-nums font-medium text-muted-foreground text-base">
-                  {(entry.rating ?? 0).toFixed(2)}
+                  {Math.round(entry.rating ?? 0).toLocaleString()}
                 </div>
               )}
 
@@ -142,7 +143,9 @@ export function RankingTable({
                   (entry.exp ?? 0).toLocaleString(undefined, {
                     maximumFractionDigits: 0,
                   })}
-                {type === "bmsforce" && (entry.bms_force ?? 0).toFixed(3)}
+                {type === "bmsforce" && (
+                  <BmsforceValue value={entry.bms_force ?? 0} />
+                )}
               </div>
             </div>
           );

@@ -9,6 +9,7 @@ import type { UserPublicRead } from "@/hooks/use-user-profile";
 import { DecoratedUsername } from "./DecoratedUsername";
 import { RatingExpProgressBar } from "./RatingExpProgressBar";
 import { MetricInfoIcon } from "./RatingMetricInfo";
+import { BmsforceValue } from "./BmsforceValue";
 
 interface RatingProfileHeaderProps {
   profileUser: UserPublicRead;
@@ -92,14 +93,16 @@ export function RatingProfileHeader({
               TOP {data.top_n} 레이팅 합산
               <MetricInfoIcon metric="rating" />
             </p>
-            <p className="text-stat font-bold">{data.rating.toFixed(2)}</p>
+            <p className="text-stat font-bold">{Math.round(data.rating).toLocaleString()}</p>
           </div>
           <div className="rounded-lg border border-border/60 bg-secondary/30 px-4 py-3">
             <p className="flex items-center text-label text-muted-foreground">
               BMSFORCE
               <MetricInfoIcon metric="bmsforce" />
             </p>
-            <p className="text-stat font-bold">{data.bms_force.toFixed(3)}</p>
+            <p className="text-stat font-bold">
+              <BmsforceValue value={data.bms_force} />
+            </p>
           </div>
         </div>
         <RatingExpProgressBar
