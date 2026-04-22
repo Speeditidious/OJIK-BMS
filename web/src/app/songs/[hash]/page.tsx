@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
 import { clearText } from "@/components/dashboard/RecentActivity";
+import { formatRatePercent } from "@/lib/rate-format";
 import { cn } from "@/lib/utils";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement } from "@/lib/fumen-table-utils";
 import type { DifficultyTable, FumenDetail, UserScore } from "@/types";
@@ -309,7 +310,7 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
                                 {s.min_bp !== null ? s.min_bp : <span className="text-muted-foreground row-muted">--</span>}
                               </td>
                               <td className="px-3 py-2 text-label">
-                                {s.rate !== null ? `${s.rate.toFixed(1)}%` : <span className="text-muted-foreground row-muted">--</span>}
+                                {s.rate !== null ? formatRatePercent(s.rate) : <span className="text-muted-foreground row-muted">--</span>}
                               </td>
                               <td className="px-3 py-2 text-label">
                                 {s.rank ?? <span className="text-muted-foreground row-muted">--</span>}

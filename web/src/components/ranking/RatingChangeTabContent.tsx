@@ -155,13 +155,6 @@ export function RatingChangeTabContent({
   }
   const [sortBy, setSortBy] = useState<RatingContributionSortBy>("value");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const fallbackTableSlug = aggregatedTables[0]?.table_slug ?? tables[0]?.slug ?? null;
-  const resolvedTableSlug = useMemo(() => {
-    if (!selectedTableSlug) return fallbackTableSlug;
-    const selectedExists = tables.some((table) => table.slug === selectedTableSlug);
-    if (!selectedExists) return fallbackTableSlug;
-    return selectedTableSlug;
-  }, [fallbackTableSlug, selectedTableSlug, tables]);
   const chipTables = aggregatedTables.length > 0
     ? aggregatedTables
     : tables.map((table) => ({
@@ -170,6 +163,13 @@ export function RatingChangeTabContent({
         count: 0,
         display_order: table.display_order,
       }));
+  const fallbackTableSlug = chipTables[0]?.table_slug ?? null;
+  const resolvedTableSlug = useMemo(() => {
+    if (!selectedTableSlug) return fallbackTableSlug;
+    const selectedExists = chipTables.some((table) => table.table_slug === selectedTableSlug);
+    if (!selectedExists) return fallbackTableSlug;
+    return selectedTableSlug;
+  }, [chipTables, fallbackTableSlug, selectedTableSlug]);
   const selectedTable = useMemo(
     () => tables.find((table) => table.slug === resolvedTableSlug) ?? null,
     [resolvedTableSlug, tables],

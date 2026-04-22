@@ -25,6 +25,7 @@ from app.services.ranking_dashboard import (
     _resolve_date_window,
     compute_rating_breakdown,
     compute_rating_updates,
+    compute_rating_updates_aggregated,
 )
 
 
@@ -394,7 +395,7 @@ async def test_rating_breakdown_uses_display_delta_for_entered_song(monkeypatch)
             "fumen_md5": None,
             "clear_type": 5,
             "exscore": 1138,
-            "rate": 89.0,
+            "rate": 89.444,
             "rank": "AA",
             "min_bp": 12,
             "client_type": "lr2",
@@ -416,7 +417,7 @@ async def test_rating_breakdown_uses_display_delta_for_entered_song(monkeypatch)
             "fumen_md5": None,
             "clear_type": 5,
             "exscore": 1187,
-            "rate": 91.0,
+            "rate": 91.126,
             "rank": "AAA",
             "min_bp": 8,
             "client_type": "beatoraja",
@@ -457,6 +458,8 @@ async def test_rating_breakdown_uses_display_delta_for_entered_song(monkeypatch)
     gamma_entry = next(entry for entry in result["rating_contributions"] if entry["sha256"] == song_c)
 
     assert beta_entry["delta_rating"] == 49
+    assert beta_entry["rate"] == 91.13
+    assert beta_entry["previous_rate"] == 89.44
     assert beta_entry["was_in_top_n"] is False
     assert beta_entry["is_in_top_n"] is True
     assert gamma_entry["delta_rating"] == 0
@@ -610,3 +613,187 @@ async def test_display_rounded_exp_and_rating_changes_gate_breakdown_and_counts(
     assert breakdown["exp_contributions"] == []
     assert breakdown["rating_contributions"] == []
     assert updates["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_rating_updates_skip_excluded_first_sync_date_but_keep_later_baseline(monkeypatch):
+    table_cfg = _make_rating_table(top_n=1)
+    first_sync_date = date(2026, 4, 21)
+    target_date = date(2026, 4, 22)
+    song_a = "a" * 64
+
+    targets = [
+        {"sha256": song_a, "md5": None, "title": "Alpha", "artist": "Artist", "level": "12"},
+    ]
+    history_rows = [
+        {
+            "fumen_sha256": song_a,
+            "fumen_md5": None,
+            "clear_type": 4,
+            "exscore": 1000,
+            "rate": 90.126,
+            "rank": "AA",
+            "min_bp": 10,
+            "client_type": "lr2",
+            "effective_ts": datetime(2026, 4, 21, 10, 0, tzinfo=UTC),
+        },
+        {
+            "fumen_sha256": song_a,
+            "fumen_md5": None,
+            "clear_type": 5,
+            "exscore": 1001,
+            "rate": 92.345,
+            "rank": "AAA",
+            "min_bp": 8,
+            "client_type": "lr2",
+            "effective_ts": datetime(2026, 4, 22, 11, 0, tzinfo=UTC),
+        },
+    ]
+
+    async def fake_query(_user_id, _table_cfg, _db, _until_date):
+        return targets, history_rows
+
+    monkeypatch.setattr("app.services.ranking_dashboard._query_table_score_history", fake_query)
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard._contribution_value",
+        lambda score, target_level, _table_cfg, _sha256, _md5: (
+            (float(score.exscore or 0) / 10.0) if score is not None else 0.0,
+            target_level,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard.compute_ranking",
+        lambda cfg, _step, scores: _build_fake_ranking(scores, cfg.top_n),
+    )
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard.standardize_rating",
+        lambda raw_rating, _level: raw_rating / 1000.0,
+    )
+
+    excluded_dates = {first_sync_date}
+    excluded_day = await compute_rating_updates(
+        user_id=uuid.uuid4(),
+        table_cfg=table_cfg,
+        db=object(),
+        table_symbol="ST",
+        target_date=first_sync_date,
+        excluded_dates=excluded_dates,
+    )
+    next_day = await compute_rating_updates(
+        user_id=uuid.uuid4(),
+        table_cfg=table_cfg,
+        db=object(),
+        table_symbol="ST",
+        target_date=target_date,
+        excluded_dates=excluded_dates,
+    )
+
+    assert excluded_day["count"] == 0
+    assert excluded_day["entries"] == []
+    assert next_day["count"] == 0
+    assert next_day["entries"] == []
+
+
+@pytest.mark.asyncio
+async def test_rating_updates_aggregated_skips_excluded_first_sync_date(monkeypatch):
+    table_cfg = _make_rating_table(top_n=1)
+    excluded_date = date(2026, 4, 21)
+    song_a = "a" * 64
+
+    targets = [
+        {"sha256": song_a, "md5": None, "title": "Alpha", "artist": "Artist", "level": "12"},
+    ]
+    history_rows = [
+        {
+            "fumen_sha256": song_a,
+            "fumen_md5": None,
+            "clear_type": 4,
+            "exscore": 1000,
+            "rate": 90.0,
+            "rank": "AA",
+            "min_bp": 10,
+            "client_type": "lr2",
+            "effective_ts": datetime(2026, 4, 21, 10, 0, tzinfo=UTC),
+        },
+    ]
+
+    async def fake_query(_user_id, _table_cfg, _db, _until_date):
+        return targets, history_rows
+
+    monkeypatch.setattr("app.services.ranking_dashboard._query_table_score_history", fake_query)
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard._contribution_value",
+        lambda score, target_level, _table_cfg, _sha256, _md5: (
+            float(score.exscore or 0) if score is not None else 0.0,
+            target_level,
+        ),
+    )
+
+    result = await compute_rating_updates_aggregated(
+        user_id=uuid.uuid4(),
+        ranking_tables=[table_cfg],
+        db=object(),
+        target_date=excluded_date,
+        excluded_dates={excluded_date},
+    )
+
+    assert result["date"] == "2026-04-21"
+    assert result["count"] == 0
+    assert result["tables"] == []
+
+
+@pytest.mark.asyncio
+async def test_rating_breakdown_skips_excluded_first_sync_date(monkeypatch):
+    table_cfg = _make_rating_table(top_n=1)
+    excluded_date = date(2026, 4, 21)
+    song_a = "a" * 64
+
+    targets = [
+        {"sha256": song_a, "md5": None, "title": "Alpha", "artist": "Artist", "level": "12"},
+    ]
+    history_rows = [
+        {
+            "fumen_sha256": song_a,
+            "fumen_md5": None,
+            "clear_type": 4,
+            "exscore": 1000,
+            "rate": 90.126,
+            "rank": "AA",
+            "min_bp": 10,
+            "client_type": "lr2",
+            "effective_ts": datetime(2026, 4, 21, 10, 0, tzinfo=UTC),
+        },
+    ]
+
+    async def fake_query(_user_id, _table_cfg, _db, _until_date):
+        return targets, history_rows
+
+    monkeypatch.setattr("app.services.ranking_dashboard._query_table_score_history", fake_query)
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard._contribution_value",
+        lambda score, target_level, _table_cfg, _sha256, _md5: (
+            float(score.exscore or 0) if score is not None else 0.0,
+            target_level,
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard.compute_ranking",
+        lambda cfg, _step, scores: _build_fake_ranking(scores, cfg.top_n),
+    )
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard.standardize_rating",
+        lambda raw_rating, _level: raw_rating / 1000.0,
+    )
+
+    result = await compute_rating_breakdown(
+        user_id=uuid.uuid4(),
+        table_cfg=table_cfg,
+        db=object(),
+        table_symbol="ST",
+        exp_level_step=100.0,
+        target_date=excluded_date,
+        excluded_dates={excluded_date},
+    )
+
+    assert result["exp_contributions"] == []
+    assert result["rating_contributions"] == []

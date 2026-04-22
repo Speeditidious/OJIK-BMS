@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { compareTitles } from "@/lib/bms-sort";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
 import { CLEAR_ROW_CLASS, parseArrangement, levelSortIndex, ARRANGEMENT_KANJI, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
+import { formatRatePercent } from "@/lib/rate-format";
 import { CLEAR_TYPE_LABELS } from "@/components/charts/ClearDistributionChart";
 import type { DifficultyTableDetail, TableFumen } from "@/types";
 import { clearText } from "@/components/dashboard/RecentActivity";
@@ -340,7 +341,7 @@ const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores 
             {s ? clearText(s.best_clear_type, s.source_client ?? "") : <span className="text-label row-muted">-</span>}
           </td>
           <td className="px-2 text-label">{s?.best_min_bp ?? <span className="row-muted">—</span>}</td>
-          <td className="px-2 text-label">{s?.rate != null ? `${s.rate.toFixed(2)}%` : <span className="row-muted">—</span>}</td>
+          <td className="px-2 text-label">{s?.rate != null ? formatRatePercent(s.rate) : <span className="row-muted">—</span>}</td>
           <td className="px-2 text-label">{s?.rank ?? <span className="row-muted">—</span>}</td>
           <td className="px-2 text-label">{s?.best_exscore ?? <span className="row-muted">—</span>}</td>
           <td className="px-2 text-label">{s?.play_count ?? <span className="row-muted">—</span>}</td>
@@ -539,7 +540,7 @@ const SongVirtualList = memo(function SongVirtualList({
                 artist: song.artist ?? "",
                 lamp: s ? (CLEAR_TYPE_LABELS[s.best_clear_type ?? 0] ?? "") : "",
                 bp: s?.best_min_bp ?? "",
-                rate: s?.rate != null ? `${s.rate.toFixed(2)}%` : "",
+                rate: s?.rate != null ? formatRatePercent(s.rate) : "",
                 rank: s?.rank ?? "",
                 score: s?.best_exscore ?? "",
                 plays: s?.play_count ?? "",

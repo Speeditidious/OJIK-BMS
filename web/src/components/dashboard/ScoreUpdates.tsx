@@ -20,6 +20,7 @@ import type { ClientTypeFilter } from "@/hooks/use-analysis";
 import { useScoreUpdates } from "@/hooks/use-analysis";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, makeTableCopyHandler } from "@/lib/fumen-table-utils";
 import { compareTitles } from "@/lib/bms-sort";
+import { formatRateDelta, formatRatePercent } from "@/lib/rate-format";
 import { useScoreUpdatesPrefs, useUpdateScoreUpdatesPrefs } from "@/hooks/use-preferences";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -212,7 +213,7 @@ function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
 
   // Rate — FumenRow와 동일 패턴: rate 전용 필드 우선, 없으면 currentState 폴백
   const rateVal = item.currentState?.rate ?? null;
-  const rateLabel = rateVal != null ? `${rateVal.toFixed(1)}%` : null;
+  const rateLabel = rateVal != null ? formatRatePercent(rateVal) : null;
 
   // Rank — FumenRow와 동일 패턴
   const rankNew = item.score?.new_rank ?? item.currentState?.rank ?? null;
@@ -291,14 +292,14 @@ function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
       <td className={cn("px-2 py-2 whitespace-nowrap text-center", rowColorCls)}>
         {item.rate?.prev != null ? (
           <div className="flex items-baseline gap-1 justify-center">
-            <span className="text-label row-prev">{item.rate.prev.toFixed(1)}% →</span>
-            <span className="text-label font-semibold">{item.rate.new?.toFixed(1) ?? "?"}%</span>
+            <span className="text-label row-prev">{formatRatePercent(item.rate.prev)} →</span>
+            <span className="text-label font-semibold">{item.rate.new != null ? formatRatePercent(item.rate.new) : "?"}</span>
             {item.rate.new != null && item.rate.prev != null && item.rate.new - item.rate.prev > 0 && (
-              <span className="text-label font-bold opacity-75">▲{(item.rate.new - item.rate.prev).toFixed(1)}</span>
+              <span className="text-label font-bold opacity-75">{formatRateDelta(item.rate.new - item.rate.prev)}</span>
             )}
           </div>
         ) : item.rate?.new != null ? (
-          <span className="text-label">{item.rate.new.toFixed(1)}%</span>
+          <span className="text-label">{formatRatePercent(item.rate.new)}</span>
         ) : rateLabel ? (
           <span className="text-label">{rateLabel}</span>
         ) : <span className="row-muted">—</span>}
@@ -861,7 +862,7 @@ function FumenRow({ fumen }: { fumen: MergedFumenUpdate }) {
   const optionLabel = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? arrangementName) : null;
 
   const rate = fumen.currentState?.rate;
-  const rateLabel = rate != null ? `${rate.toFixed(1)}%` : null;
+  const rateLabel = rate != null ? formatRatePercent(rate) : null;
 
   return (
     <tr className={cn("transition-all", rowClass || "hover:bg-secondary/50")}>
@@ -923,14 +924,14 @@ function FumenRow({ fumen }: { fumen: MergedFumenUpdate }) {
       <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
         {fumen.rate?.prev != null ? (
           <span>
-            <span className="opacity-70">{fumen.rate.prev.toFixed(1)}% →</span>
-            <span className="font-semibold">{fumen.rate.new?.toFixed(1) ?? "?"}%</span>
+            <span className="opacity-70">{formatRatePercent(fumen.rate.prev)} →</span>
+            <span className="font-semibold">{fumen.rate.new != null ? formatRatePercent(fumen.rate.new) : "?"}</span>
             {fumen.rate.new != null && fumen.rate.new - fumen.rate.prev > 0 && (
-              <span className="text-label font-bold opacity-75"> ▲{(fumen.rate.new - fumen.rate.prev).toFixed(1)}</span>
+              <span className="text-label font-bold opacity-75"> {formatRateDelta(fumen.rate.new - fumen.rate.prev)}</span>
             )}
           </span>
         ) : fumen.rate?.new != null ? (
-          <span>{fumen.rate.new.toFixed(1)}%</span>
+          <span>{formatRatePercent(fumen.rate.new)}</span>
         ) : rateLabel ? (
           <span>{rateLabel}</span>
         ) : (

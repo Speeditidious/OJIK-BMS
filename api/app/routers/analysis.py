@@ -77,6 +77,18 @@ def _initial_sync_exclusion_filters(user: User) -> list:
     return conditions
 
 
+def _rating_update_excluded_dates(user: User) -> set[date_cls]:
+    """Return first-sync calendar dates that should skip rating-update aggregation."""
+    first_synced = user.first_synced_at or {}
+    excluded_dates: set[date_cls] = set()
+    for client_type in ("lr2", "beatoraja"):
+        ts_str = first_synced.get(client_type)
+        if not ts_str:
+            continue
+        excluded_dates.add(datetime.fromisoformat(ts_str).date())
+    return excluded_dates
+
+
 def _find_prev_row(
     target: UserScore,
     rows_map: dict[tuple, list],
@@ -814,6 +826,8 @@ async def get_rating_updates(
     table_symbol = table_row.scalar_one_or_none() or ""
 
     max_synced_at, calculated_at = await get_user_ranking_version(target_user.id, table_cfg.table_id, db)
+    excluded_dates = _rating_update_excluded_dates(target_user)
+    excluded_dates_key = tuple(sorted(day.isoformat() for day in excluded_dates))
     cache_key = (
         str(target_user.id),
         table_slug,
@@ -822,6 +836,7 @@ async def get_rating_updates(
         date,
         from_date,
         to_date,
+        excluded_dates_key,
         max_synced_at,
         calculated_at,
     )
@@ -839,6 +854,7 @@ async def get_rating_updates(
         target_date=date,
         from_date=from_date,
         to_date=to_date,
+        excluded_dates=excluded_dates,
     )
     response = {
         "table_slug": table_slug,
@@ -871,6 +887,8 @@ async def get_rating_updates_aggregated(
         raise HTTPException(status_code=503, detail="Ranking config not initialised") from exc
 
     max_synced_at, max_calculated_at = await _get_ranking_aggregate_version(target_user, db)
+    excluded_dates = _rating_update_excluded_dates(target_user)
+    excluded_dates_key = tuple(sorted(day.isoformat() for day in excluded_dates))
     cache_key = (
         str(target_user.id),
         year,
@@ -878,6 +896,7 @@ async def get_rating_updates_aggregated(
         date,
         from_date,
         to_date,
+        excluded_dates_key,
         max_synced_at,
         max_calculated_at,
     )
@@ -894,6 +913,7 @@ async def get_rating_updates_aggregated(
         target_date=date,
         from_date=from_date,
         to_date=to_date,
+        excluded_dates=excluded_dates,
     )
     _RATING_UPDATES_AGG_CACHE[cache_key] = response
     return response
@@ -925,10 +945,13 @@ async def get_rating_breakdown(
     table_symbol = table_row.scalar_one_or_none() or ""
 
     max_synced_at, calculated_at = await get_user_ranking_version(target_user.id, table_cfg.table_id, db)
+    excluded_dates = _rating_update_excluded_dates(target_user)
+    excluded_dates_key = tuple(sorted(day.isoformat() for day in excluded_dates))
     cache_key = (
         str(target_user.id),
         table_slug,
         date,
+        excluded_dates_key,
         max_synced_at,
         calculated_at,
     )
@@ -943,6 +966,7 @@ async def get_rating_breakdown(
         table_symbol=table_symbol,
         exp_level_step=config.exp_level_step,
         target_date=date_cls.fromisoformat(date),
+        excluded_dates=excluded_dates,
     )
     _RATING_BREAKDOWN_CACHE[cache_key] = response
     return response

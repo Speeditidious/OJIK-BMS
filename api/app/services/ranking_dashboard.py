@@ -521,7 +521,7 @@ def _build_rating_update_detail_entry(
         "clear_type": score.clear_type if score is not None and score.clear_type is not None else 0,
         "client_types": list(score.client_types) if score is not None else [],
         "min_bp": score.min_bp if score is not None else None,
-        "rate": round(float(score.rate), 1) if score is not None and score.rate is not None else None,
+        "rate": round(float(score.rate), 2) if score is not None and score.rate is not None else None,
         "rank_grade": score.rank if score is not None else None,
         "exscore": score.exscore if score is not None else None,
         "value": round(value, 3),
@@ -686,6 +686,7 @@ async def _compute_rating_update_sweep(
     start_date: date,
     end_date: date,
     target_date: date | None = None,
+    excluded_dates: set[date] | None = None,
     include_updated_keys: bool = False,
     include_detail_entries: bool = False,
 ) -> dict[str, Any]:
@@ -704,6 +705,7 @@ async def _compute_rating_update_sweep(
     counts_by_date: dict[str, int] = {}
     updated_keys_by_date: dict[str, set[tuple[str | None, str | None]]] = {}
     detail_entries: list[dict[str, Any]] = []
+    excluded_dates = excluded_dates or set()
 
     row_index = 0
     while row_index < len(history_rows):
@@ -726,13 +728,18 @@ async def _compute_rating_update_sweep(
 
     current_date = start_date
     while current_date <= end_date:
-        previous_values_snapshot = dict(current_values)
-        previous_top_keys_snapshot = _top_keys_from_values(
-            previous_values_snapshot,
-            targets_by_key,
-            table_cfg.top_n,
-        )
+        is_excluded_date = current_date in excluded_dates
+        previous_values_snapshot: dict[tuple[str | None, str | None], float] | None = None
+        previous_top_keys_snapshot: set[tuple[str | None, str | None]] = set()
         day_updated_keys: set[tuple[str | None, str | None]] = set()
+
+        if not is_excluded_date:
+            previous_values_snapshot = dict(current_values)
+            previous_top_keys_snapshot = _top_keys_from_values(
+                previous_values_snapshot,
+                targets_by_key,
+                table_cfg.top_n,
+            )
 
         while row_index < len(history_rows):
             row = history_rows[row_index]
@@ -754,6 +761,12 @@ async def _compute_rating_update_sweep(
                 day_updated_keys.add(canonical)
             row_index += 1
 
+        if is_excluded_date:
+            counts_by_date[current_date.isoformat()] = 0
+            current_date += timedelta(days=1)
+            continue
+
+        assert previous_values_snapshot is not None
         current_top_keys = _top_keys_from_values(current_values, targets_by_key, table_cfg.top_n)
         updated_top_keys = {
             key
@@ -812,6 +825,7 @@ async def compute_rating_updates(
     target_date: date | None = None,
     from_date: date | None = None,
     to_date: date | None = None,
+    excluded_dates: set[date] | None = None,
 ) -> dict[str, Any]:
     """Compute rating-update counts via a single chronological sweep."""
     start_date, end_date = _resolve_date_window(
@@ -829,6 +843,7 @@ async def compute_rating_updates(
         start_date=start_date,
         end_date=end_date,
         target_date=target_date,
+        excluded_dates=excluded_dates,
         include_detail_entries=target_date is not None,
     )
     counts_by_date = sweep["counts_by_date"]
@@ -850,6 +865,7 @@ async def compute_rating_updates_aggregated(
     target_date: date | None = None,
     from_date: date | None = None,
     to_date: date | None = None,
+    excluded_dates: set[date] | None = None,
 ) -> dict[str, Any]:
     """Aggregate rating-update counts across every ranking-enabled table with key dedupe."""
     start_date, end_date = _resolve_date_window(
@@ -872,6 +888,7 @@ async def compute_rating_updates_aggregated(
             start_date=start_date,
             end_date=end_date,
             target_date=target_date,
+            excluded_dates=excluded_dates,
             include_updated_keys=True,
         )
 
@@ -946,8 +963,8 @@ def _build_breakdown_entry(
         "client_types": list(preferred_score.client_types) if preferred_score is not None else [],
         "min_bp": current_score.min_bp if current_score is not None else None,
         "previous_min_bp": previous_score.min_bp if previous_score is not None else None,
-        "rate": round(float(current_score.rate), 1) if current_score is not None and current_score.rate is not None else None,
-        "previous_rate": round(float(previous_score.rate), 1) if previous_score is not None and previous_score.rate is not None else None,
+        "rate": round(float(current_score.rate), 2) if current_score is not None and current_score.rate is not None else None,
+        "previous_rate": round(float(previous_score.rate), 2) if previous_score is not None and previous_score.rate is not None else None,
         "rank_grade": current_score.rank if current_score is not None else None,
         "previous_rank_grade": previous_score.rank if previous_score is not None else None,
         "exscore": current_score.exscore if current_score is not None else None,
@@ -969,8 +986,10 @@ async def compute_rating_breakdown(
     table_symbol: str,
     exp_level_step: float,
     target_date: date,
+    excluded_dates: set[date] | None = None,
 ) -> dict[str, Any]:
     """Return per-day EXP/Rating/BMSFORCE breakdown for one ranking table."""
+    excluded_dates = excluded_dates or set()
     targets, history_rows = await _query_table_score_history(user_id, table_cfg, db, target_date)
     sha256_to_md5, md5_to_sha256 = _canonical_key_maps(targets)
     targets_by_key = {
@@ -1050,10 +1069,19 @@ async def compute_rating_breakdown(
             )
         row_index += 1
 
+    target_date_excluded = target_date in excluded_dates
+    if target_date_excluded:
+        day_updated_keys.clear()
+        day_rows_by_key.clear()
+
     previous_top_keys = _top_keys_from_values(prev_values, targets_by_key, table_cfg.top_n)
     current_top_keys = _top_keys_from_values(curr_values, targets_by_key, table_cfg.top_n)
     exp_candidate_keys: set[tuple[str | None, str | None]] = set()
     candidate_keys = day_updated_keys | previous_top_keys | current_top_keys
+    if target_date_excluded:
+        previous_top_keys = set()
+        current_top_keys = set()
+        candidate_keys = set()
     exp_rank_map, exp_total_entries = _capture_ranks_for_targets(curr_values, targets_by_key, day_updated_keys)
     exp_previous_rank_map, _ = _capture_ranks_for_targets(prev_values, targets_by_key, day_updated_keys)
     rating_rank_map, rating_total_entries = _capture_ranks_for_targets(curr_values, targets_by_key, candidate_keys)

@@ -16,6 +16,7 @@ import {
   LR2_CLEAR_TYPE_LABELS,
   BEATORAJA_CLEAR_TYPE_LABELS,
 } from "@/components/charts/ClearDistributionChart";
+import { formatRatePercent } from "@/lib/rate-format";
 
 // CSS variable refs per internal clear_type (0=NO PLAY, 1=FAILED, 2=ASSIST, 3=EASY, 4=NORMAL, 5=HARD, 6=EXHARD, 7=FC, 8=PERFECT, 9=MAX)
 const CLEAR_BADGE_STYLE: Record<number, React.CSSProperties> = {
@@ -175,7 +176,7 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
           )}
           {u.rate !== null && (
             <span className="text-caption text-muted-foreground">
-              스코어율: {u.rate.toFixed(1)}%
+              스코어율: {formatRatePercent(u.rate)}
             </span>
           )}
           {u.artist && (

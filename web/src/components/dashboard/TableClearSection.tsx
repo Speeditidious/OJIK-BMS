@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, levelSortIndex, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
+import { formatRatePercent } from "@/lib/rate-format";
 
 
 function getClearLabel(clientType: string | null, clearType: number): string {
@@ -165,7 +166,7 @@ const SongRow = React.memo(function SongRow({
       </td>
       <td className="px-2"><span className="text-label">{getClearLabel(song.client_type, displayClearType)}</span></td>
       <td className="px-2 text-label">{song.min_bp !== null ? song.min_bp : <span className="text-muted-foreground row-muted">--</span>}</td>
-      <td className="px-2 text-label">{song.rate !== null ? `${song.rate.toFixed(2)}%` : <span className="text-muted-foreground row-muted">--</span>}</td>
+      <td className="px-2 text-label">{song.rate !== null ? formatRatePercent(song.rate) : <span className="text-muted-foreground row-muted">--</span>}</td>
       <td className="px-2 text-label">{song.rank !== null ? song.rank : <span className="text-muted-foreground row-muted">--</span>}</td>
       <td className="px-2 text-label">{song.ex_score !== null ? song.ex_score : <span className="text-muted-foreground row-muted">--</span>}</td>
       <td className="px-2 text-label">{song.play_count !== null ? song.play_count : <span className="text-muted-foreground row-muted">--</span>}</td>
@@ -320,7 +321,7 @@ const SongTable = React.memo(function SongTable({
                 artist: song.artist ?? "",
                 lamp: getClearLabel(song.client_type, getDisplayClearType ? getDisplayClearType(song.clear_type) : song.clear_type),
                 bp: song.min_bp ?? "",
-                rate: song.rate != null ? `${song.rate.toFixed(2)}%` : "",
+                rate: song.rate != null ? formatRatePercent(song.rate) : "",
                 rank: song.rank ?? "",
                 score: song.ex_score ?? "",
                 plays: song.play_count ?? "",

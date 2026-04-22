@@ -11,6 +11,7 @@ import type {
   RatingContributionMetric,
   RatingContributionSortBy,
 } from "@/lib/ranking-types";
+import { formatRateDelta, formatRatePercent } from "@/lib/rate-format";
 import { cn } from "@/lib/utils";
 
 const ROW_HEIGHT = 44;
@@ -85,7 +86,7 @@ const DAY_DETAIL_COLUMNS: TableColumn[] = [
   { align: "left" },
   { width: 160, align: "center" },
   { width: 140, align: "center" },
-  { width: 180, align: "center" },
+  { width: 200, align: "center" },
   { width: 116, align: "center" },
   { width: 72, align: "center" },
   { width: 220, align: "center" },
@@ -416,18 +417,18 @@ function RateCell({
     return <ValueFallback />;
   }
   if (!showComparison || entry.previous_rate == null) {
-    return <span className="tabular-nums">{entry.rate.toFixed(1)}%</span>;
+    return <span className="tabular-nums">{formatRatePercent(entry.rate)}</span>;
   }
   if (Math.abs(entry.rate - entry.previous_rate) < 1e-9) {
-    return <span className="tabular-nums">{entry.rate.toFixed(1)}%</span>;
+    return <span className="tabular-nums">{formatRatePercent(entry.rate)}</span>;
   }
 
   const diff = entry.rate - entry.previous_rate;
   return (
     <InlineComparison
-      previous={`${entry.previous_rate.toFixed(1)}%`}
-      current={`${entry.rate.toFixed(1)}%`}
-      diff={diff === 0 ? null : `${diff > 0 ? "▲" : "▼"}${Math.abs(diff).toFixed(1)}`}
+      previous={formatRatePercent(entry.previous_rate)}
+      current={formatRatePercent(entry.rate)}
+      diff={diff === 0 ? null : formatRateDelta(diff)}
     />
   );
 }
