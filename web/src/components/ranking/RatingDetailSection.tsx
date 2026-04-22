@@ -28,6 +28,7 @@ interface RatingDetailSectionProps {
   sortBy: RatingContributionSortBy;
   sortDir: "asc" | "desc";
   onSortChange: (sortBy: RatingContributionSortBy, sortDir: "asc" | "desc") => void;
+  enabled?: boolean;
 }
 
 export function RatingDetailSection({
@@ -43,6 +44,7 @@ export function RatingDetailSection({
   sortBy,
   sortDir,
   onSortChange,
+  enabled = true,
 }: RatingDetailSectionProps) {
   const selectedTable = useMemo(
     () => tables.find((table) => table.slug === selectedTableSlug) ?? null,
@@ -59,6 +61,7 @@ export function RatingDetailSection({
     sortDir,
     query: scope === "all" ? deferredSearch : "",
     userId,
+    enabled,
   });
   const displayEntries = useMemo(() => {
     const entries = contributionQuery.data?.entries ?? [];

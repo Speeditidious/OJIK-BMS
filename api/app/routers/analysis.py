@@ -1988,7 +1988,7 @@ async def get_score_updates(
                     **course_base,
                     "prev_play_count": prev_pc,
                     "new_play_count": r.play_count,
-                    "is_initial_sync": _is_initial_sync_record(r, current_user),
+                    "is_initial_sync": _is_initial_sync_record(r, target_user),
                 })
 
     # Fumen updates (is_course=False)
@@ -2068,7 +2068,7 @@ async def get_score_updates(
                     **base,
                     "prev_play_count": prev_pc,
                     "new_play_count": r.play_count,
-                    "is_initial_sync": _is_initial_sync_record(r, current_user),
+                    "is_initial_sync": _is_initial_sync_record(r, target_user),
                 })
 
     return {

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import heapq
+import inspect
 import uuid
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
@@ -119,15 +120,18 @@ async def get_user_ranking_version(
 async def query_target_fumen_details(
     table_id: uuid.UUID,
     db: AsyncSession,
+    include_metadata: bool = True,
 ) -> list[dict[str, Any]]:
     """Return target fumen metadata for one ranking-enabled table."""
+    title_select = "f.title," if include_metadata else "NULL::text AS title,"
+    artist_select = "f.artist," if include_metadata else "NULL::text AS artist,"
     result = await db.execute(
-        text("""
+        text(f"""
             SELECT
                 f.sha256,
                 f.md5,
-                f.title,
-                f.artist,
+                {title_select}
+                {artist_select}
                 entry->>'level' AS level
             FROM fumens f,
                  jsonb_array_elements(f.table_entries) AS entry
@@ -375,9 +379,18 @@ async def _query_table_score_history(
     table_cfg: TableRankingConfig,
     db: AsyncSession,
     until_date: date,
+    include_metadata: bool = True,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return `(targets, score_rows)` ordered for the rating-update sweep."""
-    target_fumens = await query_target_fumen_details(table_cfg.table_id, db)
+    target_fumen_params = inspect.signature(query_target_fumen_details).parameters
+    if "include_metadata" in target_fumen_params:
+        target_fumens = await query_target_fumen_details(
+            table_cfg.table_id,
+            db,
+            include_metadata=include_metadata,
+        )
+    else:
+        target_fumens = await query_target_fumen_details(table_cfg.table_id, db)
     result = await db.execute(
         text("""
             SELECT
@@ -691,7 +704,17 @@ async def _compute_rating_update_sweep(
     include_detail_entries: bool = False,
 ) -> dict[str, Any]:
     """Compute rating-update counts with optional per-day updated-key output."""
-    targets, history_rows = await _query_table_score_history(user_id, table_cfg, db, end_date)
+    query_history_params = inspect.signature(_query_table_score_history).parameters
+    if "include_metadata" in query_history_params:
+        targets, history_rows = await _query_table_score_history(
+            user_id,
+            table_cfg,
+            db,
+            end_date,
+            include_metadata=include_detail_entries,
+        )
+    else:
+        targets, history_rows = await _query_table_score_history(user_id, table_cfg, db, end_date)
     sha256_to_md5, md5_to_sha256 = _canonical_key_maps(targets)
     targets_by_key = {
         _canonical_key(target["sha256"], target["md5"], sha256_to_md5, md5_to_sha256): target

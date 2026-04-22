@@ -156,7 +156,7 @@ export interface TableClearDistribution {
 
 export type ClientTypeFilter = "all" | "lr2" | "beatoraja";
 
-export function usePlaySummary(clientType: ClientTypeFilter = "all", userId?: string) {
+export function usePlaySummary(clientType: ClientTypeFilter = "all", userId?: string, enabled: boolean = true) {
   return useQuery({
     queryKey: ["analysis", "summary", clientType, userId ?? null],
     queryFn: () => {
@@ -166,6 +166,7 @@ export function usePlaySummary(clientType: ClientTypeFilter = "all", userId?: st
       const suffix = params.size > 0 ? `?${params.toString()}` : "";
       return api.get<PlaySummary>(`/analysis/summary${suffix}`);
     },
+    enabled,
     staleTime: 5 * 60 * 1000, // 5 min — changes only on sync
   });
 }
@@ -174,6 +175,7 @@ export function useActivityHeatmap(
   year: number = 0,
   clientType: ClientTypeFilter = "all",
   userId?: string,
+  enabled: boolean = true,
 ) {
   return useQuery({
     queryKey: ["analysis", "heatmap", year, clientType, userId ?? null],
@@ -183,6 +185,7 @@ export function useActivityHeatmap(
       if (userId) params.set("user_id", userId);
       return api.get<{ year: number; data: HeatmapDay[] }>(`/analysis/heatmap?${params}`);
     },
+    enabled,
     staleTime: 30 * 60 * 1000, // 30 min — historical data
   });
 }
@@ -195,6 +198,7 @@ export interface ActivityBarArgs {
   mode?: ActivityBarMode;
   clientType?: ClientTypeFilter;
   userId?: string;
+  enabled?: boolean;
 }
 
 export function useActivityBar(argsOrDays: ActivityBarArgs | number = {}, clientTypeOrUndef?: ClientTypeFilter, userIdOrUndef?: string) {
@@ -206,6 +210,7 @@ export function useActivityBar(argsOrDays: ActivityBarArgs | number = {}, client
   const mode: ActivityBarMode = args.mode ?? { kind: "days", days: 30 };
   const clientType: ClientTypeFilter = args.clientType ?? "all";
   const userId = args.userId;
+  const enabled = args.enabled ?? true;
 
   const modeKey = mode.kind === "days" ? ["days", mode.days] : ["range", mode.from, mode.to];
 
@@ -223,6 +228,7 @@ export function useActivityBar(argsOrDays: ActivityBarArgs | number = {}, client
       if (userId) params.set("user_id", userId);
       return api.get<{ days?: number; from?: string; to?: string; data: ActivityDay[] }>(`/analysis/activity?${params}`);
     },
+    enabled,
     staleTime: 60 * 1000, // 1 min
     placeholderData: (prev) => prev,
     gcTime: 5 * 60 * 1000,
@@ -290,9 +296,10 @@ interface AggregatedRatingUpdatesParams {
   from?: string;
   to?: string;
   userId?: string;
+  enabled?: boolean;
 }
 
-export function useAggregatedRatingUpdates({ year, days, date, from, to, userId }: AggregatedRatingUpdatesParams) {
+export function useAggregatedRatingUpdates({ year, days, date, from, to, userId, enabled = true }: AggregatedRatingUpdatesParams) {
   const hasRange = from !== undefined && to !== undefined;
   return useQuery({
     queryKey: ["analysis", "rating-updates-aggregated", year ?? null, days ?? null, date ?? null, from ?? null, to ?? null, userId ?? null],
@@ -308,9 +315,11 @@ export function useAggregatedRatingUpdates({ year, days, date, from, to, userId 
         `/analysis/rating-updates/aggregated?${params.toString()}`,
       );
     },
-    enabled: hasRange
-      ? true
-      : [year, days, date].filter((value) => value !== undefined && value !== null).length === 1,
+    enabled: enabled && (
+      hasRange
+        ? true
+        : [year, days, date].filter((value) => value !== undefined && value !== null).length === 1
+    ),
     staleTime: 60 * 1000,
     placeholderData: (prev) => prev,
     gcTime: 5 * 60 * 1000,
@@ -321,9 +330,10 @@ interface RatingBreakdownParams {
   tableSlug: string | null;
   date?: string;
   userId?: string;
+  enabled?: boolean;
 }
 
-export function useRatingBreakdown({ tableSlug, date, userId }: RatingBreakdownParams) {
+export function useRatingBreakdown({ tableSlug, date, userId, enabled = true }: RatingBreakdownParams) {
   return useQuery({
     queryKey: ["analysis", "rating-breakdown", tableSlug, date ?? null, userId ?? null],
     queryFn: () => {
@@ -333,7 +343,7 @@ export function useRatingBreakdown({ tableSlug, date, userId }: RatingBreakdownP
         `/analysis/rating-breakdown?${params.toString()}`,
       );
     },
-    enabled: !!tableSlug && !!date,
+    enabled: enabled && !!tableSlug && !!date,
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -372,6 +382,7 @@ export function useCourseActivity(
   clientType?: ClientTypeFilter,
   date?: string,
   userId?: string,
+  enabled: boolean = true,
 ) {
   return useQuery({
     queryKey: ["analysis", "course-activity", year ?? null, days ?? null, clientType ?? "all", date ?? null, userId ?? null],
@@ -384,6 +395,7 @@ export function useCourseActivity(
       if (userId) params.set("user_id", userId);
       return api.get<CourseActivityItem[]>(`/analysis/course-activity?${params}`);
     },
+    enabled,
     staleTime: 30 * 60 * 1000,
   });
 }

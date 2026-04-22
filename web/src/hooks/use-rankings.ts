@@ -50,7 +50,7 @@ export function useRankings(
   });
 }
 
-export function useMyRank(tableSlug: string | null, userId?: string | null) {
+export function useMyRank(tableSlug: string | null, userId?: string | null, enabled: boolean = true) {
   return useQuery<MyRankData>({
     queryKey: ["my-rank", tableSlug, userId ?? null],
     queryFn: async () => {
@@ -62,7 +62,7 @@ export function useMyRank(tableSlug: string | null, userId?: string | null) {
       const raw = await api.get<any>(`/rankings/${tableSlug}/me${suffix}`);
       return mapMyRankData(raw);
     },
-    enabled: !!tableSlug,
+    enabled: enabled && !!tableSlug,
     staleTime: 60 * 1000,
     retry: false,
   });
@@ -73,6 +73,7 @@ export function useRankingHistory(
   from: string | null,
   to: string | null,
   userId?: string | null,
+  enabled: boolean = true,
 ) {
   return useQuery<RankingHistoryResponse>({
     queryKey: ["ranking-history", tableSlug, from, to, userId ?? null],
@@ -85,7 +86,7 @@ export function useRankingHistory(
         `/rankings/${tableSlug}/history?${params.toString()}`,
       );
     },
-    enabled: !!tableSlug && !!from && !!to,
+    enabled: enabled && !!tableSlug && !!from && !!to,
     staleTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
   });
@@ -101,6 +102,7 @@ interface RankingContributionParams {
   limit?: number;
   query?: string;
   userId?: string | null;
+  enabled?: boolean;
 }
 
 export function useRankingContributionRows({
@@ -113,6 +115,7 @@ export function useRankingContributionRows({
   limit = 100,
   query = "",
   userId,
+  enabled = true,
 }: RankingContributionParams) {
   return useQuery<RankingContributionResponse>({
     queryKey: [
@@ -146,7 +149,7 @@ export function useRankingContributionRows({
         `/rankings/${tableSlug}/me/contributions?${params.toString()}`,
       );
     },
-    enabled: !!tableSlug,
+    enabled: enabled && !!tableSlug,
     staleTime: 60 * 1000,
     placeholderData: keepPreviousData,
   });

@@ -409,6 +409,7 @@ function CalendarDayDetail({
             enableMyRankFallback={true}
             metric={ratingMetric}
             onMetricChange={onRatingMetricChange}
+            enabled={dayView === "rating"}
           />
         ) : undefined}
       />
@@ -456,6 +457,10 @@ export function UserDashboardContent({ userId }: { userId: string }) {
   // URL-controlled state for CalendarDayDetail tabs — preserved on navigation back from /songs/[hash]
   const dayView = (searchParams.get("day_view") as ScoreUpdatesViewMode | null) ?? "summary";
   const ratingMetricParam = (searchParams.get("rating_metric") as RatingHistoryMetric | null) ?? "rating";
+  const showRatingOverview = currentTab === "rating";
+  const showActivityOverview = currentTab === "activity" && !activityDate;
+  const showCalendarOverview = currentTab === "calendar" && !calendarDate;
+  const showAnyActivityOverview = showActivityOverview || showCalendarOverview;
 
   // Backward compatibility: migrate legacy ?date= param once on mount
   const didMigrateRef = useRef(false);
@@ -480,36 +485,65 @@ export function UserDashboardContent({ userId }: { userId: string }) {
     return { kind: "range" as const, from: activityRange.range.from, to: activityRange.range.to };
   }, [activityRange]);
 
-  const { data: heatmapData, isLoading: heatmapLoading } = useActivityHeatmap(heatmapYear, clientType, userId);
+  const { data: heatmapData, isLoading: heatmapLoading } = useActivityHeatmap(
+    heatmapYear,
+    clientType,
+    userId,
+    showActivityOverview,
+  );
   const { data: barData, isLoading: barLoading } = useActivityBar({
     mode: activityBarMode,
     clientType,
     userId,
+    enabled: showActivityOverview,
   });
-  const { data: summaryData } = usePlaySummary("all", userId);
+  const { data: summaryData } = usePlaySummary("all", userId, showAnyActivityOverview);
 
-  const { data: calHeatmapData } = useActivityHeatmap(calYear, clientType, userId);
-  const { data: calLr2Data } = useActivityHeatmap(calYear, "lr2", userId);
-  const { data: calBeatorajaData } = useActivityHeatmap(calYear, "beatoraja", userId);
+  const { data: calHeatmapData } = useActivityHeatmap(calYear, clientType, userId, showCalendarOverview);
+  const { data: calLr2Data } = useActivityHeatmap(calYear, "lr2", userId, showCalendarOverview);
+  const { data: calBeatorajaData } = useActivityHeatmap(calYear, "beatoraja", userId, showCalendarOverview);
 
-  const { data: heatmapCourseData } = useCourseActivity(heatmapYear, undefined, clientType, undefined, userId);
-  const { data: barCourseData } = useCourseActivity(undefined, undefined, clientType, undefined, userId);
-  const { data: calCourseData } = useCourseActivity(calYear, undefined, clientType, undefined, userId);
+  const { data: heatmapCourseData } = useCourseActivity(
+    heatmapYear,
+    undefined,
+    clientType,
+    undefined,
+    userId,
+    showActivityOverview,
+  );
+  const { data: barCourseData } = useCourseActivity(
+    undefined,
+    undefined,
+    clientType,
+    undefined,
+    userId,
+    showActivityOverview,
+  );
+  const { data: calCourseData } = useCourseActivity(
+    calYear,
+    undefined,
+    clientType,
+    undefined,
+    userId,
+    showCalendarOverview,
+  );
 
-  const heatmapRatingUpdates = useAggregatedRatingUpdates({ year: heatmapYear, userId });
+  const heatmapRatingUpdates = useAggregatedRatingUpdates({ year: heatmapYear, userId, enabled: showActivityOverview });
   const barRatingUpdates = useAggregatedRatingUpdates({
     from: activityRange.range.from,
     to: activityRange.range.to,
     userId,
+    enabled: showActivityOverview,
   });
-  const calendarRatingUpdates = useAggregatedRatingUpdates({ year: calYear, userId });
+  const calendarRatingUpdates = useAggregatedRatingUpdates({ year: calYear, userId, enabled: showCalendarOverview });
 
-  const myRank = useMyRank(selectedRankingTable, userId);
+  const myRank = useMyRank(selectedRankingTable, userId, showRatingOverview);
   const ratingHistory = useRankingHistory(
     selectedRankingTable,
     ratingHistoryRange.range.from,
     ratingHistoryRange.range.to,
     userId,
+    showActivityOverview,
   );
 
   useEffect(() => {
@@ -673,6 +707,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
               sortBy={ratingSort}
               sortDir={ratingDir}
               onSortChange={(sortBy, sortDir) => updateParams({ rating_sort: sortBy, rating_dir: sortDir })}
+              enabled={showRatingOverview}
             />
           </TabsContent>
 

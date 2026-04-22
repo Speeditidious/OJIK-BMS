@@ -133,6 +133,7 @@ interface RatingChangeTabContentProps {
   metric?: RatingHistoryMetric;
   /** Called when user changes metric. Required when `metric` prop is provided. */
   onMetricChange?: (metric: RatingHistoryMetric) => void;
+  enabled?: boolean;
 }
 
 export function RatingChangeTabContent({
@@ -145,6 +146,7 @@ export function RatingChangeTabContent({
   userId,
   metric: metricProp,
   onMetricChange,
+  enabled = true,
 }: RatingChangeTabContentProps) {
   const [metricLocal, setMetricLocal] = useState<RatingHistoryMetric>("rating");
   // Controlled: use prop when provided; otherwise use local state
@@ -174,8 +176,17 @@ export function RatingChangeTabContent({
     () => tables.find((table) => table.slug === resolvedTableSlug) ?? null,
     [resolvedTableSlug, tables],
   );
-  const breakdown = useRatingBreakdown({ tableSlug: resolvedTableSlug, date, userId: userId ?? undefined });
-  const myRank = useMyRank(enableMyRankFallback ? resolvedTableSlug : null, userId ?? undefined);
+  const breakdown = useRatingBreakdown({
+    tableSlug: resolvedTableSlug,
+    date,
+    userId: userId ?? undefined,
+    enabled,
+  });
+  const myRank = useMyRank(
+    enableMyRankFallback ? resolvedTableSlug : null,
+    userId ?? undefined,
+    enabled,
+  );
 
   const currentTableCount = useMemo(
     () => aggregatedTables.find((table) => table.table_slug === resolvedTableSlug)?.count ?? 0,

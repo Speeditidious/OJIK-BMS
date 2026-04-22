@@ -11,7 +11,7 @@ from fastapi import HTTPException
 
 from app.models.score import UserScore
 from app.models.user import User
-from app.routers.analysis import _resolve_activity_window, _resolve_rating_update_window
+from app.routers.analysis import _resolve_activity_window, _resolve_rating_update_window, get_score_updates
 from app.routers.rankings import get_ranking_display_config, get_ranking_history
 from app.routers.scores import get_score_for_song
 from app.services.client_aggregation import PerClientBest, aggregate_source_client
@@ -77,6 +77,81 @@ class _ScalarResult:
 
     def all(self):
         return self._rows
+
+
+class _QueuedResult:
+    def __init__(self, rows=None, scalar=None):
+        self._rows = rows or []
+        self._scalar = scalar
+
+    def __iter__(self):
+        return iter(self._rows)
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self._rows
+
+    def scalar_one_or_none(self):
+        return self._scalar
+
+
+class _QueuedSession:
+    def __init__(self, results):
+        self._results = list(results)
+
+    async def execute(self, _query):
+        if not self._results:
+            raise AssertionError("Unexpected execute() call")
+        return self._results.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_score_updates_uses_target_user_for_initial_sync_flag(monkeypatch):
+    target_user = SimpleNamespace(
+        id=uuid.uuid4(),
+        first_synced_at={"beatoraja": "2026-04-22T09:00:00+00:00"},
+        is_active=True,
+    )
+    score = UserScore(
+        id=uuid.uuid4(),
+        user_id=target_user.id,
+        fumen_hash_others="course-hash",
+        client_type="beatoraja",
+        play_count=3,
+        synced_at=datetime(2026, 4, 22, 9, 30, tzinfo=UTC),
+    )
+    db = _QueuedSession(
+        [
+            _QueuedResult(rows=[SimpleNamespace(score_id=score.id)]),
+            _QueuedResult(rows=[score]),
+            _QueuedResult(rows=[]),
+            _QueuedResult(rows=[score]),
+        ]
+    )
+
+    async def fake_resolve_target_user(_user_id, _current_user, _db):
+        return target_user
+
+    async def fake_build_course_indexes(_db):
+        return ({}, {}, {})
+
+    monkeypatch.setattr("app.routers.analysis._resolve_target_user", fake_resolve_target_user)
+    monkeypatch.setattr("app.routers.analysis._build_course_indexes", fake_build_course_indexes)
+    monkeypatch.setattr(
+        "app.routers.analysis._match_course_from_indexes",
+        lambda *_args, **_kwargs: SimpleNamespace(name="Test Course", dan_title="Test Dan"),
+    )
+
+    result = await get_score_updates(
+        date="2026-04-22",
+        user_id=target_user.id,
+        current_user=None,
+        db=db,
+    )
+
+    assert result["play_count_updates"][0]["is_initial_sync"] is True
 
 
 class _ScoreSession:
