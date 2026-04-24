@@ -151,6 +151,10 @@ export function useRankingContributionRows({
     },
     enabled: enabled && !!tableSlug,
     staleTime: 60 * 1000,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) => {
+      if (!previousQuery || !previousData) return undefined;
+      const previousTableSlug = previousQuery.queryKey[1];
+      return previousTableSlug === tableSlug ? previousData : undefined;
+    },
   });
 }

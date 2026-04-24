@@ -29,7 +29,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup and shutdown logic."""
     await _seed_default_tables()
     await _init_ranking_config()
-    _trigger_ranking_recalculation()
     yield
     from app.core.database import engine
     await engine.dispose()
@@ -49,24 +48,6 @@ async def _init_ranking_config() -> None:
         logger.info(f"Ranking config loaded: {len(config.tables)} table(s)")
     except Exception as exc:
         logger.warning(f"Ranking config load failed (non-fatal): {exc}")
-
-
-def _trigger_ranking_recalculation() -> None:
-    """Enqueue a full ranking recalculation on startup.
-
-    Runs as a background Celery task so startup is not blocked.
-    Useful when formula constants change and existing user_rankings need to be refreshed.
-    """
-    import logging
-
-    logger = logging.getLogger(__name__)
-    try:
-        from app.tasks.ranking_calculator import recalculate_all_rankings
-        recalculate_all_rankings.delay()
-        logger.info("Ranking recalculation enqueued on startup")
-    except Exception as exc:
-        logger.warning(f"Failed to enqueue ranking recalculation: {exc}")
-
 
 async def _seed_default_tables() -> None:
     """Create DifficultyTable rows for all default tables defined in config.json.

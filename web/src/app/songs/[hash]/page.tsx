@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useState, useMemo, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Package, FileCode, Youtube, ExternalLink } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FumenTags } from "@/components/fumen/FumenTags";
 import { api } from "@/lib/api";
+import { useUserProfile } from "@/hooks/use-user-profile";
 import { useAuthStore } from "@/stores/auth";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
 import { clearText } from "@/components/dashboard/RecentActivity";
@@ -68,11 +69,132 @@ function compareScores(a: UserScore, b: UserScore, key: SortKey, dir: SortDir): 
   return dir === "asc" ? cmp : -cmp;
 }
 
+function ScoreHistorySection({
+  title,
+  scores,
+  isLoading,
+  emptyMessage,
+  sortKey,
+  sortDir,
+  onSort,
+  thClass,
+}: {
+  title: string;
+  scores: UserScore[];
+  isLoading: boolean;
+  emptyMessage: string;
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onSort: (key: SortKey) => void;
+  thClass: (align?: "left" | "right") => string;
+}) {
+  return (
+    <div>
+      <h2 className="text-body font-semibold mb-2 text-muted-foreground uppercase tracking-wide">{title}</h2>
+      {isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="h-10 animate-pulse rounded bg-muted" />
+          ))}
+        </div>
+      ) : scores.length === 0 ? (
+        <p className="text-body text-muted-foreground">{emptyMessage}</p>
+      ) : (
+        <div className="rounded-md border overflow-auto">
+          <table className="w-full text-body">
+            <thead className="bg-background text-foreground border-b">
+              <tr>
+                <th className={thClass()} onClick={() => onSort("clear_type")}>
+                  클리어<SortIcon col="clear_type" sortKey={sortKey} sortDir={sortDir} />
+                </th>
+                <th className={thClass()} onClick={() => onSort("min_bp")}>
+                  BP<SortIcon col="min_bp" sortKey={sortKey} sortDir={sortDir} />
+                </th>
+                <th className={thClass()} onClick={() => onSort("rate")}>
+                  판정<SortIcon col="rate" sortKey={sortKey} sortDir={sortDir} />
+                </th>
+                <th className={thClass()} onClick={() => onSort("rank")}>
+                  랭크<SortIcon col="rank" sortKey={sortKey} sortDir={sortDir} />
+                </th>
+                <th className={thClass()} onClick={() => onSort("exscore")}>
+                  점수<SortIcon col="exscore" sortKey={sortKey} sortDir={sortDir} />
+                </th>
+                <th className={thClass()} onClick={() => onSort("play_count")}>
+                  플레이 수<SortIcon col="play_count" sortKey={sortKey} sortDir={sortDir} />
+                </th>
+                <th className={thClass()} onClick={() => onSort("option")}>
+                  배치<SortIcon col="option" sortKey={sortKey} sortDir={sortDir} />
+                </th>
+                <th className={thClass()} onClick={() => onSort("client_type")}>
+                  구동기<SortIcon col="client_type" sortKey={sortKey} sortDir={sortDir} />
+                </th>
+                <th className={thClass()} onClick={() => onSort("recorded_at")}>
+                  기록 일시<SortIcon col="recorded_at" sortKey={sortKey} sortDir={sortDir} />
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {scores.map((s) => {
+                const arrangementName = parseArrangement(s.options, s.client_type);
+                const arrangementKanji = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? arrangementName) : null;
+                const rowClass = CLEAR_ROW_CLASS[s.clear_type ?? 0] ?? "";
+                const dateStr = s.recorded_at
+                  ? new Date(s.recorded_at).toLocaleDateString("ko-KR")
+                  : s.is_first_sync
+                    ? "--"
+                    : s.synced_at
+                      ? new Date(s.synced_at).toLocaleDateString("ko-KR")
+                      : "--";
+                return (
+                  <tr key={s.id} className={cn("border-b border-border/30 last:border-0", rowClass || "hover:bg-secondary/50")}>
+                    <td className="px-3 py-2">
+                      {clearText(s.clear_type, s.client_type)}
+                    </td>
+                    <td className="px-3 py-2 text-label">
+                      {s.min_bp !== null ? s.min_bp : <span className="text-muted-foreground row-muted">--</span>}
+                    </td>
+                    <td className="px-3 py-2 text-label">
+                      {s.rate !== null ? formatRatePercent(s.rate) : <span className="text-muted-foreground row-muted">--</span>}
+                    </td>
+                    <td className="px-3 py-2 text-label">
+                      {s.rank ?? <span className="text-muted-foreground row-muted">--</span>}
+                    </td>
+                    <td className="px-3 py-2 text-label">
+                      {s.exscore !== null ? s.exscore : <span className="text-muted-foreground row-muted">--</span>}
+                    </td>
+                    <td className="px-3 py-2 text-label">
+                      {s.play_count !== null ? s.play_count : <span className="text-muted-foreground row-muted">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-label">
+                      {arrangementKanji ?? <span className="text-muted-foreground row-muted">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-label">
+                      <span className="text-label">
+                        {s.client_type === "beatoraja" ? "BR" : s.client_type.toUpperCase()}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-label">
+                      {dateStr}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SongDetailPage({ params }: SongDetailPageProps) {
   const { hash } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user } = useAuthStore();
   const isLoggedIn = !!user;
+  const targetUserId = searchParams.get("user_id");
+  const viewingOtherUser = !!targetUserId && targetUserId !== user?.id;
 
   const [sortKey, setSortKey] = useState<SortKey>("recorded_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -89,9 +211,11 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
   // Canonical URL redirect: if we entered via md5 but fumen has sha256, replace URL once
   useEffect(() => {
     if (fumen?.sha256 && fumen.sha256 !== hash) {
-      router.replace(`/songs/${fumen.sha256}`);
+      const params = searchParams.toString();
+      const suffix = params ? `?${params}` : "";
+      router.replace(`/songs/${fumen.sha256}${suffix}`);
     }
-  }, [fumen?.sha256, hash, router]);
+  }, [fumen?.sha256, hash, router, searchParams]);
 
   const { data: allTables = [] } = useQuery<DifficultyTable[]>({
     queryKey: ["tables"],
@@ -101,16 +225,36 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
 
   const tableSymbolMap = Object.fromEntries(allTables.map((t) => [t.id, t.symbol ?? ""]));
 
-  const { data: scores = [] } = useQuery<UserScore[]>({
-    queryKey: ["fumen-scores", effectiveHash],
-    queryFn: () => api.get(`/scores/me/fumen/${effectiveHash}`),
-    enabled: isLoggedIn && !!effectiveHash,
+  const { data: targetProfile } = useUserProfile(targetUserId ?? "");
+
+  const { data: primaryScores = [], isLoading: primaryScoresLoading } = useQuery<UserScore[]>({
+    queryKey: ["fumen-scores", effectiveHash, targetUserId ?? user?.id ?? null],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (targetUserId) {
+        params.set("user_id", targetUserId);
+      }
+      const suffix = params.size > 0 ? `?${params.toString()}` : "";
+      return api.get(`/scores/me/fumen/${effectiveHash}${suffix}`);
+    },
+    enabled: !!effectiveHash && (!!targetUserId || isLoggedIn),
     staleTime: 2 * 60 * 1000,
   });
 
-  const sortedScores = useMemo(() => {
-    return [...scores].sort((a, b) => compareScores(a, b, sortKey, sortDir));
-  }, [scores, sortKey, sortDir]);
+  const { data: myScores = [], isLoading: myScoresLoading } = useQuery<UserScore[]>({
+    queryKey: ["fumen-scores", effectiveHash, user?.id ?? null, "me"],
+    queryFn: () => api.get(`/scores/me/fumen/${effectiveHash}`),
+    enabled: isLoggedIn && !!effectiveHash && viewingOtherUser,
+    staleTime: 2 * 60 * 1000,
+  });
+
+  const sortedPrimaryScores = useMemo(() => {
+    return [...primaryScores].sort((a, b) => compareScores(a, b, sortKey, sortDir));
+  }, [primaryScores, sortKey, sortDir]);
+
+  const sortedMyScores = useMemo(() => {
+    return [...myScores].sort((a, b) => compareScores(a, b, sortKey, sortDir));
+  }, [myScores, sortKey, sortDir]);
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -249,95 +393,29 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
               </div>
             )}
 
-            {/* Score history */}
-            {isLoggedIn && (
-              <div>
-                <h2 className="text-body font-semibold mb-2 text-muted-foreground uppercase tracking-wide">내 기록</h2>
-                {scores.length === 0 ? (
-                  <p className="text-body text-muted-foreground">기록이 없습니다.</p>
-                ) : (
-                  <div className="rounded-md border overflow-auto">
-                    <table className="w-full text-body">
-                      <thead className="bg-background text-foreground border-b">
-                        <tr>
-                          <th className={thClass()} onClick={() => handleSort("clear_type")}>
-                            클리어<SortIcon col="clear_type" sortKey={sortKey} sortDir={sortDir} />
-                          </th>
-                          <th className={thClass()} onClick={() => handleSort("min_bp")}>
-                            BP<SortIcon col="min_bp" sortKey={sortKey} sortDir={sortDir} />
-                          </th>
-                          <th className={thClass()} onClick={() => handleSort("rate")}>
-                            판정<SortIcon col="rate" sortKey={sortKey} sortDir={sortDir} />
-                          </th>
-                          <th className={thClass()} onClick={() => handleSort("rank")}>
-                            랭크<SortIcon col="rank" sortKey={sortKey} sortDir={sortDir} />
-                          </th>
-                          <th className={thClass()} onClick={() => handleSort("exscore")}>
-                            점수<SortIcon col="exscore" sortKey={sortKey} sortDir={sortDir} />
-                          </th>
-                          <th className={thClass()} onClick={() => handleSort("play_count")}>
-                            플레이 수<SortIcon col="play_count" sortKey={sortKey} sortDir={sortDir} />
-                          </th>
-                          <th className={thClass()} onClick={() => handleSort("option")}>
-                            배치<SortIcon col="option" sortKey={sortKey} sortDir={sortDir} />
-                          </th>
-                          <th className={thClass()} onClick={() => handleSort("client_type")}>
-                            구동기<SortIcon col="client_type" sortKey={sortKey} sortDir={sortDir} />
-                          </th>
-                          <th className={thClass()} onClick={() => handleSort("recorded_at")}>
-                            기록 일시<SortIcon col="recorded_at" sortKey={sortKey} sortDir={sortDir} />
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortedScores.map((s) => {
-                          const arrangementName = parseArrangement(s.options, s.client_type);
-                          const arrangementKanji = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? arrangementName) : null;
-                          const rowClass = CLEAR_ROW_CLASS[s.clear_type ?? 0] ?? "";
-                          const dateStr = s.recorded_at
-                            ? new Date(s.recorded_at).toLocaleDateString("ko-KR")
-                            : s.is_first_sync
-                              ? "--"
-                              : s.synced_at
-                                ? new Date(s.synced_at).toLocaleDateString("ko-KR")
-                                : "--";
-                          return (
-                            <tr key={s.id} className={cn("border-b border-border/30 last:border-0", rowClass || "hover:bg-secondary/50")}>
-                              <td className="px-3 py-2">
-                                {clearText(s.clear_type, s.client_type)}
-                              </td>
-                              <td className="px-3 py-2 text-label">
-                                {s.min_bp !== null ? s.min_bp : <span className="text-muted-foreground row-muted">--</span>}
-                              </td>
-                              <td className="px-3 py-2 text-label">
-                                {s.rate !== null ? formatRatePercent(s.rate) : <span className="text-muted-foreground row-muted">--</span>}
-                              </td>
-                              <td className="px-3 py-2 text-label">
-                                {s.rank ?? <span className="text-muted-foreground row-muted">--</span>}
-                              </td>
-                              <td className="px-3 py-2 text-label">
-                                {s.exscore !== null ? s.exscore : <span className="text-muted-foreground row-muted">--</span>}
-                              </td>
-                              <td className="px-3 py-2 text-label">
-                                {s.play_count !== null ? s.play_count : <span className="text-muted-foreground row-muted">—</span>}
-                              </td>
-                              <td className="px-3 py-2 text-label">
-                                {arrangementKanji ?? <span className="text-muted-foreground row-muted">—</span>}
-                              </td>
-                              <td className="px-3 py-2 text-label">
-                                <span className="text-label">
-                                  {s.client_type === "beatoraja" ? "BR" : s.client_type.toUpperCase()}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 text-label">
-                                {dateStr}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+            {(targetUserId || isLoggedIn) && (
+              <div className="space-y-6">
+                <ScoreHistorySection
+                  title={viewingOtherUser ? `${targetProfile?.username ?? "선택한 유저"}님의 기록` : "내 기록"}
+                  scores={sortedPrimaryScores}
+                  isLoading={primaryScoresLoading}
+                  emptyMessage={viewingOtherUser ? "이 유저의 기록이 없습니다." : "기록이 없습니다."}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={handleSort}
+                  thClass={thClass}
+                />
+                {viewingOtherUser && isLoggedIn && (
+                  <ScoreHistorySection
+                    title="내 기록"
+                    scores={sortedMyScores}
+                    isLoading={myScoresLoading}
+                    emptyMessage="내 기록이 없습니다."
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    thClass={thClass}
+                  />
                 )}
               </div>
             )}

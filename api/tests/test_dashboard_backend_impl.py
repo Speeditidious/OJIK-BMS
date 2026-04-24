@@ -1,5 +1,6 @@
 """Regression tests for dashboard backend range handling and source-client aggregation."""
 
+import asyncio
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -160,6 +161,18 @@ class _ScoreSession:
 
     async def execute(self, _query):
         return _ScalarResult(self._rows)
+
+
+class _HistorySession:
+    def __init__(self):
+        self.commit_calls = 0
+        self.rollback_calls = 0
+
+    async def commit(self):
+        self.commit_calls += 1
+
+    async def rollback(self):
+        self.rollback_calls += 1
 
 
 def test_aggregate_source_client_prefers_single_dominant_client_with_missing_fields():
@@ -438,6 +451,196 @@ async def test_get_ranking_history_rejects_731_day_range(monkeypatch):
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "Date range too large (max 730 days)"
+
+
+@pytest.mark.asyncio
+async def test_get_ranking_history_rebuilds_stale_derived_data_before_fetch(monkeypatch):
+    current_user = User(id=uuid.uuid4(), username="tester", is_active=True)
+    table_cfg = _make_rating_table()
+    config = SimpleNamespace(
+        exp_level_step=100.0,
+        get_table_by_slug=lambda slug: table_cfg if slug == table_cfg.slug else None,
+    )
+    db = _HistorySession()
+    state = {"fresh": False}
+    recalc_calls = 0
+    fetch_calls = 0
+
+    monkeypatch.setattr("app.routers.rankings._get_config_or_503", lambda: config)
+    monkeypatch.setattr("app.routers.rankings._HISTORY_REBUILD_LOCKS", {})
+
+    async def fake_has_fresh(_user_id, _table_id, _db):
+        return state["fresh"]
+
+    async def fake_recalculate_user(_user_id, _config, _db):
+        nonlocal recalc_calls
+        recalc_calls += 1
+        state["fresh"] = True
+
+    async def fake_fetch(_user_id, _table_id, from_, _to, _step, _max_level, _db):
+        nonlocal fetch_calls
+        fetch_calls += 1
+        return [SimpleNamespace(date=from_, exp=10.0, exp_level=1, rating=20.0, rating_norm=0.5)]
+
+    async def fake_compute(*_args, **_kwargs):
+        raise AssertionError("fallback replay should not run when rebuild succeeds")
+
+    monkeypatch.setattr("app.routers.rankings.has_fresh_user_table_rating_derived_data", fake_has_fresh)
+    monkeypatch.setattr("app.services.ranking_calculator.recalculate_user", fake_recalculate_user)
+    monkeypatch.setattr("app.routers.rankings.fetch_user_table_rating_history_points", fake_fetch)
+    monkeypatch.setattr("app.services.ranking_calculator.compute_ranking_history_for_user", fake_compute)
+
+    result = await get_ranking_history(
+        table_slug=table_cfg.slug,
+        from_=date(2026, 4, 1),
+        to=date(2026, 4, 7),
+        user_id=None,
+        current_user=current_user,
+        db=db,
+    )
+
+    assert result["points"] == [
+        {
+            "date": "2026-04-01",
+            "exp": 10.0,
+            "exp_level": 1,
+            "rating": 20.0,
+            "rating_norm": 0.5,
+        }
+    ]
+    assert recalc_calls == 1
+    assert fetch_calls == 1
+    assert db.commit_calls == 1
+    assert db.rollback_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_get_ranking_history_falls_back_after_rebuild_failure(monkeypatch):
+    current_user = User(id=uuid.uuid4(), username="tester", is_active=True)
+    table_cfg = _make_rating_table()
+    config = SimpleNamespace(
+        exp_level_step=100.0,
+        get_table_by_slug=lambda slug: table_cfg if slug == table_cfg.slug else None,
+    )
+    db = _HistorySession()
+    compute_calls = 0
+
+    monkeypatch.setattr("app.routers.rankings._get_config_or_503", lambda: config)
+    monkeypatch.setattr("app.routers.rankings._HISTORY_REBUILD_LOCKS", {})
+
+    async def fake_has_fresh(_user_id, _table_id, _db):
+        return False
+
+    async def fake_recalculate_user(_user_id, _config, _db):
+        raise RuntimeError("rebuild failed")
+
+    async def fake_compute(_user_id, _table_cfg, _config, from_, _to, _db):
+        nonlocal compute_calls
+        compute_calls += 1
+        return [SimpleNamespace(date=from_, exp=33.0, exp_level=2, rating=44.0, rating_norm=0.777)]
+
+    async def fake_fetch(*_args, **_kwargs):
+        raise AssertionError("checkpoint fetch should not run when rebuild fails")
+
+    monkeypatch.setattr("app.routers.rankings.has_fresh_user_table_rating_derived_data", fake_has_fresh)
+    monkeypatch.setattr("app.services.ranking_calculator.recalculate_user", fake_recalculate_user)
+    monkeypatch.setattr("app.services.ranking_calculator.compute_ranking_history_for_user", fake_compute)
+    monkeypatch.setattr("app.routers.rankings.fetch_user_table_rating_history_points", fake_fetch)
+
+    result = await get_ranking_history(
+        table_slug=table_cfg.slug,
+        from_=date(2026, 4, 1),
+        to=date(2026, 4, 7),
+        user_id=None,
+        current_user=current_user,
+        db=db,
+    )
+
+    assert result["points"] == [
+        {
+            "date": "2026-04-01",
+            "exp": 33.0,
+            "exp_level": 2,
+            "rating": 44.0,
+            "rating_norm": 0.777,
+        }
+    ]
+    assert compute_calls == 1
+    assert db.commit_calls == 0
+    assert db.rollback_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_get_ranking_history_singleflights_concurrent_stale_rebuilds(monkeypatch):
+    current_user = User(id=uuid.uuid4(), username="tester", is_active=True)
+    table_cfg = _make_rating_table()
+    config = SimpleNamespace(
+        exp_level_step=100.0,
+        get_table_by_slug=lambda slug: table_cfg if slug == table_cfg.slug else None,
+    )
+    db = _HistorySession()
+    state = {"fresh": False}
+    recalc_calls = 0
+    fetch_calls = 0
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    monkeypatch.setattr("app.routers.rankings._get_config_or_503", lambda: config)
+    monkeypatch.setattr("app.routers.rankings._HISTORY_REBUILD_LOCKS", {})
+
+    async def fake_has_fresh(_user_id, _table_id, _db):
+        return state["fresh"]
+
+    async def fake_recalculate_user(_user_id, _config, _db):
+        nonlocal recalc_calls
+        recalc_calls += 1
+        started.set()
+        await release.wait()
+        state["fresh"] = True
+
+    async def fake_fetch(_user_id, _table_id, from_, _to, _step, _max_level, _db):
+        nonlocal fetch_calls
+        fetch_calls += 1
+        return [SimpleNamespace(date=from_, exp=55.0, exp_level=3, rating=66.0, rating_norm=0.888)]
+
+    async def fake_compute(*_args, **_kwargs):
+        raise AssertionError("fallback replay should not run for successful singleflight rebuild")
+
+    monkeypatch.setattr("app.routers.rankings.has_fresh_user_table_rating_derived_data", fake_has_fresh)
+    monkeypatch.setattr("app.services.ranking_calculator.recalculate_user", fake_recalculate_user)
+    monkeypatch.setattr("app.routers.rankings.fetch_user_table_rating_history_points", fake_fetch)
+    monkeypatch.setattr("app.services.ranking_calculator.compute_ranking_history_for_user", fake_compute)
+
+    task1 = asyncio.create_task(
+        get_ranking_history(
+            table_slug=table_cfg.slug,
+            from_=date(2026, 4, 1),
+            to=date(2026, 4, 7),
+            user_id=None,
+            current_user=current_user,
+            db=db,
+        )
+    )
+    await started.wait()
+    task2 = asyncio.create_task(
+        get_ranking_history(
+            table_slug=table_cfg.slug,
+            from_=date(2026, 4, 1),
+            to=date(2026, 4, 7),
+            user_id=None,
+            current_user=current_user,
+            db=db,
+        )
+    )
+    await asyncio.sleep(0)
+    release.set()
+    result1, result2 = await asyncio.gather(task1, task2)
+
+    assert result1["points"] == result2["points"]
+    assert recalc_calls == 1
+    assert fetch_calls == 2
+    assert db.commit_calls == 1
+    assert db.rollback_calls == 0
 
 
 @pytest.mark.asyncio

@@ -167,6 +167,7 @@ export function RatingDetailSection({
             sortDir={sortDir}
             onSortChange={handleSort}
             presentation={scope === "top" ? "rating-detail" : "default"}
+            userId={userId ?? undefined}
           />
         </>
       ) : tables.length > 0 ? (

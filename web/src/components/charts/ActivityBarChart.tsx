@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   CartesianGrid,
   Line,
@@ -16,6 +16,8 @@ import { ChartLegend, type LegendItem } from "@/components/charts/ChartLegend";
 import { daysInRange, type DateRange } from "@/lib/date-range";
 import { pickTickResolution, formatTick, computeTicks } from "@/lib/axis-format";
 import { formatCompactNumber } from "@/lib/rating-format";
+import { ACTIVITY_CATEGORIES } from "@/lib/activity-categories";
+import { niceTicks } from "@/lib/axis-ticks";
 
 export type ActivitySeries = "updates" | "plays" | "new_plays" | "rating_updates";
 
@@ -139,10 +141,26 @@ export function ActivityBarChart({
   rangeTo,
 }: ActivityBarChartProps) {
   const [chartRef, chartWidth] = useChartWidth(150);
-  const enabledModes = useMemo<ActivitySeries[]>(
-    () => (activeModes.length > 0 ? activeModes : ["updates"]),
-    [activeModes],
-  );
+  const enabledModes = useMemo<ActivitySeries[]>(() => {
+    const set = new Set<string>(activeModes.length > 0 ? activeModes : ["updates"]);
+    return ACTIVITY_CATEGORIES
+      .map((cat) => cat.key)
+      .filter((key): key is ActivitySeries => set.has(key));
+  }, [activeModes]);
+
+  // Only animate a <Line> on the render where it newly appears — existing lines
+  // stay static when other toggles change, and removed lines just unmount.
+  const mountedModesRef = useRef<Set<ActivitySeries>>(new Set());
+  const newlyAdded = useMemo<Set<ActivitySeries>>(() => {
+    const set = new Set<ActivitySeries>();
+    for (const mode of enabledModes) {
+      if (!mountedModesRef.current.has(mode)) set.add(mode);
+    }
+    return set;
+  }, [enabledModes]);
+  useEffect(() => {
+    mountedModesRef.current = new Set(enabledModes);
+  }, [enabledModes]);
 
   const syncByDate = useMemo(() => {
     const map: Record<string, { labels: string[]; hideCount: boolean }> = {};
@@ -208,7 +226,7 @@ export function ActivityBarChart({
     });
   }, [courseByDate, data, syncByDate]);
 
-  const yMax = useMemo(() => {
+  const { dataMin: yMin, dataMax: yMax, yTicks } = useMemo(() => {
     const values = chartData.flatMap((row) =>
       enabledModes.map((mode) => {
         if (mode === "plays") return row.plays ?? 0;
@@ -217,7 +235,16 @@ export function ActivityBarChart({
         return row.updates ?? 0;
       }),
     );
-    return Math.max(1, ...values);
+    const dataMin = Math.min(...values);
+    const dataMax = Math.max(...values);
+    const flat = dataMin === dataMax;
+    const domainMin = flat ? dataMin - 1 : dataMin;
+    const domainMax = flat ? dataMax + 1 : dataMax;
+    return {
+      dataMin: domainMin,
+      dataMax: domainMax,
+      yTicks: flat ? undefined : niceTicks(domainMin, domainMax, 8).ticks,
+    };
   }, [chartData, enabledModes]);
 
   // Compute x-axis ticks based on range
@@ -236,28 +263,26 @@ export function ActivityBarChart({
 
   if (chartData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-48 text-muted-foreground text-body">
+      <div className="flex items-center justify-center h-[280px] text-muted-foreground text-body">
         이 기간에 동기화된 데이터가 없습니다
       </div>
     );
   }
 
   if (chartWidth === 0) {
-    return <div ref={chartRef} style={{ width: "100%", height: 200 }} />;
+    return <div ref={chartRef} style={{ width: "100%", height: 280 }} />;
   }
 
   const minDate = chartData[0].fullDate;
   const maxDate = chartData[chartData.length - 1].fullDate;
 
-  const legendItems: LegendItem[] = enabledModes.map((mode) => ({
-    key: mode,
-    label: seriesLabel(mode),
-    color: seriesColor(mode),
-  }));
+  const legendItems: LegendItem[] = ACTIVITY_CATEGORIES
+    .filter((cat) => enabledModes.includes(cat.key as ActivitySeries))
+    .map((cat) => ({ key: cat.key, label: cat.label, color: cat.hslColor }));
 
   return (
     <div ref={chartRef} className="space-y-2">
-      <LineChart width={chartWidth} height={200} data={chartData} margin={{ top: 4, right: 48, left: -8, bottom: 0 }}>
+      <LineChart width={chartWidth} height={280} data={chartData} margin={{ top: 4, right: 48, left: -8, bottom: 0 }}>
         <CartesianGrid stroke="hsl(var(--border)/0.45)" vertical={false} />
         <XAxis
           dataKey="fullDate"
@@ -272,7 +297,8 @@ export function ActivityBarChart({
           padding={{ left: 0, right: 8 }}
         />
         <YAxis
-          domain={[0, yMax]}
+          domain={[yMin, yMax]}
+          ticks={yTicks}
           tick={{ fontSize: "var(--text-caption)", fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={false}
@@ -292,6 +318,7 @@ export function ActivityBarChart({
             strokeWidth={2}
             dot={false}
             activeDot={{ r: 3, fill: seriesColor(mode) }}
+            isAnimationActive={newlyAdded.has(mode)}
           />
         ))}
         {Object.entries(syncByDate)

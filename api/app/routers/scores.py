@@ -1,6 +1,7 @@
 """Score query endpoints."""
 
 import math
+import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_optional
 from app.models.fumen import Fumen
 from app.models.score import UserScore
 from app.models.user import User
@@ -72,6 +73,27 @@ class PerFieldBestScore(BaseModel):
     source_client_detail: dict | None = None
 
 
+async def _resolve_target_user(
+    user_id: uuid.UUID | None,
+    current_user: User | None,
+    db: AsyncSession,
+) -> User:
+    """Resolve the score owner for song history lookups."""
+    if user_id is None:
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        return current_user
+
+    if current_user is not None and current_user.id == user_id:
+        return current_user
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    target_user = result.scalar_one_or_none()
+    if target_user is None or not target_user.is_active:
+        raise HTTPException(status_code=404, detail="User not found")
+    return target_user
+
+
 @router.get("/me", response_model=list[UserScoreRead])
 async def get_my_scores(
     client_type: str | None = Query(None, description="Filter by client type: lr2, beatoraja, qwilight"),
@@ -117,11 +139,14 @@ async def get_my_scores(
 @router.get("/me/fumen/{hash_value}", response_model=list[UserScoreRead])
 async def get_scores_for_fumen(
     hash_value: str,
-    current_user: User = Depends(get_current_user),
+    user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> list[UserScoreRead]:
     """Get all score rows for a specific fumen (sha256 or md5), ordered by recorded_at DESC."""
     from sqlalchemy import or_ as _or
+
+    target_user = await _resolve_target_user(user_id, current_user, db)
 
     if len(hash_value) == 64:
         # sha256 lookup: find fumen's md5 to also fetch md5-only rows (e.g. LR2)
@@ -150,13 +175,13 @@ async def get_scores_for_fumen(
 
     result = await db.execute(
         select(UserScore)
-        .where(UserScore.user_id == current_user.id, *condition)
+        .where(UserScore.user_id == target_user.id, *condition)
         .order_by(func.coalesce(UserScore.recorded_at, UserScore.synced_at).desc().nullslast())
     )
     scores = result.scalars().all()
 
     # Fetch first_synced_at for is_first_sync detection
-    fst_result = await db.execute(select(User.first_synced_at).where(User.id == current_user.id))
+    fst_result = await db.execute(select(User.first_synced_at).where(User.id == target_user.id))
     first_synced_at: dict | None = fst_result.scalar_one_or_none()
 
     def _is_first_sync(s: UserScore) -> bool:

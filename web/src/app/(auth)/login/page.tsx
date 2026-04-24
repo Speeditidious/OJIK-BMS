@@ -34,7 +34,13 @@ function LoginContent() {
           )}
           <a href={`${API_URL}/auth/discord/login`}>
             <Button className="w-full gap-3" size="lg">
-              <Image src="/discord_white_icon.png" alt="Discord" width={20} height={20} />
+              <Image
+                src="/discord_white_icon.png"
+                alt="Discord"
+                width={256}
+                height={194}
+                style={{ width: 20, height: "auto" }}
+              />
               Discord로 로그인
             </Button>
           </a>

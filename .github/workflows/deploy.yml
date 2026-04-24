@@ -38,5 +38,9 @@ jobs:
             docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T api \
               alembic upgrade head
 
+            # Warm up recently active users' rating-derived tables after deploy
+            docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T api \
+              python -m scripts.deploy_rating_warmup --recent-days 30 --limit 500
+
             # Clean up unused images/containers
             docker system prune -f

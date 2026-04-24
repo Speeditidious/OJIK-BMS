@@ -44,10 +44,10 @@ import { useChartWidth } from "@/hooks/use-chart-size";
 import {
   useActivityBar,
   useActivityHeatmap,
-  useAggregatedRatingUpdates,
   useCourseActivity,
   usePlaySummary,
   useRecentUpdates,
+  useScoreUpdates,
   type ClientTypeFilter,
 } from "@/hooks/use-analysis";
 import { useUserProfile } from "@/hooks/use-user-profile";
@@ -63,6 +63,7 @@ import { rangeFromPreset, daysInRange } from "@/lib/date-range";
 import { ACTIVITY_CATEGORIES } from "@/lib/activity-categories";
 import type { ScoreUpdatesViewMode } from "@/components/dashboard/ScoreUpdates";
 import { pickTickResolution, formatTick, computeTicks } from "@/lib/axis-format";
+import { niceTicks, decimalsForStep } from "@/lib/axis-ticks";
 import { useAuthStore } from "@/stores/auth";
 
 function formatPlaytime(seconds: number): string {
@@ -71,25 +72,6 @@ function formatPlaytime(seconds: number): string {
   const m = Math.floor((seconds % 3600) / 60);
   if (h > 0) return `${h}시간 ${m}분`;
   return `${m}분`;
-}
-
-function buildCountMap(items?: Array<{ date: string; count: number }>): Record<string, number> {
-  const map: Record<string, number> = {};
-  for (const item of items ?? []) {
-    map[item.date] = item.count;
-  }
-  return map;
-}
-
-function mergeActivityWithRating<T extends { date: string; rating_updates?: number }>(
-  data: T[],
-  ratingUpdates: Array<{ date: string; count: number }> | undefined,
-): T[] {
-  const ratingMap = buildCountMap(ratingUpdates);
-  return data.map((item) => ({
-    ...item,
-    rating_updates: ratingMap[item.date] ?? 0,
-  }));
 }
 
 function DayStatCard({
@@ -149,11 +131,18 @@ type RatingHistoryMetricLocal = RatingHistoryMetric;
 function RatingHistoryGraph({
   points,
   metric,
+  loading = false,
+  active = true,
 }: {
   points: Array<{ date: string; exp: number; rating: number; rating_norm: number }>;
   metric: RatingHistoryMetricLocal;
+  loading?: boolean;
+  active?: boolean;
 }) {
-  const [chartRef, chartWidth] = useChartWidth(150);
+  const [chartRef, chartWidth] = useChartWidth(150, {
+    active,
+    remeasureKey: `${metric}:${points.length}:${points[0]?.date ?? ""}:${points[points.length - 1]?.date ?? ""}`,
+  });
   const color = metric === "exp"
     ? "hsl(var(--primary))"
     : metric === "rating"
@@ -161,16 +150,39 @@ function RatingHistoryGraph({
       : "hsl(var(--clear-exhard))";
   const dataKey = metric === "exp" ? "exp" : metric === "rating" ? "rating" : "rating_norm" as const;
 
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        <div className="h-4 w-28 animate-pulse rounded bg-muted" />
+        <div className="h-[300px] animate-pulse rounded-lg bg-muted" />
+        <p className="text-caption text-muted-foreground">레이팅 히스토리 데이터를 불러오는 중입니다.</p>
+      </div>
+    );
+  }
+
   if (points.length === 0) {
     return (
-      <div className="flex h-56 items-center justify-center text-body text-muted-foreground">
+      <div className="flex h-[300px] items-center justify-center text-body text-muted-foreground">
         이 기간에 레이팅 변동 데이터가 없습니다.
       </div>
     );
   }
 
   if (chartWidth === 0) {
-    return <div ref={chartRef} style={{ width: "100%", height: 220 }} />;
+    return (
+      <div
+        ref={chartRef}
+        className="flex h-[300px] w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-6 text-center"
+      >
+        <div className="space-y-2">
+          <div className="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+          <p className="text-body font-medium text-foreground">레이팅 그래프 레이아웃을 준비 중입니다.</p>
+          <p className="text-caption text-muted-foreground">
+            탭 표시가 안정되면 그래프를 바로 렌더링합니다.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   const dates = points.map((p) => p.date);
@@ -179,15 +191,17 @@ function RatingHistoryGraph({
   const tickDates = computeTicks(dates, days);
 
   const values = points.map((p) => p[dataKey]);
-  const dataMin = Math.min(...values);
-  const dataMax = Math.max(...values);
-  const pad = dataMax === dataMin
-    ? (metric === "bmsforce" ? 0.01 : 1)
-    : (dataMax - dataMin) * 0.1;
-
-  const yDomain: [number | string, number | string] = points.length === 0
-    ? [0, 1]
-    : [dataMin - pad, dataMax + pad];
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const flat = rawMin === rawMax;
+  const fallbackPad = metric === "bmsforce" ? 0.01 : 1;
+  const yDomainMin = flat ? rawMin - fallbackPad : rawMin;
+  const yDomainMax = flat ? rawMax + fallbackPad : rawMax;
+  const yDomain: [number, number] = [yDomainMin, yDomainMax];
+  const { ticks: yTickValues, step: yStep } = flat
+    ? { ticks: undefined as undefined, step: 0 }
+    : niceTicks(yDomainMin, yDomainMax, 8);
+  const yDecimals = decimalsForStep(yStep);
 
   const chartData = points.map((point) => ({
     ...point,
@@ -196,7 +210,7 @@ function RatingHistoryGraph({
 
   return (
     <div ref={chartRef}>
-      <AreaChart width={chartWidth} height={220} data={chartData} margin={{ top: 8, right: 48, left: -4, bottom: 0 }}>
+      <AreaChart width={chartWidth} height={300} data={chartData} margin={{ top: 8, right: 48, left: -4, bottom: 0 }}>
         <defs>
           <linearGradient id={`rating-${metric}`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity={0.34} />
@@ -218,13 +232,15 @@ function RatingHistoryGraph({
         />
         <YAxis
           domain={yDomain}
+          ticks={yTickValues}
           tick={{ fontSize: "var(--text-caption)", fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={false}
-          allowDecimals={metric === "bmsforce"}
+          allowDecimals={metric === "bmsforce" || yStep < 1}
           tickFormatter={(value: number) => {
-            if (metric === "bmsforce") return formatRatingMetric("bmsforce", Number(value));
-            return formatCompactNumber(Number(value));
+            const n = Number(value);
+            if (yStep < 1) return n.toFixed(yDecimals);
+            return formatCompactNumber(Math.round(n));
           }}
         />
         <RechartsTooltip
@@ -254,6 +270,56 @@ function RatingHistoryGraph({
           strokeWidth={2}
         />
       </AreaChart>
+    </div>
+  );
+}
+
+function CalendarDayDetailSkeleton({ backLabel, dateLabel }: { backLabel: string; dateLabel: string }) {
+  return (
+    <div className="space-y-4">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="-ml-1 gap-1.5 text-muted-foreground hover:text-foreground"
+        disabled
+      >
+        <ChevronLeft className="h-4 w-4" />
+        {backLabel}
+      </Button>
+      <div className="flex items-center gap-2">
+        <CalendarDays className="h-5 w-5 text-primary" />
+        <h2 className="text-lg font-bold">{dateLabel}</h2>
+      </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <Card key={index} className="border-dashed">
+            <CardHeader className="space-y-2 px-4 pb-1 pt-3">
+              <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+              <div className="h-6 w-12 animate-pulse rounded bg-muted" />
+            </CardHeader>
+            <CardContent className="px-4 pb-3">
+              <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="h-6 w-24 animate-pulse rounded bg-muted" />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="mx-auto flex w-fit gap-2 rounded-lg border border-border/60 p-1">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div key={index} className="h-8 w-24 animate-pulse rounded bg-muted" />
+            ))}
+          </div>
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={index} className="h-14 animate-pulse rounded-lg bg-muted" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -295,13 +361,14 @@ function CalendarDayDetail({
   ratingMetric: RatingHistoryMetric;
   onRatingMetricChange: (m: RatingHistoryMetric) => void;
 }) {
-  const { data } = useRecentUpdates(1, clientType, date, selectedRankingTable, userId);
-  const aggregatedRatingDay = useAggregatedRatingUpdates({ date, userId });
+  const recentUpdates = useRecentUpdates(1, clientType, date, undefined, userId);
+  const scoreUpdates = useScoreUpdates(clientType, date, 50, userId);
+  const { data } = recentUpdates;
   const autoSelectedDateRef = useRef<string | null>(null);
   const [y, m, d] = date.split("-").map(Number);
   const updatedTables = useMemo(
-    () => [...(aggregatedRatingDay.data?.tables ?? [])].sort((left, right) => left.display_order - right.display_order),
-    [aggregatedRatingDay.data?.tables],
+    () => [...(data?.rating_update_tables ?? [])].sort((left, right) => left.display_order - right.display_order),
+    [data?.rating_update_tables],
   );
 
   useEffect(() => {
@@ -322,6 +389,15 @@ function CalendarDayDetail({
     autoSelectedDateRef.current = date;
   }, [date, onSelectRankingTable, selectedRankingTable, updatedTables]);
 
+  const dateLabel = `${y}년 ${m}월 ${d}일의 기록`;
+  const isDayDetailLoading =
+    (recentUpdates.isLoading && !recentUpdates.data) ||
+    (scoreUpdates.isLoading && !scoreUpdates.data);
+
+  if (isDayDetailLoading) {
+    return <CalendarDayDetailSkeleton backLabel={backLabel} dateLabel={dateLabel} />;
+  }
+
   return (
     <div className="space-y-4">
       <Button
@@ -335,7 +411,7 @@ function CalendarDayDetail({
       </Button>
       <div className="flex items-center gap-2">
         <CalendarDays className="h-5 w-5 text-primary" />
-        <h2 className="text-lg font-bold">{y}년 {m}월 {d}일의 기록</h2>
+        <h2 className="text-lg font-bold">{dateLabel}</h2>
       </div>
 
       {data?.day_summary && (
@@ -357,7 +433,7 @@ function CalendarDayDetail({
             />
             <DayStatCard
               title="레이팅 갱신"
-              value={`${aggregatedRatingDay.data?.count ?? 0}`}
+              value={`${data.day_summary.rating_updates ?? 0}`}
               sub="당일 전체 난이도표 반영 개수"
               icon={Trophy}
               accentVar="var(--chart-rating)"
@@ -395,7 +471,7 @@ function CalendarDayDetail({
         userId={userId}
         clientType={clientType}
         date={date}
-        ratingBadgeCount={aggregatedRatingDay.data?.count ?? 0}
+        ratingBadgeCount={data?.day_summary?.rating_updates ?? 0}
         viewMode={dayView}
         onViewModeChange={onDayViewChange}
         ratingSlot={rankingTables.length > 0 ? (
@@ -440,9 +516,9 @@ export function UserDashboardContent({ userId }: { userId: string }) {
   const [heatmapYear, setHeatmapYear] = useState(CURRENT_YEAR);
   const [activityRange, setActivityRange] = useState<DateRangeValue>(() => makeDefaultRange(30));
   const [activityView, setActivityView] = useState<"updates" | "plays" | "new_plays" | "rating_updates">("updates");
-  const [activitySeries, setActivitySeries] = useState<ActivitySeries[]>(["updates", "new_plays", "plays", "rating_updates"]);
+  const [activitySeries, setActivitySeries] = useState<ActivitySeries[]>(["updates", "new_plays", "rating_updates", "plays"]);
   const [ratingHistoryMetric, setRatingHistoryMetric] = useState<RatingHistoryMetric>("bmsforce");
-  const [ratingHistoryRange, setRatingHistoryRange] = useState<DateRangeValue>(() => makeDefaultRange(90));
+  const [ratingHistoryRange, setRatingHistoryRange] = useState<DateRangeValue>(() => makeDefaultRange(30));
   const [calYear, setCalYear] = useState(CURRENT_YEAR);
   const [calMonth, setCalMonth] = useState(CURRENT_MONTH);
 
@@ -528,15 +604,6 @@ export function UserDashboardContent({ userId }: { userId: string }) {
     showCalendarOverview,
   );
 
-  const heatmapRatingUpdates = useAggregatedRatingUpdates({ year: heatmapYear, userId, enabled: showActivityOverview });
-  const barRatingUpdates = useAggregatedRatingUpdates({
-    from: activityRange.range.from,
-    to: activityRange.range.to,
-    userId,
-    enabled: showActivityOverview,
-  });
-  const calendarRatingUpdates = useAggregatedRatingUpdates({ year: calYear, userId, enabled: showCalendarOverview });
-
   const myRank = useMyRank(selectedRankingTable, userId, showRatingOverview);
   const ratingHistory = useRankingHistory(
     selectedRankingTable,
@@ -545,6 +612,9 @@ export function UserDashboardContent({ userId }: { userId: string }) {
     userId,
     showActivityOverview,
   );
+  const isActivityRatingHistoryDataLoading =
+    rankingTablesLoading ||
+    (showActivityOverview && (ratingHistory.isLoading || (ratingHistory.isFetching && !ratingHistory.data)));
 
   useEffect(() => {
     if (!searchParams.get("ranking_table") && rankingTables.length > 0) {
@@ -563,18 +633,9 @@ export function UserDashboardContent({ userId }: { userId: string }) {
     };
   }, [summaryData]);
 
-  const heatmapWithRating = useMemo(
-    () => mergeActivityWithRating(heatmapData?.data ?? [], heatmapRatingUpdates.data?.dates),
-    [heatmapData?.data, heatmapRatingUpdates.data?.dates],
-  );
-  const barWithRating = useMemo(
-    () => mergeActivityWithRating(barData?.data ?? [], barRatingUpdates.data?.dates),
-    [barData?.data, barRatingUpdates.data?.dates],
-  );
-
   const heatmapRatingMap = useMemo(
-    () => buildCountMap(heatmapRatingUpdates.data?.dates),
-    [heatmapRatingUpdates.data?.dates],
+    () => Object.fromEntries((heatmapData?.data ?? []).map((item) => [item.date, item.rating_updates ?? 0])),
+    [heatmapData?.data],
   );
 
   const replaceParams = useCallback((updates: Record<string, string | null>) => {
@@ -770,7 +831,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                       </div>
                     ) : (
                       <ActivityHeatmap
-                        data={heatmapWithRating}
+                        data={heatmapData?.data ?? []}
                         year={heatmapYear}
                         firstSyncDates={firstSyncDates}
                         clientType={clientType}
@@ -811,12 +872,12 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                   </CardHeader>
                   <CardContent>
                     {barLoading ? (
-                      <div className="h-48 animate-pulse rounded bg-muted">
+                      <div className="h-[280px] animate-pulse rounded bg-muted">
                         <span className="sr-only">로딩 중</span>
                       </div>
                     ) : (
                       <ActivityBarChart
-                        data={barWithRating}
+                        data={barData?.data ?? []}
                         firstSyncDates={firstSyncDates}
                         clientType={clientType}
                         courseData={barCourseData ?? []}
@@ -870,9 +931,11 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                       <RatingHistoryGraph
                         points={ratingHistory.data?.points ?? []}
                         metric={ratingHistoryMetric}
+                        loading={isActivityRatingHistoryDataLoading}
+                        active={showActivityOverview}
                       />
                     ) : (
-                      <div className="flex h-56 items-center justify-center text-body text-muted-foreground">
+                      <div className="flex h-[300px] items-center justify-center text-body text-muted-foreground">
                         레이팅 그래프를 보려면 난이도표를 선택해주세요.
                       </div>
                     )}
@@ -881,7 +944,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
 
                 <RecentActivity
                   clientType={clientType}
-                  heatmapData={heatmapWithRating}
+                  heatmapData={heatmapData?.data ?? []}
                   ratingUpdatesByDate={heatmapRatingMap}
                   firstSyncDates={firstSyncDates}
                   onDayClick={handleActivityDayClick}
@@ -927,7 +990,9 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                     dataLr2={clientType === "all" ? calLr2Data?.data : undefined}
                     dataBeatoraja={clientType === "all" ? calBeatorajaData?.data : undefined}
                     courseData={calCourseData ?? []}
-                    ratingUpdatesData={calendarRatingUpdates.data?.dates}
+                    ratingUpdatesData={(calHeatmapData?.data ?? [])
+                      .filter((item) => (item.rating_updates ?? 0) > 0)
+                      .map((item) => ({ date: item.date, count: item.rating_updates ?? 0 }))}
                   />
                 </CardContent>
               </Card>

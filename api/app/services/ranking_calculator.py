@@ -770,6 +770,8 @@ async def recalculate_user(
     db: AsyncSession,
 ) -> None:
     """Recalculate all table rankings for a single user."""
+    from app.services.rating_derived_data import rebuild_user_rating_derived_data
+
     for table_cfg in config.tables:
         user_scores_map = await bulk_query_best_scores(table_cfg.table_id, db, user_id=user_id)
         scores = user_scores_map.get(user_id, [])
@@ -779,6 +781,8 @@ async def recalculate_user(
         result.dan_title = await check_dan_clearance(user_id, table_cfg, config, db)
 
         await upsert_user_ranking(result, table_cfg.table_id, db)
+
+    await rebuild_user_rating_derived_data(user_id, config, db)
 
 
 async def batch_check_dan_clearance(
@@ -877,6 +881,8 @@ async def recalculate_table_bulk(
     db: AsyncSession,
 ) -> int:
     """Recalculate rankings for all users in a table. Returns number of users processed."""
+    from app.services.rating_derived_data import rebuild_user_rating_derived_data
+
     all_scores = await bulk_query_best_scores(table_cfg.table_id, db)
     if not all_scores:
         return 0
@@ -919,6 +925,7 @@ async def recalculate_table_bulk(
             result.dan_title = existing_dans.get(user_id)
 
         await upsert_user_ranking(result, table_cfg.table_id, db)
+        await rebuild_user_rating_derived_data(user_id, config, db)
         processed += 1
 
     return processed

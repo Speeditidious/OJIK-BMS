@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/stores/auth";
 
 export interface ScoreUpdatesNewPlayPrefs {
   score_updates_lamp_include_new_plays: boolean;
@@ -16,37 +17,43 @@ const DEFAULT_PREFS: ScoreUpdatesNewPlayPrefs = {
   score_updates_combo_include_new_plays: true,
 };
 
-const QUERY_KEY = ["user-preferences"];
+function prefsQueryKey(userId: string | null | undefined) {
+  return ["user-preferences", userId ?? null] as const;
+}
 
 export function useScoreUpdatesPrefs(): ScoreUpdatesNewPlayPrefs {
+  const { isInitialized, user } = useAuthStore();
   const { data } = useQuery({
-    queryKey: QUERY_KEY,
+    queryKey: prefsQueryKey(user?.id),
     queryFn: () => api.get<{ preferences: Record<string, boolean> }>("/users/me/preferences"),
     staleTime: 10 * 60 * 1000,
+    enabled: isInitialized && !!user,
   });
   return { ...DEFAULT_PREFS, ...(data?.preferences ?? {}) } as ScoreUpdatesNewPlayPrefs;
 }
 
 export function useUpdateScoreUpdatesPrefs() {
   const queryClient = useQueryClient();
+  const { user } = useAuthStore();
+  const key = prefsQueryKey(user?.id);
   return useMutation({
     mutationFn: (preferences: Partial<ScoreUpdatesNewPlayPrefs>) =>
       api.patch<{ preferences: Record<string, boolean> }>("/users/me/preferences", { preferences }),
     onMutate: async (newPrefs) => {
-      await queryClient.cancelQueries({ queryKey: QUERY_KEY });
-      const previous = queryClient.getQueryData<{ preferences: Record<string, boolean> }>(QUERY_KEY);
-      queryClient.setQueryData(QUERY_KEY, (old: { preferences: Record<string, boolean> } | undefined) => ({
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<{ preferences: Record<string, boolean> }>(key);
+      queryClient.setQueryData(key, (old: { preferences: Record<string, boolean> } | undefined) => ({
         preferences: { ...(old?.preferences ?? {}), ...newPrefs },
       }));
       return { previous };
     },
     onError: (_err, _vars, context) => {
       if (context?.previous !== undefined) {
-        queryClient.setQueryData(QUERY_KEY, context.previous);
+        queryClient.setQueryData(key, context.previous);
       }
     },
     onSuccess: (data) => {
-      queryClient.setQueryData(QUERY_KEY, data);
+      queryClient.setQueryData(key, data);
     },
   });
 }
@@ -123,10 +130,12 @@ export function useClearTypeVisibility(
   isHidden: (ct: number) => boolean;
   getDisplayClearType: (ct: number) => number;
 } {
+  const { isInitialized, user } = useAuthStore();
   const { data } = useQuery({
-    queryKey: QUERY_KEY,
+    queryKey: prefsQueryKey(user?.id),
     queryFn: () => api.get<{ preferences: Record<string, unknown> }>("/users/me/preferences"),
     staleTime: 10 * 60 * 1000,
+    enabled: isInitialized && !!user,
   });
 
   const prefs = useMemo(
@@ -165,26 +174,28 @@ export function useClearTypeVisibility(
 
 export function useUpdateClearTypeVisibility() {
   const queryClient = useQueryClient();
+  const { user } = useAuthStore();
+  const key = prefsQueryKey(user?.id);
   return useMutation({
     mutationFn: (nextPrefs: ClearTypeVisibilityPrefs) =>
       api.patch<{ preferences: Record<string, unknown> }>("/users/me/preferences", {
         preferences: { clear_type_visibility: nextPrefs },
       }),
     onMutate: async (nextPrefs) => {
-      await queryClient.cancelQueries({ queryKey: QUERY_KEY });
-      const previous = queryClient.getQueryData<{ preferences: Record<string, unknown> }>(QUERY_KEY);
-      queryClient.setQueryData(QUERY_KEY, (old: { preferences: Record<string, unknown> } | undefined) => ({
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<{ preferences: Record<string, unknown> }>(key);
+      queryClient.setQueryData(key, (old: { preferences: Record<string, unknown> } | undefined) => ({
         preferences: { ...(old?.preferences ?? {}), clear_type_visibility: nextPrefs },
       }));
       return { previous };
     },
     onError: (_err, _vars, context) => {
       if (context?.previous !== undefined) {
-        queryClient.setQueryData(QUERY_KEY, context.previous);
+        queryClient.setQueryData(key, context.previous);
       }
     },
     onSuccess: (data) => {
-      queryClient.setQueryData(QUERY_KEY, data);
+      queryClient.setQueryData(key, data);
     },
   });
 }

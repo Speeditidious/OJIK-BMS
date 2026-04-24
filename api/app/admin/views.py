@@ -19,7 +19,12 @@ from app.models.difficulty_table import (
     UserFavoriteDifficultyTable,
 )
 from app.models.fumen import Fumen, UserFumenTag
-from app.models.ranking import UserRanking
+from app.models.ranking import (
+    UserRanking,
+    UserRatingUpdateDaily,
+    UserTableRatingCheckpoint,
+    UserTableRatingUpdateDaily,
+)
 from app.models.schedule import Schedule
 from app.models.score import UserPlayerStats, UserScore
 from app.models.user import OAuthAccount, User
@@ -349,3 +354,82 @@ class UserRankingAdmin(ModelView, model=UserRanking):
     can_create = False  # 계산 파이프라인으로만 생성
     can_edit = False    # 수동 수정은 데이터 정합성 파괴 위험
 
+
+class UserTableRatingCheckpointAdmin(ModelView, model=UserTableRatingCheckpoint):
+    name = "Rating Checkpoint"
+    name_plural = "Rating Checkpoints"
+    icon = "fa-solid fa-wave-square"
+    column_list = [
+        UserTableRatingCheckpoint.user_id,
+        UserTableRatingCheckpoint.table_id,
+        UserTableRatingCheckpoint.effective_date,
+        UserTableRatingCheckpoint.exp,
+        UserTableRatingCheckpoint.rating,
+    ]
+    column_searchable_list = [
+        UserTableRatingCheckpoint.user_id,
+        UserTableRatingCheckpoint.table_id,
+        UserTableRatingCheckpoint.effective_date,
+    ]
+    column_sortable_list = [
+        UserTableRatingCheckpoint.user_id,
+        UserTableRatingCheckpoint.table_id,
+        UserTableRatingCheckpoint.effective_date,
+        UserTableRatingCheckpoint.exp,
+        UserTableRatingCheckpoint.rating,
+    ]
+    column_default_sort = [(UserTableRatingCheckpoint.effective_date, True)]
+    can_create = False
+    can_edit = False
+    can_delete = False
+
+
+class UserTableRatingUpdateDailyAdmin(ModelView, model=UserTableRatingUpdateDaily):
+    name = "Rating Updates By Table"
+    name_plural = "Rating Updates By Table"
+    icon = "fa-solid fa-table-list"
+    column_list = [
+        UserTableRatingUpdateDaily.user_id,
+        UserTableRatingUpdateDaily.table_id,
+        UserTableRatingUpdateDaily.effective_date,
+        UserTableRatingUpdateDaily.update_count,
+    ]
+    column_searchable_list = [
+        UserTableRatingUpdateDaily.user_id,
+        UserTableRatingUpdateDaily.table_id,
+        UserTableRatingUpdateDaily.effective_date,
+    ]
+    column_sortable_list = [
+        UserTableRatingUpdateDaily.user_id,
+        UserTableRatingUpdateDaily.table_id,
+        UserTableRatingUpdateDaily.effective_date,
+        UserTableRatingUpdateDaily.update_count,
+    ]
+    column_default_sort = [(UserTableRatingUpdateDaily.effective_date, True)]
+    can_create = False
+    can_edit = False
+    can_delete = False
+
+
+class UserRatingUpdateDailyAdmin(ModelView, model=UserRatingUpdateDaily):
+    name = "Rating Updates Aggregated"
+    name_plural = "Rating Updates Aggregated"
+    icon = "fa-solid fa-layer-group"
+    column_list = [
+        UserRatingUpdateDaily.user_id,
+        UserRatingUpdateDaily.effective_date,
+        UserRatingUpdateDaily.update_count,
+    ]
+    column_searchable_list = [
+        UserRatingUpdateDaily.user_id,
+        UserRatingUpdateDaily.effective_date,
+    ]
+    column_sortable_list = [
+        UserRatingUpdateDaily.user_id,
+        UserRatingUpdateDaily.effective_date,
+        UserRatingUpdateDaily.update_count,
+    ]
+    column_default_sort = [(UserRatingUpdateDaily.effective_date, True)]
+    can_create = False
+    can_edit = False
+    can_delete = False

@@ -28,12 +28,52 @@ from app.services.ranking_dashboard import (
     compute_rating_updates_aggregated,
     get_user_ranking_version,
 )
+from app.services.rating_derived_data import (
+    fetch_user_rating_update_count_for_date,
+    fetch_user_rating_update_daily,
+    fetch_user_rating_update_tables_for_date,
+    fetch_user_table_rating_update_daily,
+    has_fresh_user_rating_derived_data,
+    has_fresh_user_table_rating_derived_data,
+)
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 _RATING_UPDATES_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _RATING_UPDATES_AGG_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _RATING_BREAKDOWN_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _CUSTOM_RANGE_MAX_DAYS = 730
+
+
+def _rating_count_map(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """Return a `date -> count` map from stored or fallback daily rows."""
+    return {
+        str(row["date"]): int(row["count"])
+        for row in rows
+    }
+
+
+async def _fetch_aggregated_rating_update_rows(
+    target_user: User,
+    ranking_tables,
+    from_date: date_cls,
+    to_date: date_cls,
+    db: AsyncSession,
+) -> list[dict[str, Any]]:
+    """Return overview rating-update rows from derived data or legacy fallback."""
+    table_ids = [table.table_id for table in ranking_tables]
+    use_derived = await has_fresh_user_rating_derived_data(target_user.id, table_ids, db)
+    if use_derived:
+        return await fetch_user_rating_update_daily(target_user.id, from_date, to_date, db)
+
+    legacy = await compute_rating_updates_aggregated(
+        user_id=target_user.id,
+        ranking_tables=ranking_tables,
+        db=db,
+        from_date=from_date,
+        to_date=to_date,
+        excluded_dates=_rating_update_excluded_dates(target_user),
+    )
+    return legacy.get("dates", [])
 
 
 async def _resolve_target_user(
@@ -715,8 +755,20 @@ async def get_activity_heatmap(
     plays_by_day = await _get_daily_plays(
         target_user, client_type, start.date(), end.date(), db
     )
+    try:
+        ranking_cfg = get_ranking_config()
+        rating_rows = await _fetch_aggregated_rating_update_rows(
+            target_user,
+            ranking_cfg.tables,
+            start.date(),
+            (end - timedelta(days=1)).date(),
+            db,
+        )
+    except RuntimeError:
+        rating_rows = []
+    rating_map = _rating_count_map(rating_rows)
 
-    all_dates = sorted(set(updates_by_day) | set(new_plays_by_day) | set(plays_by_day))
+    all_dates = sorted(set(updates_by_day) | set(new_plays_by_day) | set(plays_by_day) | set(rating_map))
     return {
         "year": target_year,
         "data": [
@@ -725,6 +777,7 @@ async def get_activity_heatmap(
                 "updates": updates_by_day.get(d, 0),
                 "new_plays": new_plays_by_day.get(d, 0),
                 "plays": plays_by_day.get(d, 0),
+                "rating_updates": rating_map.get(d, 0),
             }
             for d in all_dates
         ],
@@ -778,8 +831,20 @@ async def get_activity_bar(
     plays_by_day = await _get_daily_plays(
         target_user, client_type, from_date, until_date, db
     )
+    try:
+        ranking_cfg = get_ranking_config()
+        rating_rows = await _fetch_aggregated_rating_update_rows(
+            target_user,
+            ranking_cfg.tables,
+            from_date,
+            until_date - timedelta(days=1),
+            db,
+        )
+    except RuntimeError:
+        rating_rows = []
+    rating_map = _rating_count_map(rating_rows)
 
-    all_dates = sorted(set(updates_by_day) | set(new_plays_by_day) | set(plays_by_day))
+    all_dates = sorted(set(updates_by_day) | set(new_plays_by_day) | set(plays_by_day) | set(rating_map))
     return {
         **window_meta,
         "data": [
@@ -788,6 +853,7 @@ async def get_activity_bar(
                 "updates": updates_by_day.get(d, 0),
                 "new_plays": new_plays_by_day.get(d, 0),
                 "plays": plays_by_day.get(d, 0),
+                "rating_updates": rating_map.get(d, 0),
             }
             for d in all_dates
         ],
@@ -820,11 +886,6 @@ async def get_rating_updates(
     if table_cfg is None:
         raise HTTPException(status_code=404, detail=f"Table '{table_slug}' not found")
 
-    table_row = await db.execute(
-        select(DifficultyTable.symbol).where(DifficultyTable.id == table_cfg.table_id)
-    )
-    table_symbol = table_row.scalar_one_or_none() or ""
-
     max_synced_at, calculated_at = await get_user_ranking_version(target_user.id, table_cfg.table_id, db)
     excluded_dates = _rating_update_excluded_dates(target_user)
     excluded_dates_key = tuple(sorted(day.isoformat() for day in excluded_dates))
@@ -844,18 +905,54 @@ async def get_rating_updates(
     if cached is not None:
         return cached
 
-    payload = await compute_rating_updates(
-        user_id=target_user.id,
-        table_cfg=table_cfg,
-        db=db,
-        table_symbol=table_symbol,
-        year=year,
-        days=days,
-        target_date=date,
-        from_date=from_date,
-        to_date=to_date,
-        excluded_dates=excluded_dates,
-    )
+    use_derived = await has_fresh_user_table_rating_derived_data(target_user.id, table_cfg.table_id, db)
+    if use_derived:
+        stored_rows = await fetch_user_table_rating_update_daily(
+            target_user.id,
+            table_cfg.table_id,
+            from_date,
+            to_date,
+            db,
+        )
+        payload = {
+            "dates": stored_rows,
+            "date": date.isoformat() if date else None,
+            "count": None,
+            "entries": [],
+            "top_n": table_cfg.top_n,
+        }
+        if date is not None:
+            payload["count"] = next((row["count"] for row in stored_rows if row["date"] == date.isoformat()), 0)
+            table_row = await db.execute(
+                select(DifficultyTable.symbol).where(DifficultyTable.id == table_cfg.table_id)
+            )
+            table_symbol = table_row.scalar_one_or_none() or ""
+            detail_payload = await compute_rating_updates(
+                user_id=target_user.id,
+                table_cfg=table_cfg,
+                db=db,
+                table_symbol=table_symbol,
+                target_date=date,
+                excluded_dates=excluded_dates,
+            )
+            payload["entries"] = detail_payload["entries"]
+    else:
+        table_row = await db.execute(
+            select(DifficultyTable.symbol).where(DifficultyTable.id == table_cfg.table_id)
+        )
+        table_symbol = table_row.scalar_one_or_none() or ""
+        payload = await compute_rating_updates(
+            user_id=target_user.id,
+            table_cfg=table_cfg,
+            db=db,
+            table_symbol=table_symbol,
+            year=year,
+            days=days,
+            target_date=date,
+            from_date=from_date,
+            to_date=to_date,
+            excluded_dates=excluded_dates,
+        )
     response = {
         "table_slug": table_slug,
         "calculated_at": calculated_at,
@@ -904,17 +1001,34 @@ async def get_rating_updates_aggregated(
     if cached is not None:
         return cached
 
-    response = await compute_rating_updates_aggregated(
-        user_id=target_user.id,
-        ranking_tables=config.tables,
-        db=db,
-        year=year,
-        days=days,
-        target_date=date,
-        from_date=from_date,
-        to_date=to_date,
-        excluded_dates=excluded_dates,
+    use_derived = await has_fresh_user_rating_derived_data(
+        target_user.id,
+        [table.table_id for table in config.tables],
+        db,
     )
+    if use_derived:
+        if date is not None:
+            response = {
+                "date": date.isoformat(),
+                "count": await fetch_user_rating_update_count_for_date(target_user.id, date, db),
+                "tables": await fetch_user_rating_update_tables_for_date(target_user.id, date, config.tables, db),
+            }
+        else:
+            response = {
+                "dates": await fetch_user_rating_update_daily(target_user.id, from_date, to_date, db),
+            }
+    else:
+        response = await compute_rating_updates_aggregated(
+            user_id=target_user.id,
+            ranking_tables=config.tables,
+            db=db,
+            year=year,
+            days=days,
+            target_date=date,
+            from_date=from_date,
+            to_date=to_date,
+            excluded_dates=excluded_dates,
+        )
     _RATING_UPDATES_AGG_CACHE[cache_key] = response
     return response
 
@@ -1081,6 +1195,7 @@ async def get_recent_updates(
     # ── Day-specific summary (only when date filter is active) ───────────────
     stat_only_ids: set[str] = set()
     day_summary_out: dict | None = None
+    rating_update_tables_out: list[dict[str, Any]] | None = None
 
     if date:
         # Dedup entries by hash key (unified basis: client_type ignored).
@@ -1182,26 +1297,38 @@ async def get_recent_updates(
             "notes_hit_uncertain": day_stats["notes_hit_uncertain"] or no_stats_but_has_records,
             "rating_updates": 0,
         }
-        if table_slug:
-            try:
-                ranking_cfg = get_ranking_config()
-            except RuntimeError:
-                ranking_cfg = None
-            if ranking_cfg is not None:
-                selected_table = ranking_cfg.get_table_by_slug(table_slug)
-                if selected_table is not None:
-                    table_row = await db.execute(
-                        select(DifficultyTable.symbol).where(DifficultyTable.id == selected_table.table_id)
-                    )
-                    table_symbol = table_row.scalar_one_or_none() or ""
-                    rating_payload = await compute_rating_updates(
-                        user_id=target_user.id,
-                        table_cfg=selected_table,
-                        db=db,
-                        table_symbol=table_symbol,
-                        target_date=target_date_obj,
-                    )
-                    day_summary_out["rating_updates"] = rating_payload["count"] or 0
+        try:
+            ranking_cfg = get_ranking_config()
+        except RuntimeError:
+            ranking_cfg = None
+        if ranking_cfg is not None:
+            use_derived = await has_fresh_user_rating_derived_data(
+                target_user.id,
+                [table.table_id for table in ranking_cfg.tables],
+                db,
+            )
+            if use_derived:
+                day_summary_out["rating_updates"] = await fetch_user_rating_update_count_for_date(
+                    target_user.id,
+                    target_date_obj,
+                    db,
+                )
+                rating_update_tables_out = await fetch_user_rating_update_tables_for_date(
+                    target_user.id,
+                    target_date_obj,
+                    ranking_cfg.tables,
+                    db,
+                )
+            else:
+                aggregated_rating_payload = await compute_rating_updates_aggregated(
+                    user_id=target_user.id,
+                    ranking_tables=ranking_cfg.tables,
+                    db=db,
+                    target_date=target_date_obj,
+                    excluded_dates=_rating_update_excluded_dates(target_user),
+                )
+                day_summary_out["rating_updates"] = aggregated_rating_payload.get("count") or 0
+                rating_update_tables_out = aggregated_rating_payload.get("tables") or []
 
     return {
         "updates": [
@@ -1239,6 +1366,7 @@ async def get_recent_updates(
             for e in entries
         ],
         "day_summary": day_summary_out,
+        "rating_update_tables": rating_update_tables_out,
     }
 
 

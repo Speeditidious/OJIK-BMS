@@ -1,4 +1,5 @@
 """Rankings API router."""
+import asyncio
 import uuid
 from datetime import date
 from typing import Any
@@ -21,9 +22,14 @@ from app.services.ranking_dashboard import (
     compute_exp_progress_fields,
     get_user_ranking_version,
 )
+from app.services.rating_derived_data import (
+    fetch_user_table_rating_history_points,
+    has_fresh_user_table_rating_derived_data,
+)
 
 router = APIRouter(prefix="/rankings", tags=["rankings"])
 _CONTRIBUTION_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
+_HISTORY_REBUILD_LOCKS: dict[uuid.UUID, asyncio.Lock] = {}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -97,6 +103,15 @@ async def _resolve_target_user(
     return target_user
 
 
+def _get_history_rebuild_lock(user_id: uuid.UUID) -> asyncio.Lock:
+    """Return the process-local singleflight lock for history rebuilds."""
+    lock = _HISTORY_REBUILD_LOCKS.get(user_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _HISTORY_REBUILD_LOCKS[user_id] = lock
+    return lock
+
+
 # ── GET /rankings/tables ──────────────────────────────────────────────────────
 
 @router.get("/tables")
@@ -157,16 +172,15 @@ async def get_ranking_history(
     current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Return day-by-day EXP/Rating/BMSFORCE for a user over [from, to].
+    """Return day-by-day EXP/Rating/BMSFORCE for a user over [from, to]."""
+    from app.services.ranking_calculator import (
+        compute_ranking_history_for_user,
+        recalculate_user,
+    )
 
-    History is computed on-demand from user_scores (no stored snapshots).
-    This means formula changes are immediately reflected in all historical values.
-    """
     config = _get_config_or_503()
 
-    target_uid = user_id or (current_user.id if current_user else None)
-    if target_uid is None:
-        raise HTTPException(status_code=401, detail="Authentication required")
+    target_user = await _resolve_target_user(user_id, current_user, db)
     if to < from_:
         raise HTTPException(status_code=400, detail="'from' must be <= 'to'")
     if (to - from_).days > 730:
@@ -176,14 +190,63 @@ async def get_ranking_history(
     if table_cfg is None:
         raise HTTPException(status_code=404, detail=f"Table '{table_slug}' not found")
 
-    from app.services.ranking_calculator import compute_ranking_history_for_user
-    points = await compute_ranking_history_for_user(
-        target_uid, table_cfg, config, from_, to, db
+    can_use_derived = all(
+        hasattr(table_cfg, attr)
+        for attr in ("table_id", "max_level")
     )
+    use_derived = can_use_derived and await has_fresh_user_table_rating_derived_data(
+        target_user.id,
+        table_cfg.table_id,
+        db,
+    )
+    if can_use_derived and not use_derived:
+        rebuild_failed = False
+        async with _get_history_rebuild_lock(target_user.id):
+            use_derived = await has_fresh_user_table_rating_derived_data(
+                target_user.id,
+                table_cfg.table_id,
+                db,
+            )
+            if not use_derived:
+                try:
+                    await recalculate_user(target_user.id, config, db)
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                    rebuild_failed = True
+                else:
+                    use_derived = await has_fresh_user_table_rating_derived_data(
+                        target_user.id,
+                        table_cfg.table_id,
+                        db,
+                    )
+
+        if rebuild_failed:
+            use_derived = False
+
+    if use_derived:
+        points = await fetch_user_table_rating_history_points(
+            target_user.id,
+            table_cfg.table_id,
+            from_,
+            to,
+            config.exp_level_step,
+            table_cfg.max_level,
+            db,
+        )
+    else:
+        points = await compute_ranking_history_for_user(
+            target_user.id,
+            table_cfg,
+            config,
+            from_,
+            to,
+            db,
+        )
 
     return {
         "table_slug": table_slug,
-        "user_id": str(target_uid),
+        "user_id": str(target_user.id),
         "from": from_.isoformat(),
         "to": to.isoformat(),
         "points": [

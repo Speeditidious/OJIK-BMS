@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, use } from "react";
+import { Suspense, use, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { UserCircle } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
@@ -8,7 +8,7 @@ import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { ProfileActionBar } from "@/components/profile/ProfileActionBar";
 import { ProfileInfoCard } from "@/components/profile/ProfileInfoCard";
 import { AboutMeCard } from "@/components/profile/AboutMeCard";
-import { useActivityHeatmap } from "@/hooks/use-analysis";
+import { useActivityHeatmap, usePlaySummary } from "@/hooks/use-analysis";
 import { useUserProfile } from "@/hooks/use-user-profile";
 import { useAuthStore } from "@/stores/auth";
 
@@ -21,6 +21,20 @@ function UserProfileContent({ userId }: { userId: string }) {
 
   const { data: profileUser, isLoading, error } = useUserProfile(userId);
   const { data: heatmapData } = useActivityHeatmap(CURRENT_YEAR, "all", userId);
+  const { data: summaryData } = usePlaySummary("all", userId);
+
+  const heatmapRatingMap = useMemo(
+    () => Object.fromEntries((heatmapData?.data ?? []).map((day) => [day.date, day.rating_updates ?? 0])),
+    [heatmapData?.data],
+  );
+  const firstSyncDates = useMemo(() => {
+    const map = summaryData?.first_synced_by_client;
+    if (!map) return undefined;
+    return {
+      lr2: map.lr2 ? map.lr2.slice(0, 10) : undefined,
+      beatoraja: map.beatoraja ? map.beatoraja.slice(0, 10) : undefined,
+    };
+  }, [summaryData]);
 
   if (isLoading) {
     return (
@@ -67,6 +81,8 @@ function UserProfileContent({ userId }: { userId: string }) {
 
         <RecentActivity
           heatmapData={heatmapData?.data ?? []}
+          ratingUpdatesByDate={heatmapRatingMap}
+          firstSyncDates={firstSyncDates}
           onDayClick={(date) => router.push(`/users/${userId}/dashboard?tab=calendar&date=${date}`)}
           emptyMessage={isOwner ? "동기화된 활동 내역이 없습니다." : "이 유저는 아직 공개된 활동 내역이 없습니다."}
         />

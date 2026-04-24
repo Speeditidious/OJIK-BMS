@@ -22,6 +22,7 @@ import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, makeTableCopyHand
 import { compareTitles } from "@/lib/bms-sort";
 import { formatRateDelta, formatRatePercent } from "@/lib/rate-format";
 import { useScoreUpdatesPrefs, useUpdateScoreUpdatesPrefs } from "@/hooks/use-preferences";
+import { useAuthStore } from "@/stores/auth";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -81,6 +82,12 @@ function formatDate(ts: string | null): string {
   if (!ts) return "";
   const d = new Date(ts);
   return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+function buildSongHref(hash: string | null, userId?: string): string {
+  if (!hash) return "#";
+  if (!userId) return `/songs/${hash}`;
+  return `/songs/${hash}?user_id=${encodeURIComponent(userId)}`;
 }
 
 // ── Merged course update (clear + score in one row) ────────────────────────────
@@ -431,7 +438,7 @@ function SectionTable({
 
 // ── Category tab row components ────────────────────────────────────────────────
 
-function LampUpgradeRow({ item }: { item: ClearTypeUpdateItem }) {
+function LampUpgradeRow({ item, userId }: { item: ClearTypeUpdateItem; userId?: string }) {
   const newCls = clearTdClass(item.new_clear_type);
   return (
     <tr>
@@ -450,7 +457,7 @@ function LampUpgradeRow({ item }: { item: ClearTypeUpdateItem }) {
         <div className="max-w-full truncate">
           {(item.fumen_sha256 || item.fumen_md5) ? (
             <Link
-              href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
+              href={buildSongHref(item.fumen_sha256 || item.fumen_md5, userId)}
               className="text-label hover:text-primary transition-colors"
             >
               {item.title ?? "(알 수 없음)"}
@@ -466,7 +473,7 @@ function LampUpgradeRow({ item }: { item: ClearTypeUpdateItem }) {
 }
 
 
-function ScoreUpgradeRow({ item }: { item: ExscoreUpdateItem }) {
+function ScoreUpgradeRow({ item, userId }: { item: ExscoreUpdateItem; userId?: string }) {
   const scoreDiff =
     item.prev_exscore != null && item.new_exscore != null
       ? item.new_exscore - item.prev_exscore
@@ -503,7 +510,7 @@ function ScoreUpgradeRow({ item }: { item: ExscoreUpdateItem }) {
         <div className="max-w-full truncate">
           {(item.fumen_sha256 || item.fumen_md5) ? (
             <Link
-              href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
+              href={buildSongHref(item.fumen_sha256 || item.fumen_md5, userId)}
               className="text-label hover:text-primary transition-colors"
             >
               {item.title ?? "(알 수 없음)"}
@@ -518,7 +525,7 @@ function ScoreUpgradeRow({ item }: { item: ExscoreUpdateItem }) {
   );
 }
 
-function BPUpgradeRow({ item }: { item: MinBPUpdateItem }) {
+function BPUpgradeRow({ item, userId }: { item: MinBPUpdateItem; userId?: string }) {
   const prev = item.prev_min_bp;
   const next = item.new_min_bp;
   const diff = prev != null && next != null ? prev - next : null;
@@ -547,7 +554,7 @@ function BPUpgradeRow({ item }: { item: MinBPUpdateItem }) {
         <div className="max-w-full truncate">
           {(item.fumen_sha256 || item.fumen_md5) ? (
             <Link
-              href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
+              href={buildSongHref(item.fumen_sha256 || item.fumen_md5, userId)}
               className="text-label hover:text-primary transition-colors"
             >
               {item.title ?? "(알 수 없음)"}
@@ -562,7 +569,7 @@ function BPUpgradeRow({ item }: { item: MinBPUpdateItem }) {
   );
 }
 
-function ComboUpgradeRow({ item }: { item: MaxComboUpdateItem }) {
+function ComboUpgradeRow({ item, userId }: { item: MaxComboUpdateItem; userId?: string }) {
   const prev = item.prev_max_combo;
   const next = item.new_max_combo;
   const diff = prev != null && next != null ? next - prev : null;
@@ -591,7 +598,7 @@ function ComboUpgradeRow({ item }: { item: MaxComboUpdateItem }) {
         <div className="max-w-full truncate">
           {(item.fumen_sha256 || item.fumen_md5) ? (
             <Link
-              href={`/songs/${item.fumen_sha256 || item.fumen_md5}`}
+              href={buildSongHref(item.fumen_sha256 || item.fumen_md5, userId)}
               className="text-label hover:text-primary transition-colors"
             >
               {item.title ?? "(알 수 없음)"}
@@ -608,9 +615,11 @@ function ComboUpgradeRow({ item }: { item: MaxComboUpdateItem }) {
 
 // ── Category tab ───────────────────────────────────────────────────────────────
 
-function CategoryTab({ data }: { data: ScoreUpdatesResponse }) {
+function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: string }) {
   const prefs = useScoreUpdatesPrefs();
   const { mutate: updatePrefs } = useUpdateScoreUpdatesPrefs();
+  const { user, isInitialized } = useAuthStore();
+  const canPersistPrefs = isInitialized && !!user;
 
   const mergedCourses = useMemo(() => buildMergedCourses(data), [data]);
 
@@ -707,9 +716,11 @@ function CategoryTab({ data }: { data: ScoreUpdatesResponse }) {
             title="클리어 갱신"
             count={lamp.length}
             showNewPlays={prefs.score_updates_lamp_include_new_plays}
-            onToggleNewPlays={() => updatePrefs({ score_updates_lamp_include_new_plays: !prefs.score_updates_lamp_include_new_plays })}
+            onToggleNewPlays={canPersistPrefs
+              ? () => updatePrefs({ score_updates_lamp_include_new_plays: !prefs.score_updates_lamp_include_new_plays })
+              : undefined}
           >
-            {lamp.map((item, i) => <LampUpgradeRow key={i} item={item} />)}
+            {lamp.map((item, i) => <LampUpgradeRow key={i} item={item} userId={userId} />)}
           </SectionTable>
         )}
         {scoreAll.length > 0 && (
@@ -717,9 +728,11 @@ function CategoryTab({ data }: { data: ScoreUpdatesResponse }) {
             title="점수 갱신"
             count={score.length}
             showNewPlays={prefs.score_updates_score_include_new_plays}
-            onToggleNewPlays={() => updatePrefs({ score_updates_score_include_new_plays: !prefs.score_updates_score_include_new_plays })}
+            onToggleNewPlays={canPersistPrefs
+              ? () => updatePrefs({ score_updates_score_include_new_plays: !prefs.score_updates_score_include_new_plays })
+              : undefined}
           >
-            {score.map((item, i) => <ScoreUpgradeRow key={i} item={item} />)}
+            {score.map((item, i) => <ScoreUpgradeRow key={i} item={item} userId={userId} />)}
           </SectionTable>
         )}
         {bpAll.length > 0 && (
@@ -727,9 +740,11 @@ function CategoryTab({ data }: { data: ScoreUpdatesResponse }) {
             title="BP 갱신"
             count={bp.length}
             showNewPlays={prefs.score_updates_bp_include_new_plays}
-            onToggleNewPlays={() => updatePrefs({ score_updates_bp_include_new_plays: !prefs.score_updates_bp_include_new_plays })}
+            onToggleNewPlays={canPersistPrefs
+              ? () => updatePrefs({ score_updates_bp_include_new_plays: !prefs.score_updates_bp_include_new_plays })
+              : undefined}
           >
-            {bp.map((item, i) => <BPUpgradeRow key={i} item={item} />)}
+            {bp.map((item, i) => <BPUpgradeRow key={i} item={item} userId={userId} />)}
           </SectionTable>
         )}
         {comboAll.length > 0 && (
@@ -737,9 +752,11 @@ function CategoryTab({ data }: { data: ScoreUpdatesResponse }) {
             title="최대 콤보 갱신"
             count={combo.length}
             showNewPlays={prefs.score_updates_combo_include_new_plays}
-            onToggleNewPlays={() => updatePrefs({ score_updates_combo_include_new_plays: !prefs.score_updates_combo_include_new_plays })}
+            onToggleNewPlays={canPersistPrefs
+              ? () => updatePrefs({ score_updates_combo_include_new_plays: !prefs.score_updates_combo_include_new_plays })
+              : undefined}
           >
-            {combo.map((item, i) => <ComboUpgradeRow key={i} item={item} />)}
+            {combo.map((item, i) => <ComboUpgradeRow key={i} item={item} userId={userId} />)}
           </SectionTable>
         )}
       </div>
@@ -849,7 +866,7 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
   return Array.from(map.values()).filter((f) => f.clear || f.score || f.bp || f.combo || f.playCount);
 }
 
-function FumenRow({ fumen }: { fumen: MergedFumenUpdate }) {
+function FumenRow({ fumen, userId }: { fumen: MergedFumenUpdate; userId?: string }) {
   const displayClearType = fumen.clear?.new ?? fumen.currentState?.clear_type ?? null;
   const rowClass = displayClearType != null ? (CLEAR_ROW_CLASS[displayClearType] ?? "") : "";
 
@@ -875,7 +892,7 @@ function FumenRow({ fumen }: { fumen: MergedFumenUpdate }) {
       <td className="px-2 py-2 align-top max-w-[220px]" data-title={fumen.title ?? ""} data-artist={fumen.artist ?? ""}>
         {(fumen.sha256 || fumen.md5) ? (
           <Link
-            href={`/songs/${fumen.sha256 || fumen.md5}`}
+            href={buildSongHref(fumen.sha256 || fumen.md5, userId)}
             className="text-label inline-block max-w-full truncate hover:text-primary transition-colors"
           >
             {fumen.title ?? "(알 수 없음)"}
@@ -1016,7 +1033,7 @@ function FumenRow({ fumen }: { fumen: MergedFumenUpdate }) {
 
 type FumenSortKey = "recorded_at" | "level" | "title" | "lamp" | "score" | "bp" | "rate" | "rank" | "plays" | "option" | "env";
 
-function FumenTab({ data }: { data: ScoreUpdatesResponse }) {
+function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: string }) {
   const [sortKey, setSortKey] = useState<FumenSortKey>("level");
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -1141,7 +1158,7 @@ function FumenTab({ data }: { data: ScoreUpdatesResponse }) {
               </thead>
               <tbody className="divide-y divide-border/30">
                 {fumens.map((fumen, i) => (
-                  <FumenRow key={fumen.sha256 ?? fumen.md5 ?? i} fumen={fumen} />
+                  <FumenRow key={fumen.sha256 ?? fumen.md5 ?? i} fumen={fumen} userId={userId} />
                 ))}
               </tbody>
             </table>
@@ -1227,13 +1244,13 @@ export function ScoreUpdates({
               </TabsList>
             </div>
             <TabsContent value="summary">
-              <CategoryTab data={data} />
+              <CategoryTab data={data} userId={userId} />
             </TabsContent>
             {ratingSlot !== undefined && (
               <TabsContent value="rating">{ratingSlot}</TabsContent>
             )}
             <TabsContent value="all">
-              <FumenTab data={data} />
+              <FumenTab data={data} userId={userId} />
             </TabsContent>
           </Tabs>
         )}

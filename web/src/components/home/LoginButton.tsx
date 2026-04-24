@@ -24,7 +24,13 @@ export function LoginButton() {
         className="gap-2 hover:opacity-90 transition-opacity"
         style={{ backgroundColor: "#5865F2", borderColor: "#5865F2", color: "white" }}
       >
-        <Image src="/discord_white_icon.png" alt="Discord" width={20} height={20} />
+        <Image
+          src="/discord_white_icon.png"
+          alt="Discord"
+          width={256}
+          height={194}
+          style={{ width: 20, height: "auto" }}
+        />
         Discord로 시작하기
       </Button>
     </Link>

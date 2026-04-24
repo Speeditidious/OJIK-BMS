@@ -48,6 +48,7 @@ interface ContributionTableProps {
    * "rating-detail" — no scroll/virtualization (for rating detail tab TOP view)
    */
   presentation?: "default" | "day-detail" | "rating-detail";
+  userId?: string;
 }
 
 type SectionKey = "kept" | "entered" | "dropped";
@@ -513,14 +514,18 @@ function ContributionRow({
   section,
   presentation,
   columns,
+  userId,
 }: {
   entry: RankingContributionEntry;
   metric: RatingContributionMetric;
   section?: SectionKey;
   presentation: "default" | "day-detail" | "rating-detail";
   columns: TableColumn[];
+  userId?: string;
 }) {
-  const songHref = `/songs/${entry.sha256 ?? entry.md5}`;
+  const songHref = userId
+    ? `/songs/${entry.sha256 ?? entry.md5}?user_id=${encodeURIComponent(userId)}`
+    : `/songs/${entry.sha256 ?? entry.md5}`;
   const rowClass = CLEAR_ROW_CLASS[entry.clear_type] ?? "";
   const clearClient = entry.client_types[0] ?? "beatoraja";
 
@@ -655,6 +660,7 @@ function SectionCard({
   topN,
   valueLabel,
   presentation,
+  userId,
 }: {
   section: SectionKey;
   rows: SectionRow[];
@@ -664,6 +670,7 @@ function SectionCard({
   topN?: number;
   valueLabel: string;
   presentation: "default" | "day-detail" | "rating-detail";
+  userId?: string;
 }) {
   const meta = sectionMeta(section, topN);
   const columns = presentation === "day-detail" ? DAY_DETAIL_COLUMNS : DEFAULT_COLUMNS;
@@ -701,7 +708,7 @@ function SectionCard({
             {rows.map((row) => (
               row.kind === "ellipsis"
                 ? <EllipsisRow key={row.id} colSpan={colSpan} />
-                : <ContributionRow key={row.id} entry={row.entry} metric="rating" section={section} presentation={presentation === "rating-detail" ? "default" : presentation} columns={columns} />
+                : <ContributionRow key={row.id} entry={row.entry} metric="rating" section={section} presentation={presentation === "rating-detail" ? "default" : presentation} columns={columns} userId={userId} />
             ))}
           </tbody>
         </table>
@@ -724,6 +731,7 @@ export function ContributionTable({
   sortDir = "desc",
   onSortChange,
   presentation = "default",
+  userId,
 }: ContributionTableProps) {
   const parentRef = useRef<HTMLDivElement | null>(null);
   const shouldRenderSections = metric === "rating" && !!previousTopKeys && !!currentTopKeys;
@@ -857,6 +865,7 @@ export function ContributionTable({
             topN={topN}
             valueLabel={valueLabel}
             presentation={presentation}
+            userId={userId}
           />
         ))}
       </div>
@@ -908,6 +917,7 @@ export function ContributionTable({
                 metric={metric}
                 presentation={presentation}
                 columns={columns}
+                userId={userId}
               />
             ))}
             {shouldVirtualize && paddingBottom > 0 && (

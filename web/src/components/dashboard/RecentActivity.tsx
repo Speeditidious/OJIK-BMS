@@ -225,6 +225,7 @@ interface Props {
   firstSyncDates?: { lr2?: string; beatoraja?: string };
   onDayClick?: (dateStr: string) => void;
   emptyMessage?: string;
+  userId?: string;
 }
 
 export function RecentActivity({
@@ -233,6 +234,7 @@ export function RecentActivity({
   firstSyncDates,
   onDayClick,
   emptyMessage = "활동 내역이 없습니다.",
+  userId,
 }: Props) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 

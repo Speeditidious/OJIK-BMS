@@ -133,10 +133,12 @@ const handleTableCopy = makeTableCopyHandler(1); // col 0=Level, col 1=Title/Art
 const SongRow = React.memo(function SongRow({
   song,
   index,
+  userId,
   getDisplayClearType,
 }: {
   song: TableClearSong;
   index: number;
+  userId: string;
   getDisplayClearType?: (ct: number) => number;
 }) {
   const arrangementName = parseArrangement(song.options, song.client_type);
@@ -154,7 +156,7 @@ const SongRow = React.memo(function SongRow({
         <div className="min-w-0 overflow-hidden">
           <div className="max-w-full truncate">
             {song.sha256 ? (
-              <Link href={`/songs/${song.sha256}`} className="text-label leading-tight hover:text-primary transition-colors">
+              <Link href={`/songs/${song.sha256}?user_id=${encodeURIComponent(userId)}`} className="text-label leading-tight hover:text-primary transition-colors">
                 {song.title || "(제목 없음)"}
               </Link>
             ) : (
@@ -191,10 +193,12 @@ const SongRow = React.memo(function SongRow({
 const SongTable = React.memo(function SongTable({
   songs,
   levelOrder,
+  userId,
   getDisplayClearType,
 }: {
   songs: TableClearSong[];
   levelOrder: string[];
+  userId: string;
   getDisplayClearType?: (ct: number) => number;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("level");
@@ -381,6 +385,7 @@ const SongTable = React.memo(function SongTable({
                 key={sorted[virtualRow.index].sha256 || virtualRow.index}
                 song={sorted[virtualRow.index]}
                 index={virtualRow.index}
+                userId={userId}
                 getDisplayClearType={getDisplayClearType}
               />
             ))}
@@ -780,7 +785,7 @@ export function TableClearSection({ clientType, userId }: TableClearSectionProps
             </div>
 
             {/* Song table */}
-            <SongTable songs={filteredSongs} levelOrder={orderedLevels} getDisplayClearType={getDisplayClearType} />
+            <SongTable songs={filteredSongs} levelOrder={orderedLevels} userId={userId} getDisplayClearType={getDisplayClearType} />
           </>
         )}
       </div>

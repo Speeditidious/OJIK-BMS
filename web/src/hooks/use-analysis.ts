@@ -66,6 +66,7 @@ export interface DaySummary {
 export interface RecentUpdatesResponse {
   updates: RecentUpdate[];
   day_summary: DaySummary | null;
+  rating_update_tables?: AggregatedRatingUpdateTable[];
 }
 
 export interface RatingUpdateEntry {

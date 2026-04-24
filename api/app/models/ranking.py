@@ -1,16 +1,19 @@
-"""User ranking persistence model.
-
-user_rankings: 유저별 최신 EXP / Rating (raw top-N) / BMSFORCE (rating_norm) — upsert.
-
-user_ranking_history 테이블은 migration 0013 에서 제거됨.
-히스토리는 user_scores 로부터 on-demand 계산 (ranking_calculator.compute_ranking_history_for_user).
-"""
+"""User ranking persistence models."""
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, Double, ForeignKey, Integer, String, text
+from sqlalchemy import (
+    Date,
+    DateTime,
+    Double,
+    ForeignKey,
+    Integer,
+    SmallInteger,
+    String,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -44,3 +47,50 @@ class UserRanking(Base):
     calculated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
+
+
+class UserTableRatingCheckpoint(Base):
+    __tablename__ = "user_table_rating_checkpoints"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    table_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("difficulty_tables.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    effective_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    exp: Mapped[float] = mapped_column(Double, nullable=False, server_default="0")
+    rating: Mapped[float] = mapped_column(Double, nullable=False, server_default="0")
+
+
+class UserTableRatingUpdateDaily(Base):
+    __tablename__ = "user_table_rating_update_daily"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    table_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("difficulty_tables.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    effective_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    update_count: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+
+class UserRatingUpdateDaily(Base):
+    __tablename__ = "user_rating_update_daily"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    effective_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    update_count: Mapped[int] = mapped_column(SmallInteger, nullable=False)
