@@ -33,6 +33,9 @@ export function BmsforceBreakdownCard({
           <span className="font-medium">합계</span>
           <span className="font-semibold tabular-nums">{formatSigned(breakdown.total)}</span>
         </div>
+        <p className="text-caption text-muted-foreground leading-snug">
+          소수점 넷째 자리 반올림 처리로 인해, 상단 BMSFORCE 변동값과 ±0.001 차이가 발생할 수 있습니다.
+        </p>
       </CardContent>
     </Card>
   );

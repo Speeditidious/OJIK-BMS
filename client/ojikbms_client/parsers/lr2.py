@@ -330,12 +330,19 @@ def parse_lr2_scores(
             if scorehash_col and row[scorehash_col]:
                 scorehash = str(row[scorehash_col]).strip() or None
 
+            notes = _int(cols["totalnotes"]) or None
+            exscore = judgments["perfect"] * 2 + judgments["great"]
+            max_exscore = notes * 2 if notes else None
+
             _clear_type = LR2_CLEAR_TYPE.get(clear_val, 0)
-            if _clear_type == 7:  # FC → check for PERFECT / MAX
+            if _clear_type == 7:  # FC -> check for PERFECT / MAX
                 if judgments["good"] == 0 and judgments["bad"] == 0:
                     _clear_type = 8  # PERFECT
                     if judgments["great"] == 0:
-                        _clear_type = 9  # MAX
+                        if exscore == 0:
+                            _clear_type = 7  # Keep zero-score FC as FC.
+                        elif max_exscore is not None and exscore == max_exscore:
+                            _clear_type = 9  # MAX
 
             scores.append({
                 "fumen_md5": song_md5,
@@ -343,7 +350,7 @@ def parse_lr2_scores(
                 "scorehash": scorehash,
                 "client_type": "lr2",
                 "clear_type": _clear_type,
-                "notes": _int(cols["totalnotes"]) or None,
+                "notes": notes,
                 "max_combo": _int(cols["maxcombo"]) or None,
                 "min_bp": _int_or_none(cols["minbp"]),
                 "judgments": judgments,
@@ -518,5 +525,4 @@ def parse_lr2_songdata(db_path: str) -> list[dict[str, Any]]:
         return []
 
     return items
-
 

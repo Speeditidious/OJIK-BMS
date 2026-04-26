@@ -157,6 +157,31 @@ def _decode_beatoraja_options(mode_val: int, arrangement_val: int, seed: int, ra
     }
 
 
+def _beatoraja_exscore(judgments: dict[str, int]) -> int:
+    """Return Beatoraja EX score from native judgment counts."""
+    return (
+        (judgments.get("epg", 0) + judgments.get("lpg", 0)) * 2
+        + judgments.get("egr", 0)
+        + judgments.get("lgr", 0)
+    )
+
+
+def _normalize_max_clear_type(
+    clear_type: int,
+    *,
+    exscore: int | None,
+    notes: int | None = None,
+) -> int:
+    """Downgrade impossible MAX records unless EX score proves a 100.00% rate."""
+    if clear_type != 9:
+        return clear_type
+    if exscore == 0:
+        return 7
+    if exscore is not None and notes:
+        return 9 if exscore == notes * 2 else 8
+    return clear_type
+
+
 def _get_columns(cursor: sqlite3.Cursor, table: str) -> set[str]:
     """Return the set of column names for a table."""
     cursor.execute(f"PRAGMA table_info({table})")
@@ -346,12 +371,17 @@ def parse_beatoraja_scores(
                 arrangement_val_c = int(row[arrangement_col_c]) if arrangement_col_c and row[arrangement_col_c] is not None else 0
                 seed_val_c = int(row[seed_col_c]) if seed_col_c and row[seed_col_c] is not None else -1
                 random_raw_val_c = int(row[random_raw_col_c]) if random_raw_col_c and row[random_raw_col_c] is not None else 0
+                clear_type_c = _normalize_max_clear_type(
+                    BEATORAJA_CLEAR_TYPE.get(clear_val_c, 0),
+                    exscore=_beatoraja_exscore(judgments_c),
+                    notes=notes_c or None,
+                )
 
                 courses.append({
                     "fumen_hash_others": sha256,
                     "client_type": "beatoraja",
                     "scorehash": scorehash_c,
-                    "clear_type": BEATORAJA_CLEAR_TYPE.get(clear_val_c, 0),
+                    "clear_type": clear_type_c,
                     "notes": notes_c or None,
                     "max_combo": _int(cols["maxcombo"]) or None,
                     "min_bp": _int_or_none(cols["minbp"]),
@@ -421,12 +451,17 @@ def parse_beatoraja_scores(
                 sh = str(raw_scorehash).strip()
                 if sh and sh.upper() != "LR2":
                     scorehash_val = sh
+            clear_type = _normalize_max_clear_type(
+                BEATORAJA_CLEAR_TYPE.get(clear_val, 0),
+                exscore=_beatoraja_exscore(judgments),
+                notes=notes or None,
+            )
 
             scores.append({
                 "fumen_sha256": sha256,
                 "scorehash": scorehash_val,
                 "client_type": "beatoraja",
-                "clear_type": BEATORAJA_CLEAR_TYPE.get(clear_val, 0),
+                "clear_type": clear_type,
                 "notes": notes or None,
                 "max_combo": _int(cols["maxcombo"]) or None,
                 "min_bp": _int_or_none(cols["minbp"]),
@@ -832,28 +867,36 @@ def parse_beatoraja_score_log(
                 # Course record — concatenated N×64-char SHA256 hashes.
                 # scorelog.db lacks scorehash, notes, play_count, clear_count —
                 # those fields are omitted (server treats them as optional).
+                exscore = row[score_col]
                 history.append({
                     "fumen_hash_others": sha256,
                     "scorehash": None,
                     "client_type": "beatoraja",
-                    "clear_type": BEATORAJA_CLEAR_TYPE.get(row["clear"] or 0, 0),
+                    "clear_type": _normalize_max_clear_type(
+                        BEATORAJA_CLEAR_TYPE.get(row["clear"] or 0, 0),
+                        exscore=exscore,
+                    ),
                     "max_combo": row[combo_col],
                     "min_bp": row["minbp"],
-                    "exscore": row[score_col],
+                    "exscore": exscore,
                     "recorded_at": played_at,
                     "song_hashes": [],
                 })
                 stats.parsed_courses += 1
                 continue
 
+            exscore = row[score_col]
             history.append({
                 "fumen_sha256": sha256,
                 # scorelog.db has no scorehash column — set to None so the server
                 # performs a plain INSERT without deduplication on scorehash.
                 "scorehash": None,
                 "client_type": "beatoraja",
-                "clear_type": BEATORAJA_CLEAR_TYPE.get(row["clear"] or 0, 0),
-                "exscore": row[score_col],
+                "clear_type": _normalize_max_clear_type(
+                    BEATORAJA_CLEAR_TYPE.get(row["clear"] or 0, 0),
+                    exscore=exscore,
+                ),
+                "exscore": exscore,
                 "max_combo": row[combo_col],
                 "min_bp": row["minbp"],
                 "recorded_at": played_at,

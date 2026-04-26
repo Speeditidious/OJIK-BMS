@@ -272,14 +272,14 @@ async def build_user_contribution_rows(
         sha256 = target["sha256"]
         md5 = target["md5"]
         score = score_by_key.get((sha256, md5))
-        raw_value, resolved_level = _contribution_value(score, target["level"], table_cfg, sha256, md5)
+        raw_value, _resolved_level = _contribution_value(score, target["level"], table_cfg, sha256, md5)
         rows.append(
             {
                 "sha256": sha256,
                 "md5": md5,
                 "title": target.get("title") or "(Unknown Title)",
                 "artist": target.get("artist"),
-                "level": resolved_level,
+                "level": target["level"],
                 "symbol": table_symbol,
                 "clear_type": score.clear_type if score is not None and score.clear_type is not None else 0,
                 "client_types": list(score.client_types) if score is not None else [],
@@ -514,22 +514,13 @@ def _build_rating_update_detail_entry(
 ) -> dict[str, Any]:
     target = targets_by_key[key]
     score = best_scores.get(key)
-    resolved_level = target["level"]
-    if score is not None:
-        _raw_value, resolved_level = _contribution_value(
-            score,
-            target["level"],
-            table_cfg,
-            key[0],
-            key[1],
-        )
     return {
         "rank": rank,
         "sha256": key[0],
         "md5": key[1],
         "title": target.get("title") or "(Unknown Title)",
         "artist": target.get("artist"),
-        "level": resolved_level,
+        "level": target["level"],
         "symbol": table_symbol,
         "clear_type": score.clear_type if score is not None and score.clear_type is not None else 0,
         "client_types": list(score.client_types) if score is not None else [],
@@ -962,16 +953,7 @@ def _build_breakdown_entry(
     extra: dict[str, float],
     updated_today: bool = True,
 ) -> dict[str, Any]:
-    resolved_level = target["level"]
     preferred_score = current_score or previous_score
-    if preferred_score is not None:
-        _raw_value, resolved_level = _contribution_value(
-            preferred_score,
-            target["level"],
-            table_cfg,
-            key[0],
-            key[1],
-        )
     return {
         "rank": rank,
         "previous_rank": previous_rank,
@@ -979,7 +961,7 @@ def _build_breakdown_entry(
         "md5": key[1],
         "title": target.get("title") or "(Unknown Title)",
         "artist": target.get("artist"),
-        "level": resolved_level,
+        "level": target["level"],
         "symbol": table_symbol,
         "clear_type": current_score.clear_type if current_score is not None and current_score.clear_type is not None else 0,
         "previous_clear_type": previous_score.clear_type if previous_score is not None else None,

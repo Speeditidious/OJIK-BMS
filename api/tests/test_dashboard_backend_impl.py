@@ -18,11 +18,14 @@ from app.routers.scores import get_score_for_song
 from app.services.client_aggregation import PerClientBest, aggregate_source_client
 from app.services.ranking_config import (
     BmsForceEmblem,
+    LevelOverride,
     RankingConfig,
     RankingConfigError,
     _validate_bmsforce_emblems,
 )
+from app.services.ranking_calculator import BestScore, compute_ranking
 from app.services.ranking_dashboard import (
+    build_user_contribution_rows,
     _resolve_date_window,
     compute_rating_breakdown,
     compute_rating_updates,
@@ -58,6 +61,118 @@ def _build_fake_ranking(scores, top_n: int):
         rating=rating,
         rating_norm=rating / 1000.0,
     )
+
+
+def _make_level_override_table(song_sha256: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        slug="test-table",
+        table_id=uuid.uuid4(),
+        display_name="Test Table",
+        display_order=1,
+        top_n=1,
+        max_level=200,
+        level_order=["12", "13"],
+        level_weights={"12": 100.0, "13": 200.0},
+        base_lamp_mult={"HARD": 1.0},
+        upper_lamp_bonus={"HARD": 0.0},
+        rank_mult={"AA": 1.0},
+        bonus=SimpleNamespace(
+            bp_weight=0.0,
+            rate_weight=0.0,
+            bp_floor=100.0,
+            bp_slope=1.0,
+            rate_floor=0.5,
+            rate_slope=1.0,
+        ),
+        c_table=1.0,
+        level_overrides=[
+            LevelOverride(
+                fumen_sha256=song_sha256,
+                fumen_md5=None,
+                lamp_to_level={"HARD": "13"},
+                note="test override",
+            )
+        ],
+    )
+
+
+def test_level_overrides_affect_rating_but_not_saved_display_level():
+    song_sha256 = "a" * 64
+    table_cfg = _make_level_override_table(song_sha256)
+    score = BestScore(
+        sha256=song_sha256,
+        md5=None,
+        level="12",
+        clear_type=5,
+        exscore=1800,
+        rate=95.0,
+        rank="AA",
+        min_bp=1,
+    )
+
+    result = compute_ranking(table_cfg, exp_level_step=100.0, scores=[score])
+
+    assert result.rating == 200.0
+    assert result.rating_contributions[0]["song_rating"] == 200.0
+    assert result.rating_contributions[0]["level"] == "12"
+    assert result.exp_top_contributions[0]["level"] == "12"
+
+
+@pytest.mark.asyncio
+async def test_contribution_rows_display_original_level_with_level_override(monkeypatch):
+    song_sha256 = "b" * 64
+    user_id = uuid.uuid4()
+    table_cfg = _make_level_override_table(song_sha256)
+    score = BestScore(
+        sha256=song_sha256,
+        md5=None,
+        level="12",
+        clear_type=5,
+        exscore=1800,
+        rate=95.0,
+        rank="AA",
+        min_bp=1,
+    )
+
+    async def fake_query_target_fumen_details(_table_id, _db):
+        return [
+            {
+                "sha256": song_sha256,
+                "md5": None,
+                "title": "Override Song",
+                "artist": "Artist",
+                "level": "12",
+            }
+        ]
+
+    async def fake_bulk_query_best_scores(_table_id, _db, user_id=None):
+        return {user_id: [score]}
+
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard.query_target_fumen_details",
+        fake_query_target_fumen_details,
+    )
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard.bulk_query_best_scores",
+        fake_bulk_query_best_scores,
+    )
+
+    result = await build_user_contribution_rows(
+        user_id=user_id,
+        table_cfg=table_cfg,
+        db=object(),
+        metric="rating",
+        scope="top",
+        sort_by="value",
+        sort_dir="desc",
+        page=1,
+        limit=20,
+        query=None,
+        table_symbol="★",
+    )
+
+    assert result["entries"][0]["value"] == 200.0
+    assert result["entries"][0]["level"] == "12"
 
 
 def test_ranking_config_toml_is_valid():

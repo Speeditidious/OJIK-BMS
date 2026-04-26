@@ -57,6 +57,48 @@ def _create_lr2_score_db(db_path: Path) -> None:
         conn.commit()
 
 
+def _insert_lr2_score_row(
+    db_path: Path,
+    *,
+    sha256: str,
+    clear: int = 5,
+    pg: int = 0,
+    gr: int = 0,
+    gd: int = 0,
+    bd: int = 0,
+    pr: int = 0,
+    maxcombo: int = 0,
+    minbp: int = 0,
+    playtime: int = 1700000000,
+    playcount: int = 1,
+    rate: float = 0.0,
+    clear_db: int = 0,
+    op_dp: int = 0,
+    scorehash: str | None = None,
+    complete: int = 1,
+    totalnotes: int = 1000,
+) -> None:
+    """Insert one row into a mock LR2 score.db."""
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.execute(
+            """
+            INSERT INTO score VALUES (
+                ?,
+                ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?
+            )
+            """,
+            (
+                sha256,
+                clear, pg, gr, gd, bd, pr,
+                maxcombo, minbp, playtime, playcount, rate,
+                clear_db, op_dp, scorehash, complete, totalnotes,
+            ),
+        )
+        conn.commit()
+
+
 class TestLr2Parser:
     def test_parse_lr2_scores_basic(self, tmp_path: Path) -> None:
         """parse_lr2_scores should return scores for played songs."""
@@ -95,6 +137,21 @@ class TestLr2Parser:
         """parse_lr2_scores should raise FileNotFoundError for missing DB."""
         with pytest.raises(FileNotFoundError):
             parse_lr2_scores("/nonexistent/score.db")
+
+    def test_parse_lr2_max_requires_100_rate(self, tmp_path: Path) -> None:
+        """LR2 FC records should only become MAX at exactly 100.00%."""
+        score_db = tmp_path / "score.db"
+        _create_lr2_score_db(score_db)
+        _insert_lr2_score_row(score_db, sha256="z" * 64, pg=0, totalnotes=1000)
+        _insert_lr2_score_row(score_db, sha256="y" * 64, pg=999, totalnotes=1000)
+        _insert_lr2_score_row(score_db, sha256="x" * 64, pg=1000, totalnotes=1000)
+
+        scores, _, _ = parse_lr2_scores(str(score_db))
+        by_hash = {score["fumen_sha256"]: score for score in scores}
+
+        assert by_hash["z" * 64]["clear_type"] == 7
+        assert by_hash["y" * 64]["clear_type"] == 8
+        assert by_hash["x" * 64]["clear_type"] == 9
 
 
 # ── Beatoraja Parser Tests ─────────────────────────────────────────────────────
@@ -293,6 +350,67 @@ class TestBeatorajaParser:
         # notes column value is 1000
         assert score["notes"] == 1000
 
+    def test_parse_beatoraja_max_requires_100_rate(self, tmp_path: Path) -> None:
+        """Beatoraja score.db MAX records should only stay MAX at exactly 100.00%."""
+        _create_beatoraja_score_db(tmp_path)
+        _insert_beatoraja_score_row(
+            tmp_path,
+            sha256="z" * 64,
+            mode=0,
+            clear=10,
+            ep=0,
+            lp=0,
+            eg=0,
+            lg=0,
+            notes=1000,
+            scorehash="zero-max",
+        )
+        _insert_beatoraja_score_row(
+            tmp_path,
+            sha256="y" * 64,
+            mode=0,
+            clear=10,
+            ep=999,
+            lp=0,
+            eg=0,
+            lg=0,
+            notes=1000,
+            scorehash="below-max",
+        )
+        _insert_beatoraja_score_row(
+            tmp_path,
+            sha256="x" * 64,
+            mode=0,
+            clear=10,
+            ep=1000,
+            lp=0,
+            eg=0,
+            lg=0,
+            notes=1000,
+            scorehash="true-max",
+        )
+        course_hash = ("u" * 64) + ("v" * 64)
+        _insert_beatoraja_score_row(
+            tmp_path,
+            sha256=course_hash,
+            mode=10000,
+            clear=10,
+            ep=0,
+            lp=0,
+            eg=0,
+            lg=0,
+            notes=1000,
+            scorehash="zero-course-max",
+        )
+
+        scores, courses, _ = parse_beatoraja_scores(str(tmp_path))
+        by_hash = {score["fumen_sha256"]: score for score in scores}
+
+        assert by_hash["z" * 64]["clear_type"] == 7
+        assert by_hash["y" * 64]["clear_type"] == 8
+        assert by_hash["x" * 64]["clear_type"] == 9
+        assert courses[0]["clear_type"] == 7
+
     def test_parse_beatoraja_scores_includes_nonstandard_mode_course(self, tmp_path: Path) -> None:
         """Course rows with non-standard raw mode values should bypass the SP/DP filter."""
         _create_beatoraja_score_db(tmp_path)
@@ -434,6 +552,49 @@ class TestBeatorajaParser:
         assert history == []
         assert stats.total_queried == 1
         assert stats.skipped_duplicate == 1
+
+    def test_parse_beatoraja_score_log_zero_max_becomes_fc(self, tmp_path: Path) -> None:
+        """scorelog.db can only prove zero-score MAX, so only that case is downgraded."""
+        _create_beatoraja_scorelog_db(tmp_path)
+        _insert_beatoraja_scorelog_row(
+            tmp_path,
+            sha256="z" * 64,
+            mode=0,
+            clear=10,
+            score=0,
+            combo=0,
+            minbp=0,
+            date=1700000001,
+        )
+        _insert_beatoraja_scorelog_row(
+            tmp_path,
+            sha256="y" * 64,
+            mode=0,
+            clear=10,
+            score=1500,
+            combo=900,
+            minbp=1,
+            date=1700000002,
+        )
+        course_hash = ("u" * 64) + ("v" * 64)
+        _insert_beatoraja_scorelog_row(
+            tmp_path,
+            sha256=course_hash,
+            mode=10000,
+            clear=10,
+            score=0,
+            combo=0,
+            minbp=0,
+            date=1700000003,
+        )
+
+        history, _ = parse_beatoraja_score_log(str(tmp_path))
+        by_hash = {score["fumen_sha256"]: score for score in history if score.get("fumen_sha256")}
+        courses = [score for score in history if score.get("fumen_hash_others")]
+
+        assert by_hash["z" * 64]["clear_type"] == 7
+        assert by_hash["y" * 64]["clear_type"] == 9
+        assert courses[0]["clear_type"] == 7
 
     def test_parse_beatoraja_scores_file_not_found(self, tmp_path: Path) -> None:
         """parse_beatoraja_scores should raise FileNotFoundError for missing DB."""

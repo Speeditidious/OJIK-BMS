@@ -289,7 +289,7 @@ def compute_ranking(
         if value > 0:
             entry = {
                 "hash": hash_key,
-                "level": level,
+                "level": score.level,
                 "song_rating": round(value, 3),
                 "title": title,
             }
