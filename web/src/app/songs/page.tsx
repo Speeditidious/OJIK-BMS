@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { Music2, Search } from "lucide-react";
@@ -52,7 +52,7 @@ const NUMERIC_PLACEHOLDER: Partial<Record<FumenSearchField, string>> = {
   plays:  "예: 10 / >=5",
 };
 
-export default function SongsPage() {
+function SongsPageContent() {
   const { user, isInitialized } = useAuthStore();
   const isLoggedIn = isInitialized && !!user;
 
@@ -219,5 +219,24 @@ export default function SongsPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+function SongsPageFallback() {
+  return (
+    <div className="h-screen flex flex-col bg-background overflow-hidden">
+      <Navbar />
+      <main className="flex-1 min-h-0 container mx-auto px-4 py-6 flex items-center justify-center">
+        <div className="text-body text-muted-foreground">불러오는 중...</div>
+      </main>
+    </div>
+  );
+}
+
+export default function SongsPage() {
+  return (
+    <Suspense fallback={<SongsPageFallback />}>
+      <SongsPageContent />
+    </Suspense>
   );
 }
