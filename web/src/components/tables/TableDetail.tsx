@@ -525,7 +525,7 @@ const SongVirtualList = memo(function SongVirtualList({
                 { key: "rate", header: "판정" },
                 { key: "rank", header: "랭크" },
                 { key: "score", header: "점수" },
-                { key: "plays", header: "플레이 수" },
+                { key: "plays", header: "플레이" },
                 { key: "option", header: "배치" },
                 { key: "env", header: "구동기" },
               ] : []),
@@ -602,7 +602,7 @@ const SongVirtualList = memo(function SongVirtualList({
                   <Th col="rate" label="판정" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                   <Th col="rank" label="랭크" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                   <Th col="score" label="점수" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <Th col="plays" label="플레이 수" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="plays" label="플레이" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                   <Th col="option" label="배치" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                   <Th col="env" label="구동기" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 </>

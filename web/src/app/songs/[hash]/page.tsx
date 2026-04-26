@@ -121,7 +121,7 @@ function ScoreHistorySection({
                   점수<SortIcon col="exscore" sortKey={sortKey} sortDir={sortDir} />
                 </th>
                 <th className={thClass()} onClick={() => onSort("play_count")}>
-                  플레이 수<SortIcon col="play_count" sortKey={sortKey} sortDir={sortDir} />
+                  플레이<SortIcon col="play_count" sortKey={sortKey} sortDir={sortDir} />
                 </th>
                 <th className={thClass()} onClick={() => onSort("option")}>
                   배치<SortIcon col="option" sortKey={sortKey} sortDir={sortDir} />

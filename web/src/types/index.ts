@@ -1,3 +1,5 @@
+import type { TableLevelRef } from "@/components/common/TableLevelBadges";
+
 // ── User types ───────────────────────────────────────────────────────────────
 
 export interface User {
@@ -173,6 +175,43 @@ export interface Schedule {
   is_completed: boolean;
 }
 
+// ── Fumen list types ──────────────────────────────────────────────────────────
+
+export type FumenSearchField =
+  | "title" | "artist" | "level"
+  | "bpm" | "notes" | "length"
+  | "clear" | "bp" | "rate" | "rank" | "score" | "plays" | "option" | "env";
+
+export interface FumenListItem {
+  md5: string | null;
+  sha256: string | null;
+  title: string | null;
+  artist: string | null;
+  bpm_main: number | null;
+  bpm_min: number | null;
+  bpm_max: number | null;
+  notes_total: number | null;
+  notes_n: number | null;
+  notes_ln: number | null;
+  notes_s: number | null;
+  notes_ls: number | null;
+  total: number | null;
+  length: number | null;
+  youtube_url: string | null;
+  file_url: string | null;
+  file_url_diff: string | null;
+  table_entries: Array<{ table_id: string; level: string }> | null;
+  user_score: TableFumenScore | null;
+  user_tags: UserTag[];
+}
+
+export interface FumenListResponse {
+  items: FumenListItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 // ── API utility types ─────────────────────────────────────────────────────────
 
 export interface Pagination<T> {
@@ -212,11 +251,7 @@ export interface ScoreTrendItem {
 
 // ── Score update types (GET /analysis/score-updates) ─────────────────────────
 
-export interface TableLevelRef {
-  symbol: string;
-  slug: string;
-  level: string;
-}
+export type { TableLevelRef } from "@/components/common/TableLevelBadges";
 
 export interface CurrentState {
   clear_type: number | null;

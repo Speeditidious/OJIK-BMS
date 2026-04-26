@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState, memo, useRef, useCallback } from "react";
+import Link from "next/link";
+import { Eye } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -17,6 +19,7 @@ import {
   BEATORAJA_CLEAR_TYPE_LABELS,
 } from "@/components/charts/ClearDistributionChart";
 import { useChartWidth } from "@/hooks/use-chart-size";
+import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 // All internal clear types. Bars are declared highest → lowest so the
 // highest tier (MAX/PERFECT/FC) renders on the left in stacked bars.
@@ -401,7 +404,7 @@ export function ClearTypeLegend({ clientType, className, hiddenClearTypes }: Cle
     : baseItems;
 
   return (
-    <div className={`flex flex-wrap justify-center gap-x-4 gap-y-1 mt-1 ${className ?? ""}`}>
+    <div className={`flex flex-wrap justify-center items-center gap-x-4 gap-y-1 mt-1 ${className ?? ""}`}>
       {items.map((ct) => (
         <div key={ct} className="flex items-center gap-1.5">
           <div
@@ -411,6 +414,21 @@ export function ClearTypeLegend({ clientType, className, hiddenClearTypes }: Cle
           <span className="text-caption text-muted-foreground">{labelMap[ct] ?? String(ct)}</span>
         </div>
       ))}
+      <TooltipProvider delayDuration={150}>
+        <UITooltip>
+          <TooltipTrigger asChild>
+            <Link
+              href="/settings?tab=preferences#clear-visibility"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Eye className="h-4 w-4" />
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent>
+            클리어 분포에 표시되는 클리어 타입을 변경할 수 있는 설정 페이지로 이동합니다.
+          </TooltipContent>
+        </UITooltip>
+      </TooltipProvider>
     </div>
   );
 }

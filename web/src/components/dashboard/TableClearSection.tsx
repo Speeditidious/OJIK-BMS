@@ -4,7 +4,7 @@ import React, { memo, useState, useMemo, useCallback, useDeferredValue, useRef, 
 import { useVirtualizer, defaultRangeExtractor } from "@tanstack/react-virtual";
 import Link from "next/link";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { X, Search, FileSpreadsheet, Eye } from "lucide-react";
+import { X, Search, FileSpreadsheet } from "lucide-react";
 import { useUserFavoriteTables } from "@/hooks/use-tables";
 import { useTableClearDistribution, TableClearSong } from "@/hooks/use-analysis";
 import { useClearTypeVisibility, type ClientVisibilityKey } from "@/hooks/use-preferences";
@@ -22,11 +22,9 @@ import { SourceClientBadge } from "@/components/common/SourceClientBadge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, levelSortIndex, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
 import { formatRatePercent } from "@/lib/rate-format";
-
 
 function getClearLabel(clientType: string | null, clearType: number): string {
   if (clientType === "lr2") return LR2_CLEAR_TYPE_LABELS[clearType] ?? String(clearType);
@@ -313,7 +311,7 @@ const SongTable = React.memo(function SongTable({
               { key: "rate", header: "판정" },
               { key: "rank", header: "랭크" },
               { key: "score", header: "점수" },
-              { key: "plays", header: "플레이 수" },
+              { key: "plays", header: "플레이" },
               { key: "option", header: "배치" },
               { key: "env", header: "구동기" },
             ];
@@ -370,7 +368,7 @@ const SongTable = React.memo(function SongTable({
               {thSort("판정", "rate")}
               {thSort("랭크", "rank")}
               {thSort("점수", "ex_score")}
-              {thSort("플레이 수", "plays")}
+              {thSort("플레이", "plays")}
               {thSort("배치", "option")}
               <th className="px-2 py-2 text-left font-medium whitespace-nowrap">구동기</th>
             </tr>
@@ -479,19 +477,6 @@ const FilterPanel = memo(function FilterPanel({
             );
           })}
         </div>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                href="/settings?tab=preferences#clear-visibility"
-                className="ml-auto text-muted-foreground hover:text-foreground transition-colors shrink-0 pt-[3px]"
-              >
-                <Eye className="h-4 w-4" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent>클리어 타입 표시 설정</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
       </div>
 
       {/* Level toggles */}

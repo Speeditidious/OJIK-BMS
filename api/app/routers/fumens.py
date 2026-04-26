@@ -4,12 +4,12 @@ from __future__ import annotations
 import logging
 import re
 import uuid as _uuid
-from typing import Any
+from typing import Any, Literal
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select, update
+from sqlalchemy import and_, case, exists, func, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,9 +17,25 @@ from app.core.database import get_db
 from app.core.security import (
     get_current_admin,
     get_current_user,
+    get_current_user_optional,
 )
 from app.models.fumen import Fumen, UserFumenTag
+from app.models.score import UserScore
 from app.models.user import User
+from app.services.fumen_user_scores import (
+    TableFumenScore,
+    UserTagRead,
+    fetch_user_score_map,
+    fetch_user_tag_map,
+)
+from app.utils.numeric_filter import numeric_clause, parse_length_to_ms
+from app.utils.score_enums import (
+    ARRANGEMENT_KANJI_REV,
+    BEA_ARRANGEMENT_NAMES,
+    CLEAR_TYPE_VALUES,
+    LR2_ARRANGEMENT_NAMES,
+    RANK_VALUES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,27 +64,323 @@ class FumenRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-@router.get("/", response_model=list[FumenRead])
+FumenSearchField = Literal[
+    "title_artist", "title", "artist", "level",
+    "bpm", "notes", "length",
+    "clear", "bp", "rate", "rank", "score", "plays", "option", "env",
+]
+
+_SCORE_FIELDS = frozenset({"clear", "bp", "rate", "rank", "score", "plays", "option", "env"})
+_AGG_SCORE_FIELDS = frozenset({"clear", "bp", "rate", "rank", "score", "plays"})
+
+
+class FumenListItem(FumenRead):
+    """FumenRead + per-user enrichment."""
+
+    user_score: TableFumenScore | None = None
+    user_tags: list[UserTagRead] = []
+
+
+class FumenListResponse(BaseModel):
+    items: list[FumenListItem]
+    total: int
+    page: int
+    limit: int
+
+
+def _build_score_agg_subquery(user_id: _uuid.UUID) -> Any:
+    display_clear = case(
+        (
+            and_(
+                UserScore.clear_type == 9,
+                UserScore.exscore == 0,
+            ),
+            7,
+        ),
+        (
+            and_(
+                UserScore.clear_type == 9,
+                UserScore.rate.isnot(None),
+                UserScore.rate != 100.0,
+            ),
+            8,
+        ),
+        else_=UserScore.clear_type,
+    )
+    rank_order = case(
+        {"MAX": 10, "AAA": 9, "AA": 8, "A": 7, "B": 6, "C": 5, "D": 4, "E": 3, "F": 2},
+        value=UserScore.rank,
+        else_=1,
+    )
+    score_join_cond = and_(
+        UserScore.user_id == user_id,
+        UserScore.fumen_hash_others.is_(None),
+        or_(
+            UserScore.fumen_sha256 == Fumen.sha256,
+            and_(
+                UserScore.fumen_md5 == Fumen.md5,
+                UserScore.fumen_sha256.is_(None),
+            ),
+        ),
+    )
+    return (
+        select(
+            Fumen.sha256.label("fumen_sha256"),
+            Fumen.md5.label("fumen_md5"),
+            func.max(display_clear).label("best_clear_type"),
+            func.max(UserScore.exscore).label("best_exscore"),
+            func.min(UserScore.min_bp).label("best_min_bp"),
+            func.max(UserScore.rate).label("best_rate"),
+            func.max(rank_order).label("rank_order"),
+            func.sum(UserScore.play_count).label("total_plays"),
+        )
+        .select_from(Fumen)
+        .outerjoin(UserScore, score_join_cond)
+        .group_by(Fumen.sha256, Fumen.md5)
+        .subquery("score_agg")
+    )
+
+
+def _score_agg_join_cond(score_agg: Any) -> Any:
+    return or_(
+        Fumen.sha256 == score_agg.c.fumen_sha256,
+        and_(
+            Fumen.sha256.is_(None),
+            score_agg.c.fumen_sha256.is_(None),
+            Fumen.md5 == score_agg.c.fumen_md5,
+        ),
+    )
+
+
+def _score_exists_cond(user_id: _uuid.UUID, cond: Any) -> Any:
+    """EXISTS subquery: fumens that have a user_score row matching `cond`."""
+    return exists(
+        select(literal(1)).select_from(UserScore).where(
+            UserScore.user_id == user_id,
+            UserScore.fumen_hash_others.is_(None),
+            or_(
+                UserScore.fumen_sha256 == Fumen.sha256,
+                and_(
+                    UserScore.fumen_md5 == Fumen.md5,
+                    UserScore.fumen_sha256.is_(None),
+                ),
+            ),
+            cond,
+        )
+    )
+
+
+def _build_field_condition(
+    field: str, q: str, user: User | None, score_agg: Any | None = None
+) -> Any | None:
+    """Return SQLAlchemy WHERE clause for the given search field and query string.
+
+    Returns None on parse failure — caller treats it as empty result.
+    Raises HTTPException(400) if score field is requested without auth (caller checks first).
+    """
+    if field == "title_artist":
+        return or_(Fumen.title.ilike(f"%{q}%"), Fumen.artist.ilike(f"%{q}%"))
+    if field == "title":
+        return Fumen.title.ilike(f"%{q}%")
+    if field == "artist":
+        return Fumen.artist.ilike(f"%{q}%")
+    if field == "level":
+        level_q = re.sub(r"^[^\w\d.]+", "", q)
+        return Fumen.table_entries.contains([{"level": level_q}])
+    if field == "bpm":
+        return numeric_clause(Fumen.bpm_main, q)
+    if field == "notes":
+        return numeric_clause(Fumen.notes_total, q)
+    if field == "length":
+        return numeric_clause(Fumen.length, parse_length_to_ms(q))
+
+    # Score fields — user must be authenticated (caller validates before calling)
+    if user is None:
+        return None
+
+    if field == "clear":
+        ct = CLEAR_TYPE_VALUES.get(q.upper())
+        if ct is None:
+            return None
+        if score_agg is not None:
+            return score_agg.c.best_clear_type == ct
+        return _score_exists_cond(user.id, UserScore.clear_type == ct)
+
+    if field == "bp":
+        cond = numeric_clause(score_agg.c.best_min_bp if score_agg is not None else UserScore.min_bp, q)
+        if score_agg is not None:
+            return cond
+        return _score_exists_cond(user.id, cond) if cond is not None else None
+
+    if field == "rate":
+        cond = numeric_clause(score_agg.c.best_rate if score_agg is not None else UserScore.rate, q)
+        if score_agg is not None:
+            return cond
+        return _score_exists_cond(user.id, cond) if cond is not None else None
+
+    if field == "rank":
+        if q.upper() not in RANK_VALUES:
+            return None
+        if score_agg is not None:
+            rank_value = {"MAX": 10, "AAA": 9, "AA": 8, "A": 7, "B": 6, "C": 5, "D": 4, "E": 3, "F": 2}[q.upper()]
+            return score_agg.c.rank_order == rank_value
+        return _score_exists_cond(user.id, UserScore.rank == q.upper())
+
+    if field == "score":
+        cond = numeric_clause(score_agg.c.best_exscore if score_agg is not None else UserScore.exscore, q)
+        if score_agg is not None:
+            return cond
+        return _score_exists_cond(user.id, cond) if cond is not None else None
+
+    if field == "plays":
+        cond = numeric_clause(score_agg.c.total_plays if score_agg is not None else UserScore.play_count, q)
+        if score_agg is not None:
+            return cond
+        return _score_exists_cond(user.id, cond) if cond is not None else None
+
+    if field == "env":
+        client_map = {"LR": "lr2", "BR": "beatoraja"}
+        ct = client_map.get(q.upper())
+        if ct is None:
+            return None
+        return _score_exists_cond(user.id, UserScore.client_type == ct)
+
+    if field == "option":
+        arr_name = ARRANGEMENT_KANJI_REV.get(q)
+        if arr_name is None:
+            return None
+        sub_conds = []
+        if arr_name in LR2_ARRANGEMENT_NAMES:
+            idx = LR2_ARRANGEMENT_NAMES.index(arr_name)
+            sub_conds.append(and_(
+                UserScore.client_type == "lr2",
+                sa.cast(UserScore.options["op_best"].astext, sa.Integer).between(idx * 10, idx * 10 + 9),
+            ))
+        if arr_name in BEA_ARRANGEMENT_NAMES:
+            idx = BEA_ARRANGEMENT_NAMES.index(arr_name)
+            sub_conds.append(and_(
+                UserScore.client_type == "beatoraja",
+                sa.cast(UserScore.options["option"].astext, sa.Integer) == idx,
+            ))
+        if not sub_conds:
+            return None
+        return _score_exists_cond(user.id, or_(*sub_conds))
+
+    return None
+
+
+def _build_sort_col(sort_by: str, sort_dir: str, score_agg: Any) -> Any:
+    asc_dir = sort_dir == "asc"
+
+    fumen_col_map: dict[str, Any] = {
+        "title": Fumen.title,
+        "artist": Fumen.artist,
+        "title_artist": Fumen.title,
+        "bpm": Fumen.bpm_main,
+        "notes": Fumen.notes_total,
+        "length": Fumen.length,
+    }
+    if sort_by in fumen_col_map:
+        col = fumen_col_map[sort_by]
+        return col.asc().nullslast() if asc_dir else col.desc().nullslast()
+
+    if sort_by == "level":
+        level_expr = sa.text("CAST(substring(table_entries->0->>'level' from '[0-9]+(?:\\.[0-9]+)?') AS NUMERIC)")
+        return sa.asc(level_expr).nullslast() if asc_dir else sa.desc(level_expr).nullslast()
+
+    if score_agg is not None:
+        score_col_map: dict[str, Any] = {
+            "clear": score_agg.c.best_clear_type,
+            "score": score_agg.c.best_exscore,
+            "bp": score_agg.c.best_min_bp,
+            "rate": score_agg.c.best_rate,
+            "rank": score_agg.c.rank_order,
+            "plays": score_agg.c.total_plays,
+        }
+        if sort_by in score_col_map:
+            col = score_col_map[sort_by]
+            return col.asc().nullslast() if asc_dir else col.desc().nullslast()
+
+    return Fumen.title.asc().nullslast()
+
+
+@router.get("/", response_model=FumenListResponse)
 async def list_fumens(
-    title: str | None = Query(None, description="Filter by title (partial match)"),
-    artist: str | None = Query(None, description="Filter by artist (partial match)"),
-    limit: int = Query(50, le=200),
-    offset: int = Query(0, ge=0),
+    field: FumenSearchField = Query("title_artist"),
+    q: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    sort_by: str = Query("title"),
+    sort_dir: Literal["asc", "desc"] = Query("asc"),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
-) -> list[FumenRead]:
-    """List fumens with optional filtering."""
-    query = select(Fumen)
+) -> FumenListResponse:
+    """List all fumens with optional filtering, server-side sorting, and pagination.
 
-    if title:
-        query = query.where(Fumen.title.ilike(f"%{title}%"))
-    if artist:
-        query = query.where(Fumen.artist.ilike(f"%{artist}%"))
+    Authentication is required when `field` or `sort_by` is a score-based field
+    (clear, bp, rate, rank, score, plays, option, env).
 
-    query = query.limit(limit).offset(offset)
-    result = await db.execute(query)
-    fumens = result.scalars().all()
+    **Breaking change** (2026-04-26): replaced the old `title`/`artist`/`offset`
+    params with `field`/`q`/`page`/`sort_by`/`sort_dir`.
+    """
+    q_clean = q.strip() if q else ""
 
-    return [FumenRead.model_validate(f) for f in fumens]
+    if q_clean and field in _SCORE_FIELDS and not current_user:
+        raise HTTPException(status_code=400, detail="Authentication required for score field search")
+    if sort_by in _SCORE_FIELDS and not current_user:
+        raise HTTPException(status_code=400, detail="Authentication required for score field sort")
+
+    # Optional score aggregation subquery (for sorting/filtering by score fields)
+    score_agg = None
+    if current_user and (sort_by in _SCORE_FIELDS or (q_clean and field in _AGG_SCORE_FIELDS)):
+        score_agg = _build_score_agg_subquery(current_user.id)
+
+    base = select(Fumen)
+    count_q = select(func.count()).select_from(Fumen)
+
+    # LEFT JOIN score_agg for sort/filter — one aggregate row per fumen, so pagination stays stable.
+    if score_agg is not None:
+        join_cond = _score_agg_join_cond(score_agg)
+        base = base.outerjoin(score_agg, join_cond)
+        count_q = count_q.outerjoin(score_agg, join_cond)
+
+    # WHERE
+    if q_clean:
+        where_cond = _build_field_condition(field, q_clean, current_user, score_agg)
+        if where_cond is None:
+            return FumenListResponse(items=[], total=0, page=page, limit=limit)
+        base = base.where(where_cond)
+        count_q = count_q.where(where_cond)
+
+    total = (await db.execute(count_q)).scalar() or 0
+
+    # ORDER BY + tie-breaker
+    order_col = _build_sort_col(sort_by, sort_dir, score_agg)
+    base = base.order_by(
+        order_col,
+        Fumen.sha256.asc().nullslast(),
+        Fumen.md5.asc().nullslast(),
+    )
+
+    base = base.limit(limit).offset((page - 1) * limit)
+    fumens = list((await db.execute(base)).scalars().all())
+
+    score_map: dict = {}
+    tag_map: dict = {}
+    if current_user and fumens:
+        score_map = await fetch_user_score_map(db, current_user.id, fumens)
+        tag_map = await fetch_user_tag_map(db, current_user.id, fumens)
+
+    items = [
+        FumenListItem(
+            **FumenRead.model_validate(f).model_dump(),
+            user_score=score_map.get((f.sha256, f.md5 if not f.sha256 else None)),
+            user_tags=tag_map.get((f.sha256, f.md5 if not f.sha256 else None), []),
+        )
+        for f in fumens
+    ]
+
+    return FumenListResponse(items=items, total=total, page=page, limit=limit)
 
 
 # GET /my-tags must be registered before /{hash_value} to avoid path capture.

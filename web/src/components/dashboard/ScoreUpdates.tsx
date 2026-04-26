@@ -13,8 +13,12 @@ import type {
   ExscoreUpdateItem,
   MaxComboUpdateItem,
   MinBPUpdateItem,
-  TableLevelRef,
 } from "@/types";
+import {
+  TableLevelBadges,
+  compareByTableLevels,
+  type TableLevelRef,
+} from "@/components/common/TableLevelBadges";
 import { clearText } from "@/components/dashboard/RecentActivity";
 import type { ClientTypeFilter } from "@/hooks/use-analysis";
 import { useScoreUpdates } from "@/hooks/use-analysis";
@@ -50,33 +54,6 @@ export function rankTdClass(rank: string | null | undefined, dim = false): strin
 const RANK_SORT_ORDER: Record<string, number> = {
   MAX: -1, AAA: 0, AA: 1, A: 2, B: 3, C: 4, D: 5, E: 6, F: 7,
 };
-
-/** table_levels 배열을 기준으로 비교. 즐겨찾기 순서(index 기준) 내에서 높은 레벨이 위. */
-function compareByTableLevels(a: TableLevelRef[], b: TableLevelRef[]): number {
-  const len = Math.max(a.length, b.length);
-  for (let i = 0; i < len; i++) {
-    if (i >= a.length) return 1;
-    if (i >= b.length) return -1;
-    const aLv = parseFloat(a[i].level) || 0;
-    const bLv = parseFloat(b[i].level) || 0;
-    if (aLv !== bLv) return bLv - aLv;
-  }
-  return 0;
-}
-
-
-function TableLevelBadges({ levels }: { levels: TableLevelRef[] }) {
-  if (levels.length === 0) return <span className="text-label row-muted">-</span>;
-  const visible = levels.slice(0, 3);
-  const rest = levels.length - visible.length;
-  const text = visible.map(({ symbol, level }) => `${symbol}${level}`).join(", ");
-  return (
-    <span className="text-label">
-      {text}
-      {rest > 0 && <span className="text-caption row-muted"> +{rest}</span>}
-    </span>
-  );
-}
 
 function formatDate(ts: string | null): string {
   if (!ts) return "";
@@ -195,7 +172,7 @@ function CourseSectionTable({
               <th className={cn(thCls, "text-center")}>판정</th>
               <th className={cn(thCls, "text-center")}>랭크</th>
               <th className={cn(thCls, "text-center")}>점수</th>
-              <th className={cn(thCls, "text-center")}>플레이 수</th>
+              <th className={cn(thCls, "text-center")}>플레이</th>
               <th className={thCls}>배치</th>
               <th className={thCls}>구동기</th>
             </tr>
@@ -1151,7 +1128,7 @@ function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: strin
                   <th className={thClass("rate", true)} onClick={() => toggleSort("rate")}>판정{sortIcon("rate")}</th>
                   <th className={thClass("rank", true)} onClick={() => toggleSort("rank")}>랭크{sortIcon("rank")}</th>
                   <th className={thClass("score", true)} onClick={() => toggleSort("score")}>점수{sortIcon("score")}</th>
-                  <th className={thClass("plays", true)} onClick={() => toggleSort("plays")}>플레이 수{sortIcon("plays")}</th>
+                  <th className={thClass("plays", true)} onClick={() => toggleSort("plays")}>플레이{sortIcon("plays")}</th>
                   <th className={thClass("option")} onClick={() => toggleSort("option")}>배치{sortIcon("option")}</th>
                   <th className={thClass("env")} onClick={() => toggleSort("env")}>구동기{sortIcon("env")}</th>
                 </tr>

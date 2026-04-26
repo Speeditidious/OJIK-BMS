@@ -139,14 +139,23 @@ async def discord_callback(
             DifficultyTable,
             UserFavoriteDifficultyTable,
         )
+        from app.services.default_table_order import sort_difficulty_tables
 
         default_tables_result = await db.execute(
             select(DifficultyTable)
             .where(DifficultyTable.is_default.is_(True))
-            .order_by(DifficultyTable.default_order.asc().nulls_last(), DifficultyTable.name)
         )
-        for order, table in enumerate(default_tables_result.scalars().all()):
-            db.add(UserFavoriteDifficultyTable(user_id=user.id, table_id=table.id, display_order=order))
+        default_tables = sort_difficulty_tables(
+            list(default_tables_result.scalars().all())
+        )
+        for order, table in enumerate(default_tables):
+            db.add(
+                UserFavoriteDifficultyTable(
+                    user_id=user.id,
+                    table_id=table.id,
+                    display_order=order,
+                )
+            )
 
         await db.commit()
     else:
@@ -164,6 +173,7 @@ async def discord_callback(
             DifficultyTable,
             UserFavoriteDifficultyTable,
         )
+        from app.services.default_table_order import sort_difficulty_tables
 
         existing_fav = await db.execute(
             select(UserFavoriteDifficultyTable).where(UserFavoriteDifficultyTable.user_id == user.id).limit(1)
@@ -172,10 +182,18 @@ async def discord_callback(
             default_tables_result = await db.execute(
                 select(DifficultyTable)
                 .where(DifficultyTable.is_default.is_(True))
-                .order_by(DifficultyTable.default_order.asc().nulls_last(), DifficultyTable.name)
             )
-            for order, table in enumerate(default_tables_result.scalars().all()):
-                db.add(UserFavoriteDifficultyTable(user_id=user.id, table_id=table.id, display_order=order))
+            default_tables = sort_difficulty_tables(
+                list(default_tables_result.scalars().all())
+            )
+            for order, table in enumerate(default_tables):
+                db.add(
+                    UserFavoriteDifficultyTable(
+                        user_id=user.id,
+                        table_id=table.id,
+                        display_order=order,
+                    )
+                )
 
         await db.commit()
 

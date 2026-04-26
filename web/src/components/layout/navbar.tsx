@@ -31,7 +31,7 @@ import {
 const navItems = [
   { href: "/ranking", label: "랭킹", icon: Trophy },
   { href: "/tables", label: "난이도표", icon: Table2 },
-  { href: "/songs", label: "곡 목록", icon: Music2 },
+  { href: "/songs", label: "차분 목록", icon: Music2 },
   { href: "/custom", label: "커스텀", icon: ListMusic },
   { href: "/download", label: "클라이언트 다운로드", icon: Download },
 ];

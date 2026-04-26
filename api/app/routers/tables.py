@@ -1,7 +1,6 @@
 """Difficulty table endpoints: list, favorites, import, sync, fumen query."""
 from __future__ import annotations
 
-import math
 import uuid
 from datetime import datetime
 from typing import Any
@@ -19,30 +18,18 @@ from app.core.security import (
     get_current_user_optional,
 )
 from app.models.difficulty_table import DifficultyTable, UserFavoriteDifficultyTable
-from app.models.fumen import Fumen, UserFumenTag
-from app.models.score import UserScore
+from app.models.fumen import Fumen
 from app.models.user import User
 from app.schemas import MessageResponse
-from app.services.clear_type_display import display_clear_type
-from app.services.client_aggregation import (
-    CLIENT_LABEL,
-    PerClientBest,
-    aggregate_source_client,
+from app.services.default_table_order import sort_difficulty_tables
+from app.services.fumen_user_scores import (
+    TableFumenScore,
+    UserTagRead,
+    fetch_user_score_map,
+    fetch_user_tag_map,
 )
 
 router = APIRouter(prefix="/tables", tags=["tables"])
-
-
-def _compute_rate_rank(exscore: int, notes_total: int) -> tuple[float, str]:
-    """Compute rate (%) and rank from exscore and notes_total."""
-    max_ex = notes_total * 2
-    if max_ex <= 0:
-        return 0.0, "F"
-    rate = math.floor(exscore / max_ex * 10000) / 100
-    for rank, threshold in [("AAA", 16), ("AA", 14), ("A", 12), ("B", 10), ("C", 8), ("D", 6), ("E", 4)]:
-        if exscore * 9 >= notes_total * threshold:
-            return rate, rank
-    return rate, "F"
 
 
 # ── Pydantic schemas ─────────────────────────────────────────────────────────
@@ -71,27 +58,6 @@ class DifficultyTableRead(BaseModel):
             updated_at=table.updated_at,
             song_count=count,
         )
-
-
-class TableFumenScore(BaseModel):
-    """Per-field best scores for a fumen, derived from is_best_* flags."""
-    best_clear_type: int | None
-    best_exscore: int | None
-    rate: float | None
-    rank: str | None
-    best_min_bp: int | None
-    source_client: str | None          # "LR", "BR", "MIX", or None
-    source_client_detail: dict | None  # e.g. {"clear_type": "LR", "exscore": "BR", "min_bp": "BR"}
-    options: dict | None = None
-    client_type: str | None = None
-    play_count: int | None = None
-
-
-class UserTagRead(BaseModel):
-    id: str
-    tag: str
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 class TableFumen(BaseModel):
@@ -153,7 +119,8 @@ async def list_tables(
             DifficultyTable.name,
         )
     )
-    tables = result.scalars().all()
+    tables = list(result.scalars().all())
+    tables = sort_difficulty_tables(tables)
 
     # Get fumen counts per table in one query
     _elem = cast(func.jsonb_array_elements(Fumen.table_entries), JSONB)
@@ -255,167 +222,12 @@ async def get_table_songs(
         fumen_level_map[(f.sha256, f.md5)] = fumen_level
         filtered_fumens.append(f)
 
-    # Fetch per-field best scores for the logged-in user (2 queries max)
+    # Fetch per-field best scores and tags for the logged-in user
     score_map: dict[tuple[str | None, str | None], TableFumenScore] = {}
-    if current_user and filtered_fumens:
-        sha256_list = [f.sha256 for f in filtered_fumens if f.sha256]
-        # md5-only fumens (no sha256 in fumens table)
-        md5_list = [f.md5 for f in filtered_fumens if f.md5 and not f.sha256]
-        # md5s for fumens that ALSO have sha256 — needed to find old md5-only user_scores rows
-        # (e.g. LR2 rows stored before sha256 was available or LR2 which never has sha256)
-        md5_for_sha256_fumens = [f.md5 for f in filtered_fumens if f.sha256 and f.md5]
-        # Map: md5 → canonical (sha256, None) key, for normalizing md5-only rows below
-        md5_to_key: dict[str, tuple[str | None, str | None]] = {
-            f.md5: (f.sha256, None)
-            for f in filtered_fumens
-            if f.sha256 and f.md5
-        }
-
-        score_conditions = []
-        if sha256_list:
-            score_conditions.append(UserScore.fumen_sha256.in_(sha256_list))
-        if md5_list:
-            score_conditions.append(
-                (UserScore.fumen_md5.in_(md5_list)) & UserScore.fumen_sha256.is_(None)
-            )
-        if md5_for_sha256_fumens:
-            # Also fetch md5-only rows whose fumen now has sha256 (e.g. all LR2 rows)
-            score_conditions.append(
-                (UserScore.fumen_md5.in_(md5_for_sha256_fumens)) & UserScore.fumen_sha256.is_(None)
-            )
-
-        if score_conditions:
-            combined = score_conditions[0]
-            for c in score_conditions[1:]:
-                combined = combined | c
-
-            score_rows_result = await db.execute(
-                select(UserScore).where(
-                    UserScore.user_id == current_user.id,
-                    UserScore.fumen_hash_others.is_(None),
-                    combined,
-                ).order_by(UserScore.recorded_at.desc().nullslast())
-            )
-            score_rows = score_rows_result.scalars().all()
-
-            # Per-fumen: accumulate per-field best across ALL rows per client_type
-            # Structure: { fumen_key: { client_type: { "clear_type", "exscore", "rate", "rank", "min_bp", "options", "play_count" } } }
-            per_fumen_client: dict[tuple[str | None, str | None], dict[str, dict[str, Any]]] = {}
-            for s in score_rows:
-                # Normalize key: md5-only rows for fumens that have sha256 → use (sha256, None)
-                if s.fumen_sha256 is None and s.fumen_md5 and s.fumen_md5 in md5_to_key:
-                    key = md5_to_key[s.fumen_md5]
-                else:
-                    key = (s.fumen_sha256, s.fumen_md5 if not s.fumen_sha256 else None)
-                per_client = per_fumen_client.setdefault(key, {})
-                ct = s.client_type
-                if ct not in per_client:
-                    per_client[ct] = {"clear_type": None, "exscore": None, "rate": None, "rank": None, "min_bp": None, "options": None, "play_count": None}
-                entry = per_client[ct]
-                if s.clear_type is not None and (entry["clear_type"] is None or s.clear_type > entry["clear_type"]):
-                    entry["clear_type"] = s.clear_type
-                    entry["options"] = s.options
-                if s.exscore is not None and (entry["exscore"] is None or s.exscore > entry["exscore"]):
-                    entry["exscore"] = s.exscore
-                    entry["rate"] = s.rate
-                    entry["rank"] = s.rank
-                if s.min_bp is not None and (entry["min_bp"] is None or s.min_bp < entry["min_bp"]):
-                    entry["min_bp"] = s.min_bp
-                if s.play_count is not None:
-                    entry["play_count"] = (entry["play_count"] or 0) + s.play_count
-
-            for key, per_client in per_fumen_client.items():
-                raw: dict[str, Any] = {
-                    "clear_type": None, "clear_type_client": None,
-                    "exscore": None, "rate": None, "rank": None, "exscore_client": None,
-                    "min_bp": None, "min_bp_client": None,
-                    "options": None, "best_client_type": None, "play_count": None,
-                }
-                for ct, entry in per_client.items():
-                    client_label = CLIENT_LABEL.get(ct, ct.upper())
-                    if entry["clear_type"] is not None and (raw["clear_type"] is None or entry["clear_type"] > raw["clear_type"]):
-                        raw["clear_type"] = entry["clear_type"]
-                        raw["clear_type_client"] = client_label
-                        raw["options"] = entry["options"]
-                        raw["best_client_type"] = ct
-                    if entry["exscore"] is not None and (raw["exscore"] is None or entry["exscore"] > raw["exscore"]):
-                        raw["exscore"] = entry["exscore"]
-                        raw["rate"] = entry["rate"]
-                        raw["rank"] = entry["rank"]
-                        raw["exscore_client"] = client_label
-                    if entry["min_bp"] is not None and (raw["min_bp"] is None or entry["min_bp"] < raw["min_bp"]):
-                        raw["min_bp"] = entry["min_bp"]
-                        raw["min_bp_client"] = client_label
-                    raw["play_count"] = (raw["play_count"] or 0) + (entry["play_count"] or 0)
-
-                source_client, source_client_detail = aggregate_source_client(
-                    PerClientBest(
-                        client_type=ct,
-                        clear_type=entry["clear_type"],
-                        exscore=entry["exscore"],
-                        rate=entry["rate"],
-                        rank=entry["rank"],
-                        min_bp=entry["min_bp"],
-                    )
-                    for ct, entry in per_client.items()
-                )
-
-                # Compute rate/rank from exscore + notes_total when null (e.g. scorelog.db rows)
-                rate = raw["rate"]
-                rank = raw["rank"]
-                if (rate is None or rank is None) and raw["exscore"] is not None:
-                    notes_map = {
-                        (f.sha256, f.md5 if not f.sha256 else None): f.notes_total
-                        for f in filtered_fumens
-                    }
-                    nt = notes_map.get(key)
-                    if nt:
-                        rate, rank = _compute_rate_rank(raw["exscore"], nt)
-                clear_type = display_clear_type(raw["clear_type"], exscore=raw["exscore"], rate=rate)
-
-                score_map[key] = TableFumenScore(
-                    best_clear_type=clear_type,
-                    best_exscore=raw["exscore"],
-                    rate=rate,
-                    rank=rank,
-                    best_min_bp=raw["min_bp"],
-                    source_client=source_client,
-                    source_client_detail=source_client_detail,
-                    options=raw["options"],
-                    client_type=raw["best_client_type"],
-                    play_count=raw["play_count"] or None,
-                )
-
-    # Fetch user tags for logged-in user
     tag_map: dict[tuple[str | None, str | None], list[UserTagRead]] = {}
     if current_user and filtered_fumens:
-        sha256_list_tags = [f.sha256 for f in filtered_fumens if f.sha256]
-        md5_list_tags = [f.md5 for f in filtered_fumens if f.md5 and not f.sha256]
-
-        tag_conditions = []
-        if sha256_list_tags:
-            tag_conditions.append(UserFumenTag.fumen_sha256.in_(sha256_list_tags))
-        if md5_list_tags:
-            tag_conditions.append(
-                (UserFumenTag.fumen_md5.in_(md5_list_tags)) & UserFumenTag.fumen_sha256.is_(None)
-            )
-
-        if tag_conditions:
-            combined_tag = tag_conditions[0]
-            for c in tag_conditions[1:]:
-                combined_tag = combined_tag | c
-
-            tag_rows_result = await db.execute(
-                select(UserFumenTag).where(
-                    UserFumenTag.user_id == current_user.id,
-                    combined_tag,
-                )
-            )
-            for tag in tag_rows_result.scalars().all():
-                t_key = (tag.fumen_sha256, tag.fumen_md5 if not tag.fumen_sha256 else None)
-                tag_map.setdefault(t_key, []).append(
-                    UserTagRead(id=str(tag.id), tag=tag.tag)
-                )
+        score_map = await fetch_user_score_map(db, current_user.id, filtered_fumens)
+        tag_map = await fetch_user_tag_map(db, current_user.id, filtered_fumens)
 
     results: list[TableFumen] = []
     for f in filtered_fumens:

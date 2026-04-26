@@ -50,9 +50,10 @@ async def _init_ranking_config() -> None:
         logger.warning(f"Ranking config load failed (non-fatal): {exc}")
 
 async def _seed_default_tables() -> None:
-    """Create DifficultyTable rows for all default tables defined in config.json.
+    """Create DifficultyTable rows for all default tables defined in config.toml.
 
-    Only inserts rows that don't already exist (matched by source_url).
+    Inserts rows that don't already exist and refreshes display metadata for
+    existing default rows (matched by source_url).
     Does NOT fetch remote data — that's the Celery task's job.
     """
     import logging
@@ -61,7 +62,10 @@ async def _seed_default_tables() -> None:
 
     from app.core.database import AsyncSessionLocal
     from app.models.difficulty_table import DifficultyTable
-    from app.parsers.table_fetcher import get_default_table_configs
+    from app.parsers.table_fetcher import (
+        get_default_table_configs,
+        load_table_from_disk,
+    )
 
     logger = logging.getLogger(__name__)
 
@@ -71,23 +75,36 @@ async def _seed_default_tables() -> None:
 
     try:
         async with AsyncSessionLocal() as db:
-            for cfg in default_configs:
+            for default_order, cfg in enumerate(default_configs):
                 url: str = cfg.get("url", "")
                 if not url:
                     continue
+                slug: str | None = cfg.get("slug")
+                table_data = load_table_from_disk(slug) if slug else None
+                effective_symbol = cfg.get("symbol") or (
+                    table_data.get("symbol") if table_data else None
+                )
 
                 result = await db.execute(
                     select(DifficultyTable).where(DifficultyTable.source_url == url)
                 )
-                if result.scalar_one_or_none() is not None:
+                existing = result.scalar_one_or_none()
+                if existing is not None:
+                    existing.name = cfg.get("name", url)
+                    if effective_symbol is not None:
+                        existing.symbol = effective_symbol
+                    existing.slug = slug
+                    existing.is_default = True
+                    existing.default_order = default_order
                     continue  # already seeded
 
                 table = DifficultyTable(
                     name=cfg.get("name", url),
-                    symbol=cfg.get("symbol"),
-                    slug=cfg.get("slug"),
+                    symbol=effective_symbol,
+                    slug=slug,
                     source_url=url,
                     is_default=True,
+                    default_order=default_order,
                 )
                 db.add(table)
                 logger.info(f"Seeded default table: {cfg.get('name')}")
