@@ -13,6 +13,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.score import UserScore
+from app.services.clear_type_display import display_clear_type
 from app.services.client_aggregation import PerClientBest, aggregate_source_client
 from app.services.ranking_calculator import (
     BestScore,
@@ -281,7 +282,11 @@ async def build_user_contribution_rows(
                 "artist": target.get("artist"),
                 "level": target["level"],
                 "symbol": table_symbol,
-                "clear_type": score.clear_type if score is not None and score.clear_type is not None else 0,
+                "clear_type": display_clear_type(
+                    score.clear_type,
+                    exscore=score.exscore,
+                    rate=score.rate,
+                ) if score is not None and score.clear_type is not None else 0,
                 "client_types": list(score.client_types) if score is not None else [],
                 "min_bp": score.min_bp if score is not None else None,
                 "rate": round(float(score.rate), 1) if score is not None and score.rate is not None else None,
@@ -522,7 +527,11 @@ def _build_rating_update_detail_entry(
         "artist": target.get("artist"),
         "level": target["level"],
         "symbol": table_symbol,
-        "clear_type": score.clear_type if score is not None and score.clear_type is not None else 0,
+        "clear_type": display_clear_type(
+            score.clear_type,
+            exscore=score.exscore,
+            rate=score.rate,
+        ) if score is not None and score.clear_type is not None else 0,
         "client_types": list(score.client_types) if score is not None else [],
         "min_bp": score.min_bp if score is not None else None,
         "rate": round(float(score.rate), 2) if score is not None and score.rate is not None else None,
@@ -963,8 +972,16 @@ def _build_breakdown_entry(
         "artist": target.get("artist"),
         "level": target["level"],
         "symbol": table_symbol,
-        "clear_type": current_score.clear_type if current_score is not None and current_score.clear_type is not None else 0,
-        "previous_clear_type": previous_score.clear_type if previous_score is not None else None,
+        "clear_type": display_clear_type(
+            current_score.clear_type,
+            exscore=current_score.exscore,
+            rate=current_score.rate,
+        ) if current_score is not None and current_score.clear_type is not None else 0,
+        "previous_clear_type": display_clear_type(
+            previous_score.clear_type,
+            exscore=previous_score.exscore,
+            rate=previous_score.rate,
+        ) if previous_score is not None else None,
         "client_types": list(preferred_score.client_types) if preferred_score is not None else [],
         "min_bp": current_score.min_bp if current_score is not None else None,
         "previous_min_bp": previous_score.min_bp if previous_score is not None else None,

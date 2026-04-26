@@ -16,6 +16,7 @@ import { compareTitles } from "@/lib/bms-sort";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
 import { CLEAR_ROW_CLASS, parseArrangement, levelSortIndex, ARRANGEMENT_KANJI, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
 import { formatRatePercent } from "@/lib/rate-format";
+import { displayClearType } from "@/lib/clear-type-display";
 import { CLEAR_TYPE_LABELS } from "@/components/charts/ClearDistributionChart";
 import type { DifficultyTableDetail, TableFumen } from "@/types";
 import { clearText } from "@/components/dashboard/RecentActivity";
@@ -299,7 +300,8 @@ const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores 
   const { total: notesTotal, detail: notesDetail } = formatNotes(
     song.notes_total, song.notes_n, song.notes_ln, song.notes_s, song.notes_ls
   );
-  const rowClass = CLEAR_ROW_CLASS[s?.best_clear_type ?? 0] ?? "";
+  const displayType = displayClearType(s?.best_clear_type ?? null, { exscore: s?.best_exscore, rate: s?.rate });
+  const rowClass = CLEAR_ROW_CLASS[displayType ?? 0] ?? "";
   const arrangement = s ? parseArrangement(s.options, s.client_type) : null;
   const arrangementLabel = arrangement ? (ARRANGEMENT_KANJI[arrangement] ?? arrangement) : null;
 
@@ -338,7 +340,7 @@ const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores 
       {hasUserScores && (
         <>
           <td className="px-2">
-            {s ? clearText(s.best_clear_type, s.source_client ?? "") : <span className="text-label row-muted">-</span>}
+            {s ? clearText(s.best_clear_type, s.source_client ?? "", { exscore: s.best_exscore, rate: s.rate }) : <span className="text-label row-muted">-</span>}
           </td>
           <td className="px-2 text-label">{s?.best_min_bp ?? <span className="row-muted">—</span>}</td>
           <td className="px-2 text-label">{s?.rate != null ? formatRatePercent(s.rate) : <span className="row-muted">—</span>}</td>

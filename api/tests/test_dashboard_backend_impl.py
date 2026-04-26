@@ -1,21 +1,27 @@
 """Regression tests for dashboard backend range handling and source-client aggregation."""
 
 import asyncio
+import tomllib
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-import tomllib
 
 import pytest
 from fastapi import HTTPException
 
 from app.models.score import UserScore
 from app.models.user import User
-from app.routers.analysis import _resolve_activity_window, _resolve_rating_update_window, get_score_updates
+from app.routers.analysis import (
+    _build_fumen_aggregate,
+    _resolve_activity_window,
+    _resolve_rating_update_window,
+    get_score_updates,
+)
 from app.routers.rankings import get_ranking_display_config, get_ranking_history
 from app.routers.scores import get_score_for_song
 from app.services.client_aggregation import PerClientBest, aggregate_source_client
+from app.services.ranking_calculator import BestScore, compute_ranking
 from app.services.ranking_config import (
     BmsForceEmblem,
     LevelOverride,
@@ -23,10 +29,9 @@ from app.services.ranking_config import (
     RankingConfigError,
     _validate_bmsforce_emblems,
 )
-from app.services.ranking_calculator import BestScore, compute_ranking
 from app.services.ranking_dashboard import (
-    build_user_contribution_rows,
     _resolve_date_window,
+    build_user_contribution_rows,
     compute_rating_breakdown,
     compute_rating_updates,
     compute_rating_updates_aggregated,
@@ -512,6 +517,55 @@ async def test_get_score_for_song_uses_common_source_client_aggregation():
     assert result.best_clear_type_client == "LR"
     assert result.best_exscore_client == "LR"
     assert result.best_min_bp_client == "BR"
+
+
+@pytest.mark.asyncio
+async def test_get_score_for_song_displays_non_100_max_as_perfect():
+    user_id = uuid.uuid4()
+    target_sha = "b" * 64
+    current_user = User(id=user_id, username="tester", is_active=True)
+    raw_row = UserScore(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        client_type="beatoraja",
+        fumen_sha256=target_sha,
+        clear_type=9,
+        exscore=1998,
+        rate=99.9,
+        rank="AAA",
+        min_bp=0,
+        recorded_at=datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+    )
+
+    result = await get_score_for_song(
+        fumen_sha256=target_sha,
+        client_type=None,
+        current_user=current_user,
+        db=_ScoreSession([raw_row]),
+    )
+
+    assert raw_row.clear_type == 9
+    assert result.best_clear_type == 8
+
+
+def test_build_fumen_aggregate_uses_display_clear_type_for_current_state():
+    row = SimpleNamespace(
+        fumen_sha256="c" * 64,
+        fumen_md5=None,
+        client_type="beatoraja",
+        clear_type=9,
+        exscore=0,
+        rate=0.0,
+        rank="F",
+        min_bp=None,
+        max_combo=0,
+        options=None,
+        play_count=1,
+    )
+
+    result = _build_fumen_aggregate([row], {})
+
+    assert result[("c" * 64, None)]["current_state"]["clear_type"] == 7
 
 
 @pytest.mark.asyncio

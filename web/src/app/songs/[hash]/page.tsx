@@ -14,6 +14,7 @@ import { useAuthStore } from "@/stores/auth";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
 import { clearText } from "@/components/dashboard/RecentActivity";
 import { formatRatePercent } from "@/lib/rate-format";
+import { displayClearType } from "@/lib/clear-type-display";
 import { cn } from "@/lib/utils";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement } from "@/lib/fumen-table-utils";
 import type { DifficultyTable, FumenDetail, UserScore } from "@/types";
@@ -137,7 +138,8 @@ function ScoreHistorySection({
               {scores.map((s) => {
                 const arrangementName = parseArrangement(s.options, s.client_type);
                 const arrangementKanji = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? arrangementName) : null;
-                const rowClass = CLEAR_ROW_CLASS[s.clear_type ?? 0] ?? "";
+                const displayType = displayClearType(s.clear_type, { exscore: s.exscore, rate: s.rate });
+                const rowClass = CLEAR_ROW_CLASS[displayType ?? 0] ?? "";
                 const dateStr = s.recorded_at
                   ? new Date(s.recorded_at).toLocaleDateString("ko-KR")
                   : s.is_first_sync
@@ -148,7 +150,7 @@ function ScoreHistorySection({
                 return (
                   <tr key={s.id} className={cn("border-b border-border/30 last:border-0", rowClass || "hover:bg-secondary/50")}>
                     <td className="px-3 py-2">
-                      {clearText(s.clear_type, s.client_type)}
+                      {clearText(s.clear_type, s.client_type, { exscore: s.exscore, rate: s.rate })}
                     </td>
                     <td className="px-3 py-2 text-label">
                       {s.min_bp !== null ? s.min_bp : <span className="text-muted-foreground row-muted">--</span>}

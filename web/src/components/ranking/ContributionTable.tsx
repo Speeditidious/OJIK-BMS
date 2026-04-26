@@ -345,21 +345,23 @@ function ClearCell({
   const previousClearType = entry.previous_clear_type ?? null;
   const effectivePresentation = presentation === "rating-detail" ? "default" : presentation;
   const showComparison = comparisonEnabled(effectivePresentation, section, previousClearType != null);
+  const currentScore = { exscore: entry.exscore, rate: entry.rate };
+  const previousScore = { exscore: entry.previous_exscore, rate: entry.previous_rate };
 
   if (!showComparison) {
-    return clearText(entry.clear_type, clientType);
+    return clearText(entry.clear_type, clientType, currentScore);
   }
   if (previousClearType == null) {
-    return clearText(entry.clear_type, clientType);
+    return clearText(entry.clear_type, clientType, currentScore);
   }
   if (previousClearType === entry.clear_type) {
-    return clearText(entry.clear_type, clientType);
+    return clearText(entry.clear_type, clientType, currentScore);
   }
 
   return (
     <InlineComparison
-      previous={clearText(previousClearType, clientType)}
-      current={clearText(entry.clear_type, clientType)}
+      previous={clearText(previousClearType, clientType, previousScore)}
+      current={clearText(entry.clear_type, clientType, currentScore)}
     />
   );
 }

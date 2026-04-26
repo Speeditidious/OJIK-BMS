@@ -48,22 +48,6 @@ def _compute_score_fields(
     return exscore, rate, "F"
 
 
-def _normalize_synced_clear_type(
-    clear_type: int | None,
-    *,
-    exscore: int | None,
-    rate: float | None,
-) -> int | None:
-    """Return clear type with MAX allowed only for known 100.00% scores."""
-    if clear_type != 9:
-        return clear_type
-    if exscore == 0:
-        return 7
-    if rate is not None and rate != 100.0:
-        return 8
-    return clear_type
-
-
 class ScoreSyncItem(BaseModel):
     scorehash: str | None = None
     fumen_sha256: str | None = None
@@ -458,13 +442,6 @@ async def sync_data(
                 # Fall back to client-supplied exscore when judgments/notes are unavailable
                 if exscore is None and item.exscore is not None:
                     exscore = item.exscore
-                normalized_clear_type = _normalize_synced_clear_type(
-                    item.clear_type,
-                    exscore=exscore,
-                    rate=rate,
-                )
-                if normalized_clear_type != item.clear_type:
-                    item = item.model_copy(update={"clear_type": normalized_clear_type})
 
                 is_course = bool(item.fumen_hash_others)
 

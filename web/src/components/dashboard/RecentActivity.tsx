@@ -16,6 +16,7 @@ import {
   LR2_CLEAR_TYPE_LABELS,
   BEATORAJA_CLEAR_TYPE_LABELS,
 } from "@/components/charts/ClearDistributionChart";
+import { displayClearType } from "@/lib/clear-type-display";
 import { formatRatePercent } from "@/lib/rate-format";
 
 // CSS variable refs per internal clear_type (0=NO PLAY, 1=FAILED, 2=ASSIST, 3=EASY, 4=NORMAL, 5=HARD, 6=EXHARD, 7=FC, 8=PERFECT, 9=MAX)
@@ -38,11 +39,16 @@ function getClientLabels(clientType: string) {
   return CLEAR_TYPE_LABELS;
 }
 
-export function clearBadge(clearType: number | null, clientType: string) {
+export function clearBadge(
+  clearType: number | null,
+  clientType: string,
+  score?: { exscore?: number | null; rate?: number | null },
+) {
   if (clearType === null) return null;
+  const displayType = displayClearType(clearType, score) ?? clearType;
   const labels = getClientLabels(clientType);
-  const label = labels[clearType] ?? String(clearType);
-  const style = CLEAR_BADGE_STYLE[clearType] ?? CLEAR_BADGE_STYLE[0];
+  const label = labels[displayType] ?? String(displayType);
+  const style = CLEAR_BADGE_STYLE[displayType] ?? CLEAR_BADGE_STYLE[0];
   return (
     <span
       className="inline-flex items-center rounded-full px-2 py-0.5 text-caption font-medium border shrink-0"
@@ -54,10 +60,15 @@ export function clearBadge(clearType: number | null, clientType: string) {
 }
 
 /** Plain text version of clearBadge — no badge decoration, no color override. */
-export function clearText(clearType: number | null, clientType: string) {
+export function clearText(
+  clearType: number | null,
+  clientType: string,
+  score?: { exscore?: number | null; rate?: number | null },
+) {
   if (clearType === null) return null;
+  const displayType = displayClearType(clearType, score) ?? clearType;
   const labels = getClientLabels(clientType);
-  const label = labels[clearType] ?? String(clearType);
+  const label = labels[displayType] ?? String(displayType);
   return (
     <span className="text-label">
       {label}
@@ -90,7 +101,7 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
                 ★ 첫 클리어
               </span>
             )}
-            {clearBadge(u.clear_type, u.client_type)}
+            {clearBadge(u.clear_type, u.client_type, { exscore: u.exscore, rate: u.rate })}
             {(u.fumen_sha256 || u.fumen_md5) ? (
               <Link
                 href={`/songs/${u.fumen_sha256 ?? u.fumen_md5}`}

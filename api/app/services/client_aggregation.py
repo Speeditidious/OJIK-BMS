@@ -4,6 +4,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from app.services.clear_type_display import display_clear_type
+
 CLIENT_LABEL = {
     "lr2": "LR",
     "beatoraja": "BR",
@@ -36,7 +38,11 @@ def aggregate_source_client(
         return (None, None)
 
     best_clear = max(
-        (entry.clear_type for entry in entries if entry.clear_type is not None),
+        (
+            display_clear_type(entry.clear_type, exscore=entry.exscore, rate=entry.rate)
+            for entry in entries
+            if entry.clear_type is not None
+        ),
         default=None,
     )
     best_exscore = max(
@@ -55,9 +61,10 @@ def aggregate_source_client(
         matches_best = False
 
         if best_clear is not None and entry.clear_type is not None:
-            if entry.clear_type < best_clear:
+            display_clear = display_clear_type(entry.clear_type, exscore=entry.exscore, rate=entry.rate)
+            if display_clear is None or display_clear < best_clear:
                 return False
-            matches_best = matches_best or entry.clear_type == best_clear
+            matches_best = matches_best or display_clear == best_clear
         if best_exscore is not None and entry.exscore is not None:
             if entry.exscore < best_exscore:
                 return False
@@ -82,7 +89,10 @@ def aggregate_source_client(
             (
                 _client_label(entry.client_type)
                 for entry in entries
-                if best_clear is not None and entry.clear_type == best_clear
+                if (
+                    best_clear is not None
+                    and display_clear_type(entry.clear_type, exscore=entry.exscore, rate=entry.rate) == best_clear
+                )
             ),
             None,
         ),

@@ -14,6 +14,7 @@ from app.core.security import get_current_user, get_current_user_optional
 from app.models.fumen import Fumen
 from app.models.score import UserScore
 from app.models.user import User
+from app.services.clear_type_display import display_clear_type
 from app.services.client_aggregation import (
     CLIENT_LABEL,
     PerClientBest,
@@ -121,7 +122,7 @@ async def get_my_scores(
             fumen_md5=s.fumen_md5,
             fumen_hash_others=s.fumen_hash_others,
             client_type=s.client_type,
-            clear_type=s.clear_type,
+            clear_type=display_clear_type(s.clear_type, exscore=s.exscore, rate=s.rate),
             exscore=s.exscore,
             rate=s.rate,
             rank=s.rank,
@@ -219,7 +220,7 @@ async def get_scores_for_fumen(
             fumen_md5=s.fumen_md5,
             fumen_hash_others=s.fumen_hash_others,
             client_type=s.client_type,
-            clear_type=s.clear_type,
+            clear_type=display_clear_type(s.clear_type, exscore=s.exscore, rate=rate),
             exscore=s.exscore,
             rate=rate,
             rank=rank,
@@ -274,8 +275,9 @@ async def get_score_for_song(
 
     for s in per_client.values():
         label = CLIENT_LABEL.get(s.client_type, s.client_type.upper())
-        if s.clear_type is not None and (best.best_clear_type is None or s.clear_type > best.best_clear_type):
-            best.best_clear_type = s.clear_type
+        clear_type = display_clear_type(s.clear_type, exscore=s.exscore, rate=s.rate)
+        if clear_type is not None and (best.best_clear_type is None or clear_type > best.best_clear_type):
+            best.best_clear_type = clear_type
             best.best_clear_type_client = label
         if s.exscore is not None and (best.best_exscore is None or s.exscore > best.best_exscore):
             best.best_exscore = s.exscore

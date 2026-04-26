@@ -16,6 +16,7 @@ from app.models.difficulty_table import DifficultyTable, UserFavoriteDifficultyT
 from app.models.fumen import Fumen
 from app.models.score import UserPlayerStats, UserScore
 from app.models.user import User
+from app.services.clear_type_display import display_clear_type
 from app.services.client_aggregation import (
     CLIENT_LABEL,
     PerClientBest,
@@ -235,10 +236,11 @@ def _build_fumen_aggregate(
                 "play_count": None,
             },
         )
-        if row.clear_type is not None and (
-            entry["clear_type"] is None or row.clear_type > entry["clear_type"]
+        clear_type = display_clear_type(row.clear_type, exscore=row.exscore, rate=row.rate)
+        if clear_type is not None and (
+            entry["clear_type"] is None or clear_type > entry["clear_type"]
         ):
-            entry["clear_type"] = row.clear_type
+            entry["clear_type"] = clear_type
             entry["options"] = row.options
         if row.exscore is not None and (
             entry["exscore"] is None or row.exscore > entry["exscore"]
@@ -1338,7 +1340,7 @@ async def get_recent_updates(
                 "fumen_md5": e.fumen_md5,
                 "fumen_hash_others": e.fumen_hash_others,
                 "client_type": e.client_type,
-                "clear_type": e.clear_type,
+                "clear_type": display_clear_type(e.clear_type, exscore=e.exscore, rate=e.rate),
                 "rate": e.rate,
                 "rank": e.rank,
                 "min_bp": e.min_bp,
@@ -1482,7 +1484,7 @@ async def get_course_activity(
         out.append({
             "date": ts.strftime("%Y-%m-%d"),
             "course_hash": e.fumen_hash_others,
-            "clear_type": e.clear_type,
+            "clear_type": display_clear_type(e.clear_type, exscore=e.exscore, rate=e.rate),
             "client_type": e.client_type,
             "course_name": course.name,
             "dan_title": course.dan_title,
@@ -1504,34 +1506,41 @@ async def get_grade_distribution(
     multiple history rows for the same chart.
     """
     target_user = await _resolve_target_user(user_id, current_user, db)
-    # Get best clear_type per unique fumen key (sha256 preferred over md5)
-    subq_filters = [
+    filters = [
         UserScore.user_id == target_user.id,
         UserScore.fumen_hash_others.is_(None),  # exclude course records
         or_(UserScore.fumen_sha256.is_not(None), UserScore.fumen_md5.is_not(None)),
     ]
     if client_type:
-        subq_filters.append(UserScore.client_type == client_type)
-
-    subq = (
-        select(
-            func.coalesce(UserScore.fumen_sha256, UserScore.fumen_md5).label("fumen_key"),
-            func.max(UserScore.clear_type).label("best_clear"),
-        )
-        .where(*subq_filters)
-        .group_by(func.coalesce(UserScore.fumen_sha256, UserScore.fumen_md5))
-        .subquery()
-    )
+        filters.append(UserScore.client_type == client_type)
 
     result = await db.execute(
-        select(subq.c.best_clear, func.count().label("cnt"))
-        .group_by(subq.c.best_clear)
-        .order_by(subq.c.best_clear)
+        select(
+            func.coalesce(UserScore.fumen_sha256, UserScore.fumen_md5).label("fumen_key"),
+            UserScore.clear_type,
+            UserScore.exscore,
+            UserScore.rate,
+        ).where(*filters)
     )
+    best_by_fumen: dict[str, int | None] = {}
+    for row in result.mappings().all():
+        clear_type = display_clear_type(row["clear_type"], exscore=row["exscore"], rate=row["rate"])
+        key = row["fumen_key"]
+        if key is None:
+            continue
+        current = best_by_fumen.get(key)
+        if clear_type is None and key not in best_by_fumen:
+            best_by_fumen[key] = None
+        elif clear_type is not None and (current is None or clear_type > current):
+            best_by_fumen[key] = clear_type
+
+    counts: dict[int | None, int] = {}
+    for clear_type in best_by_fumen.values():
+        counts[clear_type] = counts.get(clear_type, 0) + 1
 
     distribution = [
-        {"clear_type": row[0], "count": row[1]}
-        for row in result.all()
+        {"clear_type": clear_type, "count": count}
+        for clear_type, count in sorted(counts.items(), key=lambda item: -1 if item[0] is None else item[0])
     ]
 
     return {"distribution": distribution}
@@ -1568,7 +1577,7 @@ async def get_score_trend(
             "synced_at": h.synced_at.isoformat() if h.synced_at else None,
             "rate": h.rate,
             "rank": h.rank,
-            "clear_type": h.clear_type,
+            "clear_type": display_clear_type(h.clear_type, exscore=h.exscore, rate=h.rate),
             "min_bp": h.min_bp,
         }
         for h in reversed(histories)
@@ -2068,7 +2077,14 @@ async def get_score_updates(
         cprev = _find_course_prev_row(r, course_prev_rows_map)
         all_course_rows = course_prev_rows_map.get((r.fumen_hash_others, r.client_type), [])
         all_rows = all_course_rows if any(row.id == r.id for row in all_course_rows) else all_course_rows + [r]
-        best_clear = max((row.clear_type for row in all_rows if row.clear_type is not None), default=None)
+        best_clear = max(
+            (
+                display_clear_type(row.clear_type, exscore=row.exscore, rate=row.rate)
+                for row in all_rows
+                if row.clear_type is not None
+            ),
+            default=None,
+        )
         best_exscore = max((row.exscore for row in all_rows if row.exscore is not None), default=None)
         best_rate = max((row.rate for row in all_rows if row.rate is not None), default=None)
         best_rank_row = max((row for row in all_rows if row.exscore is not None), key=lambda row: row.exscore or 0, default=None)
@@ -2100,9 +2116,10 @@ async def get_score_updates(
             },
         }
         if r.clear_type is not None:
-            prev_ct = cprev.clear_type if cprev else None
-            if (r.clear_type or 0) > (prev_ct or 0):
-                clear_type_updates.append({**course_base, "prev_clear_type": prev_ct, "new_clear_type": r.clear_type})
+            prev_ct = display_clear_type(cprev.clear_type, exscore=cprev.exscore, rate=cprev.rate) if cprev else None
+            new_ct = display_clear_type(r.clear_type, exscore=r.exscore, rate=r.rate)
+            if (new_ct or 0) > (prev_ct or 0):
+                clear_type_updates.append({**course_base, "prev_clear_type": prev_ct, "new_clear_type": new_ct})
         if r.exscore is not None:
             prev_ex = cprev.exscore if cprev else None
             prev_rank = cprev.rank if cprev else None
@@ -2153,7 +2170,7 @@ async def get_score_updates(
             "source_client": aggregate.get("source_client"),
             "source_client_detail": aggregate.get("source_client_detail"),
             "current_state": current_state if current_state else {
-                "clear_type": r.clear_type,
+                "clear_type": display_clear_type(r.clear_type, exscore=r.exscore, rate=r.rate),
                 "exscore": r.exscore,
                 "rate": r.rate,
                 "rank": r.rank,
@@ -2164,9 +2181,10 @@ async def get_score_updates(
 
         if r.clear_type is not None and fk not in processed_ct:
             processed_ct.add(fk)
-            prev_ct = prev.clear_type if prev else None
-            if (r.clear_type or 0) > (prev_ct or 0):
-                clear_type_updates.append({**base, "prev_clear_type": prev_ct, "new_clear_type": r.clear_type, "best_min_bp": current_best_min_bp})
+            prev_ct = display_clear_type(prev.clear_type, exscore=prev.exscore, rate=prev.rate) if prev else None
+            new_ct = display_clear_type(r.clear_type, exscore=r.exscore, rate=r.rate)
+            if (new_ct or 0) > (prev_ct or 0):
+                clear_type_updates.append({**base, "prev_clear_type": prev_ct, "new_clear_type": new_ct, "best_min_bp": current_best_min_bp})
 
         if r.exscore is not None and fk not in processed_ex:
             processed_ex.add(fk)

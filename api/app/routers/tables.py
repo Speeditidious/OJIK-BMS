@@ -23,6 +23,7 @@ from app.models.fumen import Fumen, UserFumenTag
 from app.models.score import UserScore
 from app.models.user import User
 from app.schemas import MessageResponse
+from app.services.clear_type_display import display_clear_type
 from app.services.client_aggregation import (
     CLIENT_LABEL,
     PerClientBest,
@@ -370,9 +371,10 @@ async def get_table_songs(
                     nt = notes_map.get(key)
                     if nt:
                         rate, rank = _compute_rate_rank(raw["exscore"], nt)
+                clear_type = display_clear_type(raw["clear_type"], exscore=raw["exscore"], rate=rate)
 
                 score_map[key] = TableFumenScore(
-                    best_clear_type=raw["clear_type"],
+                    best_clear_type=clear_type,
                     best_exscore=raw["exscore"],
                     rate=rate,
                     rank=rank,
