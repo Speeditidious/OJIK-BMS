@@ -88,7 +88,7 @@ const EMPTY_VISIBILITY_PREFS: ClearTypeVisibilityPrefs = {
   beatoraja: {},
 };
 
-function normalizeClearTypeVisibility(raw: unknown): ClearTypeVisibilityPrefs {
+export function normalizeClearTypeVisibility(raw: unknown): ClearTypeVisibilityPrefs {
   if (!raw || typeof raw !== "object") return { ...EMPTY_VISIBILITY_PREFS };
   const obj = raw as Record<string, unknown>;
 
@@ -123,19 +123,21 @@ function normalizeClearTypeVisibility(raw: unknown): ClearTypeVisibilityPrefs {
 
 export function useClearTypeVisibility(
   clientKey: ClientVisibilityKey = "all",
+  enabled = true,
 ): {
   prefs: ClearTypeVisibilityPrefs;
   hiddenTypes: Set<number>;
   visibility: VisibilityMap;
   isHidden: (ct: number) => boolean;
   getDisplayClearType: (ct: number) => number;
+  isLoading: boolean;
 } {
   const { isInitialized, user } = useAuthStore();
-  const { data } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: prefsQueryKey(user?.id),
     queryFn: () => api.get<{ preferences: Record<string, unknown> }>("/users/me/preferences"),
     staleTime: 10 * 60 * 1000,
-    enabled: isInitialized && !!user,
+    enabled: enabled && isInitialized && !!user,
   });
 
   const prefs = useMemo(
@@ -169,7 +171,61 @@ export function useClearTypeVisibility(
     [hiddenTypes],
   );
 
-  return { prefs, hiddenTypes, visibility, isHidden, getDisplayClearType };
+  return { prefs, hiddenTypes, visibility, isHidden, getDisplayClearType, isLoading };
+}
+
+export function useUserClearTypeVisibility(
+  targetUserId: string,
+  clientKey: ClientVisibilityKey = "all",
+  enabled = true,
+): {
+  prefs: ClearTypeVisibilityPrefs;
+  hiddenTypes: Set<number>;
+  visibility: VisibilityMap;
+  isHidden: (ct: number) => boolean;
+  getDisplayClearType: (ct: number) => number;
+  isLoading: boolean;
+} {
+  const { data, isLoading } = useQuery({
+    queryKey: ["user-clear-visibility", targetUserId],
+    queryFn: () =>
+      api.get<{ clear_type_visibility: unknown }>(
+        `/users/by-id/${targetUserId}/preferences/clear-visibility`,
+      ),
+    staleTime: 10 * 60 * 1000,
+    enabled: enabled && !!targetUserId,
+  });
+
+  const prefs = useMemo(
+    () => normalizeClearTypeVisibility(data?.clear_type_visibility),
+    [data],
+  );
+
+  const visibility = useMemo<VisibilityMap>(
+    () => (prefs.mode === "global" ? prefs.global : prefs[clientKey]) ?? {},
+    [prefs, clientKey],
+  );
+
+  const hiddenTypes = useMemo(() => {
+    const set = new Set<number>();
+    for (const [k, v] of Object.entries(visibility)) {
+      if (v === false) set.add(Number(k));
+    }
+    return set;
+  }, [visibility]);
+
+  const isHidden = useCallback((ct: number) => hiddenTypes.has(ct), [hiddenTypes]);
+
+  const getDisplayClearType = useCallback(
+    (ct: number) => {
+      let result = ct;
+      while (result > 1 && hiddenTypes.has(result)) result--;
+      return result;
+    },
+    [hiddenTypes],
+  );
+
+  return { prefs, hiddenTypes, visibility, isHidden, getDisplayClearType, isLoading };
 }
 
 export function useUpdateClearTypeVisibility() {

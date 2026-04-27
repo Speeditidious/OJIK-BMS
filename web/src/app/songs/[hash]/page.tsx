@@ -345,7 +345,7 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
                     const symbol = tableSymbolMap[entry.table_id] ?? "";
                     const levelLabel = `${symbol}${entry.level.replace(symbol, "")}`;
                     return (
-                      <Badge key={i} variant="secondary" className="font-mono text-label">
+                      <Badge key={i} variant="secondary" className="text-label">
                         {levelLabel}
                       </Badge>
                     );

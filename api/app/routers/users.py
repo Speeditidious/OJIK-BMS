@@ -284,6 +284,32 @@ async def get_my_oauth_accounts(
     ]
 
 
+@router.get("/by-id/{user_id}/preferences/clear-visibility")
+async def get_user_clear_visibility(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Public read of a user's clear_type_visibility preference.
+
+    Returns ``{"clear_type_visibility": <object> | None}``. Other preference
+    keys are intentionally not exposed.
+    """
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user ID")
+
+    result = await db.execute(
+        select(User.id, User.preferences).where(User.id == uid)
+    )
+    row = result.first()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    prefs = row.preferences or {}
+    return {"clear_type_visibility": prefs.get("clear_type_visibility")}
+
+
 @router.get("/by-id/{user_id}")
 async def get_user_profile_by_id(
     user_id: str,

@@ -2,7 +2,8 @@
 
 import { useMemo, useState, memo, useRef, useCallback } from "react";
 import Link from "next/link";
-import { Eye } from "lucide-react";
+import { Eye, User, Users } from "lucide-react";
+import type { ClearVisibilitySource } from "@/hooks/use-dashboard-clear-visibility";
 import {
   Bar,
   BarChart,
@@ -25,6 +26,11 @@ import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger }
 // highest tier (MAX/PERFECT/FC) renders on the left in stacked bars.
 export const ALL_CLEAR_TYPES = [9, 8, 7, 6, 5, 4, 3, 2, 1, 0] as const;
 
+export type LegendAction =
+  | { kind: "settings_link" }
+  | { kind: "view_toggle"; source: ClearVisibilitySource; targetUsername: string; onChange: (s: ClearVisibilitySource) => void }
+  | { kind: "none" };
+
 interface TableClearHistogramProps {
   levels: TableClearLevel[];
   clientType?: string;
@@ -33,6 +39,7 @@ interface TableClearHistogramProps {
   onLevelSelect?: (level: string) => void;
   getDisplayClearType?: (ct: number) => number;
   hiddenClearTypes?: Set<number>;
+  legendAction?: LegendAction;
 }
 
 const cardStyles: React.CSSProperties = {
@@ -173,7 +180,7 @@ const YAxisTick = memo(function YAxisTick({
   );
 });
 
-export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect, onLevelSelect, getDisplayClearType, hiddenClearTypes }: TableClearHistogramProps) {
+export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect, onLevelSelect, getDisplayClearType, hiddenClearTypes, legendAction }: TableClearHistogramProps) {
   // All hooks at top — no early returns before this block
   const [activeEntry, setActiveEntry] = useState<{ level: string; ct: number } | null>(null);
   const highlightStyleRef = useRef<HTMLStyleElement>(null);
@@ -366,7 +373,7 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
           />
         ))}
       </BarChart>
-      <ClearTypeLegend clientType={clientType} className="mb-8" hiddenClearTypes={hiddenClearTypes} />
+      <ClearTypeLegend clientType={clientType} className="mb-8" hiddenClearTypes={hiddenClearTypes} legendAction={legendAction} />
     </div>
   );
 }
@@ -380,9 +387,10 @@ interface ClearTypeLegendProps {
   clientType?: string;
   className?: string;
   hiddenClearTypes?: Set<number>;
+  legendAction?: LegendAction;
 }
 
-export function ClearTypeLegend({ clientType, className, hiddenClearTypes }: ClearTypeLegendProps) {
+export function ClearTypeLegend({ clientType, className, hiddenClearTypes, legendAction = { kind: "settings_link" } }: ClearTypeLegendProps) {
   const labelMap =
     clientType === "lr2"
       ? LR2_CLEAR_TYPE_LABELS
@@ -403,6 +411,48 @@ export function ClearTypeLegend({ clientType, className, hiddenClearTypes }: Cle
     ? baseItems.filter((ct) => !hiddenClearTypes.has(ct))
     : baseItems;
 
+  const actionNode = (() => {
+    if (legendAction.kind === "none") return null;
+    if (legendAction.kind === "settings_link") {
+      return (
+        <UITooltip>
+          <TooltipTrigger asChild>
+            <Link
+              href="/settings?tab=preferences#clear-visibility"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="클리어 분포 표시 설정 페이지로 이동"
+            >
+              <Eye className="h-4 w-4" />
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent>
+            클리어 분포에 표시되는 클리어 타입을 변경할 수 있는 설정 페이지로 이동합니다.
+          </TooltipContent>
+        </UITooltip>
+      );
+    }
+    // view_toggle
+    const { source, targetUsername, onChange } = legendAction;
+    const isViewerActive = source === "viewer";
+    const tooltipText = isViewerActive
+      ? `클리어 분포 표시 설정을 ${targetUsername}님 기준으로 바꿉니다.`
+      : "클리어 분포 표시 설정을 내 기준으로 바꿉니다.";
+    return (
+      <UITooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={() => onChange(isViewerActive ? "target" : "viewer")}
+            className={isViewerActive ? "text-primary transition-colors" : "text-muted-foreground hover:text-foreground transition-colors"}
+            aria-label={tooltipText}
+          >
+            {isViewerActive ? <Users className="h-4 w-4" /> : <User className="h-4 w-4" />}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{tooltipText}</TooltipContent>
+      </UITooltip>
+    );
+  })();
+
   return (
     <div className={`flex flex-wrap justify-center items-center gap-x-4 gap-y-1 mt-1 ${className ?? ""}`}>
       {items.map((ct) => (
@@ -414,21 +464,11 @@ export function ClearTypeLegend({ clientType, className, hiddenClearTypes }: Cle
           <span className="text-caption text-muted-foreground">{labelMap[ct] ?? String(ct)}</span>
         </div>
       ))}
-      <TooltipProvider delayDuration={150}>
-        <UITooltip>
-          <TooltipTrigger asChild>
-            <Link
-              href="/settings?tab=preferences#clear-visibility"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Eye className="h-4 w-4" />
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>
-            클리어 분포에 표시되는 클리어 타입을 변경할 수 있는 설정 페이지로 이동합니다.
-          </TooltipContent>
-        </UITooltip>
-      </TooltipProvider>
+      {actionNode && (
+        <TooltipProvider delayDuration={150}>
+          {actionNode}
+        </TooltipProvider>
+      )}
     </div>
   );
 }

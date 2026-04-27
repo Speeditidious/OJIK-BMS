@@ -57,6 +57,7 @@ import type {
   RatingContributionSortBy,
   RatingHistoryMetric,
 } from "@/lib/ranking-types";
+import type { ClearVisibilitySource } from "@/hooks/use-dashboard-clear-visibility";
 import { cn } from "@/lib/utils";
 import { formatRatingMetric, formatCompactNumber } from "@/lib/rating-format";
 import { rangeFromPreset, daysInRange } from "@/lib/date-range";
@@ -506,8 +507,12 @@ export function UserDashboardContent({ userId }: { userId: string }) {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const currentUser = useAuthStore((state) => state.user);
+  const { user: currentUser, isInitialized: authInitialized } = useAuthStore();
   const isOwner = currentUser?.id === userId;
+
+  const cvParam = (searchParams.get("cv") as "mine" | null) ?? null;
+  const clearVisibilitySource: ClearVisibilitySource =
+    isOwner || (cvParam === "mine" && !!currentUser) ? "viewer" : "target";
 
   const { data: profileUser, isLoading: profileLoading, error: profileError } = useUserProfile(userId);
   const { data: rankingTables = [], isLoading: rankingTablesLoading } = useRankingTables();
@@ -749,7 +754,18 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <TableClearSection userId={userId} clientType={clientType !== "all" ? clientType : undefined} />
+                <TableClearSection
+                  userId={userId}
+                  clientType={clientType !== "all" ? clientType : undefined}
+                  isOwner={isOwner}
+                  viewerUserId={currentUser?.id ?? null}
+                  authInitialized={authInitialized}
+                  targetUsername={profileUser.username}
+                  clearVisibilitySource={clearVisibilitySource}
+                  onClearVisibilitySourceChange={(next) =>
+                    replaceParams({ cv: next === "viewer" ? "mine" : null })
+                  }
+                />
               </CardContent>
             </Card>
           </TabsContent>

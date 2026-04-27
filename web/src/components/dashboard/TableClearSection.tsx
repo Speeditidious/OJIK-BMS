@@ -4,14 +4,17 @@ import React, { memo, useState, useMemo, useCallback, useDeferredValue, useRef, 
 import { useVirtualizer, defaultRangeExtractor } from "@tanstack/react-virtual";
 import Link from "next/link";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { X, Search, FileSpreadsheet } from "lucide-react";
-import { useUserFavoriteTables } from "@/hooks/use-tables";
+import { X, Search, FileSpreadsheet, Settings2 } from "lucide-react";
+import { useUserFavoriteTables, type DifficultyTableItem } from "@/hooks/use-tables";
 import { useTableClearDistribution, TableClearSong } from "@/hooks/use-analysis";
-import { useClearTypeVisibility, type ClientVisibilityKey } from "@/hooks/use-preferences";
+import { type ClientVisibilityKey } from "@/hooks/use-preferences";
+import { useDashboardClearVisibility, type ClearVisibilitySource } from "@/hooks/use-dashboard-clear-visibility";
 import {
   TableClearHistogram,
   ALL_CLEAR_TYPES,
+  type LegendAction,
 } from "@/components/charts/TableClearHistogram";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   CLEAR_TYPE_COLORS,
   CLEAR_TYPE_LABELS,
@@ -529,12 +532,93 @@ const FilterPanel = memo(function FilterPanel({
 });
 
 // ---------------------------------------------------------------------------
+// FavTableList — internal helper component
+// ---------------------------------------------------------------------------
+
+function FavoritesSettingsLinkButton() {
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            href="/tables"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="난이도표 허브에서 즐겨찾기 관리"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs text-label">
+          난이도표 허브에서 즐겨찾는 난이도표를 관리할 수 있습니다. 여기엔 즐겨찾기로 등록된 난이도표만 표시됩니다.
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function FavTableList({
+  tables,
+  title,
+  selectedId,
+  onSelect,
+  headerAction,
+  emptyMessage,
+}: {
+  tables: DifficultyTableItem[];
+  title: string;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  headerAction?: React.ReactNode;
+  emptyMessage: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <h3 className="text-label font-medium text-muted-foreground">{title}</h3>
+        {headerAction}
+      </div>
+      {tables.length === 0 ? (
+        <p className="text-label text-muted-foreground">{emptyMessage}</p>
+      ) : (
+        <div className="flex flex-row flex-wrap gap-1.5">
+          {tables.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => onSelect(t.id)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-center transition-colors border",
+                t.id === selectedId
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border/40 text-muted-foreground hover:border-border hover:text-foreground",
+              )}
+              title={t.name}
+            >
+              <span className="text-body font-bold leading-tight">
+                {t.symbol ?? t.name.slice(0, 2)}
+              </span>
+              <span className="text-label leading-tight">{t.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // TableClearSection
 // ---------------------------------------------------------------------------
 
 interface TableClearSectionProps {
   clientType?: string;
   userId: string;
+  isOwner: boolean;
+  viewerUserId: string | null;
+  authInitialized: boolean;
+  targetUsername: string;
+  clearVisibilitySource: ClearVisibilitySource;
+  onClearVisibilitySourceChange: (next: ClearVisibilitySource) => void;
 }
 
 // URL param 키 (대시보드 기존 tab/date 파라미터와 충돌하지 않도록 접두사 d_ 사용)
@@ -543,12 +627,31 @@ const P_LV  = "d_lv";
 const P_CT  = "d_ct";
 const P_Q   = "d_q";
 
-export function TableClearSection({ clientType, userId }: TableClearSectionProps) {
+export function TableClearSection({
+  clientType,
+  userId,
+  isOwner,
+  viewerUserId,
+  authInitialized,
+  targetUsername,
+  clearVisibilitySource,
+  onClearVisibilitySourceChange,
+}: TableClearSectionProps) {
   // clientType undefined = 통합 뷰 → visibility 버킷은 "all"
   const clientKey: ClientVisibilityKey =
     clientType === "lr2" ? "lr2" : clientType === "beatoraja" ? "beatoraja" : "all";
-  const { hiddenTypes, getDisplayClearType } = useClearTypeVisibility(clientKey);
-  const { data: favTables, isLoading: tablesLoading } = useUserFavoriteTables(userId);
+  const { hiddenTypes, getDisplayClearType } = useDashboardClearVisibility(
+    userId,
+    clientKey,
+    clearVisibilitySource,
+    isOwner,
+  );
+
+  const { data: targetFavTables, isLoading: targetTablesLoading } = useUserFavoriteTables(userId);
+  const { data: viewerFavTables, isLoading: viewerTablesLoading } = useUserFavoriteTables(
+    authInitialized && viewerUserId ? viewerUserId : undefined,
+  );
+
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -579,8 +682,29 @@ export function TableClearSection({ clientType, userId }: TableClearSectionProps
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }, [searchParams, router, pathname]);
 
-  // Auto-select first table when loaded
-  const effectiveTableId = selectedTableId ?? (favTables?.[0]?.id ?? null);
+  // Build visible favorite id set (union of both lists)
+  const visibleFavoriteIds = useMemo(() => new Set([
+    ...(targetFavTables ?? []).map((t) => t.id),
+    ...(viewerFavTables ?? []).map((t) => t.id),
+  ]), [targetFavTables, viewerFavTables]);
+
+  const validSelectedTableId =
+    selectedTableId && visibleFavoriteIds.has(selectedTableId) ? selectedTableId : null;
+
+  const effectiveTableId =
+    validSelectedTableId
+    ?? targetFavTables?.[0]?.id
+    ?? viewerFavTables?.[0]?.id
+    ?? null;
+
+  // Sync stale d_tbl out of URL
+  useEffect(() => {
+    if (!authInitialized) return;
+    if (selectedTableId && !visibleFavoriteIds.has(selectedTableId) && visibleFavoriteIds.size > 0) {
+      updateParams({ [P_TBL]: effectiveTableId });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authInitialized, selectedTableId, visibleFavoriteIds.size, effectiveTableId]);
 
   const { data: dist, isLoading: distLoading } = useTableClearDistribution(effectiveTableId, clientType, userId);
 
@@ -647,47 +771,76 @@ export function TableClearSection({ clientType, userId }: TableClearSectionProps
     updateParams({ [P_TBL]: id, [P_LV]: null, [P_CT]: null, [P_Q]: null });
   }, [updateParams]);
 
-  if (tablesLoading) {
+  const bothLoading = targetTablesLoading && (viewerUserId ? viewerTablesLoading : false);
+  if (bothLoading) {
     return <div className="h-48 bg-muted rounded animate-pulse" />;
   }
 
-  if (!favTables || favTables.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-48 text-muted-foreground text-body">
-        표시할 즐겨찾기 난이도표가 없습니다.
-      </div>
-    );
-  }
+  const legendAction: LegendAction = (() => {
+    if (isOwner) return { kind: "settings_link" };
+    if (authInitialized && viewerUserId) {
+      return {
+        kind: "view_toggle",
+        source: clearVisibilitySource,
+        targetUsername,
+        onChange: onClearVisibilitySourceChange,
+      };
+    }
+    return { kind: "none" };
+  })();
 
   const tableSymbol = dist?.table_symbol || undefined;
 
+  // Determine whether viewer list should be shown
+  const showViewerList = isOwner || (authInitialized && !!viewerUserId);
+  const showTargetList = !isOwner && authInitialized && !!viewerUserId;
+  const showGuestList = !isOwner && authInitialized && !viewerUserId;
+
   return (
     <div className="flex flex-col gap-4 min-h-0">
-      {/* Top panel: table selector (horizontal) */}
-      <div className="flex flex-row flex-wrap gap-1.5">
-        {favTables.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => handleTableSelect(t.id)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-center transition-colors border",
-              t.id === effectiveTableId
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border/40 text-muted-foreground hover:border-border hover:text-foreground"
-            )}
-            title={t.name}
-          >
-            <span className="text-body font-bold leading-tight">
-              {t.symbol ?? t.name.slice(0, 2)}
-            </span>
-            <span className="text-label leading-tight">
-              {t.name}
-            </span>
-          </button>
-        ))}
-      </div>
+      {/* Top panel: favorite table selectors (1 or 2 lists) */}
+
+      {/* Case A: Logged-in visitor → target list above viewer list */}
+      {showTargetList && (
+        <FavTableList
+          tables={targetFavTables ?? []}
+          title={`${targetUsername}님의 즐겨찾기 난이도표 리스트`}
+          selectedId={effectiveTableId}
+          onSelect={handleTableSelect}
+          emptyMessage={`${targetUsername}님이 즐겨찾기한 난이도표가 없습니다.`}
+        />
+      )}
+
+      {/* Viewer list (shown for owner and logged-in visitors) */}
+      {showViewerList && (
+        <FavTableList
+          tables={viewerFavTables ?? []}
+          title="나의 즐겨찾기 난이도표 리스트"
+          selectedId={effectiveTableId}
+          onSelect={handleTableSelect}
+          headerAction={<FavoritesSettingsLinkButton />}
+          emptyMessage="내가 즐겨찾기한 난이도표가 없습니다."
+        />
+      )}
+
+      {/* Case B: Guest visitor → target list only */}
+      {showGuestList && (
+        <FavTableList
+          tables={targetFavTables ?? []}
+          title={`${targetUsername}님의 즐겨찾기 난이도표 리스트`}
+          selectedId={effectiveTableId}
+          onSelect={handleTableSelect}
+          emptyMessage={`${targetUsername}님이 즐겨찾기한 난이도표가 없습니다.`}
+        />
+      )}
 
       {/* Bottom panel: histogram + filters + song table */}
+      {effectiveTableId === null ? (
+        <div className="flex items-center justify-center h-48 text-muted-foreground text-body">
+          표시할 즐겨찾기 난이도표가 없습니다.
+        </div>
+      ) : null}
+      {effectiveTableId !== null && (
       <div className="min-w-0 space-y-3">
         {distLoading ? (
           <div className="h-48 bg-muted rounded animate-pulse" />
@@ -706,6 +859,7 @@ export function TableClearSection({ clientType, userId }: TableClearSectionProps
               onLevelSelect={toggleLevel}
               getDisplayClearType={getDisplayClearType}
               hiddenClearTypes={hiddenTypes}
+              legendAction={legendAction}
             />
 
             {/* Filter panel */}
@@ -774,6 +928,7 @@ export function TableClearSection({ clientType, userId }: TableClearSectionProps
           </>
         )}
       </div>
+      )}
     </div>
   );
 }

@@ -81,7 +81,7 @@ function SortableTableRow({
       </button>
       <div className="flex-1 flex items-center gap-2 min-w-0 hover:text-primary transition-colors">
         {table.symbol && (
-          <Badge variant="outline" className="shrink-0 text-label font-mono px-1.5 py-0">
+          <Badge variant="outline" className="shrink-0 text-label px-1.5 py-0">
             {table.symbol}
           </Badge>
         )}
@@ -129,7 +129,7 @@ function StaticTableRow({
     >
       <div className="flex-1 flex items-center gap-2 min-w-0 hover:text-primary transition-colors">
         {table.symbol && (
-          <Badge variant="outline" className="shrink-0 text-label font-mono px-1.5 py-0">
+          <Badge variant="outline" className="shrink-0 text-label px-1.5 py-0">
             {table.symbol}
           </Badge>
         )}
