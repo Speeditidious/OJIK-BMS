@@ -187,9 +187,9 @@ display_order = 1
   NORMAL  = 0.0
   HARD    = 0.0
   EXHARD  = 0.0
-  FC      = 2.6
-  PERFECT = 2.6
-  MAX     = 2.6
+  FC      = 3.1
+  PERFECT = 3.1
+  MAX     = 3.1
 
   [tables.level_weights]
   "LEVEL 1"   = 0.5
@@ -216,8 +216,8 @@ display_order = 1
   "LEVEL 18+" = 16.0
   "LEVEL 19"  = 17.0
   "LEVEL 19+" = 18.0
-  "LEVEL 20"  = 19.0
-  "LEVEL 20+" = 20.0
+  "LEVEL 20"  = 20.0
+  "LEVEL 20+" = 22.0
 
   [[tables.dans]]
   dan_title      = "⑤1段"
@@ -709,7 +709,7 @@ display_order = 4
   "22" = 22.0
   "23" = 23.0
   "24" = 25.0
-  "25" = 27.0
+  "25" = 28.0
 
   [[tables.dans]]
   dan_title      = "発狂初段"

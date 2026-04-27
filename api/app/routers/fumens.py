@@ -269,7 +269,16 @@ def _build_field_condition(
     return None
 
 
-def _build_sort_col(sort_by: str, sort_dir: str, score_agg: Any) -> Any:
+def _dummy_title_bucket() -> Any:
+    stripped_title = func.btrim(Fumen.title)
+    is_dummy_title = or_(
+        stripped_title == ">> ??? <<",
+        stripped_title.op("~")(r"^[가-힣]"),
+    )
+    return case((is_dummy_title, 1), else_=0).asc()
+
+
+def _build_sort_cols(sort_by: str, sort_dir: str, score_agg: Any) -> list[Any]:
     asc_dir = sort_dir == "asc"
 
     fumen_col_map: dict[str, Any] = {
@@ -282,11 +291,14 @@ def _build_sort_col(sort_by: str, sort_dir: str, score_agg: Any) -> Any:
     }
     if sort_by in fumen_col_map:
         col = fumen_col_map[sort_by]
-        return col.asc().nullslast() if asc_dir else col.desc().nullslast()
+        sort_col = col.asc().nullslast() if asc_dir else col.desc().nullslast()
+        if sort_by in {"title", "artist", "title_artist"}:
+            return [_dummy_title_bucket(), sort_col]
+        return [sort_col]
 
     if sort_by == "level":
         level_expr = sa.text("CAST(substring(table_entries->0->>'level' from '[0-9]+(?:\\.[0-9]+)?') AS NUMERIC)")
-        return sa.asc(level_expr).nullslast() if asc_dir else sa.desc(level_expr).nullslast()
+        return [sa.asc(level_expr).nullslast() if asc_dir else sa.desc(level_expr).nullslast()]
 
     if score_agg is not None:
         score_col_map: dict[str, Any] = {
@@ -299,9 +311,9 @@ def _build_sort_col(sort_by: str, sort_dir: str, score_agg: Any) -> Any:
         }
         if sort_by in score_col_map:
             col = score_col_map[sort_by]
-            return col.asc().nullslast() if asc_dir else col.desc().nullslast()
+            return [col.asc().nullslast() if asc_dir else col.desc().nullslast()]
 
-    return Fumen.title.asc().nullslast()
+    return [_dummy_title_bucket(), Fumen.title.asc().nullslast()]
 
 
 @router.get("/", response_model=FumenListResponse)
@@ -355,9 +367,9 @@ async def list_fumens(
     total = (await db.execute(count_q)).scalar() or 0
 
     # ORDER BY + tie-breaker
-    order_col = _build_sort_col(sort_by, sort_dir, score_agg)
+    order_cols = _build_sort_cols(sort_by, sort_dir, score_agg)
     base = base.order_by(
-        order_col,
+        *order_cols,
         Fumen.sha256.asc().nullslast(),
         Fumen.md5.asc().nullslast(),
     )
