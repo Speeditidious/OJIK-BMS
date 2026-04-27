@@ -905,8 +905,8 @@ async def test_rating_breakdown_uses_display_delta_for_entered_song(monkeypatch)
     gamma_entry = next(entry for entry in result["rating_contributions"] if entry["sha256"] == song_c)
 
     assert beta_entry["delta_rating"] == 49
-    assert beta_entry["rate"] == 91.13
-    assert beta_entry["previous_rate"] == 89.44
+    assert beta_entry["rate"] == 91.126
+    assert beta_entry["previous_rate"] == 89.444
     assert beta_entry["was_in_top_n"] is False
     assert beta_entry["is_in_top_n"] is True
     assert gamma_entry["delta_rating"] == 0
