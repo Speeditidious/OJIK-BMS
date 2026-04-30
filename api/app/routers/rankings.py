@@ -112,6 +112,28 @@ def _get_history_rebuild_lock(user_id: uuid.UUID) -> asyncio.Lock:
     return lock
 
 
+def _trim_leading_empty_rating_points(points: list[Any]) -> list[Any]:
+    """Drop leading zero-rating points so charts start at the first real rating state."""
+    for index, point in enumerate(points):
+        if point.exp != 0 or point.rating != 0 or point.rating_norm != 0:
+            return points[index:]
+    return []
+
+
+def _serialize_rating_history_points(points: list[Any]) -> list[dict[str, Any]]:
+    """Serialize ranking history points for the public API response."""
+    return [
+        {
+            "date": p.date.isoformat(),
+            "exp": round(p.exp, 2),
+            "exp_level": p.exp_level,
+            "rating": round(p.rating, 2),
+            "rating_norm": round(p.rating_norm, 3),
+        }
+        for p in points
+    ]
+
+
 # ── GET /rankings/tables ──────────────────────────────────────────────────────
 
 @router.get("/tables")
@@ -243,22 +265,14 @@ async def get_ranking_history(
             to,
             db,
         )
+    points = _trim_leading_empty_rating_points(points)
 
     return {
         "table_slug": table_slug,
         "user_id": str(target_user.id),
         "from": from_.isoformat(),
         "to": to.isoformat(),
-        "points": [
-            {
-                "date": p.date.isoformat(),
-                "exp": round(p.exp, 2),
-                "exp_level": p.exp_level,
-                "rating": round(p.rating, 2),
-                "rating_norm": round(p.rating_norm, 3),
-            }
-            for p in points
-        ],
+        "points": _serialize_rating_history_points(points),
     }
 
 
@@ -407,7 +421,7 @@ async def get_my_contributions(
     scope: str = Query("top", pattern="^(top|all)$"),
     sort_by: str = Query(
         "value",
-        pattern="^(value|level|title|clear_type|min_bp|rate|rank_grade|env)$",
+        pattern="^(rank|value|level|title|clear_type|min_bp|rate|rank_grade|env|recorded_at)$",
     ),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     page: int = Query(1, ge=1),

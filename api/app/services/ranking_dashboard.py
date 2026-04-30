@@ -195,6 +195,13 @@ def _compare_nullable(a: Any, b: Any) -> int:
     return (a > b) - (a < b)
 
 
+def _compare_sort_values(a: Any, b: Any, sort_dir: str) -> int:
+    result = _compare_nullable(a, b)
+    if result == 0 or a is None or b is None:
+        return result
+    return -result if sort_dir == "desc" else result
+
+
 def _env_rank(client_types: Iterable[str]) -> int:
     unique = {client_type for client_type in client_types if client_type}
     if not unique:
@@ -217,27 +224,37 @@ def _compare_entries(
     level_index: dict[str, int],
 ) -> int:
     if sort_by == "value":
-        result = _compare_nullable(left["value"], right["value"])
+        result = _compare_sort_values(left["value"], right["value"], sort_dir)
+    elif sort_by == "rank":
+        result = _compare_sort_values(left["rank"], right["rank"], sort_dir)
     elif sort_by == "level":
-        result = _compare_nullable(
+        result = _compare_sort_values(
             level_index.get(left["level"], -1),
             level_index.get(right["level"], -1),
+            sort_dir,
         )
     elif sort_by == "title":
-        result = _compare_nullable(title_sort_key(left["title"]), title_sort_key(right["title"]))
+        result = _compare_sort_values(title_sort_key(left["title"]), title_sort_key(right["title"]), sort_dir)
     elif sort_by == "clear_type":
-        result = _compare_nullable(left["clear_type"], right["clear_type"])
+        result = _compare_sort_values(left["clear_type"], right["clear_type"], sort_dir)
     elif sort_by == "min_bp":
-        result = _compare_nullable(left["min_bp"], right["min_bp"])
+        result = _compare_sort_values(left["min_bp"], right["min_bp"], sort_dir)
     elif sort_by == "rate":
-        result = _compare_nullable(left["rate"], right["rate"])
+        result = _compare_sort_values(left["rate"], right["rate"], sort_dir)
     elif sort_by == "rank_grade":
-        result = _compare_nullable(
+        result = _compare_sort_values(
             RANK_GRADE_ORDER.get(left["rank_grade"]) if left["rank_grade"] else None,
             RANK_GRADE_ORDER.get(right["rank_grade"]) if right["rank_grade"] else None,
+            sort_dir,
         )
     elif sort_by == "env":
-        result = _compare_nullable(_env_rank(left["client_types"]), _env_rank(right["client_types"]))
+        result = _compare_sort_values(_env_rank(left["client_types"]), _env_rank(right["client_types"]), sort_dir)
+    elif sort_by == "recorded_at":
+        result = _compare_sort_values(
+            left.get("sort_recorded_at") or left.get("recorded_at"),
+            right.get("sort_recorded_at") or right.get("recorded_at"),
+            sort_dir,
+        )
     else:
         result = 0
 
@@ -245,9 +262,78 @@ def _compare_entries(
         result = _compare_nullable(title_sort_key(left["title"]), title_sort_key(right["title"]))
     if result == 0:
         result = _compare_nullable(left["sha256"] or left["md5"], right["sha256"] or right["md5"])
-    if sort_dir == "desc":
-        result *= -1
     return result
+
+
+async def _query_per_client_bests(
+    table_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: AsyncSession,
+) -> dict[tuple[str | None, str | None], list[PerClientBest]]:
+    """Return per-client best scores keyed by canonical (sha256, md5) for a single user.
+
+    Uses the same sha256/md5 JOIN paths as bulk_query_best_scores so LR2 records
+    (fumen_sha256=NULL) are correctly grouped with Beatoraja records under the
+    canonical fumen key.
+    """
+    result = await db.execute(
+        text("""
+            WITH target_fumens AS (
+                SELECT f.sha256, f.md5
+                FROM fumens f, jsonb_array_elements(f.table_entries) AS entry
+                WHERE (entry->>'table_id')::uuid = :table_id
+            ),
+            latest_per_client AS (
+                SELECT us.fumen_sha256, us.fumen_md5, us.client_type,
+                       us.clear_type, us.exscore, us.rate, us.rank, us.min_bp,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY COALESCE(us.fumen_sha256, us.fumen_md5), us.client_type
+                           ORDER BY COALESCE(us.recorded_at, us.synced_at) DESC NULLS LAST
+                       ) AS rn
+                FROM user_scores us
+                WHERE us.user_id = :user_id
+                  AND us.fumen_hash_others IS NULL
+                  AND (
+                      (us.fumen_sha256 IS NOT NULL
+                        AND us.fumen_sha256 IN (SELECT sha256 FROM target_fumens WHERE sha256 IS NOT NULL))
+                      OR (us.fumen_md5 IS NOT NULL
+                        AND us.fumen_md5 IN (SELECT md5 FROM target_fumens WHERE md5 IS NOT NULL))
+                  )
+            ),
+            joined AS (
+                SELECT tf.sha256 AS tf_sha256, tf.md5 AS tf_md5,
+                       lpc.client_type, lpc.clear_type, lpc.exscore, lpc.rate, lpc.rank, lpc.min_bp
+                FROM latest_per_client lpc
+                JOIN target_fumens tf ON lpc.fumen_sha256 = tf.sha256
+                WHERE lpc.rn = 1 AND lpc.fumen_sha256 IS NOT NULL
+                UNION ALL
+                SELECT tf.sha256 AS tf_sha256, tf.md5 AS tf_md5,
+                       lpc.client_type, lpc.clear_type, lpc.exscore, lpc.rate, lpc.rank, lpc.min_bp
+                FROM latest_per_client lpc
+                JOIN target_fumens tf ON lpc.fumen_md5 = tf.md5
+                WHERE lpc.rn = 1 AND lpc.fumen_md5 IS NOT NULL
+            )
+            SELECT tf_sha256, tf_md5, client_type, clear_type, exscore, rate, rank, min_bp
+            FROM joined
+        """),
+        {"table_id": str(table_id), "user_id": str(user_id)},
+    )
+    rows = result.mappings().all()
+
+    per_client: dict[tuple[str | None, str | None], list[PerClientBest]] = {}
+    for row in rows:
+        key = (row["tf_sha256"], row["tf_md5"])
+        per_client.setdefault(key, []).append(
+            PerClientBest(
+                client_type=row["client_type"],
+                clear_type=row["clear_type"],
+                exscore=row["exscore"],
+                rate=float(row["rate"]) if row["rate"] is not None else None,
+                rank=row["rank"],
+                min_bp=row["min_bp"],
+            )
+        )
+    return per_client
 
 
 async def build_user_contribution_rows(
@@ -268,12 +354,16 @@ async def build_user_contribution_rows(
     score_map = (await bulk_query_best_scores(table_cfg.table_id, db, user_id=user_id)).get(user_id, [])
     score_by_key = {(score.sha256, score.md5): score for score in score_map}
 
+    per_client_map = await _query_per_client_bests(table_cfg.table_id, user_id, db)
+
     rows: list[dict[str, Any]] = []
     for target in target_fumens:
         sha256 = target["sha256"]
         md5 = target["md5"]
         score = score_by_key.get((sha256, md5))
         raw_value, _resolved_level = _contribution_value(score, target["level"], table_cfg, sha256, md5)
+        per_client_list = per_client_map.get((sha256, md5), [])
+        source_client, source_client_detail = aggregate_source_client(per_client_list) if per_client_list else (None, None)
         rows.append(
             {
                 "sha256": sha256,
@@ -293,6 +383,10 @@ async def build_user_contribution_rows(
                 "rank_grade": score.rank if score is not None else None,
                 "exscore": score.exscore if score is not None else None,
                 "raw_value": raw_value,
+                "recorded_at": score.recorded_at if score is not None else None,
+                "sort_recorded_at": score.sort_recorded_at if score is not None else None,
+                "source_client": source_client,
+                "source_client_detail": source_client_detail,
             }
         )
 
@@ -373,6 +467,10 @@ async def build_user_contribution_rows(
                 "exscore": row["exscore"],
                 "value": round(row["value"], 3),
                 "is_in_top_n": row["is_in_top_n"],
+                "recorded_at": row["recorded_at"].isoformat() if row.get("recorded_at") else None,
+                "sort_recorded_at": row["sort_recorded_at"].isoformat() if row.get("sort_recorded_at") else None,
+                "source_client": row.get("source_client"),
+                "source_client_detail": row.get("source_client_detail"),
             }
             for row in entries
         ],
@@ -553,6 +651,8 @@ def _clone_best_score(score: BestScore) -> BestScore:
         rank=score.rank,
         min_bp=score.min_bp,
         client_types=tuple(score.client_types),
+        recorded_at=score.recorded_at,
+        sort_recorded_at=score.sort_recorded_at,
     )
 
 

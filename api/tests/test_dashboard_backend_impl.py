@@ -30,6 +30,7 @@ from app.services.ranking_config import (
     _validate_bmsforce_emblems,
 )
 from app.services.ranking_dashboard import (
+    _compare_entries,
     _resolve_date_window,
     build_user_contribution_rows,
     compute_rating_breakdown,
@@ -153,6 +154,9 @@ async def test_contribution_rows_display_original_level_with_level_override(monk
     async def fake_bulk_query_best_scores(_table_id, _db, user_id=None):
         return {user_id: [score]}
 
+    async def fake_query_per_client_bests(_table_id, _user_id, _db):
+        return {}
+
     monkeypatch.setattr(
         "app.services.ranking_dashboard.query_target_fumen_details",
         fake_query_target_fumen_details,
@@ -160,6 +164,10 @@ async def test_contribution_rows_display_original_level_with_level_override(monk
     monkeypatch.setattr(
         "app.services.ranking_dashboard.bulk_query_best_scores",
         fake_bulk_query_best_scores,
+    )
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard._query_per_client_bests",
+        fake_query_per_client_bests,
     )
 
     result = await build_user_contribution_rows(
@@ -321,6 +329,54 @@ def test_aggregate_source_client_reports_mix_when_best_fields_are_split():
         "exscore": "LR",
         "min_bp": "BR",
     }
+
+
+def _contribution_entry(**overrides):
+    entry = {
+        "rank": 1,
+        "sha256": "a" * 64,
+        "md5": None,
+        "title": "Alpha",
+        "level": "12",
+        "value": 100.0,
+        "clear_type": 5,
+        "client_types": ["beatoraja"],
+        "min_bp": 10,
+        "rate": 90.0,
+        "rank_grade": "AA",
+        "recorded_at": datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+        "sort_recorded_at": datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+    }
+    entry.update(overrides)
+    return entry
+
+
+def test_contribution_entry_sort_supports_rank_and_recorded_at_with_nulls_last():
+    newer = _contribution_entry(
+        title="Newer",
+        rank=2,
+        recorded_at=datetime(2026, 4, 21, 12, 0, tzinfo=UTC),
+        sort_recorded_at=datetime(2026, 4, 21, 12, 0, tzinfo=UTC),
+    )
+    older = _contribution_entry(
+        title="Older",
+        rank=1,
+        recorded_at=datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+        sort_recorded_at=datetime(2026, 4, 20, 12, 0, tzinfo=UTC),
+    )
+    missing = _contribution_entry(title="Missing", rank=3, recorded_at=None, sort_recorded_at=None)
+    first_sync = _contribution_entry(
+        title="First Sync",
+        rank=4,
+        recorded_at=None,
+        sort_recorded_at=datetime(2026, 4, 20, 13, 0, tzinfo=UTC),
+    )
+
+    assert _compare_entries(newer, older, "recorded_at", "desc", {"12": 0}) < 0
+    assert _compare_entries(older, newer, "recorded_at", "asc", {"12": 0}) < 0
+    assert _compare_entries(missing, newer, "recorded_at", "desc", {"12": 0}) > 0
+    assert _compare_entries(first_sync, older, "recorded_at", "asc", {"12": 0}) > 0
+    assert _compare_entries(older, newer, "rank", "asc", {"12": 0}) < 0
 
 
 def test_resolve_activity_window_supports_custom_range():
@@ -598,6 +654,84 @@ async def test_get_ranking_history_accepts_730_day_range(monkeypatch):
     assert result["from"] == "2024-04-20"
     assert result["to"] == "2026-04-20"
     assert len(result["points"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_get_ranking_history_trims_leading_zero_points_but_keeps_pre_sync_records(monkeypatch):
+    current_user = User(
+        id=uuid.uuid4(),
+        username="tester",
+        is_active=True,
+        first_synced_at={"lr2": "2026-04-27T09:00:00+00:00"},
+    )
+    table_cfg = SimpleNamespace(slug="test-table")
+    config = SimpleNamespace(get_table_by_slug=lambda slug: table_cfg if slug == "test-table" else None)
+    seen_from: date | None = None
+
+    monkeypatch.setattr("app.routers.rankings._get_config_or_503", lambda: config)
+
+    async def fake_compute_ranking_history_for_user(_user_id, _table_cfg, _config, from_, _to, _db):
+        nonlocal seen_from
+        seen_from = from_
+        return [
+            SimpleNamespace(date=from_, exp=0.0, exp_level=0, rating=0.0, rating_norm=0.0),
+            SimpleNamespace(date=date(2026, 4, 10), exp=12000.0, exp_level=10, rating=12000.0, rating_norm=12.0),
+            SimpleNamespace(date=date(2026, 4, 27), exp=15000.0, exp_level=12, rating=15000.0, rating_norm=15.0),
+        ]
+
+    monkeypatch.setattr(
+        "app.services.ranking_calculator.compute_ranking_history_for_user",
+        fake_compute_ranking_history_for_user,
+    )
+
+    result = await get_ranking_history(
+        table_slug="test-table",
+        from_=date(2026, 4, 1),
+        to=date(2026, 4, 30),
+        user_id=None,
+        current_user=current_user,
+        db=object(),
+    )
+
+    assert seen_from == date(2026, 4, 1)
+    assert result["from"] == "2026-04-01"
+    assert [point["date"] for point in result["points"]] == ["2026-04-10", "2026-04-27"]
+    assert result["points"][0]["rating"] == 12000.0
+
+
+@pytest.mark.asyncio
+async def test_get_ranking_history_returns_empty_when_range_has_only_zero_points(monkeypatch):
+    current_user = User(
+        id=uuid.uuid4(),
+        username="tester",
+        is_active=True,
+        first_synced_at={"lr2": "2026-04-27T09:00:00+00:00"},
+    )
+    table_cfg = SimpleNamespace(slug="test-table")
+    config = SimpleNamespace(get_table_by_slug=lambda slug: table_cfg if slug == "test-table" else None)
+
+    monkeypatch.setattr("app.routers.rankings._get_config_or_503", lambda: config)
+
+    async def fake_compute_ranking_history_for_user(_user_id, _table_cfg, _config, from_, _to, _db):
+        return [SimpleNamespace(date=from_, exp=0.0, exp_level=0, rating=0.0, rating_norm=0.0)]
+
+    monkeypatch.setattr(
+        "app.services.ranking_calculator.compute_ranking_history_for_user",
+        fake_compute_ranking_history_for_user,
+    )
+
+    result = await get_ranking_history(
+        table_slug="test-table",
+        from_=date(2026, 4, 1),
+        to=date(2026, 4, 20),
+        user_id=None,
+        current_user=current_user,
+        db=object(),
+    )
+
+    assert result["from"] == "2026-04-01"
+    assert result["to"] == "2026-04-20"
+    assert result["points"] == []
 
 
 @pytest.mark.asyncio

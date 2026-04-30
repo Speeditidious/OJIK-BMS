@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { SourceClientBadge } from "@/components/common/SourceClientBadge";
 import { clearText } from "@/components/dashboard/RecentActivity";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { CLEAR_ROW_CLASS } from "@/lib/fumen-table-utils";
 import type {
   RankingContributionEntry,
@@ -12,6 +13,7 @@ import type {
   RatingContributionSortBy,
 } from "@/lib/ranking-types";
 import { formatRateDelta, formatRatePercent } from "@/lib/rate-format";
+import { formatRelativeDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 const ROW_HEIGHT = 44;
@@ -70,38 +72,33 @@ interface TableColumn {
 }
 
 const DEFAULT_COLUMNS: TableColumn[] = [
-  { width: 72, align: "left" },
-  { width: 84, align: "left" },
-  { align: "left" },
-  { width: 128, align: "left" },
-  { width: 120, align: "left" },
-  { width: 140, align: "left" },
-  { width: 120, align: "left" },
-  { width: 72, align: "left" },
-  { width: 200, align: "center" },
+  { width: 72, align: "left" },   // [0] 순위
+  { width: 84, align: "left" },   // [1] 레벨
+  { align: "left" },              // [2] 제목
+  { width: 100, align: "left" },  // [3] 기록 날짜 (신규)
+  { width: 110, align: "left" },  // [4] 클리어
+  { width: 84, align: "left" },  // [5] BP
+  { width: 100, align: "left" },  // [6] 판정
+  { width: 84, align: "left" },  // [7] 랭크
+  { width: 72, align: "left" },   // [8] 구동기
+  { width: 200, align: "center" }, // [9] 레이팅
 ];
 
 const DAY_DETAIL_COLUMNS: TableColumn[] = [
-  { width: 120, align: "left" },
-  { width: 92, align: "left" },
-  { align: "left" },
-  { width: 160, align: "center" },
-  { width: 140, align: "center" },
-  { width: 200, align: "center" },
-  { width: 116, align: "center" },
-  { width: 72, align: "center" },
-  { width: 220, align: "center" },
+  { width: 120, align: "left" },   // [0] 순위
+  { width: 92, align: "left" },    // [1] 레벨
+  { align: "left" },               // [2] 제목
+  { width: 100, align: "left" },   // [3] 기록 날짜 (신규)
+  { width: 160, align: "center" }, // [4] 클리어
+  { width: 140, align: "center" }, // [5] BP
+  { width: 200, align: "center" }, // [6] 판정
+  { width: 116, align: "center" }, // [7] 랭크
+  { width: 72, align: "center" },  // [8] 구동기
+  { width: 220, align: "center" }, // [9] 레이팅
 ];
 
 function contributionKey(entry: RankingContributionEntry): string {
   return entry.sha256 ?? entry.md5 ?? `${entry.rank}-${entry.title}`;
-}
-
-function compareNullableNumber(left: number | null | undefined, right: number | null | undefined): number {
-  if (left == null && right == null) return 0;
-  if (left == null) return 1;
-  if (right == null) return -1;
-  return left - right;
 }
 
 function compareNullableString(left: string | null | undefined, right: string | null | undefined): number {
@@ -109,6 +106,27 @@ function compareNullableString(left: string | null | undefined, right: string | 
   if (!left) return 1;
   if (!right) return -1;
   return TITLE_COLLATOR.compare(left, right);
+}
+
+function compareSortValue(
+  left: number | string | null | undefined,
+  right: number | string | null | undefined,
+  sortDir: "asc" | "desc",
+  compare: (left: number | string, right: number | string) => number,
+): number {
+  if (left == null && right == null) return 0;
+  if (left == null) return 1;
+  if (right == null) return -1;
+  const result = compare(left, right);
+  return sortDir === "desc" ? result * -1 : result;
+}
+
+function compareSortNumber(left: number | null | undefined, right: number | null | undefined, sortDir: "asc" | "desc"): number {
+  return compareSortValue(left, right, sortDir, (a, b) => (a as number) - (b as number));
+}
+
+function compareSortString(left: string | null | undefined, right: string | null | undefined, sortDir: "asc" | "desc"): number {
+  return compareSortValue(left, right, sortDir, (a, b) => TITLE_COLLATOR.compare(String(a), String(b)));
 }
 
 function envLabelFromEntry(entry: RankingContributionEntry): string {
@@ -179,26 +197,29 @@ function compareEntries(
   let result = 0;
 
   if (sortBy === "value") {
-    result = compareNullableNumber(left.value, right.value);
+    result = compareSortNumber(left.value, right.value, sortDir);
   } else if (sortBy === "rank") {
-    result = compareNullableNumber(left.rank, right.rank);
+    result = compareSortNumber(left.rank, right.rank, sortDir);
   } else if (sortBy === "level") {
-    result = compareNullableNumber(levelSortValue(left), levelSortValue(right));
+    result = compareSortNumber(levelSortValue(left), levelSortValue(right), sortDir);
   } else if (sortBy === "title") {
-    result = compareNullableString(left.title, right.title);
+    result = compareSortString(left.title, right.title, sortDir);
   } else if (sortBy === "clear_type") {
-    result = compareNullableNumber(left.clear_type, right.clear_type);
+    result = compareSortNumber(left.clear_type, right.clear_type, sortDir);
   } else if (sortBy === "min_bp") {
-    result = compareNullableNumber(left.min_bp, right.min_bp);
+    result = compareSortNumber(left.min_bp, right.min_bp, sortDir);
   } else if (sortBy === "rate") {
-    result = compareNullableNumber(left.rate, right.rate);
+    result = compareSortNumber(left.rate, right.rate, sortDir);
   } else if (sortBy === "rank_grade") {
-    result = compareNullableNumber(
+    result = compareSortNumber(
       left.rank_grade ? RANK_GRADE_ORDER[left.rank_grade] ?? -1 : null,
       right.rank_grade ? RANK_GRADE_ORDER[right.rank_grade] ?? -1 : null,
+      sortDir,
     );
   } else if (sortBy === "env") {
-    result = compareNullableString(envLabelFromEntry(left), envLabelFromEntry(right));
+    result = compareSortString(envLabelFromEntry(left), envLabelFromEntry(right), sortDir);
+  } else if (sortBy === "recorded_at") {
+    result = compareSortString(left.sort_recorded_at ?? left.recorded_at, right.sort_recorded_at ?? right.recorded_at, sortDir);
   }
 
   if (result === 0) {
@@ -208,7 +229,7 @@ function compareEntries(
     result = compareNullableString(left.sha256 ?? left.md5, right.sha256 ?? right.md5);
   }
 
-  return sortDir === "desc" ? result * -1 : result;
+  return result;
 }
 
 function SortIcon({
@@ -550,19 +571,52 @@ function ContributionRow({
           )}
         </div>
       </td>
-      <td className={cn("px-2 text-label", cellAlignClass(columns[3].align))}>
-        <ClearCell entry={entry} section={section} clientType={clearClient} presentation={presentation} />
+      <td className={cn("px-2 text-label tabular-nums", cellAlignClass(columns[3].align))}>
+        {entry.recorded_at ? (
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-default">
+                  {formatRelativeDate(entry.recorded_at)}
+                  <span className="ml-0.5 text-accent/70 leading-none">●</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-label">
+                {new Date(entry.recorded_at).toLocaleDateString("ko-KR")}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : entry.sort_recorded_at ? (
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-default text-muted-foreground row-muted">
+                  --
+                  <span className="ml-0.5 text-accent/70 leading-none">●</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-64 text-label">
+                첫 동기화 당일 혹은 그 이전 기록으로, 정확한 날짜를 알 수 없습니다.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        ) : (
+          <span className="text-muted-foreground row-muted">--</span>
+        )}
       </td>
       <td className={cn("px-2 text-label", cellAlignClass(columns[4].align))}>
-        <BpCell entry={entry} section={section} presentation={presentation} />
+        <ClearCell entry={entry} section={section} clientType={clearClient} presentation={presentation} />
       </td>
       <td className={cn("px-2 text-label", cellAlignClass(columns[5].align))}>
-        <RateCell entry={entry} section={section} presentation={presentation} />
+        <BpCell entry={entry} section={section} presentation={presentation} />
       </td>
       <td className={cn("px-2 text-label", cellAlignClass(columns[6].align))}>
-        <RankGradeCell entry={entry} section={section} presentation={presentation} />
+        <RateCell entry={entry} section={section} presentation={presentation} />
       </td>
       <td className={cn("px-2 text-label", cellAlignClass(columns[7].align))}>
+        <RankGradeCell entry={entry} section={section} presentation={presentation} />
+      </td>
+      <td className={cn("px-2 text-label", cellAlignClass(columns[8].align))}>
         {entry.updated_today === false ? (
           <span className="row-prev">—</span>
         ) : (
@@ -622,18 +676,21 @@ function TableHeader({
           <SortableHeader label="제목" sortKey="title" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[2].align} />
         </th>
         <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[3].align))}>
-          <SortableHeader label="클리어" sortKey="clear_type" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[3].align} />
+          <SortableHeader label="기록 날짜" sortKey="recorded_at" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[3].align} />
         </th>
         <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[4].align))}>
-          <SortableHeader label="BP" sortKey="min_bp" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[4].align} />
+          <SortableHeader label="클리어" sortKey="clear_type" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[4].align} />
         </th>
         <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[5].align))}>
-          <SortableHeader label="판정" sortKey="rate" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[5].align} />
+          <SortableHeader label="BP" sortKey="min_bp" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[5].align} />
         </th>
         <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[6].align))}>
-          <SortableHeader label="랭크" sortKey="rank_grade" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[6].align} />
+          <SortableHeader label="판정" sortKey="rate" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[6].align} />
         </th>
         <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[7].align))}>
+          <SortableHeader label="랭크" sortKey="rank_grade" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[7].align} />
+        </th>
+        <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[8].align))}>
           <SortableHeader
             label="구동기"
             sortKey="env"
@@ -642,7 +699,7 @@ function TableHeader({
             allowSort={allowSort}
             onSortChange={onSortChange}
             title="LR = LR2, BR = Beatoraja, MIX = 양쪽 기록"
-            align={columns[7].align}
+            align={columns[8].align}
           />
         </th>
         <th className="px-2 py-2 font-bold whitespace-nowrap text-center w-32 text-base">
@@ -739,7 +796,7 @@ export function ContributionTable({
   const shouldRenderSections = metric === "rating" && !!previousTopKeys && !!currentTopKeys;
   // rating-detail: no virtualization (render all, no scroll container)
   const shouldVirtualize = !shouldRenderSections && presentation !== "rating-detail" && entries.length >= 50;
-  const colSpan = 9;
+  const colSpan = 10;
   const valueLabel = metric === "exp" ? "경험치" : "레이팅";
   // rating-detail uses same column layout as default
   const columns = presentation === "day-detail" ? DAY_DETAIL_COLUMNS : DEFAULT_COLUMNS;

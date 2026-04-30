@@ -13,7 +13,9 @@ import { useUserProfile } from "@/hooks/use-user-profile";
 import { useAuthStore } from "@/stores/auth";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
 import { clearText } from "@/components/dashboard/RecentActivity";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatRatePercent } from "@/lib/rate-format";
+import { formatRelativeDate } from "@/lib/time";
 import { displayClearType } from "@/lib/clear-type-display";
 import { cn } from "@/lib/utils";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement } from "@/lib/fumen-table-utils";
@@ -40,6 +42,14 @@ function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; s
   return <span className="ml-0.5">{sortDir === "asc" ? "↑" : "↓"}</span>;
 }
 
+function displayScoreRecordedAt(score: UserScore): string | null {
+  return score.recorded_at ?? (score.is_first_sync ? null : (score.synced_at ?? null));
+}
+
+function sortScoreRecordedAt(score: UserScore): string | null {
+  return score.recorded_at ?? score.synced_at ?? null;
+}
+
 function compareScores(a: UserScore, b: UserScore, key: SortKey, dir: SortDir): number {
   let va: string | number | null = null;
   let vb: string | number | null = null;
@@ -53,8 +63,8 @@ function compareScores(a: UserScore, b: UserScore, key: SortKey, dir: SortDir): 
   else if (key === "option") { va = parseArrangement(a.options, a.client_type) ?? ""; vb = parseArrangement(b.options, b.client_type) ?? ""; }
   else if (key === "client_type") { va = a.client_type; vb = b.client_type; }
   else if (key === "recorded_at") {
-    va = a.recorded_at ?? a.synced_at ?? null;
-    vb = b.recorded_at ?? b.synced_at ?? null;
+    va = sortScoreRecordedAt(a);
+    vb = sortScoreRecordedAt(b);
   }
 
   if (va === null && vb === null) return 0;
@@ -130,7 +140,7 @@ function ScoreHistorySection({
                   구동기<SortIcon col="client_type" sortKey={sortKey} sortDir={sortDir} />
                 </th>
                 <th className={thClass()} onClick={() => onSort("recorded_at")}>
-                  기록 일시<SortIcon col="recorded_at" sortKey={sortKey} sortDir={sortDir} />
+                  기록 날짜<SortIcon col="recorded_at" sortKey={sortKey} sortDir={sortDir} />
                 </th>
               </tr>
             </thead>
@@ -140,13 +150,10 @@ function ScoreHistorySection({
                 const arrangementKanji = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? arrangementName) : null;
                 const displayType = displayClearType(s.clear_type, { exscore: s.exscore, rate: s.rate });
                 const rowClass = CLEAR_ROW_CLASS[displayType ?? 0] ?? "";
-                const dateStr = s.recorded_at
-                  ? new Date(s.recorded_at).toLocaleDateString("ko-KR")
-                  : s.is_first_sync
-                    ? "--"
-                    : s.synced_at
-                      ? new Date(s.synced_at).toLocaleDateString("ko-KR")
-                      : "--";
+                const effectiveTs = displayScoreRecordedAt(s);
+                const sortTs = sortScoreRecordedAt(s);
+                const relativeDate = formatRelativeDate(effectiveTs);
+                const exactDate = effectiveTs ? new Date(effectiveTs).toLocaleDateString("ko-KR") : null;
                 return (
                   <tr key={s.id} className={cn("border-b border-border/30 last:border-0", rowClass || "hover:bg-secondary/50")}>
                     <td className="px-3 py-2">
@@ -176,7 +183,37 @@ function ScoreHistorySection({
                       </span>
                     </td>
                     <td className="px-3 py-2 text-label">
-                      {dateStr}
+                      {exactDate ? (
+                        <TooltipProvider delayDuration={200}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-default">
+                                {relativeDate}
+                                <span className="ml-0.5 text-accent/70 leading-none">●</span>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-label">
+                              {exactDate}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : sortTs ? (
+                        <TooltipProvider delayDuration={200}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-default text-muted-foreground row-muted">
+                                --
+                                <span className="ml-0.5 text-accent/70 leading-none">●</span>
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-64 text-label">
+                              첫 동기화 당일 혹은 그 이전 기록으로, 정확한 날짜를 알 수 없습니다.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : (
+                        <span className="text-muted-foreground">--</span>
+                      )}
                     </td>
                   </tr>
                 );

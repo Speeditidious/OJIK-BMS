@@ -56,6 +56,8 @@ class BestScore:
     rank: str | None
     min_bp: int | None
     client_types: tuple[str, ...] = ()
+    recorded_at: datetime | None = None
+    sort_recorded_at: datetime | None = None
 
 
 @dataclass
@@ -217,6 +219,8 @@ def _merge_best_score_fields(
         rank=existing.rank if existing is not None else None,
         min_bp=existing.min_bp if existing is not None else None,
         client_types=existing.client_types if existing is not None else (),
+        recorded_at=existing.recorded_at if existing is not None else None,
+        sort_recorded_at=existing.sort_recorded_at if existing is not None else None,
     )
     changed = False
 
@@ -238,6 +242,8 @@ def _merge_best_score_fields(
         merged_types = set(current.client_types)
         merged_types.add(str(row["client_type"]))
         current.client_types = tuple(sorted(merged_types))
+        current.recorded_at = row.get("recorded_at") or current.recorded_at
+        current.sort_recorded_at = row.get("effective_ts") or row.get("latest_ts") or current.sort_recorded_at
 
     if not changed:
         return existing, False
@@ -530,6 +536,15 @@ async def bulk_query_best_scores(
                     us.fumen_md5,
                     us.client_type,
                     us.clear_type, us.exscore, us.rate, us.rank, us.min_bp,
+                    CASE
+                        WHEN us.recorded_at IS NOT NULL THEN us.recorded_at
+                        WHEN us.synced_at IS NULL THEN NULL
+                        WHEN u.first_synced_at IS NULL THEN us.synced_at
+                        WHEN u.first_synced_at->>us.client_type IS NULL THEN us.synced_at
+                        WHEN us.synced_at <= ((u.first_synced_at->>us.client_type)::timestamptz + interval '1 hour') THEN NULL
+                        ELSE us.synced_at
+                    END AS display_recorded_at,
+                    COALESCE(us.recorded_at, us.synced_at) AS latest_ts,
                     ROW_NUMBER() OVER (
                         PARTITION BY us.user_id,
                                      COALESCE(us.fumen_sha256, us.fumen_md5),
@@ -537,6 +552,7 @@ async def bulk_query_best_scores(
                         ORDER BY COALESCE(us.recorded_at, us.synced_at) DESC
                     ) AS rn
                 FROM user_scores us
+                JOIN users u ON u.id = us.user_id
                 WHERE us.fumen_hash_others IS NULL
                   {user_filter}
                   AND (
@@ -549,14 +565,16 @@ async def bulk_query_best_scores(
             joined AS (
                 -- sha256 경로: sha256 이 기록된 행과 tf.sha256 매칭
                 SELECT lpc.user_id, tf.sha256 AS tf_sha256, tf.md5 AS tf_md5, tf.level,
-                       lpc.client_type, lpc.clear_type, lpc.exscore, lpc.rate, lpc.rank, lpc.min_bp
+                       lpc.client_type, lpc.clear_type, lpc.exscore, lpc.rate, lpc.rank, lpc.min_bp,
+                       lpc.display_recorded_at, lpc.latest_ts
                 FROM latest_per_client lpc
                 JOIN target_fumens tf ON lpc.fumen_sha256 = tf.sha256
                 WHERE lpc.rn = 1 AND lpc.fumen_sha256 IS NOT NULL
                 UNION ALL
                 -- md5 경로: LR2 또는 tf.sha256=null 인 fumen 에 대한 Beatoraja 기록
                 SELECT lpc.user_id, tf.sha256 AS tf_sha256, tf.md5 AS tf_md5, tf.level,
-                       lpc.client_type, lpc.clear_type, lpc.exscore, lpc.rate, lpc.rank, lpc.min_bp
+                       lpc.client_type, lpc.clear_type, lpc.exscore, lpc.rate, lpc.rank, lpc.min_bp,
+                       lpc.display_recorded_at, lpc.latest_ts
                 FROM latest_per_client lpc
                 JOIN target_fumens tf ON lpc.fumen_md5 = tf.md5
                 WHERE lpc.rn = 1 AND lpc.fumen_md5 IS NOT NULL
@@ -570,7 +588,9 @@ async def bulk_query_best_scores(
                     (array_agg(rate ORDER BY exscore DESC NULLS LAST))[1] AS rate,
                     (array_agg(rank ORDER BY exscore DESC NULLS LAST))[1] AS rank,
                     MIN(min_bp) AS min_bp,
-                    array_agg(DISTINCT client_type) AS client_types
+                    array_agg(DISTINCT client_type) AS client_types,
+                    (array_agg(display_recorded_at ORDER BY latest_ts DESC NULLS LAST))[1] AS recorded_at,
+                    MAX(latest_ts) AS latest_ts
                 FROM joined
                 GROUP BY user_id, tf_sha256, tf_md5, level
             )
@@ -579,7 +599,7 @@ async def bulk_query_best_scores(
                 tf_sha256 AS sha256,
                 tf_md5 AS md5,
                 level,
-                clear_type, exscore, rate, rank, min_bp, client_types
+                clear_type, exscore, rate, rank, min_bp, client_types, recorded_at, latest_ts
             FROM best_scores
         """),
         params,
@@ -599,6 +619,8 @@ async def bulk_query_best_scores(
             rank=row["rank"],
             min_bp=row["min_bp"],
             client_types=tuple(sorted(row["client_types"] or ())),
+            recorded_at=row["recorded_at"],
+            sort_recorded_at=row["latest_ts"],
         ))
     return user_scores
 

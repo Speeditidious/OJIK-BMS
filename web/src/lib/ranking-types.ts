@@ -12,7 +12,8 @@ export type RatingContributionSortBy =
   | "min_bp"
   | "rate"
   | "rank_grade"
-  | "env";
+  | "env"
+  | "recorded_at";
 export type RatingHistoryMetric = "exp" | "rating" | "bmsforce";
 
 export interface RankingTableConfig {
@@ -104,6 +105,8 @@ export interface RankingContributionEntry {
   client_types: string[];
   source_client?: string | null;
   source_client_detail?: Record<string, string | null> | null;
+  recorded_at?: string | null;
+  sort_recorded_at?: string | null;
   min_bp: number | null;
   previous_min_bp?: number | null;
   rate: number | null;

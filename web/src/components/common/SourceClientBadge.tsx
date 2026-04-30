@@ -38,10 +38,9 @@ export function SourceClientBadge({
     </span>
   );
 
-  if (label !== "MIX" || !sourceClientDetail) return badge;
+  if (label !== "MIX") return badge;
 
-  // Check if there's any detail to display
-  const hasDetail = sourceClientDetail.clear_type || sourceClientDetail.exscore || sourceClientDetail.min_bp;
+  const hasDetail = sourceClientDetail && (sourceClientDetail.clear_type || sourceClientDetail.exscore || sourceClientDetail.min_bp);
 
   return (
     <TooltipProvider delayDuration={100}>
@@ -50,13 +49,13 @@ export function SourceClientBadge({
         <TooltipContent side="left" className="text-label">
           {hasDetail ? (
             <div className="space-y-0.5">
-              {sourceClientDetail.clear_type && (
+              {sourceClientDetail?.clear_type && (
                 <div>클리어: {sourceClientDetail.clear_type}</div>
               )}
-              {sourceClientDetail.exscore && (
+              {sourceClientDetail?.exscore && (
                 <div>점수: {sourceClientDetail.exscore}</div>
               )}
-              {sourceClientDetail.min_bp && (
+              {sourceClientDetail?.min_bp && (
                 <div>BP: {sourceClientDetail.min_bp}</div>
               )}
             </div>
