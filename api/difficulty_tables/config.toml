@@ -82,18 +82,3 @@ url = "https://lets-go-time-hell.github.io/Delay-joy-table/"
 slug = "luminous"
 name = "Luminous"
 url = "https://ladymade-star.github.io/luminous/table.html"
-
-[[default_tables]]
-slug = "4ue"
-name = "4UE"
-url = "https://classmaterma.github.io/4UE/table.html"
-
-[[default_tables]]
-slug = "6ue"
-name = "6UE"
-url = "https://classmaterma.github.io/UE/table.html"
-
-[[default_tables]]
-slug = "8ue"
-name = "8UE"
-url = "https://classmaterma.github.io/8UE/table.html"
