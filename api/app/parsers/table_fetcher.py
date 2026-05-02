@@ -275,6 +275,7 @@ def get_update_config() -> dict:
     config = _load_config()
     return {
         "update_interval_hours": config.get("update_interval_hours", 24),
+        "update_timezone": config.get("update_timezone", "Asia/Seoul"),
         "backup_count": config.get("backup_count", 3),
         "min_request_interval_hours": config.get("min_request_interval_hours", 6),
     }

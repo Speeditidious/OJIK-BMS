@@ -109,30 +109,41 @@ async def _async_update_difficulty_table(table_id: uuid.UUID) -> dict:
 
 
 @celery_app.task(name="app.tasks.table_updater.update_all_difficulty_tables")
-def update_all_difficulty_tables() -> dict:
+def update_all_difficulty_tables(
+    slugs: list[str] | None = None,
+    exclude_slugs: list[str] | None = None,
+) -> dict:
     """Trigger updates for all difficulty tables that have a source URL."""
     try:
         loop = asyncio.get_event_loop()
         if loop.is_closed():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        return loop.run_until_complete(_async_update_all_tables())
+        return loop.run_until_complete(
+            _async_update_all_tables(slugs=slugs, exclude_slugs=exclude_slugs)
+        )
     except Exception as exc:
         logger.error(f"Failed to queue table updates: {exc}")
         raise
 
 
-async def _async_update_all_tables() -> dict:
+async def _async_update_all_tables(
+    slugs: list[str] | None = None,
+    exclude_slugs: list[str] | None = None,
+) -> dict:
     from sqlalchemy import select
 
     from app.core.database import AsyncSessionLocal
     from app.models.difficulty_table import DifficultyTable
     from app.parsers.table_fetcher import get_default_table_configs
 
+    requested_slugs = set(slugs) if slugs is not None else None
     excluded_slugs = {
         c["slug"] for c in get_default_table_configs()
         if not c.get("auto_update", True)
     }
+    if exclude_slugs:
+        excluded_slugs.update(exclude_slugs)
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -141,7 +152,12 @@ async def _async_update_all_tables() -> dict:
         )
         rows = result.all()
 
-    table_ids = [str(row[0]) for row in rows if row[1] not in excluded_slugs]
+    table_ids = [
+        str(row[0])
+        for row in rows
+        if row[1] not in excluded_slugs
+        and (requested_slugs is None or row[1] in requested_slugs)
+    ]
 
     if excluded_slugs:
         skipped = [row[1] for row in rows if row[1] in excluded_slugs]

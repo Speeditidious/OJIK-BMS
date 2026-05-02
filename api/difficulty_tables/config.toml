@@ -1,5 +1,7 @@
 # Auto-update interval in hours
 update_interval_hours = 168
+# Timezone for fixed-time update schedules
+update_timezone = "Asia/Seoul"
 # Number of backups to retain per table
 backup_count = 3
 # Minimum re-request interval per table in hours
@@ -36,21 +38,25 @@ url = "http://minddnim.web.fc2.com/sara/3rd_hard/bms_sara_3rd_hard.html"
 slug = "satellite"
 name = "Satellite"
 url = "https://stellabms.xyz/sl/table.html"
+update_schedule = { type = "weekly", day_of_week = "mon", hour = 0, minute = 0 }
 
 [[default_tables]]
 slug = "stella"
 name = "Stella"
 url = "https://stellabms.xyz/st/table.html"
+update_schedule = { type = "weekly", day_of_week = "mon", hour = 0, minute = 0 }
 
 [[default_tables]]
 slug = "solar"
 name = "Solar"
 url = "https://stellabms.xyz/so/table.html"
+update_schedule = { type = "weekly", day_of_week = "mon", hour = 0, minute = 0 }
 
 [[default_tables]]
 slug = "supernova"
 name = "Supernova"
 url = "https://stellabms.xyz/sn/table.html"
+update_schedule = { type = "weekly", day_of_week = "mon", hour = 0, minute = 0 }
 
 [[default_tables]]
 slug = "aery"
