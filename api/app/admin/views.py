@@ -145,7 +145,7 @@ class DifficultyTableAdmin(ModelView, model=DifficultyTable):
             update_difficulty_table.delay(pk)
 
         return RedirectResponse(
-            request.url_for("admin:list", identity="difficultytable"), status_code=302
+            request.url_for("admin:list", identity=self.identity), status_code=302
         )
 
     @action(
@@ -162,7 +162,7 @@ class DifficultyTableAdmin(ModelView, model=DifficultyTable):
         update_all_difficulty_tables.delay()
 
         return RedirectResponse(
-            request.url_for("admin:list", identity="difficultytable"), status_code=302
+            request.url_for("admin:list", identity=self.identity), status_code=302
         )
 
     @action(
@@ -195,7 +195,7 @@ class DifficultyTableAdmin(ModelView, model=DifficultyTable):
                     recalculate_all_rankings.delay(slug)
 
         return RedirectResponse(
-            request.url_for("admin:list", identity="difficultytable"), status_code=302
+            request.url_for("admin:list", identity=self.identity), status_code=302
         )
 
 

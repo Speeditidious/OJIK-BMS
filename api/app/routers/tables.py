@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -368,44 +368,36 @@ async def import_table(
     )
     existing = existing_result.scalar_one_or_none()
     if existing is not None:
+        song_count = await _count_table_fumens(existing.id, db)
+        if song_count == 0 or not existing.level_order:
+            table_data = await _fetch_import_table_data(body.url, fetch_table)
+            song_count = await _populate_imported_table(existing, table_data, db)
+
         await _ensure_favorite(current_user.id, existing.id, db)
-        return DifficultyTableRead.from_orm_with_count(existing)
+        await db.commit()
+        await db.refresh(existing)
+        return DifficultyTableRead.from_orm_with_count(existing, song_count)
 
     # Fetch and parse
-    try:
-        table_data = await fetch_table(body.url)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Failed to fetch or parse table: {exc}",
-        )
-
-    if table_data is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Table source returned no data",
-        )
+    table_data = await _fetch_import_table_data(body.url, fetch_table)
 
     header = table_data.get("header", {})
     name: str = header.get("name") or body.url
-    symbol: str | None = header.get("symbol")
-    level_order: list | None = table_data.get("level_order") or header.get("level_order")
 
     new_table = DifficultyTable(
         name=name,
-        symbol=symbol,
         source_url=body.url,
         is_default=False,
-        level_order=level_order,
     )
     db.add(new_table)
     await db.flush()
 
+    song_count = await _populate_imported_table(new_table, table_data, db)
     await _ensure_favorite(current_user.id, new_table.id, db)
     await db.commit()
     await db.refresh(new_table)
 
-    return DifficultyTableRead.from_orm_with_count(new_table)
+    return DifficultyTableRead.from_orm_with_count(new_table, song_count)
 
 
 @router.post("/{table_id}/sync", response_model=MessageResponse)
@@ -431,6 +423,56 @@ async def _get_table_or_404(table_id: uuid.UUID, db: AsyncSession) -> Difficulty
     if table is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Table not found")
     return table
+
+
+async def _fetch_import_table_data(url: str, fetch_table: Any) -> dict:
+    """Fetch and validate difficulty table data for user-driven imports."""
+    try:
+        table_data = await fetch_table(url)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Failed to fetch or parse table: {exc}",
+        )
+
+    if table_data is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Table source returned no data",
+        )
+
+    return table_data
+
+
+async def _populate_imported_table(
+    table: DifficultyTable,
+    table_data: dict,
+    db: AsyncSession,
+) -> int:
+    """Persist parsed import data into fumen/course tables and return fumen count."""
+    from app.services.table_import import upsert_courses, upsert_fumens
+
+    header = table_data.get("header", {})
+    table.name = header.get("name") or table.name
+    table.symbol = header.get("symbol") or table_data.get("symbol") or table.symbol
+    table.level_order = table_data.get("level_order") or header.get("level_order")
+    table.updated_at = datetime.now(UTC)
+
+    await upsert_fumens(db, table.id, table_data.get("songs", []))
+    await upsert_courses(db, table.id, table_data.get("courses", []))
+    await db.flush()
+
+    return await _count_table_fumens(table.id, db)
+
+
+async def _count_table_fumens(table_id: uuid.UUID, db: AsyncSession) -> int:
+    """Return the number of fumen rows linked to a difficulty table."""
+    result = await db.execute(
+        select(func.count())
+        .select_from(Fumen)
+        .where(Fumen.table_entries.contains([{"table_id": str(table_id)}]))
+    )
+    return int(result.scalar() or 0)
 
 
 async def _ensure_favorite(user_id: Any, table_id: uuid.UUID, db: AsyncSession) -> None:
