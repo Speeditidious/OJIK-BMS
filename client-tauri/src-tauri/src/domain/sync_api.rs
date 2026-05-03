@@ -117,6 +117,8 @@ impl ApiClient {
         &self,
         scores: &[ScoreItem],
         player_stats: &[PlayerStats],
+        is_final_batch: bool,
+        has_previous_score_changes: bool,
     ) -> anyhow::Result<SyncResponse> {
         self.request_json_decoded(
             Method::POST,
@@ -124,6 +126,8 @@ impl ApiClient {
             &serde_json::json!({
                 "scores": scores,
                 "player_stats": player_stats,
+                "is_final_batch": is_final_batch,
+                "has_previous_score_changes": has_previous_score_changes,
             }),
         )
         .await

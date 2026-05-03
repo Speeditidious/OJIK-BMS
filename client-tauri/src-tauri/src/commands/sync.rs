@@ -519,6 +519,7 @@ async fn run_sync(
     let mut skipped = 0;
     let mut metadata_updated = 0;
     let mut server_errors = Vec::new();
+    let mut has_score_changes = false;
     let chunks = if all_scores.is_empty() {
         1
     } else {
@@ -526,7 +527,9 @@ async fn run_sync(
     };
 
     if all_scores.is_empty() {
-        let response = api.sync_scores(&[], &all_player_stats).await?;
+        let response = api
+            .sync_scores(&[], &all_player_stats, true, has_score_changes)
+            .await?;
         inserted += response.inserted_scores;
         synced += response.synced_scores;
         skipped += response.skipped_scores;
@@ -540,11 +543,16 @@ async fn run_sync(
             } else {
                 &[]
             };
-            let response = api.sync_scores(batch, stats_batch).await?;
+            let response = api
+                .sync_scores(batch, stats_batch, idx + 1 == chunks, has_score_changes)
+                .await?;
             inserted += response.inserted_scores;
             synced += response.synced_scores;
             skipped += response.skipped_scores;
             metadata_updated += response.metadata_updated;
+            if response.synced_scores > 0 || response.inserted_scores > 0 {
+                has_score_changes = true;
+            }
             server_errors.extend(response.errors);
             progress(
                 &app,

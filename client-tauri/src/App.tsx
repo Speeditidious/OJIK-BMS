@@ -20,7 +20,7 @@ import { useConfigStore } from "./hooks/use-config";
 import { useSyncStore } from "./hooks/use-sync";
 import { useToastStore } from "./hooks/use-toast";
 import { useUpdateStore } from "./hooks/use-update";
-import { getDiagnosticsInfo, openDownloadPage, openSite } from "./tauri";
+import { getDiagnosticsInfo, openDownloadPage, openExternalUrl, openSite } from "./tauri";
 import type { ClientFilter, ClientType, DiagnosticsInfo, SyncRequest } from "./types";
 
 const DEFAULT_APP_VERSION = "1.0.0.beta1";
@@ -338,7 +338,13 @@ export default function App() {
         <ResultSummary
           result={sync.lastResult}
           onOpenResultUrl={(url) => {
-            window.open(url, "_blank", "noopener,noreferrer");
+            void openExternalUrl(url).catch((err) =>
+              toast.push({
+                tone: "warn",
+                title: "사이트를 열 수 없어요",
+                message: err instanceof Error ? err.message : String(err),
+              }),
+            );
           }}
         />
 
@@ -404,7 +410,15 @@ export default function App() {
             if (version) update({ skipped_update_version: version });
             setUpdateDialogOpen(false);
           }}
-          onOpenReleasePage={(url) => window.open(url, "_blank", "noopener,noreferrer")}
+          onOpenReleasePage={(url) => {
+            void openExternalUrl(url).catch((err) =>
+              toast.push({
+                tone: "warn",
+                title: "릴리스 페이지를 열 수 없어요",
+                message: err instanceof Error ? err.message : String(err),
+              }),
+            );
+          }}
           onClose={() => setUpdateDialogOpen(false)}
         />
       ) : null}

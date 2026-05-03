@@ -3,14 +3,36 @@ mod domain;
 
 use tauri::Manager;
 
+fn log_targets() -> Vec<tauri_plugin_log::Target> {
+    let mut targets = vec![tauri_plugin_log::Target::new(
+        tauri_plugin_log::TargetKind::LogDir {
+            file_name: Some("ojikbms-client".into()),
+        },
+    )];
+    #[cfg(debug_assertions)]
+    targets.push(tauri_plugin_log::Target::new(
+        tauri_plugin_log::TargetKind::Stdout,
+    ));
+    targets
+}
+
 pub fn run() {
     tauri::Builder::default()
         .manage(commands::sync::SyncRegistry::default())
         .plugin(
             tauri_plugin_log::Builder::new()
-                .targets([tauri_plugin_log::Target::new(
-                    tauri_plugin_log::TargetKind::Stdout,
-                )])
+                .clear_targets()
+                .level(if cfg!(debug_assertions) {
+                    log::LevelFilter::Debug
+                } else {
+                    log::LevelFilter::Info
+                })
+                .level_for("keyring", log::LevelFilter::Warn)
+                .level_for("reqwest", log::LevelFilter::Warn)
+                .level_for("reqwest::retry", log::LevelFilter::Warn)
+                .level_for("tao", log::LevelFilter::Warn)
+                .level_for("tauri::manager", log::LevelFilter::Info)
+                .targets(log_targets())
                 .build(),
         )
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
@@ -28,7 +50,6 @@ pub fn run() {
             commands::config::pick_file,
             commands::config::pick_folder,
             commands::config::probe_path,
-            commands::config::detect_client_paths,
             commands::config::get_diagnostics_info,
             commands::auth::get_auth_status,
             commands::auth::start_login,

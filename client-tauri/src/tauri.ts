@@ -169,6 +169,25 @@ export async function openSite(): Promise<string> {
 }
 
 /**
+ * Open an external URL via the OS default browser.
+ * In Tauri webview `window.open` is unreliable; this helper delegates to
+ * the opener plugin which always shells out to the OS handler.
+ */
+export async function openExternalUrl(url: string): Promise<void> {
+  const parsed = new URL(url);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`Unsupported external URL protocol: ${parsed.protocol}`);
+  }
+  const normalizedUrl = parsed.toString();
+  if (!isTauriRuntime()) {
+    const opened = window.open(normalizedUrl, "_blank", "noopener,noreferrer");
+    if (!opened) throw new Error("Popup was blocked by the browser.");
+    return;
+  }
+  await openUrl(normalizedUrl);
+}
+
+/**
  * Probe a filesystem path. Backend command may not exist yet (Phase 2);
  * returns null on any IPC error so the UI gracefully degrades to
  * "unknown" validity instead of blocking the user.
@@ -185,28 +204,3 @@ export async function probePath(path: string): Promise<PathProbe | null> {
   }
 }
 
-/**
- * Detect candidate sibling DB files for a given client given a dropped
- * file or folder path. Phase 2; returns null when not implemented so
- * the UI can fall back to the simple "use this path verbatim" flow.
- */
-export interface DetectedPaths {
-  lr2_db_path?: string | null;
-  lr2_song_db_path?: string | null;
-  beatoraja_db_dir?: string | null;
-  beatoraja_songdata_db_path?: string | null;
-  beatoraja_songinfo_db_path?: string | null;
-}
-
-export async function detectClientPaths(
-  client: "lr2" | "beatoraja",
-  hint: string,
-): Promise<DetectedPaths | null> {
-  if (!hint) return null;
-  if (!isTauriRuntime()) return null;
-  try {
-    return await invoke<DetectedPaths>("detect_client_paths", { client, hint });
-  } catch {
-    return null;
-  }
-}

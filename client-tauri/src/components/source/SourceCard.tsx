@@ -3,18 +3,11 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { probeForValidity, type ValidityState } from "../../lib/path-validity";
-import { detectClientPaths, pickFile, pickFolder, probePath } from "../../tauri";
-import { isTauriRuntime } from "../../tauri";
+import { pickFile, pickFolder, probePath, isTauriRuntime } from "../../tauri";
 import type { ClientConfig, ClientType } from "../../types";
 import { Badge } from "../primitives/Badge";
 import { Button } from "../primitives/Button";
 import { PathField } from "./PathField";
-import {
-  mergeSuggestionPatch,
-  suggestPathsFromHint,
-  type DropClient,
-  type SuggestedPaths,
-} from "./source-detect";
 
 const CLIENT_LABEL: Record<ClientType, string> = {
   lr2: "LR2",
@@ -148,24 +141,9 @@ export function SourceCard({
       : { tone: "success", label: "준비됨" };
   const clientLabel = CLIENT_LABEL[client];
 
-  const applySuggestion = useCallback((suggestion: SuggestedPaths, overwrite = false) => {
-    const patch = mergeSuggestionPatch(config, suggestion, { overwrite });
-    if (Object.keys(patch).length > 0) {
-      onUpdate(patch);
-    }
-  }, [config, onUpdate]);
-
-  const handleDrop = useCallback(async (hint: string) => {
-    const suggestion = suggestPathsFromHint(client as DropClient, hint);
-    applySuggestion(suggestion);
-    const detected = await detectClientPaths(client, hint);
-    if (detected) applySuggestion(detected);
-  }, [applySuggestion, client]);
-
-  const handleFieldDrop = useCallback(async (spec: SourceFieldSpec, hint: string) => {
+  const handleFieldDrop = useCallback((spec: SourceFieldSpec, hint: string) => {
     onUpdate({ [spec.pathKey]: hint } as Partial<ClientConfig>);
-    await handleDrop(hint);
-  }, [handleDrop, onUpdate]);
+  }, [onUpdate]);
 
   const getDropKeyFromPosition = useCallback((position: { x: number; y: number }): string | null => {
     const ratio = window.devicePixelRatio || 1;
@@ -210,7 +188,10 @@ export function SourceCard({
           return;
         }
         const field = fields.find((item) => item.pathKey === key);
-        void (field ? handleFieldDrop(field, path) : handleDrop(path));
+        if (field) {
+          handleFieldDrop(field, path);
+        }
+        // 카드 전체 영역 드롭은 어떤 칸용인지 알 수 없으므로 무시한다.
       })
       .then((nextUnlisten) => {
         if (cancelled) {
@@ -227,8 +208,7 @@ export function SourceCard({
       cancelled = true;
       unlisten?.();
     };
-    // Tauri drop events need the latest config/fields so suggestions do not overwrite freshly typed values.
-  }, [fields, getDropKeyFromPosition, handleDrop, handleFieldDrop, onPickError]);
+  }, [fields, getDropKeyFromPosition, handleFieldDrop, onPickError]);
 
   async function handleBrowse(spec: SourceFieldSpec) {
     try {
@@ -237,13 +217,7 @@ export function SourceCard({
           ? await pickFolder(spec.pickKind)
           : await pickFile(spec.pickKind);
       if (!result) return;
-      const patch: Partial<ClientConfig> = { [spec.pathKey]: result } as Partial<ClientConfig>;
-      onUpdate(patch);
-      // After picking one, suggest sibling paths.
-      const suggestion = suggestPathsFromHint(client as DropClient, result);
-      applySuggestion(suggestion);
-      const detected = await detectClientPaths(client, result);
-      if (detected) applySuggestion(detected);
+      onUpdate({ [spec.pathKey]: result } as Partial<ClientConfig>);
     } catch (err) {
       onPickError?.(err instanceof Error ? err.message : String(err));
     }
@@ -261,13 +235,7 @@ export function SourceCard({
       onDrop={(e) => {
         e.preventDefault();
         setIsDropOver(false);
-        const file = e.dataTransfer.files?.[0] as (File & { path?: string }) | undefined;
-        if (file?.path) {
-          void handleDrop(String(file.path));
-          return;
-        }
-        const text = e.dataTransfer.getData("text/plain");
-        if (text) void handleDrop(text);
+        // 카드 전체 영역 드롭은 어떤 칸용인지 알 수 없으므로 무시한다.
       }}
     >
       <header className="source-card-hd">

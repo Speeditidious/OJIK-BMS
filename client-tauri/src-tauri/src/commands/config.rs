@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::Serialize;
 use tauri::AppHandle;
@@ -13,15 +13,6 @@ pub struct PathProbe {
     pub exists: bool,
     pub kind: Option<String>,
     pub size_bytes: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct DetectedPaths {
-    pub lr2_db_path: Option<String>,
-    pub lr2_song_db_path: Option<String>,
-    pub beatoraja_db_dir: Option<String>,
-    pub beatoraja_songdata_db_path: Option<String>,
-    pub beatoraja_songinfo_db_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -91,16 +82,6 @@ pub fn probe_path(path: String) -> Result<PathProbe, String> {
 }
 
 #[tauri::command]
-pub fn detect_client_paths(client: String, hint: String) -> Result<DetectedPaths, String> {
-    let hint_path = PathBuf::from(hint);
-    match client.as_str() {
-        "lr2" => Ok(detect_lr2_paths(&hint_path)),
-        "beatoraja" => Ok(detect_beatoraja_paths(&hint_path)),
-        other => Err(format!("Unsupported client type: {other}")),
-    }
-}
-
-#[tauri::command]
 pub fn get_diagnostics_info(app: AppHandle) -> Result<DiagnosticsInfo, String> {
     let config_dir = config::config_dir(&app)
         .ok()
@@ -128,100 +109,3 @@ fn apply_file_filter<R: tauri::Runtime>(
     dialog.add_filter("SQLite database", &["db", "sqlite", "sqlite3"])
 }
 
-fn detect_lr2_paths(path: &Path) -> DetectedPaths {
-    let base_dir = if path.is_file() {
-        path.parent().unwrap_or(path)
-    } else {
-        path
-    };
-
-    let lr2_db_path = if path.is_file() && !is_filename(path, "song.db") {
-        Some(path_to_string(path))
-    } else {
-        first_existing(&[
-            base_dir.join("score.db"),
-            base_dir.join("LR2files").join("Database").join("score.db"),
-        ])
-    };
-
-    let lr2_song_db_path = if is_filename(path, "song.db") {
-        Some(path_to_string(path))
-    } else {
-        first_existing(&[
-            base_dir.join("song.db"),
-            base_dir.join("LR2files").join("Database").join("song.db"),
-        ])
-    };
-
-    DetectedPaths {
-        lr2_db_path,
-        lr2_song_db_path,
-        beatoraja_db_dir: None,
-        beatoraja_songdata_db_path: None,
-        beatoraja_songinfo_db_path: None,
-    }
-}
-
-fn detect_beatoraja_paths(path: &Path) -> DetectedPaths {
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if path.is_file() && matches!(file_name.as_str(), "songdata.db" | "songinfo.db") {
-        let root_dir = path.parent().unwrap_or(path);
-        return DetectedPaths {
-            lr2_db_path: None,
-            lr2_song_db_path: None,
-            beatoraja_db_dir: None,
-            beatoraja_songdata_db_path: if file_name == "songdata.db" {
-                Some(path_to_string(path))
-            } else {
-                first_existing(&[root_dir.join("songdata.db")])
-            },
-            beatoraja_songinfo_db_path: if file_name == "songinfo.db" {
-                Some(path_to_string(path))
-            } else {
-                first_existing(&[root_dir.join("songinfo.db")])
-            },
-        };
-    }
-
-    let score_dir = if path.is_file() && matches!(file_name.as_str(), "score.db" | "scorelog.db") {
-        path.parent().unwrap_or(path).to_path_buf()
-    } else {
-        path.to_path_buf()
-    };
-    let root_dir = score_dir.parent().unwrap_or(&score_dir);
-
-    DetectedPaths {
-        lr2_db_path: None,
-        lr2_song_db_path: None,
-        beatoraja_db_dir: Some(path_to_string(&score_dir)),
-        beatoraja_songdata_db_path: first_existing(&[
-            root_dir.join("songdata.db"),
-            score_dir.join("songdata.db"),
-        ]),
-        beatoraja_songinfo_db_path: first_existing(&[
-            root_dir.join("songinfo.db"),
-            score_dir.join("songinfo.db"),
-        ]),
-    }
-}
-
-fn first_existing(paths: &[PathBuf]) -> Option<String> {
-    paths
-        .iter()
-        .find(|path| path.exists())
-        .map(|path| path_to_string(path))
-}
-
-fn is_filename(path: &Path, expected: &str) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.eq_ignore_ascii_case(expected))
-}
-
-fn path_to_string(path: &Path) -> String {
-    path.to_string_lossy().to_string()
-}
