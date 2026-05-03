@@ -1,0 +1,99 @@
+/* Topbar */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.topbar-logo {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+}
+
+.topbar-eyebrow {
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.topbar-title { font-size: 1.05rem; font-weight: 700; }
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* AuthPill */
+.authpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid currentColor;
+  font-size: 0.83rem;
+  font-weight: 600;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.authpill-ok { color: var(--primary); }
+.authpill-warn { color: var(--warning); }
+.authpill-out { color: var(--muted); }
+
+.authpill-meta {
+  color: color-mix(in srgb, currentColor 72%, var(--muted));
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+/* AboutFooter */
+.about-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  color: var(--subtle);
+  font-size: 0.8rem;
+}
+
+.about-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.about-meta b { color: var(--muted); font-weight: 600; }
+
+.about-actions { display: flex; align-items: center; gap: 6px; }
+
+/* Banner stack wrapper */
+.banner-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

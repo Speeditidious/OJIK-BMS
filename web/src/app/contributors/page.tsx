@@ -4,7 +4,7 @@ const keyContributors = [
   { role: "레이팅 시스템", name: "모과맛" },
 ] as const;
 
-const betaTesters = ["모과맛", "서준", "laigus", "Beatnoob", "Kaiden", "Rv", "Artharnal", "민트초코파인트", "scale.out", "칸쥬", "파이알제곱", "모이", "3cchobo", "Siesphere", "RED231"] as const;
+const betaTesters = ["모과맛", "서준", "laigus", "Beatnoob", "Kaiden", "Rv", "Artharnal", "민트초코파인트", "scale.out", "칸쥬", "파이알제곱", "모이", "3cchobo", "Siesphere", "RED231", "neonsign", "qodtjr"] as const;
 
 export default function ContributorsPage() {
   return (

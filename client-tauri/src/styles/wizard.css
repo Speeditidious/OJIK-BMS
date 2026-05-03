@@ -1,0 +1,61 @@
+.wizard {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.wizard-shell {
+  width: min(640px, 100%);
+  display: grid;
+  gap: 16px;
+}
+
+.wizard-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wizard-step-pip {
+  flex: 1;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.wizard-step-pip.is-active { background: color-mix(in srgb, var(--primary) 24%, var(--surface-2)); }
+.wizard-step-pip.is-done   { background: var(--primary); }
+
+.wizard-card {
+  display: grid;
+  gap: 16px;
+  padding: 22px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+}
+
+.wizard-card-eyebrow {
+  color: var(--primary);
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.wizard-card-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.01em; }
+.wizard-card-body { color: var(--muted); font-size: 0.9rem; }
+
+.wizard-card-content { display: grid; gap: 12px; }
+
+.wizard-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.wizard-skip { color: var(--subtle); font-size: 0.85rem; }

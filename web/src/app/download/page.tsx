@@ -66,13 +66,13 @@ export default function DownloadPage() {
                 <Button asChild>
                   <a href={release.exeDownloadUrl} download>
                     <Download className="h-4 w-4 mr-2" />
-                    Windows exe 다운로드
+                    Windows 설치 파일 다운로드
                   </a>
                 </Button>
               ) : (
                 <Button disabled>
                   <Download className="h-4 w-4 mr-2" />
-                  Windows exe (준비 중)
+                  Windows 설치 파일 (준비 중)
                 </Button>
               )}
               <Button variant="outline" asChild>

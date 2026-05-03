@@ -1,0 +1,101 @@
+.log-viewer { display: grid; gap: 10px; }
+
+.log-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.log-controls .log-search {
+  flex: 1;
+  min-width: 180px;
+  position: relative;
+}
+
+.log-controls .log-search input {
+  padding-left: 30px;
+}
+
+.log-controls .log-search-icon {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--subtle);
+  pointer-events: none;
+}
+
+.log-controls .log-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.log-list {
+  height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  background: var(--bg);
+  font-family: "Consolas", "D2Coding", monospace;
+  font-size: 0.8rem;
+}
+
+.log-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--subtle);
+  font-family: "Segoe UI", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+  font-size: 0.85rem;
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 4px;
+  border-radius: var(--radius-sm);
+  word-break: break-word;
+}
+
+.log-row + .log-row { margin-top: 1px; }
+
+.log-row:hover { background: var(--surface-2); }
+
+.log-time { color: var(--subtle); font-variant-numeric: tabular-nums; }
+.log-level {
+  display: inline-block;
+  min-width: 44px;
+  text-align: center;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.log-level-info  { color: var(--success); background: color-mix(in srgb, var(--success) 14%, transparent); }
+.log-level-warn  { color: var(--warning); background: color-mix(in srgb, var(--warning) 14%, transparent); }
+.log-level-error { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+
+.log-msg { color: var(--text); }
+.log-msg a, .log-msg button.log-msg-action {
+  color: var(--primary);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+.log-msg a:hover, .log-msg button.log-msg-action:hover { text-decoration: underline; }
+
+.log-overflow-note {
+  margin-top: 6px;
+  color: var(--subtle);
+  font-size: 0.78rem;
+  font-family: "Segoe UI", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+}

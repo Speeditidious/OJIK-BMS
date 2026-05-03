@@ -1,4 +1,4 @@
-name: Build GUI Client
+name: Build Tauri Client
 
 on:
   push:
@@ -7,41 +7,71 @@ on:
 
 jobs:
   build-windows:
-    name: Build Windows exe
+    name: Build Windows installer
     runs-on: windows-latest
+    outputs:
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
         with:
-          python-version: "3.11"
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: client-tauri/package-lock.json
+
+      - name: Install Rust toolchain
+        working-directory: client-tauri
+        run: |
+          rustup show
 
       - name: Install dependencies
-        working-directory: client
+        working-directory: client-tauri
         run: |
-          pip install --upgrade pip
-          pip install -e ".[gui]"
-          pip install pyinstaller Pillow
+          npm ci
 
-      - name: Convert logo PNG to ICO
-        working-directory: client
+      - name: Sync app version from tag
+        id: version
+        working-directory: client-tauri
         run: |
-          python -c "from PIL import Image; img = Image.open('ojikbms_client/gui/assets/ojikbms_logo.png'); img.save('ojikbms_client/gui/assets/ojikbms_logo.ico')"
+          node scripts/sync-version.mjs "${{ github.ref_name }}"
 
-      - name: Build exe with PyInstaller
-        working-directory: client
+      - name: Build Tauri installer
+        working-directory: client-tauri
+        env:
+          VITE_APP_VERSION: ${{ steps.version.outputs.display_version }}
         run: |
-          $appName = "ojikbms-client-${{ github.ref_name }}"
-          pyinstaller --onefile --windowed --name $appName --collect-all PyQt6 --add-data "ojikbms_client;ojikbms_client" --icon "ojikbms_client/gui/assets/ojikbms_logo.ico" gui_main.py
+          npm run tauri -- build --bundles nsis
+
+      - name: Prepare release asset
+        working-directory: client-tauri
+        run: |
+          $tagName = "${{ github.ref_name }}"
+          $bundleDir = "src-tauri/target/release/bundle/nsis"
+          $installer = Get-ChildItem -Path $bundleDir -Filter "*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) {
+            throw "No Tauri NSIS installer was produced in $bundleDir"
+          }
+
+          New-Item -ItemType Directory -Force -Path "release" | Out-Null
+          $assetBase = "ojikbms-client-$tagName-windows-x64-setup"
+          Copy-Item $installer.FullName "release/$assetBase.exe"
+
+          $signature = Get-Item "$($installer.FullName).sig" -ErrorAction SilentlyContinue
+          if ($signature) {
+            Copy-Item $signature.FullName "release/$assetBase.exe.sig"
+          }
+
+          Get-ChildItem "release"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
-          name: ojikbms-gui-windows
-          path: client/dist/ojikbms-client-*.exe
+          name: ojikbms-tauri-windows
+          path: client-tauri/release/*
 
   create-release:
     name: Create GitHub Release
@@ -52,13 +82,15 @@ jobs:
       contents: write
 
     steps:
-      - name: Download exe artifact
+      - name: Download installer artifact
         uses: actions/download-artifact@v8
         with:
-          name: ojikbms-gui-windows
+          name: ojikbms-tauri-windows
+          path: release-assets
 
-      - name: Create release and upload exe
+      - name: Create release and upload installer
         uses: softprops/action-gh-release@v2
         with:
-          files: ojikbms-client-*.exe
+          files: release-assets/*
           generate_release_notes: true
+          prerelease: ${{ needs.build-windows.outputs.is_prerelease }}

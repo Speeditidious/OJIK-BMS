@@ -1,0 +1,45 @@
+[package]
+name = "ojik-bms-client"
+version = "1.0.0-beta.1"
+description = "OJIK BMS desktop client"
+authors = ["OJIK BMS"]
+edition = "2021"
+rust-version = "1.88"
+
+[lib]
+name = "ojik_bms_client"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.0", features = [] }
+
+[dependencies]
+anyhow = "1.0"
+base64 = "0.22"
+keyring = { version = "3.6", features = [
+    "apple-native",
+    "windows-native",
+    "sync-secret-service",
+] }
+log = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "2.11.0", features = [] }
+tauri-plugin-dialog = "2.7.1"
+tauri-plugin-log = "2.8.0"
+tauri-plugin-opener = "2.5.4"
+tauri-plugin-single-instance = "2.4.2"
+tauri-plugin-updater = "2.10.1"
+thiserror = "1.0"
+time = { version = "0.3", features = ["formatting", "macros", "serde"] }
+tokio = { version = "1.41", features = ["net", "time"] }
+uuid = { version = "1.11", features = ["v4"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

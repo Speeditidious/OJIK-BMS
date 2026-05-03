@@ -84,6 +84,7 @@ class SyncResponse(BaseModel):
     synced_scores: int
     inserted_scores: int = 0
     skipped_scores: int = 0
+    metadata_updated: int = 0
     errors: list[str] = []
 
 
@@ -150,6 +151,11 @@ async def _fetch_current_bests(
                 "min_bp": None,
                 "max_combo": None,
                 "play_count": None,
+                "_latest_row_id": None,
+                "_latest_recorded_at": None,
+                "_latest_judgments": None,
+                "_latest_options": None,
+                "_latest_clear_count": None,
             }
         entry = bests[key]
         if row.clear_type is not None and (entry["clear_type"] is None or row.clear_type > entry["clear_type"]):
@@ -162,6 +168,15 @@ async def _fetch_current_bests(
             entry["max_combo"] = row.max_combo
         if row.play_count is not None and (entry["play_count"] is None or row.play_count > entry["play_count"]):
             entry["play_count"] = row.play_count
+        # Track metadata from the most recently recorded row
+        if entry["_latest_recorded_at"] is None or (
+            row.recorded_at is not None and row.recorded_at > entry["_latest_recorded_at"]
+        ):
+            entry["_latest_recorded_at"] = row.recorded_at
+            entry["_latest_row_id"] = row.id
+            entry["_latest_judgments"] = row.judgments
+            entry["_latest_options"] = row.options
+            entry["_latest_clear_count"] = row.clear_count
 
     return bests
 
@@ -394,6 +409,7 @@ async def sync_data(
     synced_scores = 0
     inserted_scores = 0
     skipped_scores = 0
+    metadata_updated = 0
     now = datetime.now(UTC)
 
     if not payload.scores and not payload.player_stats:
@@ -458,6 +474,29 @@ async def sync_data(
 
                 # ── Improvement check ───────────────────────────────────────
                 if not _is_improvement(item, exscore, best):
+                    # Check if non-performance metadata changed on the most recent existing row.
+                    # judgments/options/clear_count from the client may have been updated
+                    # even when the score itself did not improve.
+                    if best is not None:
+                        row_id = best.get("_latest_row_id")
+                        if row_id is not None:
+                            update_vals: dict[str, Any] = {}
+                            if item.judgments is not None and item.judgments != best.get("_latest_judgments"):
+                                update_vals["judgments"] = item.judgments
+                            if item.options is not None and item.options != best.get("_latest_options"):
+                                update_vals["options"] = item.options
+                            if item.clear_count is not None and item.clear_count != best.get("_latest_clear_count"):
+                                update_vals["clear_count"] = item.clear_count
+                            if update_vals:
+                                update_vals["synced_at"] = now
+                                async with db.begin_nested():
+                                    await db.execute(
+                                        update(UserScore)
+                                        .where(UserScore.id == row_id)
+                                        .values(**update_vals)
+                                    )
+                                metadata_updated += 1
+                                continue
                     skipped_scores += 1
                     continue
 
@@ -720,6 +759,7 @@ async def sync_data(
         synced_scores=synced_scores,
         inserted_scores=inserted_scores,
         skipped_scores=skipped_scores,
+        metadata_updated=metadata_updated,
         errors=errors,
     )
 
