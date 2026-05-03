@@ -10,6 +10,8 @@ import { MetricInfoIcon } from "./RatingMetricInfo";
 import { BmsforceValue } from "./BmsforceValue";
 import type { RankingEntry, RankingType } from "@/lib/ranking-types";
 
+const MASKED_RANKING_VALUE = "-";
+
 interface RankingTableProps {
   entries: RankingEntry[];
   type: RankingType;
@@ -83,6 +85,7 @@ export function RankingTable({
         {/* Rows */}
         {entries.map((entry) => {
           const isMe = myUserId === entry.user_id;
+          const hasRankingValue = (entry.exp ?? 0) > 0;
           return (
             <div
               key={entry.user_id}
@@ -95,7 +98,9 @@ export function RankingTable({
             >
               {/* 순위 */}
               <div className="text-center tabular-nums font-semibold text-lg text-foreground">
-                {entry.rank}
+                {hasRankingValue
+                  ? entry.rank.toLocaleString()
+                  : MASKED_RANKING_VALUE}
               </div>
 
               {/* 닉네임 + 아바타 */}
@@ -128,23 +133,31 @@ export function RankingTable({
               {/* 레벨 / 레이팅 */}
               {type === "exp" && (
                 <div className="text-right tabular-nums font-medium text-muted-foreground text-base">
-                  Lv.{entry.exp_level ?? 0}
+                  {hasRankingValue
+                    ? `Lv.${entry.exp_level ?? 0}`
+                    : MASKED_RANKING_VALUE}
                 </div>
               )}
               {type === "bmsforce" && (
                 <div className="text-right tabular-nums font-medium text-muted-foreground text-base">
-                  {Math.round(entry.rating ?? 0).toLocaleString()}
+                  {hasRankingValue
+                    ? Math.round(entry.rating ?? 0).toLocaleString()
+                    : MASKED_RANKING_VALUE}
                 </div>
               )}
 
               {/* 경험치 / BMSFORCE */}
               <div className="text-right tabular-nums font-semibold text-lg">
                 {type === "exp" &&
-                  (entry.exp ?? 0).toLocaleString(undefined, {
-                    maximumFractionDigits: 0,
-                  })}
+                  (hasRankingValue
+                    ? (entry.exp ?? 0).toLocaleString(undefined, {
+                        maximumFractionDigits: 0,
+                      })
+                    : MASKED_RANKING_VALUE)}
                 {type === "bmsforce" && (
-                  <BmsforceValue value={entry.bms_force ?? 0} />
+                  hasRankingValue
+                    ? <BmsforceValue value={entry.bms_force ?? 0} />
+                    : MASKED_RANKING_VALUE
                 )}
               </div>
             </div>

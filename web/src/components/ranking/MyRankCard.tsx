@@ -11,6 +11,8 @@ import { DecoratedUsername } from "./DecoratedUsername";
 import { MetricInfoIcon } from "./RatingMetricInfo";
 import { BmsforceValue } from "./BmsforceValue";
 
+const MASKED_RANKING_VALUE = "-";
+
 interface MyRankCardProps {
   data: MyRankData | null | undefined;
   type: RankingType;
@@ -64,6 +66,7 @@ export function MyRankCard({
       </p>
     );
   } else {
+    const hasRankingValue = data.exp > 0;
     body = (
       <div className="flex flex-col items-center justify-center gap-4 text-center">
         {/* Rank info */}
@@ -73,10 +76,16 @@ export function MyRankCard({
               <div>
                 <p className="text-body-sm text-muted-foreground">내 순위</p>
                 <p className="text-2xl font-bold">
-                  #{(data.exp_rank ?? 0).toLocaleString()}
-                  <span className="text-body-sm text-muted-foreground font-normal">
-                    {" "}/ {data.exp_total_users.toLocaleString()}
-                  </span>
+                  {hasRankingValue ? (
+                    <>
+                      #{(data.exp_rank ?? 0).toLocaleString()}
+                      <span className="text-body-sm text-muted-foreground font-normal">
+                        {" "}/ {data.exp_total_users.toLocaleString()}
+                      </span>
+                    </>
+                  ) : (
+                    MASKED_RANKING_VALUE
+                  )}
                 </p>
               </div>
               <div>
@@ -85,8 +94,12 @@ export function MyRankCard({
                   <MetricInfoIcon metric="level" />
                 </p>
                 <div className="flex flex-wrap items-center justify-center gap-2">
-                  <p className="text-2xl font-bold">Lv.{data.exp_level}</p>
-                  {data.is_max_level && (
+                  <p className="text-2xl font-bold">
+                    {hasRankingValue
+                      ? `Lv.${data.exp_level}`
+                      : MASKED_RANKING_VALUE}
+                  </p>
+                  {hasRankingValue && data.is_max_level && (
                     <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-caption font-medium text-primary">
                       MAX
                     </span>
@@ -99,7 +112,9 @@ export function MyRankCard({
                   <MetricInfoIcon metric="exp" />
                 </p>
                 <p className="text-2xl font-bold tabular-nums">
-                  {data.exp.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  {hasRankingValue
+                    ? data.exp.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                    : MASKED_RANKING_VALUE}
                 </p>
               </div>
             </>
@@ -109,10 +124,16 @@ export function MyRankCard({
               <div>
                 <p className="text-body-sm text-muted-foreground">내 순위</p>
                 <p className="text-2xl font-bold">
-                  #{(data.bms_force_rank ?? 0).toLocaleString()}
-                  <span className="text-body-sm text-muted-foreground font-normal">
-                    {" "}/ {data.bms_force_total_users.toLocaleString()}
-                  </span>
+                  {hasRankingValue ? (
+                    <>
+                      #{(data.bms_force_rank ?? 0).toLocaleString()}
+                      <span className="text-body-sm text-muted-foreground font-normal">
+                        {" "}/ {data.bms_force_total_users.toLocaleString()}
+                      </span>
+                    </>
+                  ) : (
+                    MASKED_RANKING_VALUE
+                  )}
                 </p>
               </div>
               <div>
@@ -121,7 +142,9 @@ export function MyRankCard({
                   <MetricInfoIcon metric="rating" />
                 </p>
                 <p className="text-2xl font-bold tabular-nums">
-                  {Math.round(data.rating).toLocaleString()}
+                  {hasRankingValue
+                    ? Math.round(data.rating).toLocaleString()
+                    : MASKED_RANKING_VALUE}
                 </p>
               </div>
               <div>
@@ -130,7 +153,9 @@ export function MyRankCard({
                   <MetricInfoIcon metric="bmsforce" />
                 </p>
                 <p className="text-2xl font-bold tabular-nums">
-                  <BmsforceValue value={data.bms_force} />
+                  {hasRankingValue
+                    ? <BmsforceValue value={data.bms_force} />
+                    : MASKED_RANKING_VALUE}
                 </p>
               </div>
             </>

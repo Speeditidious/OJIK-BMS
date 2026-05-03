@@ -78,6 +78,8 @@ class PlayerStats(BaseModel):
 class SyncRequest(BaseModel):
     scores: list[ScoreSyncItem] = []
     player_stats: list[PlayerStats] = []
+    is_final_batch: bool = True
+    has_previous_score_changes: bool = False
 
 
 class SyncResponse(BaseModel):
@@ -86,6 +88,19 @@ class SyncResponse(BaseModel):
     skipped_scores: int = 0
     metadata_updated: int = 0
     errors: list[str] = []
+
+
+def _should_enqueue_ranking_recalculation(
+    payload: SyncRequest,
+    synced_scores: int,
+    inserted_scores: int,
+) -> bool:
+    """Return whether this sync request should trigger user ranking recalculation."""
+    return payload.is_final_batch and (
+        payload.has_previous_score_changes
+        or synced_scores > 0
+        or inserted_scores > 0
+    )
 
 
 # ── Best-value helpers ────────────────────────────────────────────────────────
@@ -748,7 +763,7 @@ async def sync_data(
     await db.commit()
 
     # Trigger ranking recalculation for this user in the background
-    if synced_scores > 0 or inserted_scores > 0:
+    if _should_enqueue_ranking_recalculation(payload, synced_scores, inserted_scores):
         try:
             from app.tasks.ranking_calculator import recalculate_user_rankings
             recalculate_user_rankings.delay(str(current_user.id))

@@ -47,6 +47,7 @@ async def sync_scores(
     all_errors: list[str] = []
 
     any_batch_succeeded = False
+    has_score_changes = False
 
     async with _make_client(timeout=300.0) as client:
         # Build score batches — skip if no scores
@@ -68,6 +69,8 @@ async def sync_scores(
             payload = {
                 "scores": score_batch,
                 "player_stats": stats_batch,
+                "is_final_batch": batch_idx == total_batches,
+                "has_previous_score_changes": has_score_changes,
             }
 
             response = await make_authenticated_request(
@@ -83,6 +86,8 @@ async def sync_scores(
                 total_synced_scores += data.get("synced_scores", 0)
                 total_inserted_scores += data.get("inserted_scores", 0)
                 all_errors.extend(data.get("errors", []))
+                if data.get("synced_scores", 0) > 0 or data.get("inserted_scores", 0) > 0:
+                    has_score_changes = True
                 any_batch_succeeded = True
                 if progress_callback:
                     progress_callback(batch_idx, total_batches)

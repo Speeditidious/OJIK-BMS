@@ -582,7 +582,7 @@ async def get_rankings(
             entry["rating"] = None
             entry["bms_force"] = None
         else:
-            entry["exp"] = None
+            entry["exp"] = round(float(row["exp"]), 2)
             entry["rating"] = round(float(row["rating"]), 2)
             entry["bms_force"] = round(float(row["rating_norm"]), 3)
         entries.append(entry)
