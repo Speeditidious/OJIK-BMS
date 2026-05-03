@@ -162,6 +162,75 @@ async def test_run_deploy_rating_warmup_continues_after_per_user_failure(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_run_deploy_rating_warmup_stops_early_when_time_budget_is_exhausted(monkeypatch):
+    first_user = uuid.uuid4()
+    second_user = uuid.uuid4()
+    recalculated_users = []
+
+    class _FakeSession:
+        def __init__(self):
+            self.commits = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def commit(self):
+            self.commits += 1
+
+        async def rollback(self):
+            return None
+
+    fake_session = _FakeSession()
+
+    async def fake_init_ranking_config(_db):
+        return object()
+
+    async def fake_select_recent_active_user_ids(_db, recent_days, limit):
+        assert recent_days == 30
+        assert limit == 2
+        return [first_user, second_user]
+
+    async def fake_recalculate_user(user_id, _config, _db):
+        recalculated_users.append(user_id)
+
+    class _FakeTaskResult:
+        id = "task-789"
+
+    class _FakeTask:
+        @staticmethod
+        def delay():
+            return _FakeTaskResult()
+
+    perf_values = iter([100.0, 100.0, 700.0, 701.0, 702.0])
+
+    monkeypatch.setattr("scripts.deploy_rating_warmup.time.perf_counter", lambda: next(perf_values))
+    monkeypatch.setattr("scripts.deploy_rating_warmup.AsyncSessionLocal", lambda: fake_session)
+    monkeypatch.setattr("scripts.deploy_rating_warmup.init_ranking_config", fake_init_ranking_config)
+    monkeypatch.setattr(
+        "scripts.deploy_rating_warmup.select_recent_active_user_ids",
+        fake_select_recent_active_user_ids,
+    )
+    monkeypatch.setattr("scripts.deploy_rating_warmup.recalculate_user", fake_recalculate_user)
+    monkeypatch.setattr("app.tasks.ranking_calculator.recalculate_all_rankings", _FakeTask)
+
+    result = await run_deploy_rating_warmup(recent_days=30, limit=2, time_budget_seconds=10)
+
+    assert recalculated_users == [first_user]
+    assert result["processed"] == 1
+    assert result["succeeded"] == 1
+    assert result["failed"] == 0
+    assert result["last_user_id"] == str(first_user)
+    assert result["time_budget_seconds"] == 10
+    assert result["time_budget_exhausted"] is True
+    assert result["enqueue_succeeded"] is True
+    assert result["enqueue_task_id"] == "task-789"
+    assert fake_session.commits == 1
+
+
+@pytest.mark.asyncio
 async def test_run_deploy_rating_warmup_reports_enqueue_failure_without_aborting(monkeypatch):
     only_user = uuid.uuid4()
 

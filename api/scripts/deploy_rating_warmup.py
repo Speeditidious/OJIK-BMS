@@ -2,7 +2,7 @@
 
 Usage:
     docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T api \
-        python -m scripts.deploy_rating_warmup --recent-days 30 --limit 500
+        python -m scripts.deploy_rating_warmup --recent-days 30 --limit 500 --time-budget-seconds 480
 """
 
 from __future__ import annotations
@@ -62,12 +62,14 @@ async def select_recent_active_user_ids(
 async def run_deploy_rating_warmup(
     recent_days: int = 30,
     limit: int = 500,
+    time_budget_seconds: int | None = None,
 ) -> dict[str, int | float | str | bool | None]:
     """Warm up ranking and derived rating tables for recently active users."""
     started_at = time.perf_counter()
     processed = 0
     succeeded = 0
     failed = 0
+    time_budget_exhausted = False
     last_user_id: str | None = None
 
     async with AsyncSessionLocal() as db:
@@ -81,6 +83,19 @@ async def run_deploy_rating_warmup(
             )
         else:
             for user_id in user_ids:
+                if (
+                    time_budget_seconds is not None
+                    and time.perf_counter() - started_at >= time_budget_seconds
+                ):
+                    time_budget_exhausted = True
+                    logger.warning(
+                        "Deploy rating warm-up stopped early after %.3fs: processed=%s remaining=%s time_budget_seconds=%s",
+                        time.perf_counter() - started_at,
+                        processed,
+                        len(user_ids) - processed,
+                        time_budget_seconds,
+                    )
+                    break
                 processed += 1
                 last_user_id = str(user_id)
                 try:
@@ -115,12 +130,13 @@ async def run_deploy_rating_warmup(
 
     duration_seconds = round(time.perf_counter() - started_at, 3)
     logger.info(
-        "Deploy rating warm-up complete: processed=%s succeeded=%s failed=%s duration=%.3fs last_user_id=%s enqueue_succeeded=%s enqueue_task_id=%s",
+        "Deploy rating warm-up complete: processed=%s succeeded=%s failed=%s duration=%.3fs last_user_id=%s time_budget_exhausted=%s enqueue_succeeded=%s enqueue_task_id=%s",
         processed,
         succeeded,
         failed,
         duration_seconds,
         last_user_id,
+        time_budget_exhausted,
         enqueue_succeeded,
         enqueue_task_id,
     )
@@ -130,6 +146,8 @@ async def run_deploy_rating_warmup(
         "failed": failed,
         "recent_days": recent_days,
         "limit": limit,
+        "time_budget_seconds": time_budget_seconds,
+        "time_budget_exhausted": time_budget_exhausted,
         "last_user_id": last_user_id,
         "duration_seconds": duration_seconds,
         "enqueue_succeeded": enqueue_succeeded,
@@ -154,6 +172,15 @@ def parse_args() -> argparse.Namespace:
         default=500,
         help="Maximum number of users to warm up (default: 500).",
     )
+    parser.add_argument(
+        "--time-budget-seconds",
+        type=int,
+        default=None,
+        help=(
+            "Stop the best-effort warm-up after this many seconds, then enqueue the full "
+            "background recalculation as usual (default: no time budget)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -161,7 +188,13 @@ def main() -> None:
     """CLI entrypoint."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     args = parse_args()
-    asyncio.run(run_deploy_rating_warmup(recent_days=args.recent_days, limit=args.limit))
+    asyncio.run(
+        run_deploy_rating_warmup(
+            recent_days=args.recent_days,
+            limit=args.limit,
+            time_budget_seconds=args.time_budget_seconds,
+        )
+    )
 
 
 if __name__ == "__main__":

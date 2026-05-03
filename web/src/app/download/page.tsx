@@ -121,7 +121,7 @@ export default function DownloadPage() {
               </span>
               <div>
                 <p className="font-medium">exe 파일 다운로드 후 실행</p>
-                <p className="text-body text-muted-foreground">새로운 폴더 생성 후 그 안에서 실행시키는 것을 권장합니다 (같은 폴더 내에 config 파일도 생성됨).</p>
+                <p className="text-body text-muted-foreground">실행시키면 OJIK BMS Client 설치가 진행됩니다. 나중에 삭제하고 싶으시면 제어판에서 삭제 가능합니다.</p>
               </div>
             </li>
             <li className="flex gap-3">
@@ -129,9 +129,9 @@ export default function DownloadPage() {
                 2
               </span>
               <div>
-                <p className="font-medium">Discord 로그인</p>
+                <p className="font-medium">첫 동기화 가이드라인</p>
                 <p className="text-body text-muted-foreground">
-                  OJIK BMS 계정과 동일한 Discord 계정으로 로그인합니다.
+                  설치 완료 후 첫 실행 시 Discord 계정 로그인부터 BMS 데이터베이스 경로 추가 안내까지 진행합니다. 다 건너뛰기 하셔도 대시보드에서 설정 가능해서 괜찮습니다.
                 </p>
               </div>
             </li>
@@ -140,9 +140,10 @@ export default function DownloadPage() {
                 3
               </span>
               <div>
-                <p className="font-medium">경로 설정 후 동기화</p>
+                <p className="font-medium">전체 동기화 및 빠른 동기화</p>
                 <p className="text-body text-muted-foreground">
-                  각 구동기의 데이터베이스 경로를 지정하면 자동으로 스캔 · 동기화됩니다.
+                  동기화 버튼을 누르면 서버에 데이터를 전송합니다. 전체 동기화는 차분 메타데이터를 포함해 전송하며, 빠른 동기화는 플레이 데이터만 전송합니다.
+                  처음에는 전체 동기화를 하고 이후 새로운 차분이 추가되지 않았으면 빠른 동기화를 추천드립니다.
                 </p>
               </div>
             </li>
