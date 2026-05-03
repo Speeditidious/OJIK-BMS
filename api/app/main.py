@@ -13,6 +13,7 @@ from app.routers import (
     admin,
     analysis,
     auth,
+    client,
     custom,
     fumens,
     rankings,
@@ -149,6 +150,7 @@ app.add_middleware(
 
 app.include_router(admin.router)
 app.include_router(auth.router)
+app.include_router(client.router)
 app.include_router(users.router)
 app.include_router(tables.router)
 app.include_router(scores.router)

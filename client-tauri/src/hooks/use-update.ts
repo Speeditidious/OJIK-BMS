@@ -4,6 +4,8 @@ import { subscribe } from "../lib/tauri-events";
 import { checkUpdatePolicy, installUpdate, openDownloadPage } from "../tauri";
 import type { UpdateAnnouncement, UpdateError, UpdatePolicy } from "../types";
 
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+
 export function useUpdateStore() {
   const [policy, setPolicy] = useState<UpdatePolicy | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<{ downloaded: number; total?: number | null } | null>(null);
@@ -14,13 +16,18 @@ export function useUpdateStore() {
   // Background check on mount.
   useEffect(() => {
     let cancelled = false;
-    checkUpdatePolicy(false)
-      .then((next) => {
-        if (!cancelled) setPolicy(next);
-      })
-      .catch(() => {});
+    const check = () => {
+      checkUpdatePolicy(false)
+        .then((next) => {
+          if (!cancelled) setPolicy(next);
+        })
+        .catch(() => {});
+    };
+    check();
+    const timer = window.setInterval(check, UPDATE_CHECK_INTERVAL_MS);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, []);
 

@@ -1,4 +1,5 @@
 from app.models.base import Base, TimestampMixin
+from app.models.client_update import ClientUpdateAnnouncement
 from app.models.course import Course
 from app.models.difficulty_table import (
     CustomCourse,
@@ -20,6 +21,7 @@ from app.models.user import OAuthAccount, User
 __all__ = [
     "Base",
     "TimestampMixin",
+    "ClientUpdateAnnouncement",
     "User",
     "OAuthAccount",
     "Fumen",

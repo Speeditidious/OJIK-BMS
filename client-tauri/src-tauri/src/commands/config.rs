@@ -108,4 +108,3 @@ fn apply_file_filter<R: tauri::Runtime>(
     }
     dialog.add_filter("SQLite database", &["db", "sqlite", "sqlite3"])
 }
-

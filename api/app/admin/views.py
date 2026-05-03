@@ -5,12 +5,14 @@ Data integrity rules applied here mirror the constraints in the API:
 - User: no delete (prevents accidental cascade wipeout).
 """
 import uuid
+from datetime import UTC, datetime
 
 from sqladmin import ModelView, action
-from sqlalchemy import delete, null, update
+from sqlalchemy import delete, func, null, update
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
+from app.models.client_update import ClientUpdateAnnouncement
 from app.models.course import Course
 from app.models.difficulty_table import (
     CustomCourse,
@@ -257,6 +259,121 @@ class CourseAdmin(ModelView, model=Course):
     column_searchable_list = [Course.name, Course.dan_title]
     column_sortable_list = [Course.synced_at, Course.is_active, Course.name]
 
+
+class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
+    name = "Client Update"
+    name_plural = "Client Updates"
+    icon = "fa-solid fa-bullhorn"
+    column_list = [
+        ClientUpdateAnnouncement.version,
+        ClientUpdateAnnouncement.channel,
+        ClientUpdateAnnouncement.target_os,
+        ClientUpdateAnnouncement.arch,
+        ClientUpdateAnnouncement.mandatory,
+        ClientUpdateAnnouncement.is_published,
+        ClientUpdateAnnouncement.publish_after,
+        ClientUpdateAnnouncement.published_at,
+        ClientUpdateAnnouncement.updated_at,
+    ]
+    column_searchable_list = [
+        ClientUpdateAnnouncement.version,
+        ClientUpdateAnnouncement.title,
+        ClientUpdateAnnouncement.body_markdown,
+    ]
+    column_sortable_list = [
+        ClientUpdateAnnouncement.version,
+        ClientUpdateAnnouncement.is_published,
+        ClientUpdateAnnouncement.publish_after,
+        ClientUpdateAnnouncement.published_at,
+        ClientUpdateAnnouncement.updated_at,
+    ]
+    form_columns = [
+        ClientUpdateAnnouncement.version,
+        ClientUpdateAnnouncement.channel,
+        ClientUpdateAnnouncement.target_os,
+        ClientUpdateAnnouncement.arch,
+        ClientUpdateAnnouncement.installer_kind,
+        ClientUpdateAnnouncement.title,
+        ClientUpdateAnnouncement.body_markdown,
+        ClientUpdateAnnouncement.release_page_url,
+        ClientUpdateAnnouncement.update_url,
+        ClientUpdateAnnouncement.tauri_signature,
+        ClientUpdateAnnouncement.asset_size_bytes,
+        ClientUpdateAnnouncement.asset_sha256,
+        ClientUpdateAnnouncement.mandatory,
+        ClientUpdateAnnouncement.min_supported_version,
+        ClientUpdateAnnouncement.is_published,
+        ClientUpdateAnnouncement.publish_after,
+    ]
+
+    async def on_model_change(self, data, model, is_created, request) -> None:
+        """Stamp published_at when an admin publishes a client update."""
+        if model.is_published and model.published_at is None:
+            model.published_at = datetime.now(UTC)
+
+    @action(
+        name="publish_updates",
+        label="업데이트 알림 보내기",
+        confirmation_message=(
+            "선택한 업데이트를 공개합니다. 설치된 클라이언트는 다음 업데이트 확인 시 팝업을 표시합니다. "
+            "계속하시겠습니까?"
+        ),
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def publish_updates(self, request: Request) -> RedirectResponse:
+        """Publish selected announcements and stamp published_at if needed."""
+        from app.core.database import AsyncSessionLocal
+
+        pks = _parse_uuid_pks(request.query_params.get("pks", ""))
+        if pks:
+            now = datetime.now(UTC)
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    update(ClientUpdateAnnouncement)
+                    .where(ClientUpdateAnnouncement.id.in_(pks))
+                    .values(
+                        is_published=True,
+                        published_at=func.coalesce(ClientUpdateAnnouncement.published_at, now),
+                        updated_at=now,
+                    )
+                )
+                await db.commit()
+
+        return RedirectResponse(request.url_for("admin:list", identity=self.identity), status_code=302)
+
+    @action(
+        name="unpublish_updates",
+        label="업데이트 알림 내리기",
+        confirmation_message="선택한 업데이트를 비공개로 전환합니다. 계속하시겠습니까?",
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def unpublish_updates(self, request: Request) -> RedirectResponse:
+        """Hide selected announcements from client update endpoints."""
+        from app.core.database import AsyncSessionLocal
+
+        pks = _parse_uuid_pks(request.query_params.get("pks", ""))
+        if pks:
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    update(ClientUpdateAnnouncement)
+                    .where(ClientUpdateAnnouncement.id.in_(pks))
+                    .values(is_published=False, updated_at=datetime.now(UTC))
+                )
+                await db.commit()
+
+        return RedirectResponse(request.url_for("admin:list", identity=self.identity), status_code=302)
+
+
+def _parse_uuid_pks(raw: str) -> list[uuid.UUID]:
+    ids: list[uuid.UUID] = []
+    for pk in [part.strip() for part in raw.split(",") if part.strip()]:
+        try:
+            ids.append(uuid.UUID(pk))
+        except ValueError:
+            continue
+    return ids
 
 
 class UserFavoriteDifficultyTableAdmin(ModelView, model=UserFavoriteDifficultyTable):

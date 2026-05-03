@@ -5,6 +5,7 @@ from sqladmin import Admin
 
 from app.admin.auth import DiscordAdminAuth
 from app.admin.views import (
+    ClientUpdateAnnouncementAdmin,
     CourseAdmin,
     CustomCourseAdmin,
     CustomDifficultyTableAdmin,
@@ -57,6 +58,7 @@ def create_admin(app, engine) -> Admin:
         FumenAdmin,
         UserScoreAdmin,
         UserPlayerStatsAdmin,
+        ClientUpdateAnnouncementAdmin,
         CourseAdmin,
         UserFavoriteDifficultyTableAdmin,
         UserFumenTagAdmin,
