@@ -51,7 +51,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "TAURI_UPDATER_PUBLIC_KEY_PLACEHOLDER",
+      "pubkey": "RWQzbI0jcRuuZfH1dXoH/m1GBOYN6kZbJoKTqNqg8ko5gSK+e2xtVXvW",
       "endpoints": [
         "https://api.ojikbms.kr/client/tauri-update/windows/x86_64/{{current_version}}?channel=stable&installer_kind=nsis"
       ],
