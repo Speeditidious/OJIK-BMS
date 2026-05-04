@@ -50,9 +50,12 @@ jobs:
 
           $keyPath = Join-Path $env:RUNNER_TEMP "tauri-signing.key"
           $keyContent = $env:TAURI_SIGNING_PRIVATE_KEY_CONTENT.Trim() -replace '\\n', "`n"
+          if ($keyContent.StartsWith("untrusted comment:")) {
+            $keyContent = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($keyContent))
+          }
           [System.IO.File]::WriteAllText($keyPath, $keyContent, [System.Text.UTF8Encoding]::new($false))
 
-          "TAURI_SIGNING_PRIVATE_KEY=$keyPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TAURI_SIGNING_PRIVATE_KEY_PATH=$keyPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build Tauri installer
         working-directory: client-tauri
