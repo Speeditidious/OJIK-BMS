@@ -52,11 +52,21 @@ jobs:
           $keyContent = $env:TAURI_SIGNING_PRIVATE_KEY_CONTENT.Trim() -replace '\\n', "`n"
           if ($keyContent.StartsWith("untrusted comment:")) {
             $keyContent = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($keyContent))
+          } else {
+            $keyContent = ($keyContent -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -First 1)
           }
           [System.IO.File]::WriteAllText($keyPath, $keyContent, [System.Text.UTF8Encoding]::new($false))
 
           "TAURI_SIGNING_PRIVATE_KEY=$keyContent" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "TAURI_SIGNING_PRIVATE_KEY_PATH=$keyPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Validate Tauri signing key
+        working-directory: client-tauri
+        env:
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          npm run tauri -- signer sign package.json
+          Remove-Item package.json.sig -ErrorAction SilentlyContinue
 
       - name: Build Tauri installer
         working-directory: client-tauri
