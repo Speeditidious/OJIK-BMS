@@ -128,10 +128,6 @@ export function FirstRunWizard({
                   client="lr2"
                   config={config}
                   onUpdate={onUpdateConfig}
-                  onQuickSync={() => {}}
-                  onFullSync={() => {}}
-                  syncDisabled
-                  syncDisabledReason="동기화는 마지막 단계에서 시작합니다"
                   onPickError={onPickError}
                 />
               </div>
@@ -152,10 +148,6 @@ export function FirstRunWizard({
                   client="beatoraja"
                   config={config}
                   onUpdate={onUpdateConfig}
-                  onQuickSync={() => {}}
-                  onFullSync={() => {}}
-                  syncDisabled
-                  syncDisabledReason="동기화는 마지막 단계에서 시작합니다"
                   onPickError={onPickError}
                 />
               </div>

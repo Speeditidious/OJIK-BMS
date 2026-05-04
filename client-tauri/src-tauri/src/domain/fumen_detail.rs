@@ -111,7 +111,7 @@ pub async fn run_detail_sync(
                     supplemented_sha256s.extend(response.supplemented_sha256s);
                 }
                 Err(error) => {
-                    summary.errors.push(format!("해시 보강 오류: {error}"));
+                    summary.errors.push(format!("해시 보강 오류: {error:#}"));
                     break;
                 }
             }
@@ -195,7 +195,9 @@ pub async fn run_detail_sync(
                 }
             }
             Err(error) => {
-                summary.errors.push(format!("차분 상세 전송 오류: {error}"));
+                summary
+                    .errors
+                    .push(format!("차분 상세 전송 오류: {error:#}"));
                 break;
             }
         }

@@ -14,6 +14,7 @@ use crate::domain::{beatoraja, config, fumen_detail, lr2};
 
 const SCORE_BATCH_SIZE: usize = 500;
 const QUICK_SYNC_SCORELOG_OVERLAP_DAYS: i64 = 3;
+const REFRESH_TOKEN_PROACTIVE_RENEW_DAYS: u32 = 3;
 
 #[derive(Default)]
 pub struct SyncRegistry {
@@ -176,7 +177,7 @@ pub fn start_sync(
                     },
                 );
             } else {
-                let msg = error.to_string();
+                let msg = format!("{:#}", error);
                 write_error_log(&app_for_task, &run_id_for_task, &[], Some(&msg));
                 if msg.contains(auth_domain::REAUTH_REQUIRED_TAG) {
                     // Notify the auth store so the header switches to logged-out
@@ -220,6 +221,7 @@ async fn run_sync(
     cancel_flag: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let cfg = config::load(&app)?;
+    ensure_session_for_sync(&app, &cfg.api_url).await?;
     let api = ApiClient::new(cfg.api_url.clone(), app.clone())?;
     let include_lr2 = matches!(request.client_filter.as_str(), "all" | "lr2");
     let include_bea = matches!(request.client_filter.as_str(), "all" | "beatoraja");
@@ -622,6 +624,23 @@ async fn run_sync(
         },
     );
 
+    Ok(())
+}
+
+async fn ensure_session_for_sync(app: &AppHandle, api_url: &str) -> anyhow::Result<()> {
+    if !auth_domain::ensure_refresh_token_fresh(app, api_url, REFRESH_TOKEN_PROACTIVE_RENEW_DAYS)
+        .await?
+    {
+        return Err(auth_domain::reauth_required_error());
+    }
+
+    auth_cmd::emit_auth_changed(
+        app,
+        &AuthStatus {
+            logged_in: true,
+            refresh_token_expire_days: auth_domain::refresh_token_expire_days(app),
+        },
+    );
     Ok(())
 }
 

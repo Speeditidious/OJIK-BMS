@@ -299,12 +299,6 @@ export default function App() {
               client={client}
               config={config}
               onUpdate={update}
-              onQuickSync={() => handleStartSync(client, false)}
-              onFullSync={() => handleStartSync(client, true)}
-              syncDisabled={!auth?.logged_in || isSyncRunning}
-              syncDisabledReason={
-                !auth?.logged_in ? "먼저 Discord 로그인이 필요합니다" : isSyncRunning ? "동기화 진행 중" : undefined
-              }
               onPickError={(msg) => toast.push({ tone: "warn", title: "경로 선택 오류", message: msg })}
             />
           ))}
@@ -382,7 +376,6 @@ export default function App() {
         }}
         config={config}
         onCheckUpdate={handleManualUpdateCheck}
-        onOpenDownloadPage={handleOpenDownloadPage}
         onResetUpdateDismissals={handleResetUpdateDismissals}
         isCheckingUpdate={updater.isChecking}
       />

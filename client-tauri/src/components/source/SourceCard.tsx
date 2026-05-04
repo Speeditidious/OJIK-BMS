@@ -1,4 +1,3 @@
-import { Database, Download } from "lucide-react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -6,7 +5,6 @@ import { probeForValidity, type ValidityState } from "../../lib/path-validity";
 import { pickFile, pickFolder, probePath, isTauriRuntime } from "../../tauri";
 import type { ClientConfig, ClientType } from "../../types";
 import { Badge } from "../primitives/Badge";
-import { Button } from "../primitives/Button";
 import { PathField } from "./PathField";
 
 const CLIENT_LABEL: Record<ClientType, string> = {
@@ -84,10 +82,6 @@ export interface SourceCardProps {
   client: ClientType;
   config: ClientConfig;
   onUpdate: (patch: Partial<ClientConfig>) => void;
-  onQuickSync: () => void;
-  onFullSync: () => void;
-  syncDisabled: boolean;
-  syncDisabledReason?: string;
   onPickError?: (message: string) => void;
 }
 
@@ -95,10 +89,6 @@ export function SourceCard({
   client,
   config,
   onUpdate,
-  onQuickSync,
-  onFullSync,
-  syncDisabled,
-  syncDisabledReason,
   onPickError,
 }: SourceCardProps) {
   const fields = FIELDS[client];
@@ -265,26 +255,6 @@ export function SourceCard({
         ))}
       </div>
 
-      <div className="source-card-actions">
-        <Button
-          variant="primary"
-          leadingIcon={<Database size={15} aria-hidden="true" />}
-          onClick={onQuickSync}
-          disabled={syncDisabled || !hasAllRequired}
-          title={syncDisabledReason}
-        >
-          {clientLabel} 빠른 동기화
-        </Button>
-        <Button
-          variant="accent"
-          leadingIcon={<Download size={15} aria-hidden="true" />}
-          onClick={onFullSync}
-          disabled={syncDisabled || !hasAllRequired}
-          title={syncDisabledReason}
-        >
-          {clientLabel} 전체 동기화
-        </Button>
-      </div>
     </article>
   );
 }

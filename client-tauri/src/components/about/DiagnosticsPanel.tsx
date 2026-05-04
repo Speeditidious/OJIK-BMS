@@ -1,4 +1,4 @@
-import { Download, FileText, RefreshCw, RotateCcw } from "lucide-react";
+import { FileText, RefreshCw, RotateCcw } from "lucide-react";
 
 import type { ClientConfig } from "../../types";
 import { Button } from "../primitives/Button";
@@ -20,7 +20,6 @@ export function DiagnosticsPanel({
   info,
   config,
   onCheckUpdate,
-  onOpenDownloadPage,
   onOpenLogFile,
   onResetUpdateDismissals,
   isCheckingUpdate,
@@ -30,7 +29,6 @@ export function DiagnosticsPanel({
   info: DiagnosticsInfo;
   config: ClientConfig | null;
   onCheckUpdate: () => void;
-  onOpenDownloadPage: () => void;
   onOpenLogFile?: () => void;
   onResetUpdateDismissals: () => void;
   isCheckingUpdate: boolean;
@@ -68,14 +66,6 @@ export function DiagnosticsPanel({
               disabled={isCheckingUpdate}
             >
               지금 확인
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              leadingIcon={<Download size={14} aria-hidden="true" />}
-              onClick={onOpenDownloadPage}
-            >
-              다운로드 페이지
             </Button>
             <Button
               size="sm"

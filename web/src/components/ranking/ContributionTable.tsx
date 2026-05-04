@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -67,34 +68,46 @@ interface SectionModel {
 }
 
 interface TableColumn {
+  key: ContributionColumnKey;
   width?: number;
   align: "left" | "center";
 }
 
+type ContributionColumnKey =
+  | "rank"
+  | "level"
+  | "title"
+  | "recorded_at"
+  | "clear_type"
+  | "min_bp"
+  | "rate"
+  | "rank_grade"
+  | "env"
+  | "value";
+
 const DEFAULT_COLUMNS: TableColumn[] = [
-  { width: 72, align: "left" },   // [0] 순위
-  { width: 84, align: "left" },   // [1] 레벨
-  { align: "left" },              // [2] 제목
-  { width: 100, align: "left" },  // [3] 기록 날짜 (신규)
-  { width: 110, align: "left" },  // [4] 클리어
-  { width: 84, align: "left" },  // [5] BP
-  { width: 100, align: "left" },  // [6] 판정
-  { width: 84, align: "left" },  // [7] 랭크
-  { width: 72, align: "left" },   // [8] 구동기
-  { width: 200, align: "center" }, // [9] 레이팅
+  { key: "rank", width: 72, align: "left" },
+  { key: "level", width: 84, align: "left" },
+  { key: "title", align: "left" },
+  { key: "recorded_at", width: 100, align: "left" },
+  { key: "clear_type", width: 110, align: "left" },
+  { key: "min_bp", width: 84, align: "left" },
+  { key: "rate", width: 100, align: "left" },
+  { key: "rank_grade", width: 84, align: "left" },
+  { key: "env", width: 72, align: "left" },
+  { key: "value", width: 200, align: "center" },
 ];
 
 const DAY_DETAIL_COLUMNS: TableColumn[] = [
-  { width: 120, align: "left" },   // [0] 순위
-  { width: 92, align: "left" },    // [1] 레벨
-  { align: "left" },               // [2] 제목
-  { width: 100, align: "left" },   // [3] 기록 날짜 (신규)
-  { width: 160, align: "center" }, // [4] 클리어
-  { width: 140, align: "center" }, // [5] BP
-  { width: 200, align: "center" }, // [6] 판정
-  { width: 116, align: "center" }, // [7] 랭크
-  { width: 72, align: "center" },  // [8] 구동기
-  { width: 220, align: "center" }, // [9] 레이팅
+  { key: "rank", width: 120, align: "left" },
+  { key: "level", width: 92, align: "left" },
+  { key: "title", align: "left" },
+  { key: "clear_type", width: 160, align: "center" },
+  { key: "min_bp", width: 140, align: "center" },
+  { key: "rate", width: 200, align: "center" },
+  { key: "rank_grade", width: 116, align: "center" },
+  { key: "env", width: 72, align: "center" },
+  { key: "value", width: 220, align: "center" },
 ];
 
 function contributionKey(entry: RankingContributionEntry): string {
@@ -288,6 +301,28 @@ function SortableHeader({
       </button>
     </div>
   );
+}
+
+function columnHeaderConfig(
+  column: TableColumn,
+  valueLabel: string,
+): { label: string; sortKey: RatingContributionSortBy; title?: string } {
+  if (column.key === "rank") return { label: "순위", sortKey: "rank" };
+  if (column.key === "level") return { label: "레벨", sortKey: "level" };
+  if (column.key === "title") return { label: "제목", sortKey: "title" };
+  if (column.key === "recorded_at") return { label: "기록 날짜", sortKey: "recorded_at" };
+  if (column.key === "clear_type") return { label: "클리어", sortKey: "clear_type" };
+  if (column.key === "min_bp") return { label: "BP", sortKey: "min_bp" };
+  if (column.key === "rate") return { label: "판정", sortKey: "rate" };
+  if (column.key === "rank_grade") return { label: "랭크", sortKey: "rank_grade" };
+  if (column.key === "env") {
+    return {
+      label: "구동기",
+      sortKey: "env",
+      title: "LR = LR2, BR = Beatoraja, MIX = 양쪽 기록",
+    };
+  }
+  return { label: valueLabel, sortKey: "value" };
 }
 
 function InlineComparison({
@@ -552,16 +587,15 @@ function ContributionRow({
   const rowClass = CLEAR_ROW_CLASS[entry.clear_type] ?? "";
   const clearClient = entry.client_types[0] ?? "beatoraja";
 
-  return (
-    <tr
-      style={{ height: ROW_HEIGHT }}
-      className={cn("border-b border-border/30", rowClass || "hover:bg-secondary/50")}
-    >
-      <td className={cn("px-2 text-label tabular-nums", cellAlignClass(columns[0].align))}>
-        <RankCell entry={entry} section={section} presentation={presentation} />
-      </td>
-      <td className={cn("px-2 text-label", cellAlignClass(columns[1].align))}>{entry.symbol}{entry.level}</td>
-      <td className="px-2">
+  function renderCell(column: TableColumn): ReactNode {
+    if (column.key === "rank") {
+      return <RankCell entry={entry} section={section} presentation={presentation} />;
+    }
+    if (column.key === "level") {
+      return <>{entry.symbol}{entry.level}</>;
+    }
+    if (column.key === "title") {
+      return (
         <div className="min-w-0 overflow-hidden">
           <Link href={songHref} className="block max-w-full truncate text-label leading-tight transition-colors hover:text-primary">
             {entry.title}
@@ -570,9 +604,11 @@ function ContributionRow({
             <div className="max-w-full truncate text-caption text-muted-foreground/80 row-muted">{entry.artist}</div>
           )}
         </div>
-      </td>
-      <td className={cn("px-2 text-label tabular-nums", cellAlignClass(columns[3].align))}>
-        {entry.recorded_at ? (
+      );
+    }
+    if (column.key === "recorded_at") {
+      if (entry.recorded_at) {
+        return (
           <TooltipProvider delayDuration={200}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -586,7 +622,10 @@ function ContributionRow({
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-        ) : entry.sort_recorded_at ? (
+        );
+      }
+      if (entry.sort_recorded_at) {
+        return (
           <TooltipProvider delayDuration={200}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -600,36 +639,56 @@ function ContributionRow({
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-        ) : (
-          <span className="text-muted-foreground row-muted">--</span>
-        )}
-      </td>
-      <td className={cn("px-2 text-label", cellAlignClass(columns[4].align))}>
-        <ClearCell entry={entry} section={section} clientType={clearClient} presentation={presentation} />
-      </td>
-      <td className={cn("px-2 text-label", cellAlignClass(columns[5].align))}>
-        <BpCell entry={entry} section={section} presentation={presentation} />
-      </td>
-      <td className={cn("px-2 text-label", cellAlignClass(columns[6].align))}>
-        <RateCell entry={entry} section={section} presentation={presentation} />
-      </td>
-      <td className={cn("px-2 text-label", cellAlignClass(columns[7].align))}>
-        <RankGradeCell entry={entry} section={section} presentation={presentation} />
-      </td>
-      <td className={cn("px-2 text-label", cellAlignClass(columns[8].align))}>
-        {entry.updated_today === false ? (
-          <span className="row-prev">—</span>
-        ) : (
-          <SourceClientBadge
-            sourceClient={entry.source_client}
-            sourceClientDetail={entry.source_client_detail}
-            fallbackClientTypes={entry.client_types}
-          />
-        )}
-      </td>
-      <td className="rating-value-cell px-3 text-center w-32 font-bold tabular-nums text-base">
-        <ValueCell entry={entry} metric={metric} section={section} presentation={presentation} />
-      </td>
+        );
+      }
+      return <span className="text-muted-foreground row-muted">--</span>;
+    }
+    if (column.key === "clear_type") {
+      return <ClearCell entry={entry} section={section} clientType={clearClient} presentation={presentation} />;
+    }
+    if (column.key === "min_bp") {
+      return <BpCell entry={entry} section={section} presentation={presentation} />;
+    }
+    if (column.key === "rate") {
+      return <RateCell entry={entry} section={section} presentation={presentation} />;
+    }
+    if (column.key === "rank_grade") {
+      return <RankGradeCell entry={entry} section={section} presentation={presentation} />;
+    }
+    if (column.key === "env") {
+      return entry.updated_today === false ? (
+        <span className="row-prev">—</span>
+      ) : (
+        <SourceClientBadge
+          sourceClient={entry.source_client}
+          sourceClientDetail={entry.source_client_detail}
+          fallbackClientTypes={entry.client_types}
+        />
+      );
+    }
+    return <ValueCell entry={entry} metric={metric} section={section} presentation={presentation} />;
+  }
+
+  function cellClassName(column: TableColumn): string {
+    if (column.key === "title") return "px-2";
+    if (column.key === "value") return "rating-value-cell px-3 text-center w-32 font-bold tabular-nums text-base";
+    return cn(
+      "px-2 text-label",
+      (column.key === "rank" || column.key === "recorded_at") && "tabular-nums",
+      cellAlignClass(column.align),
+    );
+  }
+
+  return (
+    <tr
+      style={{ height: ROW_HEIGHT }}
+      className={cn("border-b border-border/30", rowClass || "hover:bg-secondary/50")}
+    >
+      {columns.map((column) => (
+        <td key={column.key} className={cellClassName(column)}>
+          {renderCell(column)}
+        </td>
+      ))}
     </tr>
   );
 }
@@ -666,45 +725,30 @@ function TableHeader({
   return (
     <thead className="sticky top-0 z-10 bg-background text-label text-foreground font-medium">
       <tr className="border-b border-border">
-        <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[0].align))}>
-          <SortableHeader label="순위" sortKey="rank" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[0].align} />
-        </th>
-        <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[1].align))}>
-          <SortableHeader label="레벨" sortKey="level" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[1].align} />
-        </th>
-        <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[2].align))}>
-          <SortableHeader label="제목" sortKey="title" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[2].align} />
-        </th>
-        <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[3].align))}>
-          <SortableHeader label="기록 날짜" sortKey="recorded_at" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[3].align} />
-        </th>
-        <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[4].align))}>
-          <SortableHeader label="클리어" sortKey="clear_type" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[4].align} />
-        </th>
-        <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[5].align))}>
-          <SortableHeader label="BP" sortKey="min_bp" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[5].align} />
-        </th>
-        <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[6].align))}>
-          <SortableHeader label="판정" sortKey="rate" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[6].align} />
-        </th>
-        <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[7].align))}>
-          <SortableHeader label="랭크" sortKey="rank_grade" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align={columns[7].align} />
-        </th>
-        <th className={cn("px-2 py-2 font-medium whitespace-nowrap", cellAlignClass(columns[8].align))}>
-          <SortableHeader
-            label="구동기"
-            sortKey="env"
-            activeSort={sortBy}
-            sortDir={sortDir}
-            allowSort={allowSort}
-            onSortChange={onSortChange}
-            title="LR = LR2, BR = Beatoraja, MIX = 양쪽 기록"
-            align={columns[8].align}
-          />
-        </th>
-        <th className="px-2 py-2 font-bold whitespace-nowrap text-center w-32 text-base">
-          <SortableHeader label={valueLabel} sortKey="value" activeSort={sortBy} sortDir={sortDir} allowSort={allowSort} onSortChange={onSortChange} align="center" />
-        </th>
+        {columns.map((column) => {
+          const config = columnHeaderConfig(column, valueLabel);
+          return (
+            <th
+              key={column.key}
+              className={cn(
+                "px-2 py-2 whitespace-nowrap",
+                column.key === "value" ? "font-bold text-base" : "font-medium",
+                cellAlignClass(column.align),
+              )}
+            >
+              <SortableHeader
+                label={config.label}
+                sortKey={config.sortKey}
+                activeSort={sortBy}
+                sortDir={sortDir}
+                allowSort={allowSort}
+                onSortChange={onSortChange}
+                title={config.title}
+                align={column.align}
+              />
+            </th>
+          );
+        })}
       </tr>
     </thead>
   );
@@ -796,10 +840,10 @@ export function ContributionTable({
   const shouldRenderSections = metric === "rating" && !!previousTopKeys && !!currentTopKeys;
   // rating-detail: no virtualization (render all, no scroll container)
   const shouldVirtualize = !shouldRenderSections && presentation !== "rating-detail" && entries.length >= 50;
-  const colSpan = 10;
   const valueLabel = metric === "exp" ? "경험치" : "레이팅";
   // rating-detail uses same column layout as default
   const columns = presentation === "day-detail" ? DAY_DETAIL_COLUMNS : DEFAULT_COLUMNS;
+  const colSpan = columns.length;
 
   const sortedEntries = useMemo(() => {
     if (!allowSort || entries.length <= 1) return entries;

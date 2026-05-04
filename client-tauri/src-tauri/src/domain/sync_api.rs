@@ -261,13 +261,14 @@ impl ApiClient {
         if !auth::refresh_access_token(&self.app, &self.api_url).await? {
             // Tagged error so commands/sync.rs can distinguish "user must
             // re-login" from generic sync failures and emit auth:reauth-required.
-            return Err(anyhow!(
-                "{}: 로그인 세션이 만료되었습니다. 다시 로그인해주세요.",
-                auth::REAUTH_REQUIRED_TAG
-            ));
+            return Err(auth::reauth_required_error());
         }
 
-        self.send_request(method, url, payload, true).await
+        let response = self.send_request(method, url, payload, true).await?;
+        if response.status() == StatusCode::UNAUTHORIZED {
+            return Err(auth::reauth_required_error());
+        }
+        Ok(response)
     }
 
     async fn send_request(

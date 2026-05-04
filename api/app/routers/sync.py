@@ -503,7 +503,12 @@ async def sync_data(
                             if item.clear_count is not None and item.clear_count != best.get("_latest_clear_count"):
                                 update_vals["clear_count"] = item.clear_count
                             if update_vals:
-                                update_vals["synced_at"] = now
+                                # Intentionally do NOT update synced_at here.
+                                # This branch only repairs metadata (judgments / options / clear_count) on a
+                                # previously recorded score that did not improve. Bumping synced_at would
+                                # move the displayed recorded date for LR2 rows (recorded_at is NULL and
+                                # falls back to synced_at in ranking_calculator) to the sync date even
+                                # though no new play happened.
                                 async with db.begin_nested():
                                     await db.execute(
                                         update(UserScore)

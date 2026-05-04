@@ -29,8 +29,13 @@ export function SyncProgressCard({ stage, progress, ticker }: SyncProgressCardPr
   const stageIndex = stage ? STAGE_ORDER.indexOf(stage) : -1;
   const lanes: Array<{ key: "global" | ClientType; label: string; ev?: SyncProgressEvent }> = [];
 
-  if (progress.lr2) lanes.push({ key: "lr2", label: CLIENT_LABEL.lr2, ev: progress.lr2 });
-  if (progress.beatoraja) lanes.push({ key: "beatoraja", label: CLIENT_LABEL.beatoraja, ev: progress.beatoraja });
+  // Client-specific lanes are only meaningful during the parsing stage.
+  // In all other stages (uploading, supplementing, …) the global lane carries
+  // the actual batch progress (current / total), so we must show that instead.
+  if (stage === "parsing") {
+    if (progress.lr2) lanes.push({ key: "lr2", label: CLIENT_LABEL.lr2, ev: progress.lr2 });
+    if (progress.beatoraja) lanes.push({ key: "beatoraja", label: CLIENT_LABEL.beatoraja, ev: progress.beatoraja });
+  }
   if (lanes.length === 0) {
     lanes.push({ key: "global", label: "전체", ev: progress.global });
   }

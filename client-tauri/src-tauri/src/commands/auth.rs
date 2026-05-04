@@ -18,10 +18,11 @@ pub fn emit_auth_changed(app: &AppHandle, status: &AuthStatus) {
 #[tauri::command]
 pub fn get_auth_status(app: AppHandle) -> Result<AuthStatus, String> {
     let cfg = config::load(&app).map_err(|error| error.to_string())?;
-    let logged_in = auth::load_refresh_token(&app).is_some();
+    let refresh_token_expire_days = auth::refresh_token_expire_days(&app);
+    let logged_in = auth::load_refresh_token(&app).is_some() && refresh_token_expire_days.is_some();
     Ok(AuthStatus {
         logged_in,
-        refresh_token_expire_days: auth::refresh_token_expire_days(&app)
+        refresh_token_expire_days: refresh_token_expire_days
             .or(Some(cfg.refresh_token_expire_days)),
     })
 }

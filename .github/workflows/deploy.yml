@@ -30,18 +30,12 @@ jobs:
             git pull origin main
 
             docker compose -f docker-compose.prod.yml --env-file .env.prod build
-            docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+            docker compose -f docker-compose.prod.yml --env-file .env.prod up -d postgres redis
 
-            # Restart nginx to pick up new api container IP after rebuild
-            docker compose -f docker-compose.prod.yml --env-file .env.prod restart nginx
+            # Run DB migrations before starting API/Celery services
+            docker compose -f docker-compose.prod.yml --env-file .env.prod run --rm migrate
 
-            # Run DB migrations
-            docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T api \
-              alembic upgrade head
-
-            # Warm up recently active users' rating-derived tables after deploy
-            docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T api \
-              python -m scripts.deploy_rating_warmup --recent-days 30 --limit 500 --time-budget-seconds 480
+            docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --no-deps api celery celery-beat nginx
 
             # Clean up unused images/containers
             docker system prune -f

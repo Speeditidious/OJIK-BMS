@@ -62,6 +62,38 @@ pub fn clear_tokens(app: &AppHandle) {
     let _ = delete_secret(app, REFRESH_TOKEN_KEY);
 }
 
+pub fn reauth_required_error() -> anyhow::Error {
+    anyhow!("{REAUTH_REQUIRED_TAG}: 로그인 세션이 만료되었습니다. 다시 로그인해주세요.")
+}
+
+/// Refresh tokens before a sync if the refresh token is close to expiring.
+///
+/// Returns `Ok(true)` when the session is usable after the check and `Ok(false)`
+/// only when the user must authenticate again.
+pub async fn ensure_refresh_token_fresh(
+    app: &AppHandle,
+    api_url: &str,
+    renew_within_days: u32,
+) -> anyhow::Result<bool> {
+    let Some(days) = refresh_token_expire_days(app) else {
+        if load_refresh_token(app).is_some() {
+            log::warn!("ensure_refresh_token_fresh: refresh_token is expired or unreadable");
+        } else {
+            log::warn!("ensure_refresh_token_fresh: no refresh_token in storage");
+        }
+        return Ok(false);
+    };
+
+    if days > renew_within_days {
+        return Ok(true);
+    }
+
+    log::info!(
+        "ensure_refresh_token_fresh: refresh_token expires in {days} day(s), refreshing proactively"
+    );
+    refresh_access_token(app, api_url).await
+}
+
 /// Refresh the access token using the stored refresh token.
 ///
 /// Returns `Ok(true)` on success, `Ok(false)` when refresh is not possible
@@ -88,8 +120,7 @@ pub async fn refresh_access_token(app: &AppHandle, api_url: &str) -> anyhow::Res
     let status = response.status();
     if status == StatusCode::OK {
         let body = response.json::<RefreshResponse>().await?;
-        save_secret(app, ACCESS_TOKEN_KEY, &body.access_token)?;
-        save_secret(app, REFRESH_TOKEN_KEY, &body.refresh_token)?;
+        save_tokens(app, &body.access_token, &body.refresh_token)?;
         log::info!("refresh_access_token: success (new tokens persisted)");
         return Ok(true);
     }
@@ -103,10 +134,14 @@ pub async fn refresh_access_token(app: &AppHandle, api_url: &str) -> anyhow::Res
         "refresh_access_token: server rejected refresh (status={status}, body={body_preview})"
     );
 
-    // NOTE: Do NOT clear tokens on 401/403. Tokens are only cleared on explicit
-    // logout. This avoids losing the session due to transient errors and lets
-    // the user retry. The frontend banner / re-login flow handles UX.
-    Ok(false)
+    // NOTE: Do NOT clear tokens on 401. Tokens are only cleared on explicit
+    // logout. This lets the frontend show a re-auth path while preserving
+    // enough state for the user to retry.
+    if status == StatusCode::UNAUTHORIZED {
+        return Ok(false);
+    }
+
+    Err(anyhow!("HTTP {status}: {body_preview}").context("token refresh failed"))
 }
 
 pub async fn run_login_flow(app: AppHandle) -> anyhow::Result<u32> {

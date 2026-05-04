@@ -1,0 +1,45 @@
+name: Rating Warmup
+
+on:
+  workflow_dispatch:
+    inputs:
+      recent_days:
+        description: 'Warm up users active in the last N days'
+        type: number
+        default: 30
+      limit:
+        description: 'Max number of users to warm up'
+        type: number
+        default: 500
+      time_budget_seconds:
+        description: 'Stop warmup after N seconds (0 = no budget)'
+        type: number
+        default: 480
+
+jobs:
+  warmup:
+    name: Run rating warmup on VPS
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run rating warmup via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 30m
+          script: |
+            set -e
+            cd /opt/ojik-bms
+
+            TIME_BUDGET=${{ github.event.inputs.time_budget_seconds }}
+            BUDGET_ARG=""
+            if [ "$TIME_BUDGET" -gt 0 ]; then
+              BUDGET_ARG="--time-budget-seconds $TIME_BUDGET"
+            fi
+
+            docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T api \
+              python -m scripts.deploy_rating_warmup \
+              --recent-days ${{ github.event.inputs.recent_days }} \
+              --limit ${{ github.event.inputs.limit }} \
+              $BUDGET_ARG
