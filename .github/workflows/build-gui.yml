@@ -50,12 +50,16 @@ jobs:
 
           $keyContent = $env:TAURI_SIGNING_PRIVATE_KEY_CONTENT.Trim() -replace '\\n', "`n"
           if ($keyContent.StartsWith("untrusted comment:")) {
-            $keyContent = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($keyContent)).TrimEnd('=')
+            # Tauri natively supports raw minisign key content; pass it directly via multiline env var
+            $delim = "TAURI_SIGNING_KEY_EOF"
+            Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY<<$delim"
+            Add-Content -Path $env:GITHUB_ENV -Value $keyContent
+            Add-Content -Path $env:GITHUB_ENV -Value $delim
           } else {
+            # Already base64-encoded; strip padding characters that Tauri rejects
             $keyContent = ($keyContent -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -First 1).TrimEnd('=')
+            Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY=$keyContent"
           }
-
-          "TAURI_SIGNING_PRIVATE_KEY=$keyContent" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Validate Tauri signing key
         working-directory: client-tauri
