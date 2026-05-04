@@ -55,6 +55,7 @@ jobs:
           }
           [System.IO.File]::WriteAllText($keyPath, $keyContent, [System.Text.UTF8Encoding]::new($false))
 
+          "TAURI_SIGNING_PRIVATE_KEY=$keyContent" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "TAURI_SIGNING_PRIVATE_KEY_PATH=$keyPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build Tauri installer
