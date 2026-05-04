@@ -4,16 +4,20 @@ mod domain;
 use tauri::Manager;
 
 fn log_targets() -> Vec<tauri_plugin_log::Target> {
-    let mut targets = vec![tauri_plugin_log::Target::new(
-        tauri_plugin_log::TargetKind::LogDir {
-            file_name: Some("ojikbms-client".into()),
-        },
-    )];
+    let log_dir_target = tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+        file_name: Some("ojikbms-client".into()),
+    });
     #[cfg(debug_assertions)]
-    targets.push(tauri_plugin_log::Target::new(
-        tauri_plugin_log::TargetKind::Stdout,
-    ));
-    targets
+    {
+        vec![
+            log_dir_target,
+            tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+        ]
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        vec![log_dir_target]
+    }
 }
 
 pub fn run() {
@@ -42,6 +46,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::config::get_config,
@@ -57,7 +62,6 @@ pub fn run() {
             commands::sync::start_sync,
             commands::sync::cancel_sync,
             commands::update::check_update_policy,
-            commands::update::install_update,
             commands::update::open_download_page
         ])
         .run(tauri::generate_context!())

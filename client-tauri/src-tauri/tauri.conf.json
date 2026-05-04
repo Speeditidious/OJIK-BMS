@@ -35,7 +35,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
@@ -51,9 +51,9 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "TAURI_UPDATER_PUBLIC_KEY_NOT_CONFIGURED",
+      "pubkey": "TAURI_UPDATER_PUBLIC_KEY_PLACEHOLDER",
       "endpoints": [
-        "https://api.ojikbms.kr/client/tauri-update/{{target}}/{{arch}}/{{current_version}}"
+        "https://api.ojikbms.kr/client/tauri-update/windows/x86_64/{{current_version}}?channel=stable&installer_kind=nsis"
       ],
       "windows": {
         "installMode": "passive"

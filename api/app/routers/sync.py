@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from datetime import date as date_cls
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import Date, cast, func, literal, select, text, update
 from sqlalchemy.dialects.postgresql import insert
@@ -88,6 +88,7 @@ class SyncResponse(BaseModel):
     skipped_scores: int = 0
     metadata_updated: int = 0
     errors: list[str] = []
+    debug_updates: list[dict] = []
 
 
 def _should_enqueue_ranking_recalculation(
@@ -168,9 +169,12 @@ async def _fetch_current_bests(
                 "play_count": None,
                 "_latest_row_id": None,
                 "_latest_recorded_at": None,
+                "_latest_synced_at": None,
+                "_latest_sort_key": None,
                 "_latest_judgments": None,
                 "_latest_options": None,
                 "_latest_clear_count": None,
+                "_latest_scorehash": None,
             }
         entry = bests[key]
         if row.clear_type is not None and (entry["clear_type"] is None or row.clear_type > entry["clear_type"]):
@@ -183,17 +187,41 @@ async def _fetch_current_bests(
             entry["max_combo"] = row.max_combo
         if row.play_count is not None and (entry["play_count"] is None or row.play_count > entry["play_count"]):
             entry["play_count"] = row.play_count
-        # Track metadata from the most recently recorded row
-        if entry["_latest_recorded_at"] is None or (
-            row.recorded_at is not None and row.recorded_at > entry["_latest_recorded_at"]
-        ):
+        # Track metadata from the latest effective row. LR2 rows often have no
+        # recorded_at, so synced_at provides a stable fallback for repeat syncs.
+        latest_ts = row.recorded_at or row.synced_at
+        sort_ts = latest_ts or datetime.min.replace(tzinfo=UTC)
+        sort_key = (sort_ts, str(row.id))
+        if entry["_latest_sort_key"] is None or sort_key > entry["_latest_sort_key"]:
             entry["_latest_recorded_at"] = row.recorded_at
+            entry["_latest_synced_at"] = row.synced_at
+            entry["_latest_sort_key"] = sort_key
             entry["_latest_row_id"] = row.id
             entry["_latest_judgments"] = row.judgments
             entry["_latest_options"] = row.options
             entry["_latest_clear_count"] = row.clear_count
+            entry["_latest_scorehash"] = row.scorehash
 
     return bests
+
+
+async def _fetch_existing_scorehashes(
+    user_id: Any,
+    scorehashes: set[str],
+    client_types: set[str],
+    db: AsyncSession,
+) -> set[tuple[str, str]]:
+    """Return existing (scorehash, client_type) pairs for conflict-counting."""
+    if not scorehashes or not client_types:
+        return set()
+    result = await db.execute(
+        select(UserScore.scorehash, UserScore.client_type).where(
+            UserScore.user_id == user_id,
+            UserScore.scorehash.in_(scorehashes),
+            UserScore.client_type.in_(client_types),
+        )
+    )
+    return {(row.scorehash, row.client_type) for row in result.all() if row.scorehash}
 
 
 # ── Same-day merge helpers ─────────────────────────────────────────────────────
@@ -367,7 +395,7 @@ async def _heal_lr2_course_hash(
     user_id: Any,
     item: "ScoreSyncItem",
     db: AsyncSession,
-) -> bool:
+) -> int:
     """Fix legacy LR2 course rows whose fumen_hash_others was stripped by the old parser.
 
     If the incoming item is an LR2 course record with a full raw_hash, look up
@@ -376,13 +404,13 @@ async def _heal_lr2_course_hash(
     fumen_hash_others in-place — keep synced_at, recorded_at, and all performance
     fields untouched — so the data is corrected transparently.
 
-    Returns True if an existing row was healed (the best-key cache should be
-    remapped by the caller to avoid stale-key lookups).
+    Returns the number of existing rows healed. The best-key cache should be
+    remapped by the caller when this is non-zero.
     """
     if item.client_type != "lr2" or not item.fumen_hash_others:
-        return False
+        return 0
     if len(item.fumen_hash_others) <= 32:
-        return False  # nothing to heal; value already short
+        return 0  # nothing to heal; value already short
 
     stripped_form = item.fumen_hash_others[32:]
     result = await db.execute(
@@ -399,7 +427,7 @@ async def _heal_lr2_course_hash(
             "stripped_hash": stripped_form,
         },
     )
-    return result.rowcount > 0
+    return max(result.rowcount or 0, 0)
 
 
 # ── Endpoint ──────────────────────────────────────────────────────────────────
@@ -407,6 +435,7 @@ async def _heal_lr2_course_hash(
 @router.post("/", response_model=SyncResponse)
 async def sync_data(
     payload: SyncRequest,
+    debug: bool = Query(False, description="Return before/after detail for each metadata-only update"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> SyncResponse:
@@ -421,6 +450,7 @@ async def sync_data(
     - Improvement check: if no field improves over existing per-field bests, the row is skipped.
     """
     errors: list[str] = []
+    debug_updates_list: list[dict] = []
     synced_scores = 0
     inserted_scores = 0
     skipped_scores = 0
@@ -433,13 +463,18 @@ async def sync_data(
     # ── Bulk pre-fetch per-field bests ──────────────────────────────────────────
     current_bests: dict[tuple, dict[str, Any]] = {}
     same_day_map: dict[tuple, UserScore] = {}
+    existing_scorehashes: set[tuple[str, str]] = set()
     if payload.scores:
         sha256s = {item.fumen_sha256 for item in payload.scores if item.fumen_sha256}
         md5s = {item.fumen_md5 for item in payload.scores if item.fumen_md5 and not item.fumen_sha256}
         hash_others = {item.fumen_hash_others for item in payload.scores if item.fumen_hash_others}
         client_types = {item.client_type for item in payload.scores}
+        scorehashes = {item.scorehash for item in payload.scores if item.scorehash}
         current_bests = await _fetch_current_bests(
             current_user.id, sha256s, md5s, hash_others, client_types, db
+        )
+        existing_scorehashes = await _fetch_existing_scorehashes(
+            current_user.id, scorehashes, client_types, db
         )
 
         # ── Pre-fetch same-day rows for fumen records (courses excluded) ─────
@@ -460,8 +495,9 @@ async def sync_data(
                 # 수정된 클라이언트가 보내는 full raw_hash로 in-place UPDATE.
                 # synced_at / recorded_at / 기타 성능 필드 전부 불변.
                 if item.fumen_hash_others:
-                    healed = await _heal_lr2_course_hash(current_user.id, item, db)
-                    if healed:
+                    healed_count = await _heal_lr2_course_hash(current_user.id, item, db)
+                    if healed_count:
+                        metadata_updated += healed_count
                         old_key = (None, None, item.fumen_hash_others[32:], item.client_type)
                         new_key = (None, None, item.fumen_hash_others, item.client_type)
                         if old_key in current_bests:
@@ -494,7 +530,19 @@ async def sync_data(
                     # even when the score itself did not improve.
                     if best is not None:
                         row_id = best.get("_latest_row_id")
-                        if row_id is not None:
+                        target_scorehash = best.get("_latest_scorehash")
+                        # Guard: only update the row whose scorehash matches the incoming item.
+                        # Beatoraja courses can produce multiple user_scores rows with the same
+                        # fumen_hash_others but different scorehashes (one per mode/option combo).
+                        # Without this check, items from different rows oscillate — each sync
+                        # overwrites the previous item's metadata onto the same row, causing
+                        # metadata_updated to fire indefinitely on every re-sync.
+                        scorehash_mismatch = (
+                            item.scorehash is not None
+                            and target_scorehash is not None
+                            and item.scorehash != target_scorehash
+                        )
+                        if row_id is not None and not scorehash_mismatch:
                             update_vals: dict[str, Any] = {}
                             if item.judgments is not None and item.judgments != best.get("_latest_judgments"):
                                 update_vals["judgments"] = item.judgments
@@ -502,10 +550,48 @@ async def sync_data(
                                 update_vals["options"] = item.options
                             if item.clear_count is not None and item.clear_count != best.get("_latest_clear_count"):
                                 update_vals["clear_count"] = item.clear_count
+                            if (
+                                item.scorehash is not None
+                                and item.scorehash != best.get("_latest_scorehash")
+                                and (item.scorehash, item.client_type) not in existing_scorehashes
+                            ):
+                                update_vals["scorehash"] = item.scorehash
                             if update_vals:
+                                if debug:
+                                    identifier = item.fumen_sha256 or item.fumen_md5 or item.fumen_hash_others or "?"
+                                    debug_updates_list.append({
+                                        "identifier": identifier,
+                                        "client_type": item.client_type,
+                                        "row_id": str(row_id),
+                                        "changed_fields": list(update_vals.keys()),
+                                        "before": {
+                                            "clear_type": best.get("clear_type"),
+                                            "exscore": best.get("exscore"),
+                                            "min_bp": best.get("min_bp"),
+                                            "max_combo": best.get("max_combo"),
+                                            "play_count": best.get("play_count"),
+                                            "clear_count": best.get("_latest_clear_count"),
+                                            "judgments": best.get("_latest_judgments"),
+                                            "options": best.get("_latest_options"),
+                                            "scorehash": best.get("_latest_scorehash"),
+                                            "recorded_at": best.get("_latest_recorded_at").isoformat() if best.get("_latest_recorded_at") else None,
+                                        },
+                                        "after": {
+                                            "clear_type": item.clear_type,
+                                            "exscore": item.exscore,
+                                            "min_bp": item.min_bp,
+                                            "max_combo": item.max_combo,
+                                            "play_count": item.play_count,
+                                            "clear_count": item.clear_count,
+                                            "judgments": item.judgments,
+                                            "options": item.options,
+                                            "scorehash": item.scorehash,
+                                            "recorded_at": item.recorded_at.isoformat() if item.recorded_at else None,
+                                        },
+                                    })
                                 # Intentionally do NOT update synced_at here.
-                                # This branch only repairs metadata (judgments / options / clear_count) on a
-                                # previously recorded score that did not improve. Bumping synced_at would
+                                # This branch only repairs row metadata on a previously recorded score that
+                                # did not improve. Bumping synced_at would
                                 # move the displayed recorded date for LR2 rows (recorded_at is NULL and
                                 # falls back to synced_at in ranking_calculator) to the sync date even
                                 # though no new play happened.
@@ -516,6 +602,10 @@ async def sync_data(
                                         .values(**update_vals)
                                     )
                                 metadata_updated += 1
+                                for field, value in update_vals.items():
+                                    best[f"_latest_{field}"] = value
+                                if item.scorehash is not None:
+                                    existing_scorehashes.add((item.scorehash, item.client_type))
                                 continue
                     skipped_scores += 1
                     continue
@@ -540,6 +630,7 @@ async def sync_data(
                             .where(UserScore.id == existing_same_day.id)
                             .values(**merged, synced_at=now)
                         )
+                        metadata_updated += 1
                         new_id = existing_same_day.id
                         # Reflect merged values back so in-memory best cache stays accurate
                         exscore = merged["exscore"]
@@ -579,6 +670,14 @@ async def sync_data(
                             synced_at=now,
                         )
                         _ins = insert(UserScore).values(**values)
+                        scorehash_key = (
+                            (item.scorehash, item.client_type)
+                            if item.scorehash is not None
+                            else None
+                        )
+                        updates_existing_scorehash = (
+                            scorehash_key is not None and scorehash_key in existing_scorehashes
+                        )
                         stmt = (
                             _ins
                             .on_conflict_do_update(
@@ -608,7 +707,12 @@ async def sync_data(
                         if new_id is None:
                             skipped_scores += 1
                             continue
-                        inserted_scores += 1
+                        if updates_existing_scorehash:
+                            metadata_updated += 1
+                        else:
+                            inserted_scores += 1
+                            if scorehash_key is not None:
+                                existing_scorehashes.add(scorehash_key)
                         # Register in same_day_map so subsequent items in same payload can merge into it
                         if same_day_key is not None:
                             # Store a lightweight sentinel (we only need the id and field values)
@@ -637,6 +741,14 @@ async def sync_data(
                 effective_best: dict[str, Any] = best or {
                     "clear_type": None, "exscore": None,
                     "min_bp": None, "max_combo": None, "play_count": None,
+                    "_latest_row_id": None,
+                    "_latest_recorded_at": None,
+                    "_latest_synced_at": None,
+                    "_latest_sort_key": None,
+                    "_latest_judgments": None,
+                    "_latest_options": None,
+                    "_latest_clear_count": None,
+                    "_latest_scorehash": None,
                 }
                 if best_key not in current_bests:
                     current_bests[best_key] = effective_best.copy()
@@ -650,6 +762,17 @@ async def sync_data(
                         entry["min_bp"] = item.min_bp
                     if item.max_combo is not None and (entry["max_combo"] is None or item.max_combo >= entry["max_combo"]):
                         entry["max_combo"] = item.max_combo
+                entry["_latest_row_id"] = new_id
+                entry["_latest_recorded_at"] = item.recorded_at
+                entry["_latest_synced_at"] = now
+                entry["_latest_sort_key"] = (
+                    item.recorded_at or now,
+                    str(new_id),
+                )
+                entry["_latest_judgments"] = item.judgments
+                entry["_latest_options"] = item.options
+                entry["_latest_clear_count"] = item.clear_count
+                entry["_latest_scorehash"] = item.scorehash
 
                 synced_scores += 1
             except Exception as e:
@@ -781,6 +904,7 @@ async def sync_data(
         skipped_scores=skipped_scores,
         metadata_updated=metadata_updated,
         errors=errors,
+        debug_updates=debug_updates_list,
     )
 
 

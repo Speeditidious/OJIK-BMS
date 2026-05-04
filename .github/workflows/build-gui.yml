@@ -43,6 +43,8 @@ jobs:
         working-directory: client-tauri
         env:
           VITE_APP_VERSION: ${{ steps.version.outputs.display_version }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           npm run tauri -- build --bundles nsis
 
@@ -61,9 +63,26 @@ jobs:
           Copy-Item $installer.FullName "release/$assetBase.exe"
 
           $signature = Get-Item "$($installer.FullName).sig" -ErrorAction SilentlyContinue
-          if ($signature) {
-            Copy-Item $signature.FullName "release/$assetBase.exe.sig"
+          if (-not $signature) {
+            throw "No updater signature was produced for $($installer.FullName). Ensure TAURI_SIGNING_PRIVATE_KEY is set."
           }
+          Copy-Item $signature.FullName "release/$assetBase.exe.sig"
+
+          $assetPath = "release/$assetBase.exe"
+          $size = (Get-Item $assetPath).Length
+          $sha256 = (Get-FileHash $assetPath -Algorithm SHA256).Hash.ToLower()
+          $sig = Get-Content "release/$assetBase.exe.sig" -Raw
+
+          @{
+            version         = "${{ steps.version.outputs.display_version }}"
+            target_os       = "windows"
+            arch            = "x86_64"
+            installer_kind  = "nsis"
+            asset_name      = "$assetBase.exe"
+            asset_size_bytes = $size
+            asset_sha256    = $sha256
+            tauri_signature = $sig.Trim()
+          } | ConvertTo-Json | Out-File "release/$assetBase.metadata.json" -Encoding utf8
 
           Get-ChildItem "release"
 
@@ -88,9 +107,20 @@ jobs:
           name: ojikbms-tauri-windows
           path: release-assets
 
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
       - name: Create release and upload installer
         uses: softprops/action-gh-release@v2
         with:
           files: release-assets/*
           generate_release_notes: true
           prerelease: ${{ needs.build-windows.outputs.is_prerelease }}
+
+      - name: Register client update draft
+        env:
+          API_URL: ${{ secrets.OJIK_API_URL }}
+          CLIENT_UPDATE_INGEST_TOKEN: ${{ secrets.CLIENT_UPDATE_INGEST_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: python client-tauri/scripts/register-client-update.py

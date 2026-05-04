@@ -1,4 +1,4 @@
-import { Copy, Eraser, FileText, Search } from "lucide-react";
+import { Bug, Copy, Eraser, FileText, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { formatLogTime, tokenizeMessage } from "../../lib/log-format";
@@ -11,32 +11,41 @@ type TabId = "all" | LogLevel;
 export interface LogViewerProps {
   logs: LogEntry[];
   overflowed: boolean;
+  debugMode: boolean;
   onClear: () => void;
+  onToggleDebugMode: () => void;
   onOpenLogFile?: () => void;
   onCopy?: (text: string) => void;
 }
 
-export function LogViewer({ logs, overflowed, onClear, onOpenLogFile, onCopy }: LogViewerProps) {
+export function LogViewer({ logs, overflowed, debugMode, onClear, onToggleDebugMode, onOpenLogFile, onCopy }: LogViewerProps) {
   const [tab, setTab] = useState<TabId>("all");
   const [query, setQuery] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
 
+  // When debug mode is turned off, switch away from the debug tab
+  useEffect(() => {
+    if (!debugMode && tab === "debug") setTab("all");
+  }, [debugMode, tab]);
+
   const counts = useMemo(() => {
-    const c = { info: 0, warn: 0, error: 0 };
+    const c = { info: 0, warn: 0, error: 0, debug: 0 };
     logs.forEach((l) => {
-      c[l.level] += 1;
+      if (l.level === "debug" && !debugMode) return;
+      if (l.level in c) c[l.level as keyof typeof c] += 1;
     });
     return c;
-  }, [logs]);
+  }, [logs, debugMode]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return logs.filter((entry) => {
+      if (entry.level === "debug" && !debugMode) return false;
       if (tab !== "all" && entry.level !== tab) return false;
       if (q && !entry.message.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [logs, tab, query]);
+  }, [logs, tab, query, debugMode]);
 
   // Auto-scroll to bottom when new logs arrive (unless user scrolled up).
   useEffect(() => {
@@ -48,11 +57,13 @@ export function LogViewer({ logs, overflowed, onClear, onOpenLogFile, onCopy }: 
     }
   }, [filtered]);
 
+  const visibleLogCount = debugMode ? logs.length : logs.filter((l) => l.level !== "debug").length;
   const items: TabItem<TabId>[] = [
-    { id: "all", label: "전체", count: logs.length },
+    { id: "all", label: "전체", count: visibleLogCount },
     { id: "info", label: "정보", count: counts.info },
     { id: "warn", label: "경고", count: counts.warn },
     { id: "error", label: "오류", count: counts.error },
+    ...(debugMode ? [{ id: "debug" as TabId, label: "디버그", count: counts.debug }] : []),
   ];
 
   function handleCopy() {
@@ -85,6 +96,17 @@ export function LogViewer({ logs, overflowed, onClear, onOpenLogFile, onCopy }: 
             />
           </div>
           <div className="log-actions">
+            <Button
+              variant="ghost"
+              size="sm"
+              leadingIcon={<Bug size={14} />}
+              onClick={onToggleDebugMode}
+              aria-pressed={debugMode}
+              className={debugMode ? "log-debug-toggle-active" : undefined}
+              title={debugMode ? "디버그 모드 끄기" : "디버그 모드 켜기"}
+            >
+              디버그
+            </Button>
             <Button variant="ghost" size="sm" leadingIcon={<Copy size={14} />} onClick={handleCopy} disabled={filtered.length === 0}>
               복사
             </Button>
@@ -121,12 +143,19 @@ export function LogViewer({ logs, overflowed, onClear, onOpenLogFile, onCopy }: 
   );
 }
 
+const LEVEL_LABEL: Record<string, string> = {
+  info: "정보",
+  warn: "경고",
+  error: "오류",
+  debug: "디버그",
+};
+
 function LogRow({ entry }: { entry: LogEntry }) {
   const tokens = useMemo(() => tokenizeMessage(entry.message), [entry.message]);
   return (
     <div className="log-row">
       <span className="log-time">{formatLogTime(entry.ts)}</span>
-      <span className={`log-level log-level-${entry.level}`}>{entry.level}</span>
+      <span className={`log-level log-level-${entry.level}`}>{LEVEL_LABEL[entry.level] ?? entry.level}</span>
       <span className="log-msg">
         {tokens.map((tok, idx) =>
           tok.type === "link" && tok.href ? (

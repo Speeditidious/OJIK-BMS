@@ -51,13 +51,6 @@ pub async fn check_update_policy(app: AppHandle, manual: bool) -> Result<UpdateP
 }
 
 #[tauri::command]
-pub fn install_update(app: AppHandle, _update_id: String) -> Result<(), String> {
-    app.opener()
-        .open_url(DOWNLOAD_PAGE_URL, None::<&str>)
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
 pub fn open_download_page(app: AppHandle) -> Result<String, String> {
     app.opener()
         .open_url(DOWNLOAD_PAGE_URL, None::<&str>)

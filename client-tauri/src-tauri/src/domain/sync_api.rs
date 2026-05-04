@@ -78,6 +78,8 @@ pub struct SyncResponse {
     pub metadata_updated: i64,
     #[serde(default)]
     pub errors: Vec<String>,
+    #[serde(default)]
+    pub debug_updates: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -97,10 +99,11 @@ pub struct ApiClient {
     client: Client,
     api_url: String,
     app: AppHandle,
+    pub debug_mode: bool,
 }
 
 impl ApiClient {
-    pub fn new(api_url: String, app: AppHandle) -> anyhow::Result<Self> {
+    pub fn new(api_url: String, app: AppHandle, debug_mode: bool) -> anyhow::Result<Self> {
         let client = Client::builder()
             .danger_accept_invalid_certs(is_local_url(&api_url))
             .connect_timeout(Duration::from_secs(15))
@@ -110,6 +113,7 @@ impl ApiClient {
             client,
             api_url,
             app,
+            debug_mode,
         })
     }
 
@@ -120,9 +124,10 @@ impl ApiClient {
         is_final_batch: bool,
         has_previous_score_changes: bool,
     ) -> anyhow::Result<SyncResponse> {
+        let path = if self.debug_mode { "/sync/?debug=true" } else { "/sync/" };
         self.request_json_decoded(
             Method::POST,
-            "/sync/",
+            path,
             &serde_json::json!({
                 "scores": scores,
                 "player_stats": player_stats,

@@ -53,7 +53,7 @@ def _make_mock_db(captured_updates: list):
     return db
 
 
-def _make_best(row_id, judgments=None):
+def _make_best(row_id, judgments=None, scorehash=None):
     return {
         "clear_type": 2,
         "exscore": 1000,
@@ -65,6 +65,7 @@ def _make_best(row_id, judgments=None):
         "_latest_judgments": judgments,
         "_latest_options": None,
         "_latest_clear_count": None,
+        "_latest_scorehash": scorehash,
     }
 
 
@@ -171,6 +172,132 @@ async def test_metadata_only_update_no_diff_skips_without_touching_synced_at():
     assert len(captured_updates) == 0
 
 
+@pytest.mark.asyncio
+async def test_metadata_only_update_includes_scorehash_and_updates_cache_once():
+    """Metadata-only updates include scorehash and do not repeat within one payload."""
+    row_id = uuid.uuid4()
+    fumen_md5 = uuid.uuid4().hex[:32]
+    scorehash = uuid.uuid4().hex
+    captured_updates: list = []
+    best = _make_best(row_id, _ORIG_JUDGMENTS, scorehash=None)
+
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
+    mock_db = _make_mock_db(captured_updates)
+
+    async def override_get_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    try:
+        with patch.object(
+            sync_module,
+            "_fetch_current_bests",
+            AsyncMock(return_value={(None, fumen_md5, None, "lr2"): best}),
+        ):
+            with patch.object(sync_module, "_fetch_existing_scorehashes", AsyncMock(return_value=set())):
+                with patch.object(sync_module, "_fetch_same_day_rows", AsyncMock(return_value={})):
+                    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                        resp = await client.post(
+                            "/sync/",
+                            json={
+                                "scores": [
+                                    {
+                                        "scorehash": scorehash,
+                                        "fumen_md5": fumen_md5,
+                                        "client_type": "lr2",
+                                        "clear_type": 2,
+                                        "exscore": 1000,
+                                        "judgments": _ORIG_JUDGMENTS,
+                                    },
+                                    {
+                                        "scorehash": scorehash,
+                                        "fumen_md5": fumen_md5,
+                                        "client_type": "lr2",
+                                        "clear_type": 2,
+                                        "exscore": 1000,
+                                        "judgments": _ORIG_JUDGMENTS,
+                                    },
+                                ],
+                                "player_stats": [],
+                            },
+                        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["metadata_updated"] == 1
+    assert data["skipped_scores"] == 1
+    assert len(captured_updates) == 1
+
+
+@pytest.mark.asyncio
+async def test_same_day_merge_counts_as_metadata_updated():
+    """Merging an improved score into an existing same-day row updates that row."""
+    row_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    fumen_md5 = uuid.uuid4().hex[:32]
+    recorded_at = datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC)
+    captured_updates: list = []
+
+    existing_same_day = UserScore(
+        id=row_id,
+        user_id=user_id,
+        client_type="lr2",
+        fumen_md5=fumen_md5,
+        clear_type=2,
+        exscore=1000,
+        min_bp=20,
+        recorded_at=recorded_at,
+    )
+    mock_user = MagicMock()
+    mock_user.id = user_id
+    mock_db = _make_mock_db(captured_updates)
+
+    async def override_get_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    try:
+        with patch.object(
+            sync_module,
+            "_fetch_current_bests",
+            AsyncMock(return_value={(None, fumen_md5, None, "lr2"): _make_best(row_id, _ORIG_JUDGMENTS)}),
+        ):
+            with patch.object(
+                sync_module,
+                "_fetch_same_day_rows",
+                AsyncMock(return_value={(fumen_md5, "lr2", recorded_at.date()): existing_same_day}),
+            ):
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                    resp = await client.post(
+                        "/sync/",
+                        json={
+                            "scores": [{
+                                "fumen_md5": fumen_md5,
+                                "client_type": "lr2",
+                                "clear_type": 2,
+                                "exscore": 1100,
+                                "recorded_at": recorded_at.isoformat(),
+                                "judgments": _NEW_JUDGMENTS,
+                            }],
+                            "player_stats": [],
+                        },
+                    )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["synced_scores"] == 1
+    assert data["inserted_scores"] == 0
+    assert data["metadata_updated"] == 1
+    assert len(captured_updates) == 1
+
+
 def test_real_improvement_is_detected_and_triggers_insert_path():
     """_is_improvement returns True only when at least one performance field improves.
 
@@ -191,6 +318,229 @@ def test_real_improvement_is_detected_and_triggers_insert_path():
 
     assert _is_improvement(improved, 1100, existing_best) is True
     assert _is_improvement(not_improved, 1000, existing_best) is False
+
+
+@pytest.mark.asyncio
+async def test_metadata_only_update_skipped_when_scorehash_mismatches_target_row():
+    """When the incoming scorehash differs from the stored row's scorehash, no update is issued."""
+    row_id = uuid.uuid4()
+    hash_others = "a" * 256  # 4-fumen course
+    captured_updates: list = []
+    best = _make_best(row_id, judgments={"epg": 100}, scorehash="scorehash_A")
+
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
+    mock_db = _make_mock_db(captured_updates)
+
+    async def override_get_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    try:
+        with patch.object(
+            sync_module,
+            "_fetch_current_bests",
+            AsyncMock(return_value={(None, None, hash_others, "beatoraja"): best}),
+        ):
+            with patch.object(sync_module, "_fetch_existing_scorehashes", AsyncMock(return_value=set())):
+                with patch.object(sync_module, "_fetch_same_day_rows", AsyncMock(return_value={})):
+                    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                        resp = await client.post(
+                            "/sync/",
+                            json={
+                                "scores": [{
+                                    "scorehash": "scorehash_B",
+                                    "fumen_hash_others": hash_others,
+                                    "client_type": "beatoraja",
+                                    "clear_type": 1,
+                                    "exscore": 500,
+                                    "judgments": {"epg": 50},
+                                }],
+                                "player_stats": [],
+                            },
+                        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["metadata_updated"] == 0, "scorehash mismatch must not update the row"
+    assert data["skipped_scores"] == 1
+    assert len(captured_updates) == 0, "no UPDATE should have been issued"
+
+
+@pytest.mark.asyncio
+async def test_metadata_only_update_applied_when_scorehash_matches_target_row():
+    """When the incoming scorehash matches the stored row's scorehash, metadata update is applied."""
+    row_id = uuid.uuid4()
+    hash_others = "b" * 256
+    captured_updates: list = []
+    best = _make_best(row_id, judgments={"epg": 100}, scorehash="scorehash_A")
+
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
+    mock_db = _make_mock_db(captured_updates)
+
+    async def override_get_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    try:
+        with patch.object(
+            sync_module,
+            "_fetch_current_bests",
+            AsyncMock(return_value={(None, None, hash_others, "beatoraja"): best}),
+        ):
+            with patch.object(sync_module, "_fetch_existing_scorehashes", AsyncMock(return_value={("scorehash_A", "beatoraja")})):
+                with patch.object(sync_module, "_fetch_same_day_rows", AsyncMock(return_value={})):
+                    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                        resp = await client.post(
+                            "/sync/",
+                            json={
+                                "scores": [{
+                                    "scorehash": "scorehash_A",
+                                    "fumen_hash_others": hash_others,
+                                    "client_type": "beatoraja",
+                                    "clear_type": 2,
+                                    "exscore": 1000,
+                                    "judgments": {"epg": 110},  # changed
+                                }],
+                                "player_stats": [],
+                            },
+                        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["metadata_updated"] == 1, "matching scorehash should allow metadata update"
+    assert data["skipped_scores"] == 0
+    assert len(captured_updates) == 1
+
+
+@pytest.mark.asyncio
+async def test_metadata_only_update_when_item_scorehash_is_none_keeps_existing_behavior():
+    """LR2 rows (scorehash=None) are not blocked by the scorehash guard — existing behavior preserved."""
+    row_id = uuid.uuid4()
+    fumen_md5 = uuid.uuid4().hex[:32]
+    captured_updates: list = []
+    best = _make_best(row_id, judgments=_ORIG_JUDGMENTS, scorehash=None)
+
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
+    mock_db = _make_mock_db(captured_updates)
+
+    async def override_get_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    try:
+        with patch.object(
+            sync_module,
+            "_fetch_current_bests",
+            AsyncMock(return_value={(None, fumen_md5, None, "lr2"): best}),
+        ):
+            with patch.object(sync_module, "_fetch_same_day_rows", AsyncMock(return_value={})):
+                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                    resp = await client.post(
+                        "/sync/",
+                        json={
+                            "scores": [{
+                                "fumen_md5": fumen_md5,
+                                "client_type": "lr2",
+                                "clear_type": 2,
+                                "exscore": 1000,
+                                "judgments": _NEW_JUDGMENTS,
+                            }],
+                            "player_stats": [],
+                        },
+                    )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["metadata_updated"] == 1, "LR2 (scorehash=None) must still update metadata"
+    assert data["skipped_scores"] == 0
+    assert len(captured_updates) == 1
+
+
+@pytest.mark.asyncio
+async def test_oscillation_scenario_full_flow():
+    """Two items sharing the same fumen_hash_others but different scorehashes must not oscillate.
+
+    Scenario mirrors the real bug: Beatoraja stores the same course under mode=10000 and
+    mode=10020 as separate rows.  Only Row A (scorehash_A) exists in the DB.  Both Item A
+    and Item B are sent in a single payload; neither is an improvement.  Item A is a no-op
+    (identical to DB); Item B has scorehash_B ≠ scorehash_A → scorehash mismatch → skipped.
+    Running the same payload a second time must produce identical results.
+    """
+    row_id = uuid.uuid4()
+    hash_others = "c" * 256
+    JA = {"epg": 100, "lpg": 50}
+    JB = {"epg": 0, "lpg": 0}
+
+    def make_best_for_row_a():
+        return _make_best(row_id, judgments=JA, scorehash="scorehash_A")
+
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
+
+    payload = {
+        "scores": [
+            {
+                "scorehash": "scorehash_A",
+                "fumen_hash_others": hash_others,
+                "client_type": "beatoraja",
+                "clear_type": 4,
+                "exscore": 20025,
+                "judgments": JA,
+            },
+            {
+                "scorehash": "scorehash_B",
+                "fumen_hash_others": hash_others,
+                "client_type": "beatoraja",
+                "clear_type": 1,
+                "exscore": 0,
+                "judgments": JB,
+            },
+        ],
+        "player_stats": [],
+    }
+
+    async def override_get_db():
+        yield _make_mock_db([])
+
+    for _run in range(2):
+        captured_updates: list = []
+        mock_db = _make_mock_db(captured_updates)
+
+        async def _override_get_db():
+            yield mock_db
+
+        app.dependency_overrides[get_db] = _override_get_db
+        app.dependency_overrides[get_current_user] = lambda: mock_user
+        try:
+            with patch.object(
+                sync_module,
+                "_fetch_current_bests",
+                AsyncMock(return_value={(None, None, hash_others, "beatoraja"): make_best_for_row_a()}),
+            ):
+                with patch.object(sync_module, "_fetch_existing_scorehashes", AsyncMock(return_value={("scorehash_A", "beatoraja")})):
+                    with patch.object(sync_module, "_fetch_same_day_rows", AsyncMock(return_value={})):
+                        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                            resp = await client.post("/sync/", json=payload)
+        finally:
+            app.dependency_overrides.clear()
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["metadata_updated"] == 0, f"run {_run + 1}: oscillation detected — metadata_updated should be 0"
+        assert data["skipped_scores"] == 2, f"run {_run + 1}: both items should be skipped"
+        assert len(captured_updates) == 0, f"run {_run + 1}: no UPDATE should have been issued"
 
 
 def test_same_day_merge_recorded_at_takes_later_timestamp_and_synced_at_not_in_merge_dict():

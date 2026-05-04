@@ -28,6 +28,7 @@ class ClientUpdateAnnouncementResponse(BaseModel):
     mandatory: bool
     asset_size_bytes: int | None
     published_at: datetime
+    supports_auto_install: bool
 
 
 class ClientUpdatePolicyResponse(BaseModel):
@@ -139,4 +140,5 @@ def _announcement_response(row: ClientUpdateAnnouncement) -> ClientUpdateAnnounc
         mandatory=row.mandatory,
         asset_size_bytes=row.asset_size_bytes,
         published_at=published_at_for(row),
+        supports_auto_install=bool(row.tauri_signature),
     )

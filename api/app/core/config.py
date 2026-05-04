@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     # Frontend
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # Internal CI ingest token for client update draft creation
+    CLIENT_UPDATE_INGEST_TOKEN: str = ""
+
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 

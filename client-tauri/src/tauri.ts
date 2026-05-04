@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check, type DownloadEvent } from "@tauri-apps/plugin-updater";
 
 import type {
   AuthStatus,
@@ -32,6 +34,7 @@ const browserConfig: ClientConfig = {
   last_update_failure_version: null,
   last_update_failure_stage: null,
   last_update_failure_message: null,
+  debug_mode: false,
 };
 
 let mockConfig: ClientConfig | null = null;
@@ -143,9 +146,43 @@ export async function checkUpdatePolicy(manual: boolean): Promise<UpdatePolicy> 
   return invoke<UpdatePolicy>("check_update_policy", { manual });
 }
 
-export async function installUpdate(updateId: string): Promise<void> {
+export interface InstallUpdateOptions {
+  onProgress?: (progress: { downloaded: number; total?: number | null }) => void;
+  onStage?: (stage: "check" | "download" | "verify" | "install" | "restart") => void;
+}
+
+export async function installUpdate(_updateId: string, options: InstallUpdateOptions = {}): Promise<void> {
   if (!isTauriRuntime()) return;
-  await invoke<void>("install_update", { updateId });
+
+  options.onStage?.("check");
+  const update = await check({ timeout: 30_000 });
+  if (!update) {
+    throw new Error("설치 가능한 서명된 업데이트를 찾을 수 없습니다.");
+  }
+
+  let downloaded = 0;
+  let total: number | null = null;
+
+  options.onStage?.("download");
+  await update.downloadAndInstall((event: DownloadEvent) => {
+    if (event.event === "Started") {
+      downloaded = 0;
+      total = event.data.contentLength ?? null;
+      options.onProgress?.({ downloaded, total });
+      return;
+    }
+    if (event.event === "Progress") {
+      downloaded += event.data.chunkLength;
+      options.onProgress?.({ downloaded, total });
+      return;
+    }
+    if (event.event === "Finished") {
+      options.onStage?.("install");
+    }
+  });
+
+  options.onStage?.("restart");
+  await relaunch();
 }
 
 export async function openDownloadPage(): Promise<string> {

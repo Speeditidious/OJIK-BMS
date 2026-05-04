@@ -345,7 +345,9 @@ export default function App() {
         <LogViewer
           logs={sync.logs}
           overflowed={sync.overflowed}
+          debugMode={config.debug_mode}
           onClear={sync.clearLogs}
+          onToggleDebugMode={() => update({ debug_mode: !config.debug_mode })}
           onCopy={(text) => {
             navigator.clipboard
               ?.writeText(text)
@@ -386,9 +388,15 @@ export default function App() {
           announcement={updater.policy.announcement}
           isInstalling={updater.isInstalling}
           downloadProgress={updater.downloadProgress}
+          supportsAutoInstall={Boolean(updater.policy.announcement.supports_auto_install)}
           onInstall={() => {
-            const id = updater.policy?.announcement?.id;
-            if (id) updater.install(id);
+            const announcement = updater.policy?.announcement;
+            if (!announcement) return;
+            if (!announcement.supports_auto_install) {
+              void handleOpenDownloadPage();
+              return;
+            }
+            updater.install(announcement.id);
           }}
           onLater={() => {
             const id = updater.policy?.announcement?.id;

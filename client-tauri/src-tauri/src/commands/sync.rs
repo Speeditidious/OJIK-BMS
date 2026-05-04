@@ -222,7 +222,7 @@ async fn run_sync(
 ) -> anyhow::Result<()> {
     let cfg = config::load(&app)?;
     ensure_session_for_sync(&app, &cfg.api_url).await?;
-    let api = ApiClient::new(cfg.api_url.clone(), app.clone())?;
+    let api = ApiClient::new(cfg.api_url.clone(), app.clone(), cfg.debug_mode)?;
     let include_lr2 = matches!(request.client_filter.as_str(), "all" | "lr2");
     let include_bea = matches!(request.client_filter.as_str(), "all" | "beatoraja");
     let mut errors: Vec<SyncErrorEntry> = Vec::new();
@@ -478,6 +478,21 @@ async fn run_sync(
 
     check_cancel(&cancel_flag)?;
 
+    let sync_now_utc_date = time::OffsetDateTime::now_utc().date();
+    let (deduped, dropped_count) =
+        dedup_same_day_records(std::mem::take(&mut all_scores), sync_now_utc_date);
+    all_scores = deduped;
+    if dropped_count > 0 {
+        log(
+            &app,
+            &sync_run_id,
+            "info",
+            &format!(
+                "[INFO] 같은 날 같은 차분 중복 {dropped_count}건을 가장 최근 기록으로 통합했습니다."
+            ),
+        );
+    }
+
     if all_scores.is_empty() && all_player_stats.is_empty() {
         log(
             &app,
@@ -556,6 +571,9 @@ async fn run_sync(
                 has_score_changes = true;
             }
             server_errors.extend(response.errors);
+            if cfg.debug_mode {
+                log_debug_updates(&app, &sync_run_id, &response.debug_updates);
+            }
             progress(
                 &app,
                 &sync_run_id,
@@ -923,6 +941,64 @@ fn log_scorelog_summary(
     }
 }
 
+fn log_debug_updates(app: &AppHandle, sync_run_id: &str, updates: &[serde_json::Value]) {
+    if updates.is_empty() {
+        return;
+    }
+    log(
+        app,
+        sync_run_id,
+        "debug",
+        &format!("[DEBUG] 메타데이터 수정 항목: {}건", updates.len()),
+    );
+    for (i, entry) in updates.iter().enumerate() {
+        let identifier = entry.get("identifier").and_then(|v| v.as_str()).unwrap_or("?");
+        let client_type = entry.get("client_type").and_then(|v| v.as_str()).unwrap_or("?");
+        let row_id = entry.get("row_id").and_then(|v| v.as_str()).unwrap_or("?");
+        let changed_fields = entry
+            .get("changed_fields")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+        log(
+            app,
+            sync_run_id,
+            "debug",
+            &format!(
+                "[DEBUG] #{} 수정: {} ({}, row_id={}), 변경 필드: [{}]",
+                i + 1,
+                identifier,
+                client_type,
+                row_id,
+                changed_fields
+            ),
+        );
+        if let Some(before) = entry.get("before") {
+            let before_str = serde_json::to_string(before).unwrap_or_else(|_| "?".to_string());
+            log(
+                app,
+                sync_run_id,
+                "debug",
+                &format!("[DEBUG]   이전: {before_str}"),
+            );
+        }
+        if let Some(after) = entry.get("after") {
+            let after_str = serde_json::to_string(after).unwrap_or_else(|_| "?".to_string());
+            log(
+                app,
+                sync_run_id,
+                "debug",
+                &format!("[DEBUG]   이후: {after_str}"),
+            );
+        }
+    }
+}
+
 fn format_count_usize(value: usize) -> String {
     group_digits(&value.to_string())
 }
@@ -1048,4 +1124,202 @@ fn now_rfc3339() -> String {
     time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
+fn recorded_at_date_utc(recorded_at: &Option<String>) -> Option<time::Date> {
+    recorded_at.as_deref().and_then(|s| {
+        time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339)
+            .ok()
+            .map(|dt| dt.to_offset(time::UtcOffset::UTC).date())
+    })
+}
+
+fn recorded_at_unix_timestamp(recorded_at: &Option<String>) -> Option<i64> {
+    recorded_at.as_deref().and_then(|s| {
+        time::OffsetDateTime::parse(s, &time::format_description::well_known::Rfc3339)
+            .ok()
+            .map(|dt| dt.unix_timestamp())
+    })
+}
+
+/// Returns true if `a` should be replaced by `b` (b is "better" by the dedup ordering).
+/// Order: recorded_at desc → clear_type desc → exscore desc → input order (first wins).
+fn score_ordering_lt(a: &ScoreItem, b: &ScoreItem) -> bool {
+    let a_ts = recorded_at_unix_timestamp(&a.recorded_at);
+    let b_ts = recorded_at_unix_timestamp(&b.recorded_at);
+    match (a_ts, b_ts) {
+        (Some(ax), Some(bx)) if ax != bx => return ax < bx,
+        (None, Some(_)) => return true,
+        (Some(_), None) => return false,
+        _ => {}
+    }
+    match (a.clear_type, b.clear_type) {
+        (Some(ax), Some(bx)) if ax != bx => return ax < bx,
+        (None, Some(_)) => return true,
+        _ => {}
+    }
+    match (a.exscore, b.exscore) {
+        (Some(ax), Some(bx)) if ax != bx => return ax < bx,
+        (None, Some(_)) => return true,
+        _ => {}
+    }
+    false
+}
+
+/// Dedup scores so that each (fumen_identifier, client_type, UTC date) key keeps only
+/// the best entry (latest recorded_at, then highest clear_type, then highest exscore).
+///
+/// Items without any fumen identifier pass through unchanged.
+/// Items with recorded_at=None use `sync_now_utc_date` as the date key, matching the
+/// synced_at UTC date the server will assign (project convention for LR2 rows).
+fn dedup_same_day_records(
+    items: Vec<ScoreItem>,
+    sync_now_utc_date: time::Date,
+) -> (Vec<ScoreItem>, usize) {
+    let mut keep: HashMap<(String, String, time::Date), ScoreItem> = HashMap::new();
+    let mut passthrough: Vec<ScoreItem> = Vec::new();
+    let mut dropped: usize = 0;
+
+    for item in items {
+        let id = item
+            .fumen_sha256
+            .clone()
+            .or_else(|| item.fumen_md5.clone())
+            .or_else(|| item.fumen_hash_others.clone());
+        let Some(id) = id else {
+            passthrough.push(item);
+            continue;
+        };
+        let date = recorded_at_date_utc(&item.recorded_at).unwrap_or(sync_now_utc_date);
+        let key = (id, item.client_type.clone(), date);
+        let should_replace = match keep.get(&key) {
+            None => true,
+            Some(existing) => score_ordering_lt(existing, &item),
+        };
+        if should_replace {
+            if keep.insert(key, item).is_some() {
+                dropped += 1;
+            }
+        } else {
+            dropped += 1;
+        }
+    }
+
+    let mut out: Vec<ScoreItem> = keep.into_values().collect();
+    out.extend(passthrough);
+    (out, dropped)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_item(
+        fumen_sha256: Option<&str>,
+        fumen_md5: Option<&str>,
+        fumen_hash_others: Option<&str>,
+        client_type: &str,
+        recorded_at: Option<&str>,
+        clear_type: Option<i64>,
+        exscore: Option<i64>,
+    ) -> ScoreItem {
+        ScoreItem {
+            scorehash: None,
+            fumen_sha256: fumen_sha256.map(str::to_string),
+            fumen_md5: fumen_md5.map(str::to_string),
+            fumen_hash_others: fumen_hash_others.map(str::to_string),
+            client_type: client_type.to_string(),
+            clear_type,
+            notes: None,
+            exscore,
+            max_combo: None,
+            min_bp: None,
+            judgments: None,
+            options: None,
+            play_count: None,
+            clear_count: None,
+            recorded_at: recorded_at.map(str::to_string),
+            song_hashes: vec![],
+        }
+    }
+
+    fn march19() -> time::Date {
+        time::Date::from_calendar_date(2025, time::Month::March, 19).unwrap()
+    }
+
+    #[test]
+    fn dedup_keeps_latest_recorded_at_for_same_day_course() {
+        let hash = "a".repeat(256);
+        let earlier = make_item(None, None, Some(&hash), "beatoraja",
+            Some("2025-03-19T11:20:14Z"), Some(1), Some(100));
+        let later = make_item(None, None, Some(&hash), "beatoraja",
+            Some("2025-03-19T11:33:12Z"), Some(4), Some(200));
+        let (out, dropped) = dedup_same_day_records(vec![earlier, later], march19());
+        assert_eq!(dropped, 1);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].exscore, Some(200));
+    }
+
+    #[test]
+    fn dedup_uses_sync_now_date_when_recorded_at_is_none() {
+        let md5 = "b".repeat(32);
+        let item1 = make_item(None, Some(&md5), None, "lr2", None, Some(2), Some(500));
+        let item2 = make_item(None, Some(&md5), None, "lr2", None, Some(2), Some(500));
+        let (out, dropped) = dedup_same_day_records(vec![item1, item2], march19());
+        assert_eq!(dropped, 1);
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn dedup_keeps_recorded_at_some_over_none_on_collision() {
+        let md5 = "c".repeat(32);
+        let with_ts = make_item(None, Some(&md5), None, "beatoraja",
+            Some("2025-03-19T12:00:00Z"), Some(2), Some(300));
+        let without_ts = make_item(None, Some(&md5), None, "beatoraja",
+            None, Some(1), Some(100));
+        // sync_now_utc_date == march19 so without_ts date key matches with_ts date key
+        let (out, dropped) = dedup_same_day_records(vec![without_ts, with_ts], march19());
+        assert_eq!(dropped, 1);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].recorded_at.is_some());
+    }
+
+    #[test]
+    fn dedup_treats_different_dates_as_separate() {
+        let sha256 = "d".repeat(64);
+        let day1 = make_item(Some(&sha256), None, None, "beatoraja",
+            Some("2025-03-19T12:00:00Z"), Some(2), Some(500));
+        let day2 = make_item(Some(&sha256), None, None, "beatoraja",
+            Some("2025-03-20T12:00:00Z"), Some(2), Some(500));
+        let (out, dropped) = dedup_same_day_records(vec![day1, day2], march19());
+        assert_eq!(dropped, 0);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn dedup_falls_back_to_clear_type_then_exscore_on_tie() {
+        let sha256 = "e".repeat(64);
+        let same_ts = "2025-03-19T12:00:00Z";
+        let low_clear = make_item(Some(&sha256), None, None, "beatoraja",
+            Some(same_ts), Some(1), Some(500));
+        let high_clear = make_item(Some(&sha256), None, None, "beatoraja",
+            Some(same_ts), Some(4), Some(300));
+        let (out, dropped) = dedup_same_day_records(vec![low_clear, high_clear], march19());
+        assert_eq!(dropped, 1);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].clear_type, Some(4));
+    }
+
+    #[test]
+    fn dedup_handles_md5_only_records() {
+        let md5 = "f".repeat(32);
+        let item1 = make_item(None, Some(&md5), None, "lr2",
+            Some("2025-03-19T10:00:00Z"), Some(2), Some(400));
+        let item2 = make_item(None, Some(&md5), None, "lr2",
+            Some("2025-03-19T11:00:00Z"), Some(2), Some(450));
+        let (out, dropped) = dedup_same_day_records(vec![item1, item2], march19());
+        assert_eq!(dropped, 1);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].exscore, Some(450));
+    }
 }

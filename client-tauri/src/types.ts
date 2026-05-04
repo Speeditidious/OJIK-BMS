@@ -22,6 +22,7 @@ export interface ClientConfig {
   last_update_failure_version: string | null;
   last_update_failure_stage: string | null;
   last_update_failure_message: string | null;
+  debug_mode: boolean;
 }
 
 export interface AuthStatus {
@@ -38,6 +39,7 @@ export interface UpdateAnnouncement {
   mandatory: boolean;
   asset_size_bytes?: number | null;
   published_at?: string | null;
+  supports_auto_install: boolean;
 }
 
 export interface UpdatePolicy {
@@ -99,7 +101,7 @@ export interface SyncResult {
   result_url?: string | null;
 }
 
-export type LogLevel = "info" | "warn" | "error";
+export type LogLevel = "info" | "warn" | "error" | "debug";
 
 export interface LogEvent {
   sync_run_id?: string | null;

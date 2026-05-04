@@ -10,6 +10,7 @@ export interface UpdateDialogProps {
   announcement: UpdateAnnouncement;
   isInstalling: boolean;
   downloadProgress?: { downloaded: number; total?: number | null } | null;
+  supportsAutoInstall: boolean;
   onInstall: () => void;
   onLater?: () => void;
   onSkip?: () => void;
@@ -22,6 +23,7 @@ export function UpdateDialog({
   announcement,
   isInstalling,
   downloadProgress,
+  supportsAutoInstall,
   onInstall,
   onLater,
   onSkip,
@@ -74,7 +76,11 @@ export function UpdateDialog({
             onClick={onInstall}
             disabled={isInstalling}
           >
-            {isInstalling ? "설치 진행 중…" : "지금 업데이트"}
+            {isInstalling
+              ? "업데이트 중..."
+              : supportsAutoInstall
+                ? "지금 업데이트"
+                : "설치 파일 다운로드"}
           </Button>
         </>
       }
@@ -111,6 +117,16 @@ export function UpdateDialog({
 
         {downloadProgress ? (
           <DownloadProgress downloaded={downloadProgress.downloaded} total={downloadProgress.total ?? null} />
+        ) : null}
+
+        {!supportsAutoInstall ? (
+          <div className="banner banner-info">
+            <div>
+              <div className="banner-body">
+                이 버전은 앱 내 자동 설치 파일이 아직 준비되지 않아 다운로드 페이지에서 설치해야 합니다.
+              </div>
+            </div>
+          </div>
         ) : null}
 
         {mandatory ? (

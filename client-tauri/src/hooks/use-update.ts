@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { subscribe } from "../lib/tauri-events";
 import { checkUpdatePolicy, installUpdate, openDownloadPage } from "../tauri";
+import type { InstallUpdateOptions } from "../tauri";
 import type { UpdateAnnouncement, UpdateError, UpdatePolicy } from "../types";
 
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
@@ -10,8 +11,10 @@ export function useUpdateStore() {
   const [policy, setPolicy] = useState<UpdatePolicy | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<{ downloaded: number; total?: number | null } | null>(null);
   const [installError, setInstallError] = useState<UpdateError | null>(null);
+  const [installStage, setInstallStage] = useState<UpdateError["stage"] | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
+  const installStageRef = useRef<UpdateError["stage"]>("check");
 
   // Background check on mount.
   useEffect(() => {
@@ -76,12 +79,22 @@ export function useUpdateStore() {
 
   const install = useCallback(async (id: string) => {
     setInstallError(null);
+    setDownloadProgress(null);
+    setInstallStage("check");
+    installStageRef.current = "check";
     setIsInstalling(true);
     try {
-      await installUpdate(id);
+      const options: InstallUpdateOptions = {
+        onProgress: setDownloadProgress,
+        onStage: (stage) => {
+          installStageRef.current = stage;
+          setInstallStage(stage);
+        },
+      };
+      await installUpdate(id, options);
     } catch (err) {
       setInstallError({
-        stage: "install",
+        stage: installStageRef.current,
         message: err instanceof Error ? err.message : String(err),
       });
     } finally {
@@ -97,6 +110,7 @@ export function useUpdateStore() {
     policy,
     downloadProgress,
     installError,
+    installStage,
     isChecking,
     isInstalling,
     manualCheck,
