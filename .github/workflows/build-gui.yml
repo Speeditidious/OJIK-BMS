@@ -102,6 +102,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
       - name: Download installer artifact
         uses: actions/download-artifact@v8
         with:
@@ -112,13 +115,9 @@ jobs:
         run: |
           set -e
           mkdir -p release-assets
-          # Move every regular file from any nested directory to release-assets/ root
           find release-assets-raw -type f -exec mv -t release-assets {} +
           echo "--- release-assets contents ---"
           ls -la release-assets
-
-      - name: Checkout repository
-        uses: actions/checkout@v6
 
       - name: Create release and upload installer
         uses: softprops/action-gh-release@v2

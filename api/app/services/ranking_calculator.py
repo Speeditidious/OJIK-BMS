@@ -153,6 +153,9 @@ def _resolve_level(
     return original_level
 
 
+_FC_OR_ABOVE = frozenset({"FC", "PERFECT", "MAX"})
+
+
 def _song_rating(
     level: str,
     lamp: str,
@@ -164,7 +167,9 @@ def _song_rating(
     """spec §2 — per-chart rating = C_table × (Base + Bonus)."""
     if lamp == "NOPLAY":
         return 0.0
-    return cfg.c_table * (_base(level, lamp, rank, cfg) + _bonus(bp, rate_01, cfg))
+    # FC 이상은 공푸어가 있어도 BP 보너스를 최대값(bp=0)으로 계산
+    effective_bp = 0.0 if lamp in _FC_OR_ABOVE else bp
+    return cfg.c_table * (_base(level, lamp, rank, cfg) + _bonus(effective_bp, rate_01, cfg))
 
 
 def _exp_level(total_exp: float, exp_level_step: float, max_level: int) -> int:
