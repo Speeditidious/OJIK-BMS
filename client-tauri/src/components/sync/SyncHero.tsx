@@ -57,9 +57,9 @@ export function SyncHero({
                   <span>
                     수정된 기록 <b>{formatNumber(lastResult.metadata_updated)}</b>건
                   </span>
-                  {lastResult.errors.length > 0 ? (
+                  {lastResult.errors.filter((e) => e.level !== "warn").length > 0 ? (
                     <span style={{ color: "var(--danger)" }}>
-                      오류 <b>{formatNumber(lastResult.errors.length)}</b>건
+                      오류 <b>{formatNumber(lastResult.errors.filter((e) => e.level !== "warn").length)}</b>건
                     </span>
                   ) : null}
                 </>

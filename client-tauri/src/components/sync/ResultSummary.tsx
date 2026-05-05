@@ -21,7 +21,7 @@ export function ResultSummary({ result, onOpenResultUrl, onJumpToLog }: ResultSu
 
   if (!result) return null;
 
-  const errorCount = result.errors.length;
+  const errorCount = result.errors.filter((e) => e.level !== "warn").length;
   const resultUrl = result.result_url ?? "https://www.ojikbms.kr/dashboard";
 
   return (

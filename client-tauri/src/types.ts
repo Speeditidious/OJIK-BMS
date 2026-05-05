@@ -84,6 +84,7 @@ export interface SyncErrorEntry {
   client?: ClientType | null;
   message: string;
   detail?: string | null;
+  level?: "error" | "warn";
 }
 
 export interface SyncResult {

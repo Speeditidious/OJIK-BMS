@@ -128,6 +128,7 @@ struct SyncErrorEntry {
     client: Option<String>,
     message: String,
     detail: Option<String>,
+    level: String,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -385,6 +386,7 @@ async fn run_sync(
                         client: Some("lr2".to_string()),
                         message: "LR2 파싱 오류".to_string(),
                         detail: Some(error.to_string()),
+                        level: "error".to_string(),
                     });
                     log(
                         &app,
@@ -436,6 +438,7 @@ async fn run_sync(
                         client: Some("beatoraja".to_string()),
                         message: "Beatoraja 파싱 오류".to_string(),
                         detail: Some(error.to_string()),
+                        level: "error".to_string(),
                     });
                     log(
                         &app,
@@ -600,6 +603,7 @@ async fn run_sync(
             client: None,
             message: error,
             detail: None,
+            level: "error".to_string(),
         });
     }
 
@@ -779,6 +783,7 @@ async fn run_full_detail_sync(
             client: None,
             message: error,
             detail: Some("full detail sync".to_string()),
+            level: "warn".to_string(),
         });
     }
     errors
