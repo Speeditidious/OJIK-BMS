@@ -90,7 +90,8 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: ojikbms-tauri-windows
-          path: client-tauri/release/*
+          path: client-tauri/release/
+          if-no-files-found: error
 
   create-release:
     name: Create GitHub Release
@@ -105,7 +106,16 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: ojikbms-tauri-windows
-          path: release-assets
+          path: release-assets-raw
+
+      - name: Flatten release assets
+        run: |
+          set -e
+          mkdir -p release-assets
+          # Move every regular file from any nested directory to release-assets/ root
+          find release-assets-raw -type f -exec mv -t release-assets {} +
+          echo "--- release-assets contents ---"
+          ls -la release-assets
 
       - name: Checkout repository
         uses: actions/checkout@v6
