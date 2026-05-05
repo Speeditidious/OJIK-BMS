@@ -126,10 +126,50 @@ jobs:
           generate_release_notes: true
           prerelease: ${{ needs.build-windows.outputs.is_prerelease }}
 
-      - name: Register client update draft
+      - name: Prepare register payload
+        id: payload
         env:
-          API_URL: ${{ secrets.OJIK_API_URL }}
-          CLIENT_UPDATE_INGEST_TOKEN: ${{ secrets.CLIENT_UPDATE_INGEST_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          TAG_NAME: ${{ github.ref_name }}
-        run: python client-tauri/scripts/register-client-update.py
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          ASSET_BASE="ojikbms-client-${TAG}-windows-x64-setup"
+          SIG=$(cat "release-assets/${ASSET_BASE}.exe.sig")
+          SIZE=$(python3 -c "import json,sys; d=json.load(open('release-assets/${ASSET_BASE}.metadata.json')); print(d['asset_size_bytes'])")
+          SHA256=$(python3 -c "import json,sys; d=json.load(open('release-assets/${ASSET_BASE}.metadata.json')); print(d['asset_sha256'])")
+          VERSION="${TAG#v}"
+          PAYLOAD=$(python3 -c "
+          import json, os
+          tag=os.environ['TAG']; repo=os.environ['REPO']; version=os.environ['VERSION']
+          sig=open('release-assets/ojikbms-client-'+tag+'-windows-x64-setup.exe.sig').read().strip()
+          size=int(os.environ['SIZE']); sha256=os.environ['SHA256']
+          print(json.dumps({
+            'version': version, 'channel': 'stable', 'target_os': 'windows',
+            'arch': 'x86_64', 'installer_kind': 'nsis',
+            'title': f'OJIK BMS Client v{version}',
+            'body_markdown': f'GitHub Release에서 생성된 클라이언트 업데이트 초안입니다.\n공개 전에 릴리즈 노트를 확인하고 타이틀/내용을 수정하세요.\n\n릴리즈 페이지: https://github.com/{repo}/releases/tag/{tag}',
+            'release_page_url': f'https://github.com/{repo}/releases/tag/{tag}',
+            'update_url': f'https://github.com/{repo}/releases/download/{tag}/ojikbms-client-{tag}-windows-x64-setup.exe',
+            'tauri_signature': sig, 'asset_size_bytes': size, 'asset_sha256': sha256,
+            'mandatory': False, 'min_supported_version': None,
+          }))
+          " VERSION="$VERSION" SIZE="$SIZE" SHA256="$SHA256"
+          echo "payload=$PAYLOAD" >> "$GITHUB_OUTPUT"
+
+      - name: Register client update draft via VPS SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: PAYLOAD,INGEST_TOKEN
+          script: |
+            set -e
+            echo "$PAYLOAD" | curl -sf \
+              -X POST http://localhost:8000/internal/client-updates/from-release \
+              -H "Content-Type: application/json" \
+              -H "X-OJIK-Internal-Token: $INGEST_TOKEN" \
+              -d @- \
+              | python3 -c "import sys,json; d=json.load(sys.stdin); action='created' if d.get('created') else 'updated'; print(f'OK: draft row {action} (id={d[\"id\"]}, published={d[\"is_published\"]})')"
+        env:
+          PAYLOAD: ${{ steps.payload.outputs.payload }}
+          INGEST_TOKEN: ${{ secrets.CLIENT_UPDATE_INGEST_TOKEN }}
