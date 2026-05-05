@@ -132,28 +132,34 @@ jobs:
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: |
+          set -e
           ASSET_BASE="ojikbms-client-${TAG}-windows-x64-setup"
+          META="release-assets/${ASSET_BASE}.metadata.json"
           SIG=$(cat "release-assets/${ASSET_BASE}.exe.sig")
-          SIZE=$(python3 -c "import json,sys; d=json.load(open('release-assets/${ASSET_BASE}.metadata.json')); print(d['asset_size_bytes'])")
-          SHA256=$(python3 -c "import json,sys; d=json.load(open('release-assets/${ASSET_BASE}.metadata.json')); print(d['asset_sha256'])")
           VERSION="${TAG#v}"
-          PAYLOAD=$(python3 -c "
-          import json, os
-          tag=os.environ['TAG']; repo=os.environ['REPO']; version=os.environ['VERSION']
-          sig=open('release-assets/ojikbms-client-'+tag+'-windows-x64-setup.exe.sig').read().strip()
-          size=int(os.environ['SIZE']); sha256=os.environ['SHA256']
-          print(json.dumps({
-            'version': version, 'channel': 'stable', 'target_os': 'windows',
-            'arch': 'x86_64', 'installer_kind': 'nsis',
-            'title': f'OJIK BMS Client v{version}',
-            'body_markdown': f'GitHub Release에서 생성된 클라이언트 업데이트 초안입니다.\n공개 전에 릴리즈 노트를 확인하고 타이틀/내용을 수정하세요.\n\n릴리즈 페이지: https://github.com/{repo}/releases/tag/{tag}',
-            'release_page_url': f'https://github.com/{repo}/releases/tag/{tag}',
-            'update_url': f'https://github.com/{repo}/releases/download/{tag}/ojikbms-client-{tag}-windows-x64-setup.exe',
-            'tauri_signature': sig, 'asset_size_bytes': size, 'asset_sha256': sha256,
-            'mandatory': False, 'min_supported_version': None,
-          }))
-          " VERSION="$VERSION" SIZE="$SIZE" SHA256="$SHA256"
-          echo "payload=$PAYLOAD" >> "$GITHUB_OUTPUT"
+          PAYLOAD=$(jq -n \
+            --arg version "$VERSION" \
+            --arg tag "$TAG" \
+            --arg repo "$REPO" \
+            --arg sig "$SIG" \
+            --argjson size "$(jq '.asset_size_bytes' "$META")" \
+            --arg sha256 "$(jq -r '.asset_sha256' "$META")" \
+            '{
+              version: $version, channel: "stable",
+              target_os: "windows", arch: "x86_64", installer_kind: "nsis",
+              title: ("OJIK BMS Client v" + $version),
+              body_markdown: ("GitHub Release에서 생성된 클라이언트 업데이트 초안입니다.\n공개 전에 릴리즈 노트를 확인하고 타이틀/내용을 수정하세요.\n\n릴리즈 페이지: https://github.com/" + $repo + "/releases/tag/" + $tag),
+              release_page_url: ("https://github.com/" + $repo + "/releases/tag/" + $tag),
+              update_url: ("https://github.com/" + $repo + "/releases/download/" + $tag + "/ojikbms-client-" + $tag + "-windows-x64-setup.exe"),
+              tauri_signature: $sig,
+              asset_size_bytes: $size,
+              asset_sha256: $sha256,
+              mandatory: false,
+              min_supported_version: null
+            }')
+          echo "payload<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$PAYLOAD" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Register client update draft via VPS SSH
         uses: appleboy/ssh-action@v1.0.3
