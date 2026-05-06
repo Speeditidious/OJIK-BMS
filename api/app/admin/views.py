@@ -308,21 +308,21 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
 
     async def on_model_change(self, data, model, is_created, request) -> None:
         """Stamp published_at when an admin publishes a client update, and validate signed rows."""
-        from sqladmin.exceptions import SquadminException
+        from sqladmin.exceptions import SQLAdminException
 
         update_url = (model.update_url or "").strip()
         if not update_url.startswith("https://"):
-            raise SquadminException("update_url은 https:// 로 시작해야 합니다.")
+            raise SQLAdminException("update_url은 https:// 로 시작해야 합니다.")
 
         github_page_pattern = "github.com/"
         if "/releases/tag/" in update_url and github_page_pattern in update_url:
-            raise SquadminException(
+            raise SQLAdminException(
                 "update_url은 GitHub 릴리즈 페이지가 아닌 직접 다운로드 URL이어야 합니다."
             )
 
         if model.tauri_signature:
             if not model.asset_sha256 or not model.asset_size_bytes:
-                raise SquadminException(
+                raise SQLAdminException(
                     "tauri_signature가 있으면 asset_sha256과 asset_size_bytes도 필수입니다."
                 )
 
