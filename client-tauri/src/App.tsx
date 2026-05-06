@@ -64,16 +64,17 @@ export default function App() {
         : undefined;
 
   // Auto-open update dialog when policy comes back with announcement.
-  const lastDialogedAnnouncementId = useRef<string | null>(null);
-  if (
-    updater.policy?.update_available &&
-    updater.policy.announcement &&
-    lastDialogedAnnouncementId.current !== updater.policy.announcement.id &&
-    !updateDialogOpen
-  ) {
-    lastDialogedAnnouncementId.current = updater.policy.announcement.id;
+  const lastAutoOpenedAnnouncementId = useRef<string | null>(null);
+
+  useEffect(() => {
+    const announcement = updater.policy?.update_available
+      ? updater.policy.announcement
+      : null;
+    if (!announcement) return;
+    if (lastAutoOpenedAnnouncementId.current === announcement.id) return;
+    lastAutoOpenedAnnouncementId.current = announcement.id;
     setUpdateDialogOpen(true);
-  }
+  }, [updater.policy]);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,9 +112,11 @@ export default function App() {
   }, [toast]);
 
   // Auto-open failure dialog when an install error appears.
-  if (updater.installError && !updateFailureOpen) {
-    setUpdateFailureOpen(true);
-  }
+  useEffect(() => {
+    if (updater.installError && !updateFailureOpen) {
+      setUpdateFailureOpen(true);
+    }
+  }, [updater.installError, updateFailureOpen]);
 
   const handleStartSync = useCallback(
     async (filter: ClientFilter, fullSync: boolean) => {
@@ -168,7 +171,11 @@ export default function App() {
   const handleManualUpdateCheck = useCallback(async () => {
     try {
       const policy = await updater.manualCheck();
-      if (!policy.update_available) {
+      if (policy.update_available && policy.announcement) {
+        // Force-reopen even if user closed the dialog earlier (X button).
+        lastAutoOpenedAnnouncementId.current = policy.announcement.id;
+        setUpdateDialogOpen(true);
+      } else {
         toast.push({
           tone: "info",
           message: policy.message ?? "사용 가능한 업데이트가 없습니다.",
@@ -422,7 +429,11 @@ export default function App() {
               }),
             );
           }}
-          onClose={() => setUpdateDialogOpen(false)}
+          onClose={() => {
+            setUpdateDialogOpen(false);
+            // Allow background re-poll to reopen the same announcement next cycle.
+            lastAutoOpenedAnnouncementId.current = null;
+          }}
         />
       ) : null}
 
