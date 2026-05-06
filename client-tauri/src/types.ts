@@ -23,6 +23,7 @@ export interface ClientConfig {
   last_update_failure_stage: string | null;
   last_update_failure_message: string | null;
   debug_mode: boolean;
+  verbose_disk_logging: boolean;
 }
 
 export interface AuthStatus {
@@ -138,6 +139,7 @@ export interface PathProbe {
 export interface DiagnosticsInfo {
   os?: string | null;
   webview?: string | null;
+  exe_path?: string | null;
   config_dir?: string | null;
   logs_dir?: string | null;
 }

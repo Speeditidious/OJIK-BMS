@@ -262,7 +262,7 @@ impl ApiClient {
             return Ok(response);
         }
 
-        log::info!("send_authorized_request: 401 received, attempting token refresh");
+        log::debug!(target: "sync_api", "send_authorized_request: 401 received, attempting token refresh");
         if !auth::refresh_access_token(&self.app, &self.api_url).await? {
             // Tagged error so commands/sync.rs can distinguish "user must
             // re-login" from generic sync failures and emit auth:reauth-required.
@@ -291,7 +291,7 @@ impl ApiClient {
             if let Some(token) = auth::load_access_token(&self.app) {
                 request = request.bearer_auth(token);
             } else {
-                log::warn!("send_request: no access_token in storage; sending unauthenticated");
+                log::debug!(target: "sync_api", "send_request: no access_token in storage; sending unauthenticated");
             }
         }
         Ok(request.send().await?)
@@ -360,8 +360,9 @@ fn retry_delay(attempt: usize) -> Duration {
 }
 
 fn log_retry(method: &Method, path: &str, attempt: usize, error: &anyhow::Error) {
-    log::warn!(
-        "api request failed transiently; retrying {method} {path} (attempt {}/{}) after: {error}",
+    log::debug!(
+        target: "sync_api",
+        "api request failed transiently; retrying {method} {path} (attempt {}/{}) after: {error:#}",
         attempt + 1,
         API_REQUEST_MAX_ATTEMPTS
     );

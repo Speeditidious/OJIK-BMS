@@ -605,7 +605,7 @@ fn build_item(
         client_type: "beatoraja".to_string(),
         clear_type: Some(clear_type),
         notes,
-        exscore: None,
+        exscore: Some(exscore),
         max_combo: none_if_zero(get_i64(row, cols.maxcombo.as_deref()).unwrap_or(0)),
         min_bp: get_i64(row, cols.minbp.as_deref()),
         judgments: Some(judgments),

@@ -35,6 +35,7 @@ const browserConfig: ClientConfig = {
   last_update_failure_stage: null,
   last_update_failure_message: null,
   debug_mode: false,
+  verbose_disk_logging: false,
 };
 
 let mockConfig: ClientConfig | null = null;

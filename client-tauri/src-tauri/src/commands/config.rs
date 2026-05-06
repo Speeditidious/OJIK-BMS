@@ -6,6 +6,7 @@ use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
 use crate::domain::config::{self, ClientConfig};
+use crate::logging;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PathProbe {
@@ -18,6 +19,7 @@ pub struct PathProbe {
 #[derive(Debug, Clone, Serialize)]
 pub struct DiagnosticsInfo {
     pub os: String,
+    pub exe_path: Option<String>,
     pub config_dir: Option<String>,
     pub logs_dir: Option<String>,
 }
@@ -29,7 +31,9 @@ pub fn get_config(app: AppHandle) -> Result<ClientConfig, String> {
 
 #[tauri::command]
 pub fn save_config(app: AppHandle, config: ClientConfig) -> Result<ClientConfig, String> {
-    config::save(&app, &config).map_err(|error| error.to_string())
+    let saved = config::save(&app, &config).map_err(|error| error.to_string())?;
+    logging::set_verbose_disk_logging(saved.verbose_disk_logging);
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -92,8 +96,13 @@ pub fn get_diagnostics_info(app: AppHandle) -> Result<DiagnosticsInfo, String> {
         .ok()
         .map(|path| path.to_string_lossy().to_string());
 
+    let exe_path = std::env::current_exe()
+        .ok()
+        .map(|path| path.to_string_lossy().to_string());
+
     Ok(DiagnosticsInfo {
         os: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+        exe_path,
         config_dir,
         logs_dir,
     })

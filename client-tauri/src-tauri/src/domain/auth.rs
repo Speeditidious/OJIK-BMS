@@ -88,7 +88,8 @@ pub async fn ensure_refresh_token_fresh(
         return Ok(true);
     }
 
-    log::info!(
+    log::debug!(
+        target: "auth",
         "ensure_refresh_token_fresh: refresh_token expires in {days} day(s), refreshing proactively"
     );
     refresh_access_token(app, api_url).await
@@ -121,7 +122,7 @@ pub async fn refresh_access_token(app: &AppHandle, api_url: &str) -> anyhow::Res
     if status == StatusCode::OK {
         let body = response.json::<RefreshResponse>().await?;
         save_tokens(app, &body.access_token, &body.refresh_token)?;
-        log::info!("refresh_access_token: success (new tokens persisted)");
+        log::debug!(target: "auth", "refresh_access_token: success (new tokens persisted)");
         return Ok(true);
     }
 
@@ -358,7 +359,7 @@ fn save_secret(app: &AppHandle, key: &str, value: &str) -> anyhow::Result<()> {
 
     match keyring_result {
         Ok(()) => {
-            log::info!("save_secret: stored via keyring (key={key})");
+            log::debug!(target: "auth", "save_secret: stored via keyring (key={key})");
             // Clean up any stale file fallback so reads don't return outdated tokens.
             if let Ok(path) = secret_file_path(app, key) {
                 let _ = fs::remove_file(&path);
@@ -366,7 +367,7 @@ fn save_secret(app: &AppHandle, key: &str, value: &str) -> anyhow::Result<()> {
             Ok(())
         }
         Err(keyring_err) => {
-            log::warn!(
+            log::debug!(
                 "save_secret: keyring unavailable, falling back to file storage (key={key}, error={keyring_err})"
             );
             write_secret_file(app, key, value).with_context(|| {

@@ -10,6 +10,7 @@ export interface DiagnosticsInfo {
   os?: string | null;
   webview?: string | null;
   apiUrl: string;
+  exePath?: string | null;
   configDir?: string | null;
   logsDir?: string | null;
 }
@@ -22,6 +23,7 @@ export function DiagnosticsPanel({
   onCheckUpdate,
   onOpenLogFile,
   onResetUpdateDismissals,
+  onToggleVerboseDiskLogging,
   isCheckingUpdate,
 }: {
   open: boolean;
@@ -31,6 +33,7 @@ export function DiagnosticsPanel({
   onCheckUpdate: () => void;
   onOpenLogFile?: () => void;
   onResetUpdateDismissals: () => void;
+  onToggleVerboseDiskLogging?: (next: boolean) => void;
   isCheckingUpdate: boolean;
 }) {
   return (
@@ -51,8 +54,15 @@ export function DiagnosticsPanel({
           {info.os ? <DiagRow label="OS" value={info.os} /> : null}
           {info.webview ? <DiagRow label="WebView2" value={info.webview} /> : null}
           <DiagRow label="API URL" value={info.apiUrl} />
+          {info.exePath ? <DiagRow label="설치 파일 경로" value={info.exePath} mono /> : null}
           {info.configDir ? <DiagRow label="Config 경로" value={info.configDir} mono /> : null}
           {info.logsDir ? <DiagRow label="Logs 경로" value={info.logsDir} mono /> : null}
+          {config && onToggleVerboseDiskLogging ? (
+            <VerboseDiskLoggingRow
+              enabled={config.verbose_disk_logging}
+              onToggle={onToggleVerboseDiskLogging}
+            />
+          ) : null}
         </DiagSection>
 
         <DiagSection title="업데이트">
@@ -109,6 +119,42 @@ function DiagSection({ title, children }: { title: string; children: React.React
       </h3>
       <div style={{ display: "grid", gap: 6 }}>{children}</div>
     </section>
+  );
+}
+
+function VerboseDiskLoggingRow({
+  enabled,
+  onToggle,
+}: {
+  enabled: boolean;
+  onToggle: (next: boolean) => void;
+}) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, fontSize: "0.86rem" }}>
+      <span style={{ color: "var(--muted)" }}>상세 로그 기록</span>
+      <label
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 8,
+          color: "var(--text)",
+          cursor: "pointer",
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(event) => onToggle(event.target.checked)}
+          style={{ marginTop: 3, accentColor: "var(--primary)" }}
+        />
+        <span style={{ display: "grid", gap: 2 }}>
+          <span>문제 신고용 — 디스크 로그를 DEBUG 레벨까지 기록</span>
+          <span style={{ color: "var(--muted)", fontSize: "0.78rem" }}>
+            평소엔 WARN 이상만 기록됩니다. 동기화 실패 등 재현 가능한 이슈를 신고할 때 켜주세요.
+          </span>
+        </span>
+      </label>
+    </div>
   );
 }
 

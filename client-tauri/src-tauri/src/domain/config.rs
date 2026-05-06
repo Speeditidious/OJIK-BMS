@@ -30,6 +30,7 @@ pub struct ClientConfig {
     pub last_update_failure_stage: Option<String>,
     pub last_update_failure_message: Option<String>,
     pub debug_mode: bool,
+    pub verbose_disk_logging: bool,
 }
 
 impl Default for ClientConfig {
@@ -55,6 +56,7 @@ impl Default for ClientConfig {
             last_update_failure_stage: None,
             last_update_failure_message: None,
             debug_mode: false,
+            verbose_disk_logging: false,
         }
     }
 }

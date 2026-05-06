@@ -373,12 +373,14 @@ export default function App() {
           apiUrl: config.api_url,
           os: diagnosticsInfo?.os,
           webview: diagnosticsInfo?.webview,
+          exePath: diagnosticsInfo?.exe_path,
           configDir: diagnosticsInfo?.config_dir,
           logsDir: diagnosticsInfo?.logs_dir,
         }}
         config={config}
         onCheckUpdate={handleManualUpdateCheck}
         onResetUpdateDismissals={handleResetUpdateDismissals}
+        onToggleVerboseDiskLogging={(next) => update({ verbose_disk_logging: next })}
         isCheckingUpdate={updater.isChecking}
       />
 

@@ -24,9 +24,6 @@ export function AboutFooter({
         <span>
           <b>채널</b> {channel}
         </span>
-        <span>
-          <b>웹</b> ojikbms.kr
-        </span>
       </div>
       <div className="about-actions">
         {onOpenLogFile ? (

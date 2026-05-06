@@ -11,9 +11,9 @@ use crate::commands::auth::{self as auth_cmd, AuthStatus};
 use crate::domain::auth as auth_domain;
 use crate::domain::sync_api::{ApiClient, PlayerStats, ScoreItem};
 use crate::domain::{beatoraja, config, fumen_detail, lr2};
+use crate::logging::{EnvironmentSnapshot, PathChecks};
 
 const SCORE_BATCH_SIZE: usize = 500;
-const QUICK_SYNC_SCORELOG_OVERLAP_DAYS: i64 = 3;
 const REFRESH_TOKEN_PROACTIVE_RENEW_DAYS: u32 = 3;
 
 #[derive(Default)]
@@ -179,7 +179,7 @@ pub fn start_sync(
                 );
             } else {
                 let msg = format!("{:#}", error);
-                write_error_log(&app_for_task, &run_id_for_task, &[], Some(&msg));
+                write_error_log(&app_for_task, &run_id_for_task, None, Some(&msg));
                 if msg.contains(auth_domain::REAUTH_REQUIRED_TAG) {
                     // Notify the auth store so the header switches to logged-out
                     // and broadcast a dedicated event so the UI can show a
@@ -382,17 +382,18 @@ async fn run_sync(
                     }
                 }
                 Err(error) => {
+                    let detail = format!("path={path} | error={error:#}");
                     errors.push(SyncErrorEntry {
                         client: Some("lr2".to_string()),
                         message: "LR2 파싱 오류".to_string(),
-                        detail: Some(error.to_string()),
+                        detail: Some(detail.clone()),
                         level: "error".to_string(),
                     });
                     log(
                         &app,
                         &sync_run_id,
                         "error",
-                        &format!("[ERROR] LR2 파싱 오류: {error}"),
+                        &format!("[ERROR][stage=parsing/lr2] LR2 파싱 오류: {detail}"),
                     );
                 }
             }
@@ -434,35 +435,23 @@ async fn run_sync(
                     all_scores.extend(courses);
                 }
                 Err(error) => {
+                    let detail = format!("path={path} | error={error:#}");
                     errors.push(SyncErrorEntry {
                         client: Some("beatoraja".to_string()),
                         message: "Beatoraja 파싱 오류".to_string(),
-                        detail: Some(error.to_string()),
+                        detail: Some(detail.clone()),
                         level: "error".to_string(),
                     });
                     log(
                         &app,
                         &sync_run_id,
                         "error",
-                        &format!("[ERROR] Beatoraja 파싱 오류: {error}"),
+                        &format!("[ERROR][stage=parsing/beatoraja] Beatoraja 파싱 오류: {detail}"),
                     );
                 }
             }
 
-            let scorelog_since =
-                quick_sync_scorelog_since(cfg.last_synced_at.as_deref(), request.full_sync);
-            if let Some(since) = scorelog_since {
-                log(
-                    &app,
-                    &sync_run_id,
-                    "info",
-                    &format!(
-                        "[INFO] Beatoraja scorelog.db: 최근 동기화 기준 {}일 overlap 이후 기록만 확인합니다 (since={since}).",
-                        QUICK_SYNC_SCORELOG_OVERLAP_DAYS
-                    ),
-                );
-            }
-            let (scorelog, stats) = beatoraja::parse_score_log(path, scorelog_since);
+            let (scorelog, stats) = beatoraja::parse_score_log(path, None);
             log_scorelog_summary(
                 &app,
                 &sync_run_id,
@@ -482,18 +471,60 @@ async fn run_sync(
     check_cancel(&cancel_flag)?;
 
     let sync_now_utc_date = time::OffsetDateTime::now_utc().date();
-    let (deduped, dropped_count) =
+    let (deduped, dedup_groups) =
         dedup_same_day_records(std::mem::take(&mut all_scores), sync_now_utc_date);
     all_scores = deduped;
-    if dropped_count > 0 {
+    if !dedup_groups.is_empty() {
+        let total_dropped: usize = dedup_groups.iter().map(|g| g.dropped.len()).sum();
         log(
             &app,
             &sync_run_id,
-            "info",
+            "debug",
             &format!(
-                "[INFO] 같은 날 같은 차분 중복 {dropped_count}건을 가장 최근 기록으로 통합했습니다."
+                "[DEBUG] Beatoraja scorelog.db 같은 날 같은 차분 중복 {total_dropped}건을 가장 최근 기록으로 통합했습니다."
             ),
         );
+        let group_count = dedup_groups.len();
+        for (i, group) in dedup_groups.iter().enumerate() {
+            let hash = group.kept.fumen_sha256.as_deref()
+                .or(group.kept.fumen_md5.as_deref())
+                .or(group.kept.fumen_hash_others.as_deref())
+                .unwrap_or("unknown");
+            log(
+                &app,
+                &sync_run_id,
+                "debug",
+                &format!(
+                    "[DEBUG] 통합 그룹 {}/{group_count}: hash={hash}, client={}",
+                    i + 1,
+                    group.kept.client_type,
+                ),
+            );
+            log(
+                &app,
+                &sync_run_id,
+                "debug",
+                &format!(
+                    "[DEBUG]   채택: clear={}, exscore={}, recorded_at={}",
+                    group.kept.clear_type.map_or("-".to_string(), |v| v.to_string()),
+                    group.kept.exscore.map_or("-".to_string(), |v| v.to_string()),
+                    group.kept.recorded_at.as_deref().unwrap_or("-"),
+                ),
+            );
+            for dropped in &group.dropped {
+                log(
+                    &app,
+                    &sync_run_id,
+                    "debug",
+                    &format!(
+                        "[DEBUG]   제외: clear={}, exscore={}, recorded_at={}",
+                        dropped.clear_type.map_or("-".to_string(), |v| v.to_string()),
+                        dropped.exscore.map_or("-".to_string(), |v| v.to_string()),
+                        dropped.recorded_at.as_deref().unwrap_or("-"),
+                    ),
+                );
+            }
+        }
     }
 
     if all_scores.is_empty() && all_player_stats.is_empty() {
@@ -599,10 +630,16 @@ async fn run_sync(
     let improved = improvement_count.unwrap_or(synced);
     let per_client = HashMap::new();
     for error in server_errors {
+        log(
+            &app,
+            &sync_run_id,
+            "error",
+            &format!("[ERROR][stage=uploading] 서버 응답 오류: {error}"),
+        );
         errors.push(SyncErrorEntry {
             client: None,
             message: error,
-            detail: None,
+            detail: Some("stage=uploading".to_string()),
             level: "error".to_string(),
         });
     }
@@ -778,11 +815,16 @@ async fn run_full_detail_sync(
         ),
     );
     for error in summary.errors.into_iter().take(5) {
-        log(app, sync_run_id, "warn", &format!("[WARN] {error}"));
+        log(
+            app,
+            sync_run_id,
+            "warn",
+            &format!("[WARN][stage=supplementing] {error}"),
+        );
         errors.push(SyncErrorEntry {
             client: None,
             message: error,
-            detail: Some("full detail sync".to_string()),
+            detail: Some("stage=supplementing".to_string()),
             level: "warn".to_string(),
         });
     }
@@ -1034,20 +1076,6 @@ fn check_cancel(cancel_flag: &AtomicBool) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn quick_sync_scorelog_since(last_synced_at: Option<&str>, full_sync: bool) -> Option<i64> {
-    if full_sync {
-        return None;
-    }
-    let synced_at = last_synced_at.and_then(|value| {
-        time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339).ok()
-    })?;
-    Some(
-        (synced_at - time::Duration::days(QUICK_SYNC_SCORELOG_OVERLAP_DAYS))
-            .unix_timestamp()
-            .max(0),
-    )
-}
-
 fn progress(
     app: &AppHandle,
     sync_run_id: &str,
@@ -1080,22 +1108,97 @@ fn log(app: &AppHandle, sync_run_id: &str, level: &str, message: &str) {
             ts: now_rfc3339(),
         },
     );
+
+    // Mirror the line into the `log` crate so the disk target captures it.
+    // The disk target's filter (in `crate::logging`) drops INFO/DEBUG by
+    // default and lets WARN/ERROR through, which is exactly the signal we
+    // want preserved for after-the-fact troubleshooting.
+    let short_id = &sync_run_id[..8.min(sync_run_id.len())];
+    match level {
+        "error" => log::error!(target: "sync", "[{short_id}] {message}"),
+        "warn" => log::warn!(target: "sync", "[{short_id}] {message}"),
+        "debug" => log::debug!(target: "sync", "[{short_id}] {message}"),
+        _ => log::info!(target: "sync", "[{short_id}] {message}"),
+    }
 }
 
 fn emit_finished(app: &AppHandle, result: SyncResult) {
-    write_error_log(app, &result.sync_run_id, &result.errors, None);
+    write_error_log(app, &result.sync_run_id, Some(&result), None);
     let _ = app.emit("sync:finished", result);
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StageCounts {
+    client_filter: String,
+    full_sync: bool,
+    inserted: i64,
+    improved: i64,
+    metadata_updated: i64,
+    unchanged: i64,
+    errors_total: usize,
+    errors_error: usize,
+    errors_warn: usize,
+}
+
+impl StageCounts {
+    fn from_result(result: &SyncResult) -> Self {
+        let errors_warn = result
+            .errors
+            .iter()
+            .filter(|e| e.level == "warn")
+            .count();
+        let errors_error = result.errors.len() - errors_warn;
+        Self {
+            client_filter: result.client_filter.clone(),
+            full_sync: result.full_sync,
+            inserted: result.inserted,
+            improved: result.improved,
+            metadata_updated: result.metadata_updated,
+            unchanged: result.unchanged,
+            errors_total: result.errors.len(),
+            errors_error,
+            errors_warn,
+        }
+    }
+
+    fn render_text(&self) -> String {
+        let mut out = String::new();
+        let mut line = |k: &str, v: String| out.push_str(&format!("{:<24}: {}\n", k, v));
+        line("client_filter", self.client_filter.clone());
+        line("full_sync", self.full_sync.to_string());
+        line("inserted", self.inserted.to_string());
+        line("improved", self.improved.to_string());
+        line("metadata_updated", self.metadata_updated.to_string());
+        line("unchanged", self.unchanged.to_string());
+        line("errors_total", self.errors_total.to_string());
+        line("errors_error", self.errors_error.to_string());
+        line("errors_warn", self.errors_warn.to_string());
+        out
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ErrorReport<'a> {
+    sync_run_id: &'a str,
+    generated_at: String,
+    environment: EnvironmentSnapshot,
+    path_checks: PathChecks,
+    stage_counts: Option<StageCounts>,
+    fatal: Option<&'a str>,
+    errors: &'a [SyncErrorEntry],
 }
 
 fn write_error_log(
     app: &AppHandle,
     sync_run_id: &str,
-    errors: &[SyncErrorEntry],
+    result: Option<&SyncResult>,
     fatal: Option<&str>,
 ) {
+    let errors: &[SyncErrorEntry] = result.map(|r| r.errors.as_slice()).unwrap_or(&[]);
     if errors.is_empty() && fatal.is_none() {
         return;
     }
+
     let log_dir = match app.path().app_log_dir() {
         Ok(dir) => dir,
         Err(_) => return,
@@ -1105,23 +1208,69 @@ fn write_error_log(
     }
     let short_id = &sync_run_id[..8.min(sync_run_id.len())];
     let path = log_dir.join(format!("sync_error_{}.log", short_id));
-    let mut content = format!(
-        "OJIK BMS Client - Sync Error Log\nSync Run ID: {}\nGenerated: {}\n\n",
-        sync_run_id,
-        now_rfc3339()
-    );
+
+    let cfg = config::load(app).unwrap_or_default();
+    let environment = EnvironmentSnapshot::capture(app, &cfg);
+    let path_checks = PathChecks::capture(&cfg);
+    let stage_counts = result.map(StageCounts::from_result);
+    let generated_at = now_rfc3339();
+
+    let mut content = String::new();
+    content.push_str("OJIK BMS Client - Sync Error Report\n");
+    content.push_str("====================================\n");
+    content.push_str(&format!("sync_run_id             : {}\n", sync_run_id));
+    content.push_str(&format!("generated_at            : {}\n\n", generated_at));
+
+    content.push_str("[ENVIRONMENT]\n");
+    content.push_str(&environment.render_text());
+    content.push('\n');
+
+    content.push_str("[PATH CHECKS]\n");
+    content.push_str(&path_checks.render_text());
+    content.push('\n');
+
+    if let Some(counts) = &stage_counts {
+        content.push_str("[STAGE COUNTS]\n");
+        content.push_str(&counts.render_text());
+        content.push('\n');
+    }
+
     if let Some(msg) = fatal {
-        content.push_str(&format!("[FATAL] {}\n", msg));
+        content.push_str("[FATAL]\n");
+        content.push_str(msg);
+        content.push_str("\n\n");
     }
-    for err in errors {
-        match &err.client {
-            Some(c) => content.push_str(&format!("[ERROR][{}] {}\n", c, err.message)),
-            None => content.push_str(&format!("[ERROR] {}\n", err.message)),
+
+    if !errors.is_empty() {
+        content.push_str("[ERRORS]\n");
+        for err in errors {
+            let tag = if err.level == "warn" { "WARN" } else { "ERROR" };
+            match &err.client {
+                Some(c) => content.push_str(&format!("[{}][{}] {}\n", tag, c, err.message)),
+                None => content.push_str(&format!("[{}] {}\n", tag, err.message)),
+            }
+            if let Some(detail) = &err.detail {
+                content.push_str(&format!("  Detail: {}\n", detail));
+            }
         }
-        if let Some(detail) = &err.detail {
-            content.push_str(&format!("  Detail: {}\n", detail));
-        }
+        content.push('\n');
     }
+
+    let report = ErrorReport {
+        sync_run_id,
+        generated_at,
+        environment,
+        path_checks,
+        stage_counts,
+        fatal,
+        errors,
+    };
+    if let Ok(json) = serde_json::to_string_pretty(&report) {
+        content.push_str("[JSON]\n");
+        content.push_str(&json);
+        content.push('\n');
+    }
+
     let _ = std::fs::write(path, content);
 }
 
@@ -1171,6 +1320,11 @@ fn score_ordering_lt(a: &ScoreItem, b: &ScoreItem) -> bool {
     false
 }
 
+struct DedupGroup {
+    kept: ScoreItem,
+    dropped: Vec<ScoreItem>,
+}
+
 /// Dedup scores so that each (fumen_identifier, client_type, UTC date) key keeps only
 /// the best entry (latest recorded_at, then highest clear_type, then highest exscore).
 ///
@@ -1180,10 +1334,10 @@ fn score_ordering_lt(a: &ScoreItem, b: &ScoreItem) -> bool {
 fn dedup_same_day_records(
     items: Vec<ScoreItem>,
     sync_now_utc_date: time::Date,
-) -> (Vec<ScoreItem>, usize) {
+) -> (Vec<ScoreItem>, Vec<DedupGroup>) {
     let mut keep: HashMap<(String, String, time::Date), ScoreItem> = HashMap::new();
+    let mut dropped_by_key: HashMap<(String, String, time::Date), Vec<ScoreItem>> = HashMap::new();
     let mut passthrough: Vec<ScoreItem> = Vec::new();
-    let mut dropped: usize = 0;
 
     for item in items {
         let id = item
@@ -1202,17 +1356,26 @@ fn dedup_same_day_records(
             Some(existing) => score_ordering_lt(existing, &item),
         };
         if should_replace {
-            if keep.insert(key, item).is_some() {
-                dropped += 1;
+            if let Some(evicted) = keep.insert(key.clone(), item) {
+                dropped_by_key.entry(key).or_default().push(evicted);
             }
         } else {
-            dropped += 1;
+            dropped_by_key.entry(key).or_default().push(item);
         }
     }
 
-    let mut out: Vec<ScoreItem> = keep.into_values().collect();
+    let mut groups: Vec<DedupGroup> = Vec::new();
+    let mut out: Vec<ScoreItem> = Vec::new();
+    for (key, kept) in keep {
+        if let Some(dropped) = dropped_by_key.remove(&key) {
+            groups.push(DedupGroup { kept: kept.clone(), dropped });
+            out.push(kept);
+        } else {
+            out.push(kept);
+        }
+    }
     out.extend(passthrough);
-    (out, dropped)
+    (out, groups)
 }
 
 #[cfg(test)]
@@ -1260,7 +1423,7 @@ mod tests {
         let later = make_item(None, None, Some(&hash), "beatoraja",
             Some("2025-03-19T11:33:12Z"), Some(4), Some(200));
         let (out, dropped) = dedup_same_day_records(vec![earlier, later], march19());
-        assert_eq!(dropped, 1);
+        assert_eq!(dropped.len(), 1);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].exscore, Some(200));
     }
@@ -1271,7 +1434,7 @@ mod tests {
         let item1 = make_item(None, Some(&md5), None, "lr2", None, Some(2), Some(500));
         let item2 = make_item(None, Some(&md5), None, "lr2", None, Some(2), Some(500));
         let (out, dropped) = dedup_same_day_records(vec![item1, item2], march19());
-        assert_eq!(dropped, 1);
+        assert_eq!(dropped.len(), 1);
         assert_eq!(out.len(), 1);
     }
 
@@ -1284,7 +1447,7 @@ mod tests {
             None, Some(1), Some(100));
         // sync_now_utc_date == march19 so without_ts date key matches with_ts date key
         let (out, dropped) = dedup_same_day_records(vec![without_ts, with_ts], march19());
-        assert_eq!(dropped, 1);
+        assert_eq!(dropped.len(), 1);
         assert_eq!(out.len(), 1);
         assert!(out[0].recorded_at.is_some());
     }
@@ -1297,7 +1460,7 @@ mod tests {
         let day2 = make_item(Some(&sha256), None, None, "beatoraja",
             Some("2025-03-20T12:00:00Z"), Some(2), Some(500));
         let (out, dropped) = dedup_same_day_records(vec![day1, day2], march19());
-        assert_eq!(dropped, 0);
+        assert_eq!(dropped.len(), 0);
         assert_eq!(out.len(), 2);
     }
 
@@ -1310,7 +1473,7 @@ mod tests {
         let high_clear = make_item(Some(&sha256), None, None, "beatoraja",
             Some(same_ts), Some(4), Some(300));
         let (out, dropped) = dedup_same_day_records(vec![low_clear, high_clear], march19());
-        assert_eq!(dropped, 1);
+        assert_eq!(dropped.len(), 1);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].clear_type, Some(4));
     }
@@ -1323,7 +1486,7 @@ mod tests {
         let item2 = make_item(None, Some(&md5), None, "lr2",
             Some("2025-03-19T11:00:00Z"), Some(2), Some(450));
         let (out, dropped) = dedup_same_day_records(vec![item1, item2], march19());
-        assert_eq!(dropped, 1);
+        assert_eq!(dropped.len(), 1);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].exscore, Some(450));
     }
