@@ -68,19 +68,9 @@ pub fn parse_scores(
             select_cols.push(col.clone());
         }
     }
-    let where_clause = cols
-        .playcount
-        .as_ref()
-        .map(|col| format!("WHERE {col} > 0"))
-        .unwrap_or_default();
-
     let db_total =
         conn.query_row("SELECT COUNT(*) FROM score", [], |row| row.get::<_, i64>(0))? as usize;
-    let sql = format!(
-        "SELECT {} FROM score {}",
-        select_cols.join(", "),
-        where_clause
-    );
+    let sql = format!("SELECT {} FROM score", select_cols.join(", "));
     let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query([])?;
 
@@ -599,13 +589,23 @@ mod tests {
         let (scores, courses, stats) =
             parse_scores(db.to_str().unwrap()).expect("parse lr2 scores");
 
-        assert_eq!(scores.len(), 1);
+        assert_eq!(scores.len(), 2);
         assert!(courses.is_empty());
         assert_eq!(stats.db_total, 2);
-        assert_eq!(stats.query_result_count, 1);
-        assert_eq!(stats.parsed, 1);
-        let score = &scores[0];
+        assert_eq!(stats.query_result_count, 2);
+        assert_eq!(stats.parsed, 2);
         let expected_sha256 = "a".repeat(64);
+        let score = scores
+            .iter()
+            .find(|score| score.fumen_sha256.as_deref() == Some(expected_sha256.as_str()))
+            .expect("played score included");
+        let expected_unplayed_sha256 = "b".repeat(64);
+        let unplayed = scores
+            .iter()
+            .find(|score| score.fumen_sha256.as_deref() == Some(expected_unplayed_sha256.as_str()))
+            .expect("unplayed score included");
+        assert_eq!(unplayed.play_count, Some(0));
+        assert_eq!(unplayed.clear_type, Some(0));
         assert_eq!(
             score.fumen_sha256.as_deref(),
             Some(expected_sha256.as_str())

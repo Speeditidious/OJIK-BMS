@@ -83,9 +83,6 @@ pub fn parse_scores(
         where_parts.push("player = ?".to_string());
         params.push(0_i64);
     }
-    if let Some(playcount) = &cols.playcount {
-        where_parts.push(format!("{playcount} > 0"));
-    }
     let where_clause = if where_parts.is_empty() {
         String::new()
     } else {
@@ -906,18 +903,46 @@ mod tests {
             2,
             Some("dp"),
         );
+        insert_score(
+            &dir,
+            &("z".repeat(64)),
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1700000003,
+            0,
+            Some("unplayed"),
+        );
 
         let (scores, courses, stats) =
             parse_scores(dir.to_str().unwrap()).expect("parse beatoraja scores");
 
-        assert_eq!(scores.len(), 1);
+        assert_eq!(scores.len(), 2);
         assert!(courses.is_empty());
-        assert_eq!(stats.db_total, 3);
-        assert_eq!(stats.query_result_count, 2);
+        assert_eq!(stats.db_total, 4);
+        assert_eq!(stats.query_result_count, 3);
         assert_eq!(stats.skipped_lr2, 1);
-        assert_eq!(stats.parsed, 1);
-        let score = &scores[0];
+        assert_eq!(stats.parsed, 2);
         let expected_sha256 = "c".repeat(64);
+        let score = scores
+            .iter()
+            .find(|score| score.fumen_sha256.as_deref() == Some(expected_sha256.as_str()))
+            .expect("played score included");
+        let expected_unplayed_sha256 = "z".repeat(64);
+        let unplayed = scores
+            .iter()
+            .find(|score| score.fumen_sha256.as_deref() == Some(expected_unplayed_sha256.as_str()))
+            .expect("unplayed score included");
+        assert_eq!(unplayed.play_count, Some(0));
+        assert_eq!(unplayed.clear_type, Some(0));
         assert_eq!(
             score.fumen_sha256.as_deref(),
             Some(expected_sha256.as_str())
