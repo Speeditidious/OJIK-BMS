@@ -132,12 +132,6 @@ export function LogViewer({ logs, overflowed, debugMode, onClear, onToggleDebugM
             filtered.map((entry) => <LogRow key={entry.id} entry={entry} />)
           )}
         </div>
-
-        {overflowed ? (
-          <p className="log-overflow-note">
-            메모리에는 최근 1,000줄만 보관합니다. 전체 로그는 “파일” 버튼으로 확인하세요.
-          </p>
-        ) : null}
       </div>
     </section>
   );

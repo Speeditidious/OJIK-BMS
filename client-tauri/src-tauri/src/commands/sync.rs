@@ -1327,6 +1327,10 @@ struct DedupGroup {
 
 /// Dedup scores so that each (fumen_identifier, client_type, UTC date) key keeps only
 /// the best entry (latest recorded_at, then highest clear_type, then highest exscore).
+/// The returned vector is **sorted ascending by recorded_at** so that the server's
+/// cumulative-best improvement check processes oldest records first — without this,
+/// historical scorelog entries are silently dropped when they arrive in non-chronological
+/// order (HashMap iteration is randomized).
 ///
 /// Items without any fumen identifier pass through unchanged.
 /// Items with recorded_at=None use `sync_now_utc_date` as the date key, matching the
@@ -1375,6 +1379,18 @@ fn dedup_same_day_records(
         }
     }
     out.extend(passthrough);
+
+    // Sort ascending by recorded_at so that the server's cumulative-best
+    // improvement check (api/app/routers/sync.py::_is_improvement) processes
+    // historical records oldest-first. Without this, a HashMap-randomized order
+    // makes any record older than the first-processed one be skipped as
+    // "no improvement", which silently drops the bulk of scorelog history.
+    // Items without recorded_at sort first (i64::MIN) — they hit the same-day
+    // merge path on the server regardless of position.
+    out.sort_by_key(|item| {
+        recorded_at_unix_timestamp(&item.recorded_at).unwrap_or(i64::MIN)
+    });
+
     (out, groups)
 }
 
@@ -1489,5 +1505,55 @@ mod tests {
         assert_eq!(dropped.len(), 1);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].exscore, Some(450));
+    }
+
+    #[test]
+    fn dedup_returns_items_sorted_ascending_by_recorded_at() {
+        // Three different fumens, recorded_at out of order on input.
+        // After dedup, output must be sorted ascending so the server's improvement
+        // check processes oldest-first.
+        let h_old = "1".repeat(64);
+        let h_mid = "2".repeat(64);
+        let h_new = "3".repeat(64);
+
+        let item_new = make_item(Some(&h_new), None, None, "beatoraja",
+            Some("2025-03-19T12:00:00Z"), Some(2), Some(400));
+        let item_old = make_item(Some(&h_old), None, None, "beatoraja",
+            Some("2025-01-01T12:00:00Z"), Some(2), Some(300));
+        let item_mid = make_item(Some(&h_mid), None, None, "beatoraja",
+            Some("2025-02-15T12:00:00Z"), Some(2), Some(350));
+
+        // Intentionally pass items in non-chronological order to mimic the
+        // HashMap-scrambled order that triggered the original bug.
+        let (out, _) = dedup_same_day_records(
+            vec![item_new, item_old, item_mid],
+            march19(),
+        );
+        assert_eq!(out.len(), 3);
+        let ts: Vec<&str> = out.iter()
+            .map(|s| s.recorded_at.as_deref().unwrap_or(""))
+            .collect();
+        assert_eq!(ts, vec![
+            "2025-01-01T12:00:00Z",
+            "2025-02-15T12:00:00Z",
+            "2025-03-19T12:00:00Z",
+        ]);
+    }
+
+    #[test]
+    fn dedup_places_recorded_at_none_before_dated_items() {
+        // recorded_at=None falls back to i64::MIN in the sort key, so it must
+        // appear before any dated item.
+        let md5 = "a".repeat(32);
+        let sha = "b".repeat(64);
+        let dated = make_item(Some(&sha), None, None, "beatoraja",
+            Some("2025-03-19T12:00:00Z"), Some(2), Some(500));
+        let undated = make_item(None, Some(&md5), None, "lr2",
+            None, Some(2), Some(400));
+
+        let (out, _) = dedup_same_day_records(vec![dated, undated], march19());
+        assert_eq!(out.len(), 2);
+        assert!(out[0].recorded_at.is_none());
+        assert!(out[1].recorded_at.is_some());
     }
 }
