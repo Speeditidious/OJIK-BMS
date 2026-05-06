@@ -50,10 +50,15 @@ class UserScore(Base):
     __tablename__ = "user_scores"
     __table_args__ = (
         Index("ix_user_scores_user_id_recorded_at", "user_id", "recorded_at"),
-        # Partial unique index for scorehash deduplication
+        # Partial unique index for scorehash deduplication.
+        # fumen identifiers are part of the identity because different charts can
+        # occasionally share the same scorehash.
         Index(
             "uq_user_scores_scorehash",
             "scorehash", "user_id", "client_type",
+            text("COALESCE(fumen_sha256, '')"),
+            text("COALESCE(fumen_md5, '')"),
+            text("COALESCE(fumen_hash_others, '')"),
             unique=True,
             postgresql_where=text("scorehash IS NOT NULL"),
         ),

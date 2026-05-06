@@ -393,7 +393,11 @@ async def test_metadata_only_update_applied_when_scorehash_matches_target_row():
             "_fetch_current_bests",
             AsyncMock(return_value={(None, None, hash_others, "beatoraja"): best}),
         ):
-            with patch.object(sync_module, "_fetch_existing_scorehashes", AsyncMock(return_value={("scorehash_A", "beatoraja")})):
+            with patch.object(
+                sync_module,
+                "_fetch_existing_scorehashes",
+                AsyncMock(return_value={("scorehash_A", "beatoraja", None, None, hash_others)}),
+            ):
                 with patch.object(sync_module, "_fetch_same_day_rows", AsyncMock(return_value={})):
                     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                         resp = await client.post(
@@ -529,7 +533,11 @@ async def test_oscillation_scenario_full_flow():
                 "_fetch_current_bests",
                 AsyncMock(return_value={(None, None, hash_others, "beatoraja"): make_best_for_row_a()}),
             ):
-                with patch.object(sync_module, "_fetch_existing_scorehashes", AsyncMock(return_value={("scorehash_A", "beatoraja")})):
+                with patch.object(
+                    sync_module,
+                    "_fetch_existing_scorehashes",
+                    AsyncMock(return_value={("scorehash_A", "beatoraja", None, None, hash_others)}),
+                ):
                     with patch.object(sync_module, "_fetch_same_day_rows", AsyncMock(return_value={})):
                         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
                             resp = await client.post("/sync/", json=payload)
@@ -595,3 +603,47 @@ def test_same_day_merge_recorded_at_takes_later_timestamp_and_synced_at_not_in_m
     assert merged["judgments"] == {"epg": 55}
     # synced_at is added by the caller (`.values(**merged, synced_at=now)`), not by this helper
     assert "synced_at" not in merged
+
+
+def test_scorehash_identity_key_includes_fumen_hashes():
+    """Same scorehash is only the same row when the fumen identity also matches."""
+    from app.routers.sync import ScoreSyncItem, _scorehash_identity_key
+
+    shared_scorehash = "same-scorehash"
+    item_a = ScoreSyncItem(
+        scorehash=shared_scorehash,
+        fumen_sha256="a" * 64,
+        client_type="beatoraja",
+    )
+    item_b = ScoreSyncItem(
+        scorehash=shared_scorehash,
+        fumen_sha256="b" * 64,
+        client_type="beatoraja",
+    )
+
+    assert _scorehash_identity_key(item_a) != _scorehash_identity_key(item_b)
+
+
+def test_scorehash_conflict_target_includes_fumen_identity():
+    """The PostgreSQL upsert target must match the fumen-scoped unique index."""
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.dialects.postgresql import insert
+
+    from app.routers.sync import _scorehash_conflict_index_elements
+
+    ins = insert(UserScore).values(
+        user_id=uuid.uuid4(),
+        client_type="beatoraja",
+        scorehash="same-scorehash",
+        fumen_sha256="a" * 64,
+    )
+    stmt = ins.on_conflict_do_update(
+        index_elements=_scorehash_conflict_index_elements(),
+        index_where=sync_module.text("scorehash IS NOT NULL"),
+        set_={"clear_type": ins.excluded.clear_type},
+    )
+
+    compiled = str(stmt.compile(dialect=postgresql.dialect()))
+    assert "COALESCE(fumen_sha256, '')" in compiled
+    assert "COALESCE(fumen_md5, '')" in compiled
+    assert "COALESCE(fumen_hash_others, '')" in compiled

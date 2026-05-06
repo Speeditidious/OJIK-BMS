@@ -111,6 +111,34 @@ def _fumen_key(item: ScoreSyncItem) -> tuple[str | None, str | None, str | None]
     return (item.fumen_sha256, item.fumen_md5, item.fumen_hash_others)
 
 
+ScorehashIdentityKey = tuple[str, str, str | None, str | None, str | None]
+
+
+def _scorehash_identity_key(item: ScoreSyncItem) -> ScorehashIdentityKey | None:
+    """Return the scorehash dedup key, including fumen identity."""
+    if item.scorehash is None:
+        return None
+    return (
+        item.scorehash,
+        item.client_type,
+        item.fumen_sha256,
+        item.fumen_md5,
+        item.fumen_hash_others,
+    )
+
+
+def _scorehash_conflict_index_elements() -> list[Any]:
+    """Return the PostgreSQL ON CONFLICT target for scorehash deduplication."""
+    return [
+        "scorehash",
+        "user_id",
+        "client_type",
+        text("COALESCE(fumen_sha256, '')"),
+        text("COALESCE(fumen_md5, '')"),
+        text("COALESCE(fumen_hash_others, '')"),
+    ]
+
+
 async def _fetch_current_bests(
     user_id: Any,
     sha256s: set[str],
@@ -210,18 +238,28 @@ async def _fetch_existing_scorehashes(
     scorehashes: set[str],
     client_types: set[str],
     db: AsyncSession,
-) -> set[tuple[str, str]]:
-    """Return existing (scorehash, client_type) pairs for conflict-counting."""
+) -> set[ScorehashIdentityKey]:
+    """Return existing scorehash identity keys for conflict-counting."""
     if not scorehashes or not client_types:
         return set()
     result = await db.execute(
-        select(UserScore.scorehash, UserScore.client_type).where(
+        select(
+            UserScore.scorehash,
+            UserScore.client_type,
+            UserScore.fumen_sha256,
+            UserScore.fumen_md5,
+            UserScore.fumen_hash_others,
+        ).where(
             UserScore.user_id == user_id,
             UserScore.scorehash.in_(scorehashes),
             UserScore.client_type.in_(client_types),
         )
     )
-    return {(row.scorehash, row.client_type) for row in result.all() if row.scorehash}
+    return {
+        (row.scorehash, row.client_type, row.fumen_sha256, row.fumen_md5, row.fumen_hash_others)
+        for row in result.all()
+        if row.scorehash
+    }
 
 
 # ── Same-day merge helpers ─────────────────────────────────────────────────────
@@ -443,7 +481,8 @@ async def sync_data(
     Bulk upsert scores from the local agent.
 
     Accumulating model:
-    - If scorehash is not None: INSERT with ON CONFLICT (scorehash, user_id, client_type)
+    - If scorehash is not None: INSERT with ON CONFLICT
+      (scorehash, user_id, client_type, fumen identity)
       DO UPDATE (partial unique index applies only when scorehash IS NOT NULL).
     - If scorehash is None: plain INSERT (no dedup).
     - Course records: fumen_hash_others is set (course_hash from client); stored as-is in user_scores.
@@ -463,7 +502,7 @@ async def sync_data(
     # ── Bulk pre-fetch per-field bests ──────────────────────────────────────────
     current_bests: dict[tuple, dict[str, Any]] = {}
     same_day_map: dict[tuple, UserScore] = {}
-    existing_scorehashes: set[tuple[str, str]] = set()
+    existing_scorehashes: set[ScorehashIdentityKey] = set()
     if payload.scores:
         sha256s = {item.fumen_sha256 for item in payload.scores if item.fumen_sha256}
         md5s = {item.fumen_md5 for item in payload.scores if item.fumen_md5 and not item.fumen_sha256}
@@ -553,7 +592,7 @@ async def sync_data(
                             if (
                                 item.scorehash is not None
                                 and item.scorehash != best.get("_latest_scorehash")
-                                and (item.scorehash, item.client_type) not in existing_scorehashes
+                                and _scorehash_identity_key(item) not in existing_scorehashes
                             ):
                                 update_vals["scorehash"] = item.scorehash
                             if update_vals:
@@ -604,8 +643,9 @@ async def sync_data(
                                 metadata_updated += 1
                                 for field, value in update_vals.items():
                                     best[f"_latest_{field}"] = value
-                                if item.scorehash is not None:
-                                    existing_scorehashes.add((item.scorehash, item.client_type))
+                                scorehash_key = _scorehash_identity_key(item)
+                                if scorehash_key is not None:
+                                    existing_scorehashes.add(scorehash_key)
                                 continue
                     skipped_scores += 1
                     continue
@@ -670,18 +710,14 @@ async def sync_data(
                             synced_at=now,
                         )
                         _ins = insert(UserScore).values(**values)
-                        scorehash_key = (
-                            (item.scorehash, item.client_type)
-                            if item.scorehash is not None
-                            else None
-                        )
+                        scorehash_key = _scorehash_identity_key(item)
                         updates_existing_scorehash = (
                             scorehash_key is not None and scorehash_key in existing_scorehashes
                         )
                         stmt = (
                             _ins
                             .on_conflict_do_update(
-                                index_elements=["scorehash", "user_id", "client_type"],
+                                index_elements=_scorehash_conflict_index_elements(),
                                 index_where=text("scorehash IS NOT NULL"),
                                 set_={
                                     "clear_type": func.coalesce(_ins.excluded.clear_type, UserScore.clear_type),
