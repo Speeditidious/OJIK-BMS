@@ -24,10 +24,10 @@ interface SourceFieldSpec {
 
 const LR2_FIELDS: SourceFieldSpec[] = [
   {
-    label: "score.db",
+    label: "<username>.db",
     pickKind: "lr2-score",
     pathKey: "lr2_db_path",
-    required: true,
+    required: false,
     hint: "LR2files/Database/Score 경로에 있는 {username}.db 파일을 업로드 해주세요. 일반적으로 용량이 제일 큰 파일입니다.",
     pickerType: "file",
     validation: "lr2-score",
@@ -48,7 +48,7 @@ const BEATORAJA_FIELDS: SourceFieldSpec[] = [
     label: "플레이 기록 DB 폴더",
     pickKind: "bea-dir",
     pathKey: "beatoraja_db_dir",
-    required: true,
+    required: false,
     hint: "score.db / scorelog.db가 들어 있는 폴더를 업로드 해주세요. 일반적으로 player/player1 폴더입니다.",
     pickerType: "folder",
     validation: "beatoraja-score-dir",

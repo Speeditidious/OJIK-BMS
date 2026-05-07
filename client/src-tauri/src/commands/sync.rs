@@ -382,7 +382,7 @@ async fn run_sync(
                     }
                 }
                 Err(error) => {
-                    let detail = format!("path={path} | error={error:#}");
+                    let detail = format!("path={path} | {error:#}");
                     errors.push(SyncErrorEntry {
                         client: Some("lr2".to_string()),
                         message: "LR2 파싱 오류".to_string(),
@@ -395,6 +395,8 @@ async fn run_sync(
                         "error",
                         &format!("[ERROR][stage=parsing/lr2] LR2 파싱 오류: {detail}"),
                     );
+                    finish_sync_aborted_by_error(&app, sync_run_id, request, errors);
+                    return Ok(());
                 }
             }
         }
@@ -448,6 +450,8 @@ async fn run_sync(
                         "error",
                         &format!("[ERROR][stage=parsing/beatoraja] Beatoraja 파싱 오류: {detail}"),
                     );
+                    finish_sync_aborted_by_error(&app, sync_run_id, request, errors);
+                    return Ok(());
                 }
             }
 
@@ -684,6 +688,46 @@ async fn run_sync(
     );
 
     Ok(())
+}
+
+fn finish_sync_aborted_by_error(
+    app: &AppHandle,
+    sync_run_id: String,
+    request: SyncRequest,
+    errors: Vec<SyncErrorEntry>,
+) {
+    progress(
+        app,
+        &sync_run_id,
+        None,
+        "done",
+        None,
+        None,
+        "오류로 동기화 중단",
+    );
+    log(
+        app,
+        &sync_run_id,
+        "error",
+        "[ERROR] 파싱 오류가 발생해 서버 업로드를 중단했습니다. 경로를 확인한 뒤 다시 시도해주세요.",
+    );
+    emit_finished(
+        app,
+        SyncResult {
+            sync_run_id,
+            finished_at: now_rfc3339(),
+            client_filter: request.client_filter,
+            full_sync: request.full_sync,
+            inserted: 0,
+            improved: 0,
+            metadata_updated: 0,
+            unchanged: 0,
+            skipped_reasons: Vec::new(),
+            errors,
+            per_client: HashMap::new(),
+            result_url: None,
+        },
+    );
 }
 
 async fn ensure_session_for_sync(app: &AppHandle, api_url: &str) -> anyhow::Result<()> {

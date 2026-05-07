@@ -15,8 +15,6 @@ import type {
 
 export type SyncState = "idle" | "running" | "finished" | "error" | "cancelled";
 
-const LOG_CAP = 1000;
-
 interface ProgressMap {
   global?: SyncProgressEvent;
   lr2?: SyncProgressEvent;
@@ -28,25 +26,16 @@ export function useSyncStore() {
   const [progress, setProgress] = useState<ProgressMap>({});
   const [stage, setStage] = useState<SyncStage | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [overflowed, setOverflowed] = useState(false);
   const [lastResult, setLastResult] = useState<SyncResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const currentRunId = useRef<string | null>(null);
 
   const pushLog = useCallback((entry: LogEntry) => {
-    setLogs((prev) => {
-      const next = [...prev, entry];
-      if (next.length > LOG_CAP) {
-        setOverflowed(true);
-        return next.slice(next.length - LOG_CAP);
-      }
-      return next;
-    });
+    setLogs((prev) => [...prev, entry]);
   }, []);
 
   const clearLogs = useCallback(() => {
     setLogs([]);
-    setOverflowed(false);
   }, []);
 
   useEffect(() => {
@@ -98,8 +87,22 @@ export function useSyncStore() {
 
     collect(subscribe<SyncResult>("sync:finished", (payload) => {
       setLastResult(payload);
-      setState("finished");
       setStage("done");
+      const errorCount = payload.errors.filter((entry) => entry.level !== "warn").length;
+      if (errorCount > 0) {
+        const firstError = payload.errors.find((entry) => entry.level !== "warn");
+        const message = firstError?.detail ?? firstError?.message ?? "동기화 중 오류가 발생했습니다.";
+        setState("error");
+        setErrorMessage(message);
+        pushLog(
+          makeEntry({
+            level: "error",
+            message: `동기화 중단 — 오류 ${formatNumber(errorCount)}건이 발생해 서버 업로드를 완료하지 않았습니다.`,
+          }),
+        );
+        return;
+      }
+      setState("finished");
       pushLog(
         makeEntry({
           level: "info",
@@ -161,7 +164,6 @@ export function useSyncStore() {
     stage,
     progress,
     logs,
-    overflowed,
     lastResult,
     errorMessage,
     start,

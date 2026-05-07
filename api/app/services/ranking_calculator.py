@@ -17,6 +17,7 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.initial_sync import INITIAL_SYNC_SQL_INTERVAL
 from app.services.ranking_config import (
     RankingConfig,
     TableRankingConfig,
@@ -25,7 +26,7 @@ from app.services.ranking_config import (
 
 # ── Clear-type integer → lamp name ───────────────────────────────────────────
 # LR2 and Beatoraja share the same clear_type integer encoding.
-# Confirmed from client/ojikbms_client/parsers/lr2.py and beatoraja.py.
+# Confirmed from the Tauri client parsers in client/src-tauri/src/domain/.
 CLEAR_TYPE_TO_LAMP_NAME: dict[int | None, str] = {
     None: "NOPLAY",
     0:    "NOPLAY",
@@ -546,7 +547,7 @@ async def bulk_query_best_scores(
                         WHEN us.synced_at IS NULL THEN NULL
                         WHEN u.first_synced_at IS NULL THEN us.synced_at
                         WHEN u.first_synced_at->>us.client_type IS NULL THEN us.synced_at
-                        WHEN us.synced_at <= ((u.first_synced_at->>us.client_type)::timestamptz + interval '1 hour') THEN NULL
+                        WHEN us.synced_at <= ((u.first_synced_at->>us.client_type)::timestamptz + {INITIAL_SYNC_SQL_INTERVAL}) THEN NULL
                         ELSE us.synced_at
                     END AS display_recorded_at,
                     COALESCE(us.recorded_at, us.synced_at) AS latest_ts,

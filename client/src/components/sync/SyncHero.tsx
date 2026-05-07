@@ -25,7 +25,10 @@ export function SyncHero({
   onFullSync,
   onCancel,
 }: SyncHeroProps) {
-  const lastSyncedAt = lastResult?.finished_at ?? config.last_synced_at;
+  const lastResultErrorCount = lastResult?.errors.filter((e) => e.level !== "warn").length ?? 0;
+  const lastSyncedAt = lastResultErrorCount > 0
+    ? config.last_synced_at
+    : lastResult?.finished_at ?? config.last_synced_at;
 
   return (
     <section className="sync-hero" aria-label="동기화">
@@ -49,7 +52,7 @@ export function SyncHero({
             <h2 className="sync-hero-title">마지막 동기화 {formatRelativeTime(lastSyncedAt)}</h2>
             <div className="sync-hero-meta">
               <span title={lastSyncedAt}>{formatKoreanDateTime(lastSyncedAt)}</span>
-              {lastResult ? (
+              {lastResult && lastResultErrorCount === 0 ? (
                 <>
                   <span>
                     등록된 기록 <b>{formatNumber(lastResult.inserted)}</b>건
@@ -57,12 +60,12 @@ export function SyncHero({
                   <span>
                     수정된 기록 <b>{formatNumber(lastResult.metadata_updated)}</b>건
                   </span>
-                  {lastResult.errors.filter((e) => e.level !== "warn").length > 0 ? (
-                    <span style={{ color: "var(--danger)" }}>
-                      오류 <b>{formatNumber(lastResult.errors.filter((e) => e.level !== "warn").length)}</b>건
-                    </span>
-                  ) : null}
                 </>
+              ) : null}
+              {lastResultErrorCount > 0 ? (
+                <span style={{ color: "var(--danger)" }}>
+                  최근 시도 오류 <b>{formatNumber(lastResultErrorCount)}</b>건
+                </span>
               ) : null}
             </div>
           </>

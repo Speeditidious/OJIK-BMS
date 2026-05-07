@@ -19,7 +19,7 @@ from app.routers.analysis import (
     get_score_updates,
 )
 from app.routers.rankings import get_ranking_display_config, get_ranking_history
-from app.routers.scores import get_score_for_song
+from app.routers.scores import get_score_for_song, get_scores_for_fumen
 from app.services.client_aggregation import PerClientBest, aggregate_source_client
 from app.services.ranking_calculator import BestScore, compute_ranking
 from app.services.ranking_config import (
@@ -281,6 +281,129 @@ async def test_score_updates_uses_target_user_for_initial_sync_flag(monkeypatch)
     )
 
     assert result["play_count_updates"][0]["is_initial_sync"] is True
+
+
+@pytest.mark.asyncio
+async def test_scores_for_fumen_marks_null_recorded_at_within_three_hour_first_sync(monkeypatch):
+    target_user = SimpleNamespace(
+        id=uuid.uuid4(),
+        first_synced_at={"lr2": "2026-05-06T14:34:43.481754+00:00"},
+        is_active=True,
+    )
+    score = UserScore(
+        id=uuid.uuid4(),
+        user_id=target_user.id,
+        fumen_md5="a" * 32,
+        client_type="lr2",
+        clear_type=4,
+        exscore=1200,
+        rate=80.0,
+        rank="AA",
+        recorded_at=None,
+        synced_at=datetime(2026, 5, 6, 16, 30, 34, 898067, tzinfo=UTC),
+    )
+    db = _QueuedSession(
+        [
+            _QueuedResult(rows=[score]),
+            _QueuedResult(scalar=target_user.first_synced_at),
+        ]
+    )
+
+    async def fake_resolve_target_user(_user_id, _current_user, _db):
+        return target_user
+
+    monkeypatch.setattr("app.routers.scores._resolve_target_user", fake_resolve_target_user)
+
+    result = await get_scores_for_fumen(
+        hash_value="a" * 32,
+        current_user=target_user,
+        db=db,
+    )
+
+    assert result[0].recorded_at is None
+    assert result[0].is_first_sync is True
+
+
+@pytest.mark.asyncio
+async def test_scores_for_fumen_allows_synced_at_after_three_hour_first_sync_window(monkeypatch):
+    target_user = SimpleNamespace(
+        id=uuid.uuid4(),
+        first_synced_at={"lr2": "2026-05-06T14:34:43.481754+00:00"},
+        is_active=True,
+    )
+    score = UserScore(
+        id=uuid.uuid4(),
+        user_id=target_user.id,
+        fumen_md5="b" * 32,
+        client_type="lr2",
+        clear_type=4,
+        exscore=1200,
+        rate=80.0,
+        rank="AA",
+        recorded_at=None,
+        synced_at=datetime(2026, 5, 6, 17, 34, 44, 481754, tzinfo=UTC),
+    )
+    db = _QueuedSession(
+        [
+            _QueuedResult(rows=[score]),
+            _QueuedResult(scalar=target_user.first_synced_at),
+        ]
+    )
+
+    async def fake_resolve_target_user(_user_id, _current_user, _db):
+        return target_user
+
+    monkeypatch.setattr("app.routers.scores._resolve_target_user", fake_resolve_target_user)
+
+    result = await get_scores_for_fumen(
+        hash_value="b" * 32,
+        current_user=target_user,
+        db=db,
+    )
+
+    assert result[0].recorded_at is None
+    assert result[0].is_first_sync is False
+
+
+@pytest.mark.asyncio
+async def test_scores_for_fumen_preserves_real_recorded_at_inside_first_sync_window(monkeypatch):
+    target_user = SimpleNamespace(
+        id=uuid.uuid4(),
+        first_synced_at={"beatoraja": "2026-05-06T14:34:43.481754+00:00"},
+        is_active=True,
+    )
+    recorded_at = datetime(2026, 5, 1, 10, 0, 0, tzinfo=UTC)
+    score = UserScore(
+        id=uuid.uuid4(),
+        user_id=target_user.id,
+        fumen_md5="c" * 32,
+        client_type="beatoraja",
+        clear_type=4,
+        exscore=1200,
+        rate=80.0,
+        rank="AA",
+        recorded_at=recorded_at,
+        synced_at=datetime(2026, 5, 6, 16, 30, 34, 898067, tzinfo=UTC),
+    )
+    db = _QueuedSession(
+        [
+            _QueuedResult(rows=[score]),
+            _QueuedResult(scalar=target_user.first_synced_at),
+        ]
+    )
+
+    async def fake_resolve_target_user(_user_id, _current_user, _db):
+        return target_user
+
+    monkeypatch.setattr("app.routers.scores._resolve_target_user", fake_resolve_target_user)
+
+    result = await get_scores_for_fumen(
+        hash_value="c" * 32,
+        current_user=target_user,
+        db=db,
+    )
+
+    assert result[0].recorded_at == recorded_at.isoformat()
 
 
 class _ScoreSession:

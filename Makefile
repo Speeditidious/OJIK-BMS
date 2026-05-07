@@ -15,21 +15,23 @@ seed-tables:
 ci:
 	@echo "=== API: ruff ==="
 	cd api && conda run -n ojik_bms ruff check app/ --select E,F,W,I,N,UP --ignore E501
-	@echo "=== Client: ruff ==="
-	cd client && conda run -n ojik_bms ruff check ojikbms_client/ --select E,F,W,I,N,UP --ignore E501
+	@echo "=== Client: eslint ==="
+	cd client && npm run lint --silent
+	@echo "=== Client: tsc/vite ==="
+	cd client && npm run build --silent
 	@echo "=== Web: eslint ==="
 	cd web && npm run lint --silent
 	@echo "=== Web: tsc ==="
 	cd web && npm run type-check --silent
 	@echo "=== API: pytest ==="
 	cd api && conda run -n ojik_bms sh -c 'python3 -m pytest tests/ -v --tb=short; code=$$?; [ $$code -eq 0 ] || [ $$code -eq 5 ]'
-	@echo "=== Client: pytest ==="
-	cd client && conda run -n ojik_bms python3 -m pytest tests/ -v --tb=short
+	@echo "=== Client: cargo test ==="
+	cd client/src-tauri && cargo test
 	@echo "All checks passed."
 
 fix:
 	@echo "=== API: ruff fix ==="
 	cd api && conda run -n ojik_bms ruff check app/ --select E,F,W,I,N,UP --ignore E501 --fix
-	@echo "=== Client: ruff fix ==="
-	cd client && conda run -n ojik_bms ruff check ojikbms_client/ --select E,F,W,I,N,UP --ignore E501 --fix
+	@echo "=== Client: eslint fix ==="
+	cd client && npm run lint --silent -- --fix
 	@echo "Fix complete."

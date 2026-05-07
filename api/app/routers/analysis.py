@@ -22,6 +22,7 @@ from app.services.client_aggregation import (
     PerClientBest,
     aggregate_source_client,
 )
+from app.services.initial_sync import initial_sync_cutoff, is_initial_sync_timestamp
 from app.services.ranking_config import get_ranking_config
 from app.services.ranking_dashboard import (
     compute_rating_breakdown,
@@ -100,15 +101,14 @@ async def _resolve_target_user(
 
 def _initial_sync_exclusion_filters(user: User) -> list:
     """Return SQLAlchemy filters that exclude scores imported during the initial
-    bulk sync (synced_at <= first_synced_at[client_type] + 1 hour).
+    bulk sync (synced_at <= first_synced_at[client_type] + initial sync window).
     Currently applied to LR2 only.
     """
     first_synced = user.first_synced_at or {}
     conditions = []
     for ct in ("lr2",):
-        ts_str = first_synced.get(ct)
-        if ts_str:
-            cutoff = datetime.fromisoformat(ts_str) + timedelta(hours=1)
+        cutoff = initial_sync_cutoff(first_synced.get(ct))
+        if cutoff is not None:
             conditions.append(
                 or_(
                     UserScore.client_type != ct,
@@ -169,13 +169,8 @@ def _is_stat_only(entry: UserScore, prev: "UserScore | None") -> bool:
 
 
 def _is_initial_sync_record(entry: UserScore, user: User) -> bool:
-    """True if this score was synced during the initial bulk sync window (first_synced_at + 1h)."""
-    first_synced = user.first_synced_at or {}
-    ts_str = first_synced.get(entry.client_type)
-    if not ts_str:
-        return False
-    cutoff = datetime.fromisoformat(ts_str) + timedelta(hours=1)
-    return entry.synced_at is not None and entry.synced_at <= cutoff
+    """True if this score was synced during the initial bulk sync window."""
+    return is_initial_sync_timestamp(user.first_synced_at, entry.client_type, entry.synced_at)
 
 
 def _find_course_prev_row(
@@ -506,9 +501,8 @@ def _initial_sync_exclusion_for_subq(user: User, subq) -> list:
     first_synced = user.first_synced_at or {}
     conditions = []
     for ct in ("lr2",):
-        ts_str = first_synced.get(ct)
-        if ts_str:
-            cutoff = datetime.fromisoformat(ts_str) + timedelta(hours=1)
+        cutoff = initial_sync_cutoff(first_synced.get(ct))
+        if cutoff is not None:
             conditions.append(
                 or_(
                     subq.c.client_type != ct,

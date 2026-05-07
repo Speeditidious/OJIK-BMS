@@ -10,7 +10,6 @@ type TabId = "all" | LogLevel;
 
 export interface LogViewerProps {
   logs: LogEntry[];
-  overflowed: boolean;
   debugMode: boolean;
   onClear: () => void;
   onToggleDebugMode: () => void;
@@ -18,7 +17,7 @@ export interface LogViewerProps {
   onCopy?: (text: string) => void;
 }
 
-export function LogViewer({ logs, overflowed, debugMode, onClear, onToggleDebugMode, onOpenLogFile, onCopy }: LogViewerProps) {
+export function LogViewer({ logs, debugMode, onClear, onToggleDebugMode, onOpenLogFile, onCopy }: LogViewerProps) {
   const [tab, setTab] = useState<TabId>("all");
   const [query, setQuery] = useState("");
   const listRef = useRef<HTMLDivElement>(null);

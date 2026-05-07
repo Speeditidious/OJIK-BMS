@@ -8,7 +8,7 @@ import uuid
 from datetime import UTC, datetime
 
 from sqladmin import ModelView, action
-from sqlalchemy import delete, func, null, update
+from sqlalchemy import delete, func, null, text, update
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
@@ -30,6 +30,73 @@ from app.models.ranking import (
 from app.models.schedule import Schedule
 from app.models.score import UserPlayerStats, UserScore
 from app.models.user import OAuthAccount, User
+
+RESETTABLE_CLIENT_TYPES = frozenset({"lr2", "beatoraja"})
+
+
+def _parse_admin_user_ids(raw_pks: str) -> list[uuid.UUID]:
+    """Parse sqladmin comma-separated primary keys into UUIDs."""
+    user_ids: list[uuid.UUID] = []
+    for uid_str in [uid.strip() for uid in raw_pks.split(",") if uid.strip()]:
+        try:
+            user_ids.append(uuid.UUID(uid_str))
+        except ValueError:
+            continue
+    return user_ids
+
+
+async def _reset_user_play_data(db, uid: uuid.UUID, client_type: str | None = None) -> None:
+    """Delete selected play data for one user.
+
+    When ``client_type`` is provided, only that client's score/stat rows and
+    first-sync marker are removed. Other client data is preserved.
+    """
+    if client_type is not None and client_type not in RESETTABLE_CLIENT_TYPES:
+        raise ValueError(f"Unsupported client_type for reset: {client_type}")
+
+    score_filter = [UserScore.user_id == uid]
+    stats_filter = [UserPlayerStats.user_id == uid]
+    if client_type is not None:
+        score_filter.append(UserScore.client_type == client_type)
+        stats_filter.append(UserPlayerStats.client_type == client_type)
+
+    await db.execute(delete(UserScore).where(*score_filter))
+    await db.execute(delete(UserPlayerStats).where(*stats_filter))
+
+    if client_type is None:
+        await db.execute(update(User).where(User.id == uid).values(first_synced_at=null()))
+        return
+
+    await db.execute(
+        text("""
+            UPDATE users
+               SET first_synced_at = (
+                   CASE
+                       WHEN first_synced_at IS NOT NULL
+                        AND jsonb_typeof(first_synced_at) = 'object'
+                       THEN first_synced_at - CAST(:client_type AS text)
+                       ELSE first_synced_at
+                   END
+               )
+             WHERE id = :uid
+        """),
+        {"uid": str(uid), "client_type": client_type},
+    )
+
+
+def _queue_user_ranking_recalculation(user_ids: list[uuid.UUID]) -> None:
+    """Queue ranking recalculation after admin play-data reset."""
+    if not user_ids:
+        return
+    try:
+        from app.tasks.ranking_calculator import recalculate_user_rankings
+    except Exception:
+        return
+    for uid in user_ids:
+        try:
+            recalculate_user_rankings.delay(str(uid))
+        except Exception:
+            pass
 
 
 class UserAdmin(ModelView, model=User):
@@ -55,20 +122,66 @@ class UserAdmin(ModelView, model=User):
         """Delete all play data for selected users (dev/admin use only)."""
         from app.core.database import AsyncSessionLocal
 
-        pks = request.query_params.get("pks", "")
-        user_ids = [uid.strip() for uid in pks.split(",") if uid.strip()]
+        user_ids = _parse_admin_user_ids(request.query_params.get("pks", ""))
 
         if user_ids:
             async with AsyncSessionLocal() as db:
-                for uid_str in user_ids:
-                    try:
-                        uid = uuid.UUID(uid_str)
-                    except ValueError:
-                        continue
-                    await db.execute(delete(UserScore).where(UserScore.user_id == uid))
-                    await db.execute(delete(UserPlayerStats).where(UserPlayerStats.user_id == uid))
-                    await db.execute(update(User).where(User.id == uid).values(first_synced_at=null()))
+                for uid in user_ids:
+                    await _reset_user_play_data(db, uid)
                 await db.commit()
+            _queue_user_ranking_recalculation(user_ids)
+
+        return RedirectResponse(request.url_for("admin:list", identity="user"), status_code=302)
+
+    @action(
+        name="reset_lr2_play_data",
+        label="LR2 플레이 데이터 초기화",
+        confirmation_message=(
+            "선택한 유저의 LR2 플레이 데이터만 삭제됩니다. "
+            "Beatoraja 데이터는 유지되며, first_synced_at의 lr2 키만 제거됩니다. "
+            "이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?"
+        ),
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def reset_lr2_play_data(self, request: Request) -> RedirectResponse:
+        """Delete only LR2 play data for selected users."""
+        from app.core.database import AsyncSessionLocal
+
+        user_ids = _parse_admin_user_ids(request.query_params.get("pks", ""))
+
+        if user_ids:
+            async with AsyncSessionLocal() as db:
+                for uid in user_ids:
+                    await _reset_user_play_data(db, uid, "lr2")
+                await db.commit()
+            _queue_user_ranking_recalculation(user_ids)
+
+        return RedirectResponse(request.url_for("admin:list", identity="user"), status_code=302)
+
+    @action(
+        name="reset_beatoraja_play_data",
+        label="Beatoraja 플레이 데이터 초기화",
+        confirmation_message=(
+            "선택한 유저의 Beatoraja 플레이 데이터만 삭제됩니다. "
+            "LR2 데이터는 유지되며, first_synced_at의 beatoraja 키만 제거됩니다. "
+            "이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?"
+        ),
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def reset_beatoraja_play_data(self, request: Request) -> RedirectResponse:
+        """Delete only Beatoraja play data for selected users."""
+        from app.core.database import AsyncSessionLocal
+
+        user_ids = _parse_admin_user_ids(request.query_params.get("pks", ""))
+
+        if user_ids:
+            async with AsyncSessionLocal() as db:
+                for uid in user_ids:
+                    await _reset_user_play_data(db, uid, "beatoraja")
+                await db.commit()
+            _queue_user_ranking_recalculation(user_ids)
 
         return RedirectResponse(request.url_for("admin:list", identity="user"), status_code=302)
 
@@ -228,7 +341,27 @@ class UserScoreAdmin(ModelView, model=UserScore):
         UserScore.recorded_at,
         UserScore.synced_at,
     ]
-    column_searchable_list = [UserScore.fumen_sha256, UserScore.fumen_md5, UserScore.scorehash]
+    column_searchable_list = [
+        UserScore.id,
+        UserScore.user_id,
+        UserScore.client_type,
+        UserScore.scorehash,
+        UserScore.fumen_sha256,
+        UserScore.fumen_md5,
+        UserScore.fumen_hash_others,
+        UserScore.clear_type,
+        UserScore.exscore,
+        UserScore.rate,
+        UserScore.rank,
+        UserScore.max_combo,
+        UserScore.min_bp,
+        UserScore.play_count,
+        UserScore.clear_count,
+        UserScore.judgments,
+        UserScore.options,
+        UserScore.recorded_at,
+        UserScore.synced_at,
+    ]
     column_sortable_list = [UserScore.recorded_at, UserScore.synced_at, UserScore.rate]
     can_create = False  # Scores must enter through the sync pipeline
     can_delete = False  # Blind deletion would break score continuity

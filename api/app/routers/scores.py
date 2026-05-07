@@ -2,7 +2,6 @@
 
 import math
 import uuid
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
@@ -20,6 +19,7 @@ from app.services.client_aggregation import (
     PerClientBest,
     aggregate_source_client,
 )
+from app.services.initial_sync import is_initial_sync_timestamp
 
 router = APIRouter(prefix="/scores", tags=["scores"])
 
@@ -186,15 +186,7 @@ async def get_scores_for_fumen(
     first_synced_at: dict | None = fst_result.scalar_one_or_none()
 
     def _is_first_sync(s: UserScore) -> bool:
-        if not first_synced_at or s.synced_at is None:
-            return False
-        fst_str = first_synced_at.get(s.client_type)
-        if not fst_str:
-            return False
-        fst = datetime.fromisoformat(fst_str)
-        if fst.tzinfo is None:
-            fst = fst.replace(tzinfo=UTC)
-        return abs((s.synced_at - fst).total_seconds()) <= 3600
+        return is_initial_sync_timestamp(first_synced_at, s.client_type, s.synced_at)
 
     # Fetch notes_total for rate/rank computation on rows where they're null (e.g. scorelog.db rows)
     notes_total: int | None = None

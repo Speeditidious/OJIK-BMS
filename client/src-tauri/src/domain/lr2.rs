@@ -26,6 +26,9 @@ impl ParseStats {
 }
 
 const HASH_CANDIDATES: &[&str] = &["sha256", "hash", "SHA256", "Hash"];
+const BEATORAJA_JUDGMENT_COLUMNS: &[&str] = &[
+    "epg", "lpg", "egr", "lgr", "egd", "lgd", "ebd", "lbd", "epr", "lpr", "ems", "lms",
+];
 
 pub fn parse_scores(
     score_db_path: &str,
@@ -40,6 +43,7 @@ pub fn parse_scores(
     if available.is_empty() {
         return Err(anyhow!("Table 'score' not found in {}", path.display()));
     }
+    validate_lr2_score_schema(&available)?;
     let hash_col = resolve_col(&available, HASH_CANDIDATES)
         .ok_or_else(|| anyhow!("Cannot find hash column in LR2 score table"))?;
 
@@ -137,6 +141,21 @@ pub fn parse_scores(
 
     stats.parsed = scores.len();
     Ok((scores, courses, stats))
+}
+
+fn validate_lr2_score_schema(available: &HashSet<String>) -> anyhow::Result<()> {
+    let found = BEATORAJA_JUDGMENT_COLUMNS
+        .iter()
+        .filter(|column| available.contains(**column))
+        .copied()
+        .collect::<Vec<_>>();
+    if found.is_empty() {
+        return Ok(());
+    }
+    Err(anyhow!(
+        "선택한 LR2 <username>.db가 Beatoraja 데이터베이스로 보입니다. LR2 유저가 아니시라면 경로를 비우시고, LR2 유저시라면 LR2의 <username>.db 경로에 올바른 경로를 입력했는지 다시 한번 확인해주세요. detected_columns={}",
+        found.join(", ")
+    ))
 }
 
 pub fn parse_player_stats(score_db_path: &str) -> Option<PlayerStats> {
@@ -795,6 +814,36 @@ mod tests {
         assert_eq!(stats.clearcount, Some(88));
         assert_eq!(stats.playtime, Some(777));
         assert_eq!(stats.judgments.unwrap()["perfect"], 10);
+
+        let _ = fs::remove_file(db);
+    }
+
+    #[test]
+    fn rejects_beatoraja_score_db_selected_as_lr2() {
+        let db = temp_db("beatoraja_misplaced");
+        let conn = Connection::open(&db).expect("create beatoraja-like test db");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE score (
+                sha256 TEXT PRIMARY KEY,
+                clear INTEGER,
+                epg INTEGER,
+                lpg INTEGER,
+                egr INTEGER,
+                lgr INTEGER,
+                minbp INTEGER,
+                playcount INTEGER,
+                notes INTEGER
+            );
+            "#,
+        )
+        .expect("create beatoraja-like score table");
+
+        let error = parse_scores(db.to_str().unwrap()).expect_err("reject beatoraja score db");
+        let message = format!("{error:#}");
+        assert!(message.contains("Beatoraja 데이터베이스"));
+        assert!(message.contains("LR2 유저가 아니시라면 경로를 비우시고"));
+        assert!(message.contains("epg"));
 
         let _ = fs::remove_file(db);
     }

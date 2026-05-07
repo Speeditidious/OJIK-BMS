@@ -351,7 +351,6 @@ export default function App() {
 
         <LogViewer
           logs={sync.logs}
-          overflowed={sync.overflowed}
           debugMode={config.debug_mode}
           onClear={sync.clearLogs}
           onToggleDebugMode={() => update({ debug_mode: !config.debug_mode })}

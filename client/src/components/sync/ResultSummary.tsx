@@ -28,7 +28,7 @@ export function ResultSummary({ result, onOpenResultUrl, onJumpToLog }: ResultSu
     <section className="card fade-in" aria-label="동기화 결과">
       <header className="card-hd">
         <div className="card-title">
-          최근 동기화 결과
+          최근 동기화 시도 결과
           <span style={{ color: "var(--muted)", fontWeight: 400, marginLeft: 8 }}>
             {formatRelativeTime(result.finished_at)}
           </span>
