@@ -32,6 +32,24 @@ require_env() {
     [[ -n "${!name:-}" ]] || die "Missing required env var: $name"
 }
 
+load_env_var() {
+    local name="$1"
+    local line
+    line=$(grep -E "^[[:space:]]*${name}=" "$ENV_FILE" | tail -n 1 || true)
+    [[ -n "$line" ]] || return 0
+    local value="${line#*=}"
+    value="${value%%#*}"
+    value="${value%"${value##*[![:space:]]}"}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+        value="${value:1:${#value}-2}"
+    elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+        value="${value:1:${#value}-2}"
+    fi
+    printf -v "$name" '%s' "$value"
+    export "$name"
+}
+
 validate_identifier() {
     local name="$1"
     local value="$2"
@@ -43,9 +61,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Load env so we can read R2 bucket / credentials
 [[ -f "$ENV_FILE" ]] || die "Env file not found: $ENV_FILE"
-set -a; source "$ENV_FILE"; set +a
+load_env_var POSTGRES_USER
+load_env_var POSTGRES_DB
+load_env_var R2_ACCESS_KEY_ID
+load_env_var R2_SECRET_ACCESS_KEY
+load_env_var R2_BUCKET
+load_env_var R2_ENDPOINT
 
 require_command docker
 require_command gzip
@@ -85,7 +107,8 @@ log "Upload to R2: $R2_BUCKET/daily/$FILENAME"
 rclone copyto "$BACKUP_DIR/$FILENAME" "$R2_REMOTE:$R2_BUCKET/daily/$FILENAME" \
     --s3-access-key-id "$R2_ACCESS_KEY_ID" \
     --s3-secret-access-key "$R2_SECRET_ACCESS_KEY" \
-    --s3-endpoint "$R2_ENDPOINT"
+    --s3-endpoint "$R2_ENDPOINT" \
+    --s3-no-check-bucket
 
 # Keep only last 7 local backups
 if (( LOCAL_RETENTION > 0 )); then
