@@ -21,6 +21,7 @@ from app.routers import sync as sync_module
 SYNCED_AT_OLD = datetime(2026, 5, 3, 10, 0, 0, tzinfo=UTC)
 _ORIG_JUDGMENTS = {"perfect": 100, "great": 50, "good": 10, "bad": 5, "poor": 2}
 _NEW_JUDGMENTS = {"perfect": 99, "great": 51, "good": 10, "bad": 5, "poor": 2}
+_ZERO_LR2_JUDGMENTS = {"perfect": 0, "great": 0, "good": 0, "bad": 0, "poor": 0}
 
 
 class _FakeNestedTx:
@@ -111,6 +112,65 @@ async def test_sync_skips_no_play_before_score_computation_or_update():
     assert result.metadata_updated == 0
     assert result.skipped_scores == 1
     assert captured_updates == []
+
+
+@pytest.mark.asyncio
+async def test_sync_skips_misclassified_lr2_record_with_recorded_at():
+    """Legacy-client Beatoraja rows mislabeled as LR2 must not be stored."""
+    captured_updates: list = []
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
+    mock_db = _make_mock_db(captured_updates)
+
+    payload = sync_module.SyncRequest(
+        scores=[
+            sync_module.ScoreSyncItem(
+                fumen_sha256="a" * 64,
+                client_type="lr2",
+                clear_type=2,
+                notes=1000,
+                judgments=_ZERO_LR2_JUDGMENTS,
+                recorded_at=datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC),
+            )
+        ],
+        player_stats=[],
+    )
+
+    result = await sync_module.sync_data(
+        payload,
+        current_user=mock_user,
+        db=mock_db,
+    )
+
+    assert result.synced_scores == 0
+    assert result.inserted_scores == 0
+    assert result.metadata_updated == 0
+    assert result.skipped_scores == 1
+    assert captured_updates == []
+
+
+@pytest.mark.parametrize(
+    ("client_type", "judgments", "recorded_at", "expected"),
+    [
+        ("lr2", _ZERO_LR2_JUDGMENTS, datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC), True),
+        ("lr2", {"perfect": 0}, datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC), True),
+        ("lr2", {}, datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC), True),
+        ("lr2", _ZERO_LR2_JUDGMENTS, None, False),
+        ("beatoraja", _ZERO_LR2_JUDGMENTS, datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC), False),
+        ("lr2", None, datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC), False),
+        ("lr2", {"perfect": 1, "great": 0}, datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC), False),
+    ],
+)
+def test_misclassified_lr2_record_detector(client_type, judgments, recorded_at, expected):
+    item = sync_module.ScoreSyncItem(
+        fumen_sha256="a" * 64,
+        client_type=client_type,
+        clear_type=2,
+        judgments=judgments,
+        recorded_at=recorded_at,
+    )
+
+    assert sync_module._is_misclassified_lr2_record(item) is expected
 
 
 @pytest.mark.asyncio

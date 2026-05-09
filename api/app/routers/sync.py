@@ -91,6 +91,21 @@ class SyncResponse(BaseModel):
     debug_updates: list[dict] = []
 
 
+LR2_JUDGMENT_KEYS = ("perfect", "great", "good", "bad", "poor")
+
+
+def _is_misclassified_lr2_record(item: ScoreSyncItem) -> bool:
+    """Return True for Beatoraja score rows that legacy clients sent as LR2."""
+    if item.client_type != "lr2" or item.recorded_at is None or item.judgments is None:
+        return False
+    return all(item.judgments.get(key, 0) == 0 for key in LR2_JUDGMENT_KEYS)
+
+
+def _is_syncable_score(item: ScoreSyncItem) -> bool:
+    """Return whether a score item should enter the server-side upsert path."""
+    return item.clear_type != 0 and not _is_misclassified_lr2_record(item)
+
+
 def _should_enqueue_ranking_recalculation(
     payload: SyncRequest,
     synced_scores: int,
@@ -499,7 +514,7 @@ async def sync_data(
     if not payload.scores and not payload.player_stats:
         return SyncResponse(synced_scores=0, skipped_scores=0, errors=[])
 
-    syncable_scores = [item for item in payload.scores if item.clear_type != 0]
+    syncable_scores = [item for item in payload.scores if _is_syncable_score(item)]
     skipped_scores = len(payload.scores) - len(syncable_scores)
     if not syncable_scores and not payload.player_stats:
         return SyncResponse(synced_scores=0, skipped_scores=skipped_scores, errors=[])
@@ -534,7 +549,7 @@ async def sync_data(
     if syncable_scores:
         for item in syncable_scores:
             try:
-                if item.clear_type == 0:
+                if not _is_syncable_score(item):
                     skipped_scores += 1
                     continue
 
