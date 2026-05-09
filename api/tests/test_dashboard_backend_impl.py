@@ -16,6 +16,7 @@ from app.models.score import UserScore
 from app.models.user import User
 from app.routers.analysis import (
     _build_fumen_aggregate,
+    _build_activity_subquery,
     _initial_sync_exclusion_filters,
     _initial_sync_exclusion_for_subq,
     _resolve_activity_window,
@@ -105,6 +106,20 @@ def test_initial_sync_exclusion_subquery_filters_apply_to_all_first_synced_clien
     assert "client_type != 'beatoraja'" in compiled
     assert "synced_at > '2026-05-06 12:00:00+00:00'" in compiled
     assert "synced_at > '2026-05-06 13:00:00+00:00'" in compiled
+
+
+def test_activity_subquery_excludes_no_play_rows_from_counts():
+    user = SimpleNamespace(id=uuid.uuid4())
+
+    subq = _build_activity_subquery(user)
+    compiled = str(
+        select(subq).compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+
+    assert "user_scores.clear_type IS NULL OR user_scores.clear_type != 0" in compiled
 
 
 def _build_fake_ranking(scores, top_n: int):

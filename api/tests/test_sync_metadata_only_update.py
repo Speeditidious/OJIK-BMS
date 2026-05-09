@@ -70,6 +70,50 @@ def _make_best(row_id, judgments=None, scorehash=None):
 
 
 @pytest.mark.asyncio
+async def test_sync_skips_no_play_before_score_computation_or_update():
+    """NO PLAY rows must not be stored even if judgments could compute score fields."""
+    captured_updates: list = []
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
+    mock_db = _make_mock_db(captured_updates)
+
+    payload = sync_module.SyncRequest(
+        scores=[
+            sync_module.ScoreSyncItem(
+                fumen_md5="a" * 32,
+                client_type="lr2",
+                clear_type=0,
+                notes=1000,
+                judgments={
+                    "perfect": 1000,
+                    "great": 0,
+                    "good": 0,
+                    "bad": 0,
+                    "poor": 0,
+                },
+                play_count=0,
+            )
+        ],
+        player_stats=[],
+    )
+
+    with patch.object(sync_module, "_fetch_current_bests", AsyncMock(return_value={})):
+        with patch.object(sync_module, "_fetch_existing_scorehashes", AsyncMock(return_value=set())):
+            with patch.object(sync_module, "_fetch_same_day_rows", AsyncMock(return_value={})):
+                result = await sync_module.sync_data(
+                    payload,
+                    current_user=mock_user,
+                    db=mock_db,
+                )
+
+    assert result.synced_scores == 0
+    assert result.inserted_scores == 0
+    assert result.metadata_updated == 0
+    assert result.skipped_scores == 1
+    assert captured_updates == []
+
+
+@pytest.mark.asyncio
 async def test_metadata_only_update_preserves_synced_at():
     """Metadata-only update (judgments differ, score unchanged) must not bump synced_at."""
     row_id = uuid.uuid4()

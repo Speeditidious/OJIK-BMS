@@ -46,6 +46,11 @@ _RATING_BREAKDOWN_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _CUSTOM_RANGE_MAX_DAYS = 730
 
 
+def _non_no_play_score_filter():
+    """Return a filter that excludes persisted NO PLAY rows while preserving score-only rows."""
+    return or_(UserScore.clear_type.is_(None), UserScore.clear_type != 0)
+
+
 def _rating_count_map(rows: list[dict[str, Any]]) -> dict[str, int]:
     """Return a `date -> count` map from stored or fallback daily rows."""
     return {
@@ -451,7 +456,7 @@ def _build_activity_subquery(user: User, client_type: str | None = None):
         order_by=[effective_ts.desc()],
     )
 
-    inner_filters: list = [UserScore.user_id == user.id]
+    inner_filters: list = [UserScore.user_id == user.id, _non_no_play_score_filter()]
     if client_type:
         inner_filters.append(UserScore.client_type == client_type)
 
@@ -1097,7 +1102,7 @@ async def get_recent_updates(
     """
     target_user = await _resolve_target_user(user_id, current_user, db)
     effective_ts = func.coalesce(UserScore.recorded_at, UserScore.synced_at)
-    recent_filter = [UserScore.user_id == target_user.id]
+    recent_filter = [UserScore.user_id == target_user.id, _non_no_play_score_filter()]
     if client_type:
         recent_filter.append(UserScore.client_type == client_type)
     recent_filter.extend(_initial_sync_exclusion_filters(target_user))
@@ -1227,6 +1232,7 @@ async def get_recent_updates(
                 .where(
                     UserScore.user_id == target_user.id,
                     UserScore.fumen_hash_others.is_(None),
+                    _non_no_play_score_filter(),
                     combined_cond,
                 )
                 .order_by(effective_ts.asc())
@@ -1881,7 +1887,7 @@ async def get_score_updates(
 
     # ── 1. Fetch most-recent row per (hash, client_type) ─────────────────────
     # Use ROW_NUMBER() to pick the latest row per (fumen_hash, client_type) group.
-    base_filters = [UserScore.user_id == target_user.id]
+    base_filters = [UserScore.user_id == target_user.id, _non_no_play_score_filter()]
     if client_type:
         base_filters.append(UserScore.client_type == client_type)
     base_filters.extend(_initial_sync_exclusion_filters(target_user))
@@ -2013,6 +2019,7 @@ async def get_score_updates(
                     UserScore.user_id == target_user.id,
                     UserScore.fumen_hash_others.is_(None),
                     combined,
+                    _non_no_play_score_filter(),
                     *( [UserScore.client_type == client_type] if client_type else [] ),
                 )
                 .order_by(effective_ts.asc())
@@ -2036,6 +2043,7 @@ async def get_score_updates(
             .where(
                 UserScore.user_id == target_user.id,
                 UserScore.fumen_hash_others.in_(course_hash_set),
+                _non_no_play_score_filter(),
                 *( [UserScore.client_type == client_type] if client_type else [] ),
             )
             .order_by(effective_ts.asc())

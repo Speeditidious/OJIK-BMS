@@ -499,16 +499,21 @@ async def sync_data(
     if not payload.scores and not payload.player_stats:
         return SyncResponse(synced_scores=0, skipped_scores=0, errors=[])
 
+    syncable_scores = [item for item in payload.scores if item.clear_type != 0]
+    skipped_scores = len(payload.scores) - len(syncable_scores)
+    if not syncable_scores and not payload.player_stats:
+        return SyncResponse(synced_scores=0, skipped_scores=skipped_scores, errors=[])
+
     # ── Bulk pre-fetch per-field bests ──────────────────────────────────────────
     current_bests: dict[tuple, dict[str, Any]] = {}
     same_day_map: dict[tuple, UserScore] = {}
     existing_scorehashes: set[ScorehashIdentityKey] = set()
-    if payload.scores:
-        sha256s = {item.fumen_sha256 for item in payload.scores if item.fumen_sha256}
-        md5s = {item.fumen_md5 for item in payload.scores if item.fumen_md5 and not item.fumen_sha256}
-        hash_others = {item.fumen_hash_others for item in payload.scores if item.fumen_hash_others}
-        client_types = {item.client_type for item in payload.scores}
-        scorehashes = {item.scorehash for item in payload.scores if item.scorehash}
+    if syncable_scores:
+        sha256s = {item.fumen_sha256 for item in syncable_scores if item.fumen_sha256}
+        md5s = {item.fumen_md5 for item in syncable_scores if item.fumen_md5 and not item.fumen_sha256}
+        hash_others = {item.fumen_hash_others for item in syncable_scores if item.fumen_hash_others}
+        client_types = {item.client_type for item in syncable_scores}
+        scorehashes = {item.scorehash for item in syncable_scores if item.scorehash}
         current_bests = await _fetch_current_bests(
             current_user.id, sha256s, md5s, hash_others, client_types, db
         )
@@ -519,16 +524,20 @@ async def sync_data(
         # ── Pre-fetch same-day rows for fumen records (courses excluded) ─────
         fumen_dates: set[date_cls] = {
             item.recorded_at.date()
-            for item in payload.scores
+            for item in syncable_scores
             if item.recorded_at and not item.fumen_hash_others
         }
         same_day_map = await _fetch_same_day_rows(
             current_user.id, sha256s, md5s, fumen_dates, db
         )
 
-    if payload.scores:
-        for item in payload.scores:
+    if syncable_scores:
+        for item in syncable_scores:
             try:
+                if item.clear_type == 0:
+                    skipped_scores += 1
+                    continue
+
                 # ── Legacy LR2 course hash healing (Issue #6) ──────────────
                 # 구버전 클라이언트가 저장한 stripped hash(32자 헤더 제거)를
                 # 수정된 클라이언트가 보내는 full raw_hash로 in-place UPDATE.
@@ -898,7 +907,7 @@ async def sync_data(
     # sync 실패를 막기 위해 try/except 로 격리 — backfill 실패해도 score commit 유지.
     pairs: list[tuple[str, str]] = [
         (item.fumen_sha256, item.fumen_md5)
-        for item in payload.scores
+        for item in syncable_scores
         if item.fumen_sha256 and item.fumen_md5
     ]
     if pairs:
