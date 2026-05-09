@@ -790,6 +790,32 @@ async def get_prev_ranking(
     return float(result[0]), float(result[1]), float(result[2])
 
 
+async def select_ranking_user_ids(db: AsyncSession) -> set[uuid.UUID]:
+    """Return active users that should have ranking rows for every ranking table."""
+    result = await db.execute(
+        text("""
+            SELECT u.id
+            FROM users u
+            WHERE u.is_active IS TRUE
+              AND (
+                  EXISTS (
+                      SELECT 1
+                      FROM user_scores us
+                      WHERE us.user_id = u.id
+                      LIMIT 1
+                  )
+                  OR EXISTS (
+                      SELECT 1
+                      FROM user_player_stats ups
+                      WHERE ups.user_id = u.id
+                      LIMIT 1
+                  )
+              )
+        """)
+    )
+    return {uuid.UUID(str(row[0])) for row in result.all()}
+
+
 # ── Per-user recalculation (post-sync) ───────────────────────────────────────
 
 async def recalculate_user(
@@ -907,12 +933,16 @@ async def recalculate_table_bulk(
     table_cfg: TableRankingConfig,
     config: RankingConfig,
     db: AsyncSession,
+    *,
+    rebuild_derived: bool = True,
 ) -> int:
     """Recalculate rankings for all users in a table. Returns number of users processed."""
     from app.services.rating_derived_data import rebuild_user_rating_derived_data
 
     all_scores = await bulk_query_best_scores(table_cfg.table_id, db)
-    if not all_scores:
+    ranking_user_ids = await select_ranking_user_ids(db)
+    ranking_user_ids.update(all_scores.keys())
+    if not ranking_user_ids:
         return 0
 
     recently_synced_result = await db.execute(
@@ -937,13 +967,14 @@ async def recalculate_table_bulk(
 
     dan_refresh_targets = {
         user_id
-        for user_id in all_scores
+        for user_id in ranking_user_ids
         if user_id in recently_synced or existing_dans.get(user_id) is None
     }
     dan_results = await batch_check_dan_clearance(dan_refresh_targets, table_cfg, config, db)
 
     processed = 0
-    for user_id, scores in all_scores.items():
+    for user_id in sorted(ranking_user_ids, key=str):
+        scores = all_scores.get(user_id, [])
         result = compute_ranking(table_cfg, config.exp_level_step, scores)
         result.user_id = user_id
 
@@ -953,7 +984,8 @@ async def recalculate_table_bulk(
             result.dan_title = existing_dans.get(user_id)
 
         await upsert_user_ranking(result, table_cfg.table_id, db)
-        await rebuild_user_rating_derived_data(user_id, config, db)
+        if rebuild_derived:
+            await rebuild_user_rating_derived_data(user_id, config, db)
         processed += 1
 
     return processed

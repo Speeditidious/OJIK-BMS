@@ -9,9 +9,11 @@ from app.services.ranking_calculator import (
     BestScore,
     _exp_level,
     _merge_best_score_fields,
+    recalculate_table_bulk,
 )
 from app.services.ranking_config import (
     BonusConfig,
+    RankingConfig,
     ReferenceCondition,
     TableRankingConfig,
 )
@@ -198,3 +200,108 @@ def test_compute_exp_progress_fields_marks_max_level_as_complete():
     assert progress["exp_level_current_span"] == 1.0
     assert progress["exp_level_progress_ratio"] == 1.0
     assert progress["is_max_level"] is True
+
+
+@pytest.mark.asyncio
+async def test_recalculate_table_bulk_upserts_zero_rows_for_users_without_table_scores(monkeypatch):
+    table_id = uuid.uuid4()
+    user_without_score = uuid.uuid4()
+    another_user_without_score = uuid.uuid4()
+
+    table_cfg = TableRankingConfig(
+        slug="test",
+        table_id=table_id,
+        display_name="Test Table",
+        display_order=1,
+        level_order=["LEVEL 1"],
+        level_weights={"LEVEL 1": 1.0},
+        base_lamp_mult={"NOPLAY": 0.0},
+        upper_lamp_bonus={"NOPLAY": 0.0},
+        rank_mult={"F": 1.0},
+        bonus=BonusConfig(
+            bp_weight=0.0,
+            rate_weight=0.0,
+            bp_floor=1.0,
+            bp_slope=1.0,
+            rate_floor=0.0,
+            rate_slope=1.0,
+        ),
+        reference_20=ReferenceCondition(
+            level="LEVEL 1",
+            lamp="NOPLAY",
+            bp=0,
+            rank="F",
+            rate=0.0,
+        ),
+        c_table=1.0,
+        top_n=20,
+    )
+    config = RankingConfig(
+        tables=[table_cfg],
+        exp_level_step=100.0,
+        high_tier_rating_anchor=20_000.0,
+    )
+
+    class _RowsResult:
+        def all(self):
+            return []
+
+    class _FakeSession:
+        async def execute(self, _statement, _params=None):
+            return _RowsResult()
+
+    async def fake_bulk_query_best_scores(_table_id, _db, user_id=None):
+        assert user_id is None
+        return {}
+
+    async def fake_select_ranking_user_ids(_db):
+        return {user_without_score, another_user_without_score}
+
+    async def fake_batch_check_dan_clearance(user_ids, _table_cfg, _config, _db):
+        assert user_ids == {user_without_score, another_user_without_score}
+        return {user_id: None for user_id in user_ids}
+
+    upserted = []
+
+    async def fake_upsert_user_ranking(result, upsert_table_id, _db):
+        upserted.append((result, upsert_table_id))
+
+    rebuilt = []
+
+    async def fake_rebuild_user_rating_derived_data(user_id, _config, _db):
+        rebuilt.append(user_id)
+
+    monkeypatch.setattr(
+        "app.services.ranking_calculator.bulk_query_best_scores",
+        fake_bulk_query_best_scores,
+    )
+    monkeypatch.setattr(
+        "app.services.ranking_calculator.select_ranking_user_ids",
+        fake_select_ranking_user_ids,
+    )
+    monkeypatch.setattr(
+        "app.services.ranking_calculator.batch_check_dan_clearance",
+        fake_batch_check_dan_clearance,
+    )
+    monkeypatch.setattr(
+        "app.services.ranking_calculator.upsert_user_ranking",
+        fake_upsert_user_ranking,
+    )
+    monkeypatch.setattr(
+        "app.services.rating_derived_data.rebuild_user_rating_derived_data",
+        fake_rebuild_user_rating_derived_data,
+    )
+
+    processed = await recalculate_table_bulk(table_cfg, config, _FakeSession())
+
+    assert processed == 2
+    assert {result.user_id for result, _ in upserted} == {
+        user_without_score,
+        another_user_without_score,
+    }
+    assert {upsert_table_id for _, upsert_table_id in upserted} == {table_id}
+    assert all(result.exp == 0.0 for result, _ in upserted)
+    assert all(result.exp_level == 0 for result, _ in upserted)
+    assert all(result.rating == 0.0 for result, _ in upserted)
+    assert all(result.rating_norm == 0.0 for result, _ in upserted)
+    assert set(rebuilt) == {user_without_score, another_user_without_score}

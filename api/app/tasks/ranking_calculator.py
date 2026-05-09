@@ -72,19 +72,41 @@ async def _async_recalculate_user(user_id: uuid.UUID) -> dict:
 
 async def _async_recalculate_all(table_slug: str | None = None) -> dict:
     from app.core.database import AsyncSessionLocal
-    from app.services.ranking_calculator import recalculate_table_bulk
+    from app.services.ranking_calculator import (
+        recalculate_table_bulk,
+        select_ranking_user_ids,
+    )
     from app.services.ranking_config import init_ranking_config
+    from app.services.rating_derived_data import rebuild_user_rating_derived_data
 
     total_users = 0
+    derived_rebuilds = 0
     async with AsyncSessionLocal() as db:
         config = await init_ranking_config(db)
         targets = config.tables
         if table_slug is not None:
             targets = [t for t in targets if t.slug == table_slug]
+        if not targets:
+            return {
+                "status": "ok",
+                "tables": 0,
+                "total_users": 0,
+                "derived_rebuilds": 0,
+            }
         for table_cfg in targets:
-            count = await recalculate_table_bulk(table_cfg, config, db)
+            count = await recalculate_table_bulk(table_cfg, config, db, rebuild_derived=False)
             await db.commit()
             total_users += count
             logger.info(f"Bulk ranking recalculated for table '{table_cfg.slug}': {count} users")
 
-    return {"status": "ok", "tables": len(targets), "total_users": total_users}
+        for user_id in sorted(await select_ranking_user_ids(db), key=str):
+            await rebuild_user_rating_derived_data(user_id, config, db)
+            await db.commit()
+            derived_rebuilds += 1
+
+    return {
+        "status": "ok",
+        "tables": len(targets),
+        "total_users": total_users,
+        "derived_rebuilds": derived_rebuilds,
+    }

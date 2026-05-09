@@ -10,8 +10,12 @@ import argparse
 import asyncio
 
 from app.core.database import AsyncSessionLocal
-from app.services.ranking_calculator import recalculate_table_bulk
+from app.services.ranking_calculator import (
+    recalculate_table_bulk,
+    select_ranking_user_ids,
+)
 from app.services.ranking_config import init_ranking_config
+from app.services.rating_derived_data import rebuild_user_rating_derived_data
 
 
 async def main(slug: str | None) -> None:
@@ -22,9 +26,15 @@ async def main(slug: str | None) -> None:
             print(f"No tables found for slug={slug!r}. Available: {[t.slug for t in config.tables]}")
             return
         for tbl in targets:
-            n = await recalculate_table_bulk(tbl, config, db)
+            n = await recalculate_table_bulk(tbl, config, db, rebuild_derived=False)
             await db.commit()
             print(f"[{tbl.slug}] {n} users recalculated (c_table={tbl.c_table:.4f})")
+        derived_rebuilds = 0
+        for user_id in sorted(await select_ranking_user_ids(db), key=str):
+            await rebuild_user_rating_derived_data(user_id, config, db)
+            await db.commit()
+            derived_rebuilds += 1
+        print(f"rating derived data rebuilt for {derived_rebuilds} users")
 
 
 if __name__ == "__main__":
