@@ -133,10 +133,10 @@ async def query_target_fumen_details(
                 f.md5,
                 {title_select}
                 {artist_select}
-                entry->>'level' AS level
-            FROM fumens f,
-                 jsonb_array_elements(f.table_entries) AS entry
-            WHERE (entry->>'table_id')::uuid = :table_id
+                fte.level AS level
+            FROM fumen_table_entries fte
+            JOIN fumens f ON f.fumen_id = fte.fumen_id
+            WHERE fte.table_id = :table_id
         """),
         {"table_id": str(table_id)},
     )
@@ -279,39 +279,28 @@ async def _query_per_client_bests(
     result = await db.execute(
         text("""
             WITH target_fumens AS (
-                SELECT f.sha256, f.md5
-                FROM fumens f, jsonb_array_elements(f.table_entries) AS entry
-                WHERE (entry->>'table_id')::uuid = :table_id
+                SELECT f.fumen_id, f.sha256, f.md5
+                FROM fumen_table_entries fte
+                JOIN fumens f ON f.fumen_id = fte.fumen_id
+                WHERE fte.table_id = :table_id
             ),
             latest_per_client AS (
-                SELECT us.fumen_sha256, us.fumen_md5, us.client_type,
+                SELECT us.fumen_id, us.fumen_sha256, us.fumen_md5, us.client_type,
                        us.clear_type, us.exscore, us.rate, us.rank, us.min_bp,
                        ROW_NUMBER() OVER (
-                           PARTITION BY COALESCE(us.fumen_sha256, us.fumen_md5), us.client_type
+                           PARTITION BY us.fumen_id, us.client_type
                            ORDER BY COALESCE(us.recorded_at, us.synced_at) DESC NULLS LAST
                        ) AS rn
                 FROM user_scores us
                 WHERE us.user_id = :user_id
-                  AND us.fumen_hash_others IS NULL
-                  AND (
-                      (us.fumen_sha256 IS NOT NULL
-                        AND us.fumen_sha256 IN (SELECT sha256 FROM target_fumens WHERE sha256 IS NOT NULL))
-                      OR (us.fumen_md5 IS NOT NULL
-                        AND us.fumen_md5 IN (SELECT md5 FROM target_fumens WHERE md5 IS NOT NULL))
-                  )
+                  AND us.fumen_id IN (SELECT fumen_id FROM target_fumens)
             ),
             joined AS (
                 SELECT tf.sha256 AS tf_sha256, tf.md5 AS tf_md5,
                        lpc.client_type, lpc.clear_type, lpc.exscore, lpc.rate, lpc.rank, lpc.min_bp
                 FROM latest_per_client lpc
-                JOIN target_fumens tf ON lpc.fumen_sha256 = tf.sha256
-                WHERE lpc.rn = 1 AND lpc.fumen_sha256 IS NOT NULL
-                UNION ALL
-                SELECT tf.sha256 AS tf_sha256, tf.md5 AS tf_md5,
-                       lpc.client_type, lpc.clear_type, lpc.exscore, lpc.rate, lpc.rank, lpc.min_bp
-                FROM latest_per_client lpc
-                JOIN target_fumens tf ON lpc.fumen_md5 = tf.md5
-                WHERE lpc.rn = 1 AND lpc.fumen_md5 IS NOT NULL
+                JOIN target_fumens tf ON lpc.fumen_id = tf.fumen_id
+                WHERE lpc.rn = 1
             )
             SELECT tf_sha256, tf_md5, client_type, clear_type, exscore, rate, rank, min_bp
             FROM joined
@@ -510,22 +499,10 @@ async def _query_table_score_history(
             WHERE us.user_id = :user_id
               AND us.fumen_hash_others IS NULL
               AND COALESCE(us.recorded_at, us.synced_at)::date <= :until_date
-              AND (
-                  us.fumen_sha256 IN (
-                      SELECT f2.sha256
-                      FROM fumens f2, jsonb_array_elements(f2.table_entries) AS entry2
-                      WHERE (entry2->>'table_id')::uuid = :table_id
-                        AND f2.sha256 IS NOT NULL
-                  )
-                  OR (
-                      us.fumen_sha256 IS NULL
-                      AND us.fumen_md5 IN (
-                          SELECT f3.md5
-                          FROM fumens f3, jsonb_array_elements(f3.table_entries) AS entry3
-                          WHERE (entry3->>'table_id')::uuid = :table_id
-                            AND f3.md5 IS NOT NULL
-                      )
-                  )
+              AND us.fumen_id IN (
+                  SELECT fte.fumen_id
+                  FROM fumen_table_entries fte
+                  WHERE fte.table_id = :table_id
               )
             ORDER BY effective_ts ASC NULLS LAST
         """),

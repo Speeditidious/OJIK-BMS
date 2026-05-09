@@ -22,7 +22,7 @@ from app.services.client_aggregation import (
     aggregate_source_client,
 )
 
-FumenKey = tuple[str | None, str | None]
+FumenKey = uuid.UUID
 
 
 # ── Pydantic schemas (re-exported so tables.py / fumens.py both import from here) ──
@@ -72,61 +72,29 @@ async def fetch_user_score_map(
 ) -> dict[FumenKey, TableFumenScore]:
     """Build per-fumen aggregated best user scores for a list of fumens.
 
-    Mirrors the logic inlined in tables.py::get_table_songs (score aggregation
-    section). Handles LR2 sha256=NULL rows per CLAUDE.md "Fumen hash lookups".
+    Mirrors the logic inlined in tables.py::get_table_songs, using the
+    normalized ``user_scores.fumen_id`` fast path.
     """
     if not fumens:
         return {}
 
-    sha256_list = [f.sha256 for f in fumens if f.sha256]
-    md5_list = [f.md5 for f in fumens if f.md5 and not f.sha256]
-    md5_for_sha256_fumens = [f.md5 for f in fumens if f.sha256 and f.md5]
-    md5_to_key: dict[str, FumenKey] = {
-        f.md5: (f.sha256, None)
-        for f in fumens
-        if f.sha256 and f.md5
-    }
-
-    score_conditions = []
-    if sha256_list:
-        score_conditions.append(UserScore.fumen_sha256.in_(sha256_list))
-    if md5_list:
-        score_conditions.append(
-            (UserScore.fumen_md5.in_(md5_list)) & UserScore.fumen_sha256.is_(None)
-        )
-    if md5_for_sha256_fumens:
-        score_conditions.append(
-            (UserScore.fumen_md5.in_(md5_for_sha256_fumens)) & UserScore.fumen_sha256.is_(None)
-        )
-
-    if not score_conditions:
-        return {}
-
-    combined = score_conditions[0]
-    for c in score_conditions[1:]:
-        combined = combined | c
+    fumen_ids = [f.fumen_id for f in fumens]
 
     score_rows_result = await db.execute(
         select(UserScore).where(
             UserScore.user_id == user_id,
-            UserScore.fumen_hash_others.is_(None),
-            combined,
+            UserScore.fumen_id.in_(fumen_ids),
         ).order_by(UserScore.recorded_at.desc().nullslast())
     )
     score_rows = score_rows_result.scalars().all()
 
-    notes_map: dict[FumenKey, int | None] = {
-        (f.sha256, f.md5 if not f.sha256 else None): f.notes_total
-        for f in fumens
-    }
+    notes_map: dict[FumenKey, int | None] = {f.fumen_id: f.notes_total for f in fumens}
 
     per_fumen_client: dict[FumenKey, dict[str, dict[str, Any]]] = {}
     for s in score_rows:
-        if s.fumen_sha256 is None and s.fumen_md5 and s.fumen_md5 in md5_to_key:
-            key = md5_to_key[s.fumen_md5]
-        else:
-            key = (s.fumen_sha256, s.fumen_md5 if not s.fumen_sha256 else None)
-
+        if s.fumen_id is None:
+            continue
+        key = s.fumen_id
         per_client = per_fumen_client.setdefault(key, {})
         ct = s.client_type
         if ct not in per_client:
@@ -214,34 +182,17 @@ async def fetch_user_tag_map(
     if not fumens:
         return {}
 
-    sha256_list_tags = [f.sha256 for f in fumens if f.sha256]
-    md5_list_tags = [f.md5 for f in fumens if f.md5 and not f.sha256]
-
-    tag_conditions = []
-    if sha256_list_tags:
-        tag_conditions.append(UserFumenTag.fumen_sha256.in_(sha256_list_tags))
-    if md5_list_tags:
-        tag_conditions.append(
-            (UserFumenTag.fumen_md5.in_(md5_list_tags)) & UserFumenTag.fumen_sha256.is_(None)
-        )
-
-    if not tag_conditions:
-        return {}
-
-    combined_tag = tag_conditions[0]
-    for c in tag_conditions[1:]:
-        combined_tag = combined_tag | c
+    fumen_ids = [f.fumen_id for f in fumens]
 
     tag_rows_result = await db.execute(
         select(UserFumenTag).where(
             UserFumenTag.user_id == user_id,
-            combined_tag,
+            UserFumenTag.fumen_id.in_(fumen_ids),
         )
     )
 
     tag_map: dict[FumenKey, list[UserTagRead]] = {}
     for tag in tag_rows_result.scalars().all():
-        t_key: FumenKey = (tag.fumen_sha256, tag.fumen_md5 if not tag.fumen_sha256 else None)
-        tag_map.setdefault(t_key, []).append(UserTagRead(id=str(tag.id), tag=tag.tag))
+        tag_map.setdefault(tag.fumen_id, []).append(UserTagRead(id=str(tag.id), tag=tag.tag))
 
     return tag_map

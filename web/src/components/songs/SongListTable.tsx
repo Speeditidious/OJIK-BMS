@@ -13,6 +13,7 @@ import { CLEAR_ROW_CLASS, parseArrangement, ARRANGEMENT_KANJI } from "@/lib/fume
 import { formatRatePercent } from "@/lib/rate-format";
 import { displayClearType } from "@/lib/clear-type-display";
 import { clearText } from "@/components/dashboard/RecentActivity";
+import { songHref } from "@/lib/song-href";
 import type { FumenListItem, FumenSearchField } from "@/types";
 
 export interface SongListTableProps {
@@ -23,10 +24,6 @@ export interface SongListTableProps {
   sortKey?: string;
   sortDir?: "asc" | "desc";
   onSort?: (sortKey: FumenSearchField | "level", sortDir: "asc" | "desc") => void;
-}
-
-function songHash(item: FumenListItem): string {
-  return item.sha256 || item.md5 || "";
 }
 
 function SortIcon({ col, sortKey, sortDir }: { col: string; sortKey?: string; sortDir?: "asc" | "desc" }) {
@@ -69,7 +66,7 @@ interface SongRowProps {
 
 const SongRow = memo(function SongRow({ item, index, tableSymbolMap, isLoggedIn }: SongRowProps) {
   const s = item.user_score;
-  const hash = songHash(item);
+  const href = songHref(item);
 
   const levels = (item.table_entries ?? []).map((e) => ({
     symbol: tableSymbolMap[e.table_id] ?? "",
@@ -103,13 +100,9 @@ const SongRow = memo(function SongRow({ item, index, tableSymbolMap, isLoggedIn 
       <td className="px-2 align-middle" data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
         <div className="min-w-0 overflow-hidden">
           <div className="max-w-full truncate">
-            {hash ? (
-              <Link href={`/songs/${hash}`} className="text-label hover:text-primary transition-colors">
-                {item.title || "(제목 없음)"}
-              </Link>
-            ) : (
-              <span className="text-label">{item.title || "(제목 없음)"}</span>
-            )}
+            <Link href={href} className="text-label hover:text-primary transition-colors">
+              {item.title || "(제목 없음)"}
+            </Link>
           </div>
           {item.artist && <div className="text-caption row-muted max-w-full truncate">{item.artist}</div>}
           {item.user_tags.length > 0 && (

@@ -20,7 +20,7 @@ from app.models.difficulty_table import (
     DifficultyTable,
     UserFavoriteDifficultyTable,
 )
-from app.models.fumen import Fumen, UserFumenTag
+from app.models.fumen import Fumen, FumenTableEntry, UserFumenTag
 from app.models.ranking import (
     UserRanking,
     UserRatingUpdateDaily,
@@ -318,9 +318,26 @@ class FumenAdmin(ModelView, model=Fumen):
     name = "Fumen"
     name_plural = "Fumens"
     icon = "fa-solid fa-music"
-    column_list = [Fumen.title, Fumen.artist, Fumen.md5, Fumen.sha256, Fumen.bpm_max]
+    column_list = [Fumen.fumen_id, Fumen.title, Fumen.artist, Fumen.md5, Fumen.sha256, Fumen.bpm_max]
     column_searchable_list = [Fumen.title, Fumen.artist, Fumen.md5, Fumen.sha256]
     column_sortable_list = [Fumen.title, Fumen.artist, Fumen.bpm_max, Fumen.created_at]
+
+
+class FumenTableEntryAdmin(ModelView, model=FumenTableEntry):
+    name = "Fumen Table Entry"
+    name_plural = "Fumen Table Entries"
+    icon = "fa-solid fa-list"
+    column_list = [
+        FumenTableEntry.fumen_id,
+        FumenTableEntry.table_id,
+        FumenTableEntry.level,
+        FumenTableEntry.updated_at,
+    ]
+    column_searchable_list = [FumenTableEntry.level]
+    column_sortable_list = [FumenTableEntry.table_id, FumenTableEntry.level, FumenTableEntry.updated_at]
+    can_create = False
+    can_edit = False
+    can_delete = False
 
 
 class UserScoreAdmin(ModelView, model=UserScore):
@@ -331,6 +348,7 @@ class UserScoreAdmin(ModelView, model=UserScore):
         UserScore.id,
         UserScore.user_id,
         UserScore.scorehash,
+        UserScore.fumen_id,
         UserScore.fumen_sha256,
         UserScore.fumen_md5,
         UserScore.fumen_hash_others,
@@ -346,6 +364,7 @@ class UserScoreAdmin(ModelView, model=UserScore):
         UserScore.user_id,
         UserScore.client_type,
         UserScore.scorehash,
+        UserScore.fumen_id,
         UserScore.fumen_sha256,
         UserScore.fumen_md5,
         UserScore.fumen_hash_others,
@@ -546,11 +565,10 @@ class UserFumenTagAdmin(ModelView, model=UserFumenTag):
     column_list = [
         UserFumenTag.id,
         UserFumenTag.user_id,
-        UserFumenTag.fumen_sha256,
-        UserFumenTag.fumen_md5,
+        UserFumenTag.fumen_id,
         UserFumenTag.tag,
     ]
-    column_searchable_list = [UserFumenTag.tag, UserFumenTag.fumen_sha256, UserFumenTag.fumen_md5]
+    column_searchable_list = [UserFumenTag.tag]
     column_sortable_list = [UserFumenTag.tag]
 
 

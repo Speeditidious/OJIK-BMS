@@ -65,6 +65,18 @@ class UserScore(Base):
         Index("ix_user_scores_user_id_fumen_sha256", "user_id", "fumen_sha256"),
         Index("ix_user_scores_user_id_fumen_md5", "user_id", "fumen_md5"),
         Index("ix_user_scores_user_id_fumen_hash_others", "user_id", "fumen_hash_others"),
+        Index(
+            "ix_user_scores_user_fumen_id",
+            "user_id",
+            "fumen_id",
+            postgresql_where=text("fumen_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_user_scores_fumen_user_id",
+            "fumen_id",
+            "user_id",
+            postgresql_where=text("fumen_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -82,6 +94,11 @@ class UserScore(Base):
     fumen_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     fumen_md5: Mapped[str | None] = mapped_column(String(32), nullable=True)
     fumen_hash_others: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fumen_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("fumens.fumen_id", ondelete="SET NULL"),
+        nullable=True,
+    )
     clear_type: Mapped[int | None] = mapped_column(Integer, nullable=True)
     exscore: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rate: Mapped[float | None] = mapped_column(Float, nullable=True)

@@ -42,21 +42,20 @@ def test_score_search_conditions_use_display_aggregate_columns() -> None:
 
 
 def test_score_aggregate_is_keyed_by_fumen_identity() -> None:
-    """The aggregate subquery should merge md5-only LR2 rows into each fumen row."""
+    """The aggregate subquery should join scores by normalized fumen_id."""
     sql = _sql(_build_score_agg_subquery(uuid.uuid4()).select())
 
     assert "FROM fumens LEFT OUTER JOIN user_scores" in sql
-    assert "user_scores.fumen_sha256 = fumens.sha256" in sql
-    assert "user_scores.fumen_md5 = fumens.md5" in sql
-    assert "user_scores.fumen_sha256 IS NULL" in sql
-    assert "GROUP BY fumens.sha256, fumens.md5" in sql
+    assert "user_scores.fumen_id = fumens.fumen_id" in sql
+    assert "GROUP BY fumens.fumen_id" in sql
 
 
 def test_level_sort_strips_non_numeric_prefixes_before_cast() -> None:
-    """Level sorting should not fail on labels such as ★1 or sl1."""
+    """Level sorting should use normalized fumen_table_entries."""
     sql = _sql(_build_sort_cols("level", "asc", None)[0])
 
-    assert "substring" in sql
+    assert "fumen_table_entries" in sql
+    assert "fumen_table_entries.fumen_id = fumens.fumen_id" in sql
     assert "NULLS LAST" in sql
 
 

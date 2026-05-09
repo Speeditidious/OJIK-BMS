@@ -14,13 +14,18 @@ interface ClientLatestReleaseResponse {
 
 export async function GET() {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-  const res = await fetch(`${apiUrl}/client/latest-release?target=windows&arch=x86_64`, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": "OJIK-BMS",
-    },
-    next: { revalidate },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${apiUrl}/client/latest-release?target=windows&arch=x86_64`, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "OJIK-BMS",
+      },
+      next: { revalidate },
+    });
+  } catch {
+    return NextResponse.json(null, { status: 200 });
+  }
 
   if (!res.ok) {
     return NextResponse.json(null, { status: 200 });

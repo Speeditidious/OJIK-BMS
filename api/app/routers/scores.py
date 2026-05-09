@@ -39,6 +39,7 @@ def _compute_rate_rank(exscore: int, notes_total: int) -> tuple[float, str]:
 class UserScoreRead(BaseModel):
     id: str
     user_id: str
+    fumen_id: str | None = None
     scorehash: str | None
     fumen_sha256: str | None
     fumen_md5: str | None
@@ -118,6 +119,7 @@ async def get_my_scores(
             id=str(s.id),
             user_id=str(s.user_id),
             scorehash=s.scorehash,
+            fumen_id=str(s.fumen_id) if s.fumen_id else None,
             fumen_sha256=s.fumen_sha256,
             fumen_md5=s.fumen_md5,
             fumen_hash_others=s.fumen_hash_others,
@@ -149,9 +151,23 @@ async def get_scores_for_fumen(
 
     target_user = await _resolve_target_user(user_id, current_user, db)
 
-    if len(hash_value) == 64:
+    fumen_condition = None
+    notes_condition = None
+    try:
+        fumen_uuid = uuid.UUID(hash_value)
+    except ValueError:
+        fumen_uuid = None
+
+    if fumen_uuid is not None:
+        condition = (
+            UserScore.fumen_id == fumen_uuid,
+            UserScore.fumen_hash_others.is_(None),
+        )
+        notes_condition = Fumen.fumen_id == fumen_uuid
+    elif len(hash_value) == 64:
         # sha256 lookup: find fumen's md5 to also fetch md5-only rows (e.g. LR2)
         fumen_condition = Fumen.sha256 == hash_value
+        notes_condition = fumen_condition
         fumen_row = await db.execute(select(Fumen.md5).where(fumen_condition).limit(1))
         paired_md5 = fumen_row.scalar_one_or_none()
         if paired_md5:
@@ -165,6 +181,7 @@ async def get_scores_for_fumen(
     elif len(hash_value) == 32:
         # md5 lookup: include rows regardless of whether sha256 is also set
         fumen_condition = Fumen.md5 == hash_value
+        notes_condition = fumen_condition
         condition = (
             UserScore.fumen_md5 == hash_value,
             UserScore.fumen_hash_others.is_(None),
@@ -191,7 +208,7 @@ async def get_scores_for_fumen(
     # Fetch notes_total for rate/rank computation on rows where they're null (e.g. scorelog.db rows)
     notes_total: int | None = None
     if any(s.rate is None and s.exscore is not None for s in scores):
-        fumen_result = await db.execute(select(Fumen.notes_total).where(fumen_condition).limit(1))
+        fumen_result = await db.execute(select(Fumen.notes_total).where(notes_condition).limit(1))
         notes_total = fumen_result.scalar_one_or_none()
 
     def _get_rate_rank(s: UserScore) -> tuple[float | None, str | None]:
@@ -208,6 +225,7 @@ async def get_scores_for_fumen(
             id=str(s.id),
             user_id=str(s.user_id),
             scorehash=s.scorehash,
+            fumen_id=str(s.fumen_id) if s.fumen_id else None,
             fumen_sha256=s.fumen_sha256,
             fumen_md5=s.fumen_md5,
             fumen_hash_others=s.fumen_hash_others,

@@ -17,6 +17,7 @@ import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
 import { CLEAR_ROW_CLASS, parseArrangement, levelSortIndex, ARRANGEMENT_KANJI, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
 import { formatRatePercent } from "@/lib/rate-format";
 import { displayClearType } from "@/lib/clear-type-display";
+import { songHref } from "@/lib/song-href";
 import { CLEAR_TYPE_LABELS } from "@/components/charts/ClearDistributionChart";
 import type { DifficultyTableDetail, TableFumen } from "@/types";
 import { clearText } from "@/components/dashboard/RecentActivity";
@@ -29,10 +30,6 @@ interface TableDetailProps {
   isLoggedIn: boolean;
   selectedLevel: string | null;
   onLevelChange: (level: string | null) => void;
-}
-
-function songHash(song: TableFumen): string {
-  return song.sha256 || song.md5 || "";
 }
 
 const handleTableCopy = makeTableCopyHandler(1); // col 0=Level, col 1=Title/Artist
@@ -295,7 +292,7 @@ interface SongRowProps {
 
 const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores }: SongRowProps) {
   const s = song.user_score;
-  const hash = songHash(song);
+  const href = songHref(song);
   const levelLabel = `${tableSymbol ?? ""}${song.level.replace(tableSymbol ?? "", "")}`;
   const { total: notesTotal, detail: notesDetail } = formatNotes(
     song.notes_total, song.notes_n, song.notes_ln, song.notes_s, song.notes_ls
@@ -317,13 +314,9 @@ const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores 
       <td className="px-2" data-title={song.title ?? ""} data-artist={song.artist ?? ""}>
         <div className="min-w-0 overflow-hidden">
           <div className="max-w-full truncate">
-            {hash ? (
-              <Link href={`/songs/${hash}`} className="text-label hover:text-primary transition-colors">
-                {song.title || "(제목 없음)"}
-              </Link>
-            ) : (
-              <span className="text-label">{song.title || "(제목 없음)"}</span>
-            )}
+            <Link href={href} className="text-label hover:text-primary transition-colors">
+              {song.title || "(제목 없음)"}
+            </Link>
           </div>
           {song.artist && <div className="text-caption row-muted max-w-full truncate">{song.artist}</div>}
           {song.user_tags.length > 0 && (

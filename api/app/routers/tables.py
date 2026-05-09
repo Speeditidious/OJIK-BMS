@@ -7,8 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_validator
-from sqlalchemy import cast, func, select
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -18,7 +17,7 @@ from app.core.security import (
     get_current_user_optional,
 )
 from app.models.difficulty_table import DifficultyTable, UserFavoriteDifficultyTable
-from app.models.fumen import Fumen
+from app.models.fumen import Fumen, FumenTableEntry
 from app.models.user import User
 from app.schemas import MessageResponse
 from app.services.default_table_order import sort_difficulty_tables
@@ -61,6 +60,7 @@ class DifficultyTableRead(BaseModel):
 
 
 class TableFumen(BaseModel):
+    fumen_id: uuid.UUID
     level: str
     md5: str | None
     sha256: str | None
@@ -122,16 +122,12 @@ async def list_tables(
     tables = list(result.scalars().all())
     tables = sort_difficulty_tables(tables)
 
-    # Get fumen counts per table in one query
-    _elem = cast(func.jsonb_array_elements(Fumen.table_entries), JSONB)
-    _table_id_col = _elem["table_id"].as_string()
     count_result = await db.execute(
-        select(_table_id_col, func.count())
-        .select_from(Fumen)
-        .where(Fumen.table_entries.isnot(None))
-        .group_by(_table_id_col)
+        select(FumenTableEntry.table_id, func.count())
+        .select_from(FumenTableEntry)
+        .group_by(FumenTableEntry.table_id)
     )
-    counts: dict[str, int] = {row[0]: row[1] for row in count_result.all()}
+    counts: dict[str, int] = {str(row[0]): row[1] for row in count_result.all()}
 
     return [DifficultyTableRead.from_orm_with_count(t, counts.get(str(t.id))) for t in tables]
 
@@ -179,8 +175,8 @@ async def get_table(
 
     count_result = await db.execute(
         select(func.count())
-        .select_from(Fumen)
-        .where(Fumen.table_entries.contains([{"table_id": str(table_id)}]))
+        .select_from(FumenTableEntry)
+        .where(FumenTableEntry.table_id == table_id)
     )
     song_count: int | None = count_result.scalar()
 
@@ -200,27 +196,19 @@ async def get_table_songs(
     """
     await _get_table_or_404(table_id, db)
 
-    table_id_str = str(table_id)
-    query = select(Fumen).where(
-        Fumen.table_entries.contains([{"table_id": table_id_str}])
+    query = (
+        select(Fumen, FumenTableEntry.level)
+        .join(FumenTableEntry, FumenTableEntry.fumen_id == Fumen.fumen_id)
+        .where(FumenTableEntry.table_id == table_id)
     )
+    if level is not None:
+        query = query.where(FumenTableEntry.level == level)
     result = await db.execute(query)
-    fumens = result.scalars().all()
+    rows = result.all()
+    filtered_fumens = [row[0] for row in rows]
 
-    # Build level map and apply optional level filter
-    fumen_level_map: dict[tuple[str | None, str | None], str] = {}
-    filtered_fumens: list[Fumen] = []
-    for f in fumens:
-        entries: list[dict] = f.table_entries or []
-        fumen_level: str = ""
-        for entry in entries:
-            if entry.get("table_id") == table_id_str:
-                fumen_level = str(entry.get("level", "")).strip()
-                break
-        if level is not None and fumen_level != level:
-            continue
-        fumen_level_map[(f.sha256, f.md5)] = fumen_level
-        filtered_fumens.append(f)
+    fumen_level_map: dict[uuid.UUID, str] = {row[0].fumen_id: row[1] for row in rows}
+    table_entries_map = await _table_entries_map(db, [f.fumen_id for f in filtered_fumens])
 
     # Fetch per-field best scores and tags for the logged-in user
     score_map: dict[tuple[str | None, str | None], TableFumenScore] = {}
@@ -231,10 +219,10 @@ async def get_table_songs(
 
     results: list[TableFumen] = []
     for f in filtered_fumens:
-        key = (f.sha256, f.md5 if not f.sha256 else None)
         results.append(
             TableFumen(
-                level=fumen_level_map[(f.sha256, f.md5)],
+                fumen_id=f.fumen_id,
+                level=fumen_level_map[f.fumen_id],
                 md5=f.md5,
                 sha256=f.sha256,
                 title=f.title,
@@ -252,9 +240,9 @@ async def get_table_songs(
                 total=f.total,
                 length=f.length,
                 youtube_url=f.youtube_url,
-                table_entries=f.table_entries,
-                user_score=score_map.get(key),
-                user_tags=tag_map.get(key, []),
+                table_entries=table_entries_map.get(f.fumen_id, []),
+                user_score=score_map.get(f.fumen_id),
+                user_tags=tag_map.get(f.fumen_id, []),
             )
         )
 
@@ -469,10 +457,27 @@ async def _count_table_fumens(table_id: uuid.UUID, db: AsyncSession) -> int:
     """Return the number of fumen rows linked to a difficulty table."""
     result = await db.execute(
         select(func.count())
-        .select_from(Fumen)
-        .where(Fumen.table_entries.contains([{"table_id": str(table_id)}]))
+        .select_from(FumenTableEntry)
+        .where(FumenTableEntry.table_id == table_id)
     )
     return int(result.scalar() or 0)
+
+
+async def _table_entries_map(
+    db: AsyncSession,
+    fumen_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, list[dict[str, str]]]:
+    """Return legacy-shaped table_entries lists for API compatibility."""
+    if not fumen_ids:
+        return {}
+    result = await db.execute(
+        select(FumenTableEntry.fumen_id, FumenTableEntry.table_id, FumenTableEntry.level)
+        .where(FumenTableEntry.fumen_id.in_(fumen_ids))
+    )
+    out: dict[uuid.UUID, list[dict[str, str]]] = {fid: [] for fid in fumen_ids}
+    for fumen_id, table_id, entry_level in result.all():
+        out.setdefault(fumen_id, []).append({"table_id": str(table_id), "level": entry_level})
+    return out
 
 
 async def _ensure_favorite(user_id: Any, table_id: uuid.UUID, db: AsyncSession) -> None:

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.models.fumen import Fumen
 from app.models.score import UserPlayerStats, UserScore
 from app.models.user import User
 
@@ -154,6 +155,34 @@ def _scorehash_conflict_index_elements() -> list[Any]:
     ]
 
 
+async def _resolve_fumen_id_map(
+    db: AsyncSession,
+    sha256s: set[str],
+    md5s: set[str],
+) -> dict[tuple[str | None, str | None], Any]:
+    """Resolve incoming fumen hashes to registered fumen_id values in bulk."""
+    conditions = []
+    if sha256s:
+        conditions.append(Fumen.sha256.in_(sha256s))
+    if md5s:
+        conditions.append(Fumen.md5.in_(md5s))
+    if not conditions:
+        return {}
+
+    combined = conditions[0]
+    for condition in conditions[1:]:
+        combined = combined | condition
+
+    result = await db.execute(select(Fumen.fumen_id, Fumen.sha256, Fumen.md5).where(combined))
+    out: dict[tuple[str | None, str | None], Any] = {}
+    for row in result.all():
+        if row.sha256:
+            out[(row.sha256, None)] = row.fumen_id
+        if row.md5:
+            out[(None, row.md5)] = row.fumen_id
+    return out
+
+
 async def _fetch_current_bests(
     user_id: Any,
     sha256s: set[str],
@@ -218,6 +247,7 @@ async def _fetch_current_bests(
                 "_latest_options": None,
                 "_latest_clear_count": None,
                 "_latest_scorehash": None,
+                "_latest_fumen_id": None,
             }
         entry = bests[key]
         if row.clear_type is not None and (entry["clear_type"] is None or row.clear_type > entry["clear_type"]):
@@ -244,6 +274,7 @@ async def _fetch_current_bests(
             entry["_latest_options"] = row.options
             entry["_latest_clear_count"] = row.clear_count
             entry["_latest_scorehash"] = row.scorehash
+            entry["_latest_fumen_id"] = row.fumen_id
 
     return bests
 
@@ -523,14 +554,17 @@ async def sync_data(
     current_bests: dict[tuple, dict[str, Any]] = {}
     same_day_map: dict[tuple, UserScore] = {}
     existing_scorehashes: set[ScorehashIdentityKey] = set()
+    resolved_fumen_ids: dict[tuple[str | None, str | None], Any] = {}
     if syncable_scores:
         sha256s = {item.fumen_sha256 for item in syncable_scores if item.fumen_sha256}
-        md5s = {item.fumen_md5 for item in syncable_scores if item.fumen_md5 and not item.fumen_sha256}
+        md5s = {item.fumen_md5 for item in syncable_scores if item.fumen_md5}
+        md5s_for_best = {item.fumen_md5 for item in syncable_scores if item.fumen_md5 and not item.fumen_sha256}
         hash_others = {item.fumen_hash_others for item in syncable_scores if item.fumen_hash_others}
         client_types = {item.client_type for item in syncable_scores}
         scorehashes = {item.scorehash for item in syncable_scores if item.scorehash}
+        resolved_fumen_ids = await _resolve_fumen_id_map(db, sha256s, md5s)
         current_bests = await _fetch_current_bests(
-            current_user.id, sha256s, md5s, hash_others, client_types, db
+            current_user.id, sha256s, md5s_for_best, hash_others, client_types, db
         )
         existing_scorehashes = await _fetch_existing_scorehashes(
             current_user.id, scorehashes, client_types, db
@@ -543,7 +577,7 @@ async def sync_data(
             if item.recorded_at and not item.fumen_hash_others
         }
         same_day_map = await _fetch_same_day_rows(
-            current_user.id, sha256s, md5s, fumen_dates, db
+            current_user.id, sha256s, md5s_for_best, fumen_dates, db
         )
 
     if syncable_scores:
@@ -574,6 +608,12 @@ async def sync_data(
                     exscore = item.exscore
 
                 is_course = bool(item.fumen_hash_others)
+                resolved_fumen_id = None
+                if not is_course:
+                    if item.fumen_sha256:
+                        resolved_fumen_id = resolved_fumen_ids.get((item.fumen_sha256, None))
+                    if resolved_fumen_id is None and item.fumen_md5:
+                        resolved_fumen_id = resolved_fumen_ids.get((None, item.fumen_md5))
 
                 # ── Best key for lookup ─────────────────────────────────────
                 # sha256 takes priority; md5-only if sha256 absent; hash_others for courses
@@ -619,6 +659,8 @@ async def sync_data(
                                 and _scorehash_identity_key(item) not in existing_scorehashes
                             ):
                                 update_vals["scorehash"] = item.scorehash
+                            if resolved_fumen_id is not None and best.get("_latest_fumen_id") is None:
+                                update_vals["fumen_id"] = resolved_fumen_id
                             if update_vals:
                                 if debug:
                                     identifier = item.fumen_sha256 or item.fumen_md5 or item.fumen_hash_others or "?"
@@ -692,7 +734,11 @@ async def sync_data(
                         await db.execute(
                             update(UserScore)
                             .where(UserScore.id == existing_same_day.id)
-                            .values(**merged, synced_at=now)
+                            .values(
+                                **merged,
+                                synced_at=now,
+                                fumen_id=resolved_fumen_id or existing_same_day.fumen_id,
+                            )
                         )
                         metadata_updated += 1
                         new_id = existing_same_day.id
@@ -720,6 +766,7 @@ async def sync_data(
                             fumen_sha256=item.fumen_sha256,
                             fumen_md5=item.fumen_md5,
                             fumen_hash_others=item.fumen_hash_others,
+                            fumen_id=resolved_fumen_id,
                             clear_type=item.clear_type,
                             exscore=exscore,
                             rate=rate,
@@ -758,6 +805,7 @@ async def sync_data(
                                     "fumen_hash_others": func.coalesce(
                                         _ins.excluded.fumen_hash_others, UserScore.fumen_hash_others
                                     ),
+                                    "fumen_id": func.coalesce(_ins.excluded.fumen_id, UserScore.fumen_id),
                                 },
                             )
                             .returning(UserScore.id)
@@ -782,6 +830,7 @@ async def sync_data(
                                 client_type=item.client_type,
                                 fumen_sha256=item.fumen_sha256,
                                 fumen_md5=item.fumen_md5,
+                                fumen_id=resolved_fumen_id,
                                 clear_type=item.clear_type,
                                 exscore=exscore,
                                 rate=rate,
@@ -809,6 +858,7 @@ async def sync_data(
                     "_latest_options": None,
                     "_latest_clear_count": None,
                     "_latest_scorehash": None,
+                    "_latest_fumen_id": None,
                 }
                 if best_key not in current_bests:
                     current_bests[best_key] = effective_best.copy()

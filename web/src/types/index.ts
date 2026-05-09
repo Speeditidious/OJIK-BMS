@@ -28,6 +28,7 @@ export type ClientType = "lr2" | "beatoraja" | "qwilight";
 export interface UserScore {
   id: string;
   user_id: string;
+  fumen_id: string | null;
   scorehash: string | null;
   fumen_sha256: string | null;
   fumen_md5: string | null;
@@ -103,6 +104,7 @@ export interface UserTag {
 }
 
 export interface TableFumen {
+  fumen_id: string;
   level: string;
   md5: string | null;
   sha256: string | null;
@@ -127,6 +129,7 @@ export interface TableFumen {
 }
 
 export interface FumenDetail {
+  fumen_id: string;
   md5: string | null;
   sha256: string | null;
   title: string | null;
@@ -183,6 +186,7 @@ export type FumenSearchField =
   | "clear" | "bp" | "rate" | "rank" | "score" | "plays" | "option" | "env";
 
 export interface FumenListItem {
+  fumen_id: string;
   md5: string | null;
   sha256: string | null;
   title: string | null;

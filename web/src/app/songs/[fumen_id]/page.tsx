@@ -22,7 +22,7 @@ import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement } from "@/lib/fume
 import type { DifficultyTable, FumenDetail, UserScore } from "@/types";
 
 interface SongDetailPageProps {
-  params: Promise<{ hash: string }>;
+  params: Promise<{ fumen_id: string }>;
 }
 
 type SortKey = "clear_type" | "exscore" | "rate" | "rank" | "min_bp" | "play_count" | "option" | "client_type" | "recorded_at";
@@ -227,7 +227,7 @@ function ScoreHistorySection({
 }
 
 export default function SongDetailPage({ params }: SongDetailPageProps) {
-  const { hash } = use(params);
+  const { fumen_id: routeFumenId } = use(params);
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
@@ -239,22 +239,21 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const { data: fumen, isLoading } = useQuery<FumenDetail>({
-    queryKey: ["fumen", hash],
-    queryFn: () => api.get(`/fumens/${hash}`),
+    queryKey: ["fumen", routeFumenId],
+    queryFn: () => api.get(`/fumens/${routeFumenId}`),
     staleTime: 10 * 60 * 1000,
   });
 
-  // Canonical hash: prefer sha256 to ensure LR2+Beatoraja records are both returned by backend
-  const effectiveHash = fumen?.sha256 ?? fumen?.md5 ?? hash;
+  const effectiveFumenId = fumen?.fumen_id ?? routeFumenId;
 
-  // Canonical URL redirect: if we entered via md5 but fumen has sha256, replace URL once
+  // Canonical URL redirect: preserve legacy hash links but settle on fumen_id.
   useEffect(() => {
-    if (fumen?.sha256 && fumen.sha256 !== hash) {
+    if (fumen?.fumen_id && fumen.fumen_id !== routeFumenId) {
       const params = searchParams.toString();
       const suffix = params ? `?${params}` : "";
-      router.replace(`/songs/${fumen.sha256}${suffix}`);
+      router.replace(`/songs/${fumen.fumen_id}${suffix}`);
     }
-  }, [fumen?.sha256, hash, router, searchParams]);
+  }, [fumen?.fumen_id, routeFumenId, router, searchParams]);
 
   const { data: allTables = [] } = useQuery<DifficultyTable[]>({
     queryKey: ["tables"],
@@ -267,23 +266,23 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
   const { data: targetProfile } = useUserProfile(targetUserId ?? "");
 
   const { data: primaryScores = [], isLoading: primaryScoresLoading } = useQuery<UserScore[]>({
-    queryKey: ["fumen-scores", effectiveHash, targetUserId ?? user?.id ?? null],
+    queryKey: ["fumen-scores", effectiveFumenId, targetUserId ?? user?.id ?? null],
     queryFn: () => {
       const params = new URLSearchParams();
       if (targetUserId) {
         params.set("user_id", targetUserId);
       }
       const suffix = params.size > 0 ? `?${params.toString()}` : "";
-      return api.get(`/scores/me/fumen/${effectiveHash}${suffix}`);
+      return api.get(`/scores/me/fumen/${effectiveFumenId}${suffix}`);
     },
-    enabled: !!effectiveHash && (!!targetUserId || isLoggedIn),
+    enabled: !!effectiveFumenId && (!!targetUserId || isLoggedIn),
     staleTime: 2 * 60 * 1000,
   });
 
   const { data: myScores = [], isLoading: myScoresLoading } = useQuery<UserScore[]>({
-    queryKey: ["fumen-scores", effectiveHash, user?.id ?? null, "me"],
-    queryFn: () => api.get(`/scores/me/fumen/${effectiveHash}`),
-    enabled: isLoggedIn && !!effectiveHash && viewingOtherUser,
+    queryKey: ["fumen-scores", effectiveFumenId, user?.id ?? null, "me"],
+    queryFn: () => api.get(`/scores/me/fumen/${effectiveFumenId}`),
+    enabled: isLoggedIn && !!effectiveFumenId && viewingOtherUser,
     staleTime: 2 * 60 * 1000,
   });
 
@@ -428,7 +427,7 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
             {isLoggedIn && (
               <div>
                 <h2 className="text-body font-semibold mb-2 text-muted-foreground uppercase tracking-wide">내 태그</h2>
-                <FumenTags hash={effectiveHash} />
+                <FumenTags hash={effectiveFumenId} />
               </div>
             )}
 

@@ -356,11 +356,11 @@ async def compute_ranking_history_for_user(
     # 1. Load all target fumen hashes for this table
     fumen_result = await db.execute(
         text("""
-            SELECT f.sha256, f.md5,
-                   entry->>'level' AS level
-            FROM fumens f,
-                 jsonb_array_elements(f.table_entries) AS entry
-            WHERE (entry->>'table_id')::uuid = :table_id
+            SELECT f.fumen_id, f.sha256, f.md5,
+                   fte.level AS level
+            FROM fumen_table_entries fte
+            JOIN fumens f ON f.fumen_id = fte.fumen_id
+            WHERE fte.table_id = :table_id
         """),
         {"table_id": str(table_cfg.table_id)},
     )
@@ -390,22 +390,10 @@ async def compute_ranking_history_for_user(
             FROM user_scores us
             WHERE us.user_id = :user_id
               AND us.fumen_hash_others IS NULL
-              AND (
-                  us.fumen_sha256 IN (
-                      SELECT sha256 FROM fumens f2,
-                          jsonb_array_elements(f2.table_entries) AS e2
-                      WHERE (e2->>'table_id')::uuid = :table_id
-                        AND f2.sha256 IS NOT NULL
-                  )
-                  OR (
-                      us.fumen_sha256 IS NULL
-                      AND us.fumen_md5 IN (
-                          SELECT md5 FROM fumens f3,
-                              jsonb_array_elements(f3.table_entries) AS e3
-                          WHERE (e3->>'table_id')::uuid = :table_id
-                            AND f3.md5 IS NOT NULL
-                      )
-                  )
+              AND us.fumen_id IN (
+                  SELECT fte.fumen_id
+                  FROM fumen_table_entries fte
+                  WHERE fte.table_id = :table_id
               )
             ORDER BY effective_date ASC NULLS LAST
         """),
@@ -500,10 +488,10 @@ async def query_target_fumens(
     result = await db.execute(
         text("""
             SELECT f.sha256, f.md5,
-                   entry->>'level' AS level
-            FROM fumens f,
-                 jsonb_array_elements(f.table_entries) AS entry
-            WHERE (entry->>'table_id')::uuid = :table_id
+                   fte.level AS level
+            FROM fumen_table_entries fte
+            JOIN fumens f ON f.fumen_id = fte.fumen_id
+            WHERE fte.table_id = :table_id
         """),
         {"table_id": str(table_id)},
     )
@@ -529,15 +517,16 @@ async def bulk_query_best_scores(
     result = await db.execute(
         text(f"""
             WITH target_fumens AS (
-                SELECT f.sha256, f.md5,
-                       entry->>'level' AS level
-                FROM fumens f,
-                     jsonb_array_elements(f.table_entries) AS entry
-                WHERE (entry->>'table_id')::uuid = :table_id
+                SELECT f.fumen_id, f.sha256, f.md5,
+                       fte.level AS level
+                FROM fumen_table_entries fte
+                JOIN fumens f ON f.fumen_id = fte.fumen_id
+                WHERE fte.table_id = :table_id
             ),
             latest_per_client AS (
                 SELECT
                     us.user_id,
+                    us.fumen_id,
                     us.fumen_sha256,
                     us.fumen_md5,
                     us.client_type,
@@ -552,38 +541,22 @@ async def bulk_query_best_scores(
                     END AS display_recorded_at,
                     COALESCE(us.recorded_at, us.synced_at) AS latest_ts,
                     ROW_NUMBER() OVER (
-                        PARTITION BY us.user_id,
-                                     COALESCE(us.fumen_sha256, us.fumen_md5),
-                                     us.client_type
+                        PARTITION BY us.user_id, us.fumen_id, us.client_type
                         ORDER BY COALESCE(us.recorded_at, us.synced_at) DESC
                     ) AS rn
                 FROM user_scores us
                 JOIN users u ON u.id = us.user_id
                 WHERE us.fumen_hash_others IS NULL
                   {user_filter}
-                  AND (
-                      (us.fumen_sha256 IS NOT NULL
-                        AND us.fumen_sha256 IN (SELECT sha256 FROM target_fumens WHERE sha256 IS NOT NULL))
-                      OR (us.fumen_md5 IS NOT NULL
-                        AND us.fumen_md5 IN (SELECT md5 FROM target_fumens WHERE md5 IS NOT NULL))
-                  )
+                  AND us.fumen_id IN (SELECT fumen_id FROM target_fumens)
             ),
             joined AS (
-                -- sha256 경로: sha256 이 기록된 행과 tf.sha256 매칭
                 SELECT lpc.user_id, tf.sha256 AS tf_sha256, tf.md5 AS tf_md5, tf.level,
                        lpc.client_type, lpc.clear_type, lpc.exscore, lpc.rate, lpc.rank, lpc.min_bp,
                        lpc.display_recorded_at, lpc.latest_ts
                 FROM latest_per_client lpc
-                JOIN target_fumens tf ON lpc.fumen_sha256 = tf.sha256
-                WHERE lpc.rn = 1 AND lpc.fumen_sha256 IS NOT NULL
-                UNION ALL
-                -- md5 경로: LR2 또는 tf.sha256=null 인 fumen 에 대한 Beatoraja 기록
-                SELECT lpc.user_id, tf.sha256 AS tf_sha256, tf.md5 AS tf_md5, tf.level,
-                       lpc.client_type, lpc.clear_type, lpc.exscore, lpc.rate, lpc.rank, lpc.min_bp,
-                       lpc.display_recorded_at, lpc.latest_ts
-                FROM latest_per_client lpc
-                JOIN target_fumens tf ON lpc.fumen_md5 = tf.md5
-                WHERE lpc.rn = 1 AND lpc.fumen_md5 IS NOT NULL
+                JOIN target_fumens tf ON lpc.fumen_id = tf.fumen_id
+                WHERE lpc.rn = 1
             ),
             best_scores AS (
                 SELECT

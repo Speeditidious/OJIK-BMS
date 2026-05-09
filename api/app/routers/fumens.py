@@ -19,7 +19,7 @@ from app.core.security import (
     get_current_user,
     get_current_user_optional,
 )
-from app.models.fumen import Fumen, UserFumenTag
+from app.models.fumen import Fumen, FumenTableEntry, UserFumenTag
 from app.models.score import UserScore
 from app.models.user import User
 from app.services.fumen_user_scores import (
@@ -43,6 +43,7 @@ router = APIRouter(prefix="/fumens", tags=["fumens"])
 
 
 class FumenRead(BaseModel):
+    fumen_id: _uuid.UUID
     md5: str | None
     sha256: str | None
     title: str | None
@@ -88,6 +89,48 @@ class FumenListResponse(BaseModel):
     limit: int
 
 
+async def _table_entries_map(
+    db: AsyncSession,
+    fumen_ids: list[_uuid.UUID],
+) -> dict[_uuid.UUID, list[dict[str, str]]]:
+    """Return legacy-shaped table_entries arrays for API compatibility."""
+    if not fumen_ids:
+        return {}
+    result = await db.execute(
+        select(FumenTableEntry.fumen_id, FumenTableEntry.table_id, FumenTableEntry.level)
+        .where(FumenTableEntry.fumen_id.in_(fumen_ids))
+    )
+    out: dict[_uuid.UUID, list[dict[str, str]]] = {fid: [] for fid in fumen_ids}
+    for fumen_id, table_id, level in result.all():
+        out.setdefault(fumen_id, []).append({"table_id": str(table_id), "level": level})
+    return out
+
+
+async def _fumen_read(db: AsyncSession, fumen: Fumen) -> FumenRead:
+    entries = await _table_entries_map(db, [fumen.fumen_id])
+    return FumenRead(
+        fumen_id=fumen.fumen_id,
+        md5=fumen.md5,
+        sha256=fumen.sha256,
+        title=fumen.title,
+        artist=fumen.artist,
+        bpm_min=fumen.bpm_min,
+        bpm_max=fumen.bpm_max,
+        bpm_main=fumen.bpm_main,
+        notes_total=fumen.notes_total,
+        total=fumen.total,
+        notes_n=fumen.notes_n,
+        notes_ln=fumen.notes_ln,
+        notes_s=fumen.notes_s,
+        notes_ls=fumen.notes_ls,
+        length=fumen.length,
+        youtube_url=fumen.youtube_url,
+        file_url=fumen.file_url,
+        file_url_diff=fumen.file_url_diff,
+        table_entries=entries.get(fumen.fumen_id, []),
+    )
+
+
 def _build_score_agg_subquery(user_id: _uuid.UUID) -> Any:
     display_clear = case(
         (
@@ -114,19 +157,11 @@ def _build_score_agg_subquery(user_id: _uuid.UUID) -> Any:
     )
     score_join_cond = and_(
         UserScore.user_id == user_id,
-        UserScore.fumen_hash_others.is_(None),
-        or_(
-            UserScore.fumen_sha256 == Fumen.sha256,
-            and_(
-                UserScore.fumen_md5 == Fumen.md5,
-                UserScore.fumen_sha256.is_(None),
-            ),
-        ),
+        UserScore.fumen_id == Fumen.fumen_id,
     )
     return (
         select(
-            Fumen.sha256.label("fumen_sha256"),
-            Fumen.md5.label("fumen_md5"),
+            Fumen.fumen_id.label("fumen_id"),
             func.max(display_clear).label("best_clear_type"),
             func.max(UserScore.exscore).label("best_exscore"),
             func.min(UserScore.min_bp).label("best_min_bp"),
@@ -136,20 +171,13 @@ def _build_score_agg_subquery(user_id: _uuid.UUID) -> Any:
         )
         .select_from(Fumen)
         .outerjoin(UserScore, score_join_cond)
-        .group_by(Fumen.sha256, Fumen.md5)
+        .group_by(Fumen.fumen_id)
         .subquery("score_agg")
     )
 
 
 def _score_agg_join_cond(score_agg: Any) -> Any:
-    return or_(
-        Fumen.sha256 == score_agg.c.fumen_sha256,
-        and_(
-            Fumen.sha256.is_(None),
-            score_agg.c.fumen_sha256.is_(None),
-            Fumen.md5 == score_agg.c.fumen_md5,
-        ),
-    )
+    return Fumen.fumen_id == score_agg.c.fumen_id
 
 
 def _score_exists_cond(user_id: _uuid.UUID, cond: Any) -> Any:
@@ -157,14 +185,7 @@ def _score_exists_cond(user_id: _uuid.UUID, cond: Any) -> Any:
     return exists(
         select(literal(1)).select_from(UserScore).where(
             UserScore.user_id == user_id,
-            UserScore.fumen_hash_others.is_(None),
-            or_(
-                UserScore.fumen_sha256 == Fumen.sha256,
-                and_(
-                    UserScore.fumen_md5 == Fumen.md5,
-                    UserScore.fumen_sha256.is_(None),
-                ),
-            ),
+            UserScore.fumen_id == Fumen.fumen_id,
             cond,
         )
     )
@@ -186,7 +207,12 @@ def _build_field_condition(
         return Fumen.artist.ilike(f"%{q}%")
     if field == "level":
         level_q = re.sub(r"^[^\w\d.]+", "", q)
-        return Fumen.table_entries.contains([{"level": level_q}])
+        return exists(
+            select(literal(1)).select_from(FumenTableEntry).where(
+                FumenTableEntry.fumen_id == Fumen.fumen_id,
+                FumenTableEntry.level == level_q,
+            )
+        )
     if field == "bpm":
         return numeric_clause(Fumen.bpm_main, q)
     if field == "notes":
@@ -297,8 +323,12 @@ def _build_sort_cols(sort_by: str, sort_dir: str, score_agg: Any) -> list[Any]:
         return [sort_col]
 
     if sort_by == "level":
-        level_expr = sa.text("CAST(substring(table_entries->0->>'level' from '[0-9]+(?:\\.[0-9]+)?') AS NUMERIC)")
-        return [sa.asc(level_expr).nullslast() if asc_dir else sa.desc(level_expr).nullslast()]
+        level_expr = (
+            select(func.min(FumenTableEntry.level))
+            .where(FumenTableEntry.fumen_id == Fumen.fumen_id)
+            .scalar_subquery()
+        )
+        return [level_expr.asc().nullslast() if asc_dir else level_expr.desc().nullslast()]
 
     if score_agg is not None:
         score_col_map: dict[str, Any] = {
@@ -383,14 +413,33 @@ async def list_fumens(
         score_map = await fetch_user_score_map(db, current_user.id, fumens)
         tag_map = await fetch_user_tag_map(db, current_user.id, fumens)
 
-    items = [
-        FumenListItem(
-            **FumenRead.model_validate(f).model_dump(),
-            user_score=score_map.get((f.sha256, f.md5 if not f.sha256 else None)),
-            user_tags=tag_map.get((f.sha256, f.md5 if not f.sha256 else None), []),
+    entries_map = await _table_entries_map(db, [f.fumen_id for f in fumens])
+    items = []
+    for f in fumens:
+        item = FumenListItem(
+            fumen_id=f.fumen_id,
+            md5=f.md5,
+            sha256=f.sha256,
+            title=f.title,
+            artist=f.artist,
+            bpm_min=f.bpm_min,
+            bpm_max=f.bpm_max,
+            bpm_main=f.bpm_main,
+            notes_total=f.notes_total,
+            total=f.total,
+            notes_n=f.notes_n,
+            notes_ln=f.notes_ln,
+            notes_s=f.notes_s,
+            notes_ls=f.notes_ls,
+            length=f.length,
+            youtube_url=f.youtube_url,
+            file_url=f.file_url,
+            file_url_diff=f.file_url_diff,
+            table_entries=entries_map.get(f.fumen_id, []),
+            user_score=score_map.get(f.fumen_id),
+            user_tags=tag_map.get(f.fumen_id, []),
         )
-        for f in fumens
-    ]
+        items.append(item)
 
     return FumenListResponse(items=items, total=total, page=page, limit=limit)
 
@@ -422,24 +471,26 @@ async def get_my_tags(
     return [row[0] for row in result.all()]
 
 
+@router.get("/by-hash/{hash_value}", response_model=FumenRead)
+async def get_fumen_by_legacy_hash(
+    hash_value: str,
+    db: AsyncSession = Depends(get_db),
+) -> FumenRead:
+    """Resolve a legacy SHA256/MD5 hash URL to the registered fumen."""
+    if len(hash_value) not in {32, 64}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid hash length")
+    fumen = await _get_fumen_by_hash(hash_value, db)
+    return await _fumen_read(db, fumen)
+
+
 @router.get("/{hash_value}", response_model=FumenRead)
 async def get_fumen_by_hash(
     hash_value: str,
     db: AsyncSession = Depends(get_db),
 ) -> FumenRead:
-    """Get a fumen by SHA256 (64 chars) or MD5 (32 chars) hash."""
-    if len(hash_value) == 64:
-        result = await db.execute(select(Fumen).where(Fumen.sha256 == hash_value))
-    elif len(hash_value) == 32:
-        result = await db.execute(select(Fumen).where(Fumen.md5 == hash_value))
-    else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid hash length")
-
-    fumen = result.scalar_one_or_none()
-    if fumen is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fumen not found")
-
-    return FumenRead.model_validate(fumen)
+    """Get a fumen by fumen_id UUID, SHA256, or MD5."""
+    fumen = await _get_fumen_by_hash(hash_value, db)
+    return await _fumen_read(db, fumen)
 
 
 class SupplementItem(BaseModel):
@@ -507,63 +558,72 @@ async def supplement_fumen_hashes(
     newly_supplemented_md5s: set[str] = set()
     newly_supplemented_sha256s: set[str] = set()
 
-    def _merge_entries(a: list | None, b: list | None) -> list:
-        """Merge two table_entries lists, keeping one entry per table_id."""
-        seen: dict = {}
-        for e in (a or []):
-            seen[e.get("table_id")] = e
-        for e in (b or []):
-            tid = e.get("table_id")
-            if tid not in seen:
-                seen[tid] = e
-        return list(seen.values())
-
     # ── Fetch md5-only rows that need a sha256 ──
     # Match rows where sha256 is absent: NULL or empty string (legacy data may store '').
     result = await db.execute(
-        select(Fumen.md5, Fumen.table_entries).where(
+        select(Fumen).where(
             Fumen.md5 == sa.func.any(sa.cast(sa.literal(all_md5s, sa.ARRAY(sa.String)), sa.ARRAY(sa.String))),
             sa.or_(Fumen.sha256.is_(None), Fumen.sha256 == ""),
         )
     )
-    md5_only_rows: dict[str, list | None] = {row.md5: row.table_entries for row in result.all()}
+    md5_only_rows: dict[str, Fumen] = {row.md5: row for row in result.scalars().all() if row.md5}
 
     if md5_only_rows:
         # Check which target sha256s already exist in another row (conflict = duplicate)
         target_sha256s = [md5_to_sha256[md5] for md5 in md5_only_rows if md5 in md5_to_sha256]
-        existing_sha256_rows: dict[str, Any] = {}
+        existing_sha256_rows: dict[str, Fumen] = {}
         if target_sha256s:
             r2 = await db.execute(
-                select(Fumen.sha256, Fumen.md5, Fumen.table_entries).where(
+                select(Fumen).where(
                     Fumen.sha256 == sa.func.any(
                         sa.cast(sa.literal(target_sha256s, sa.ARRAY(sa.String)), sa.ARRAY(sa.String))
                     )
                 )
             )
-            for row in r2.all():
+            for row in r2.scalars().all():
                 existing_sha256_rows[row.sha256] = row
 
         md5s_to_update: list[str] = []
-        for md5 in md5_only_rows:
+        for md5, md5_only_row in md5_only_rows.items():
             sha256 = md5_to_sha256.get(md5)
             if not sha256:
                 continue
             if sha256 in existing_sha256_rows:
-                # Conflict: sha256 row exists separately — merge the two rows.
-                # Canonical row = sha256 row (preferred identity). Set md5 there
-                # and merge table_entries, then delete the md5-only duplicate.
                 sha256_row = existing_sha256_rows[sha256]
                 if sha256_row.md5 is None:
-                    merged_entries = _merge_entries(sha256_row.table_entries, md5_only_rows[md5])
                     await db.execute(
                         update(Fumen)
-                        .where(Fumen.sha256 == sha256, Fumen.md5.is_(None))
-                        .values(md5=md5, table_entries=merged_entries)
+                        .where(Fumen.fumen_id == sha256_row.fumen_id)
+                        .values(md5=md5)
                         .execution_options(synchronize_session=False)
                     )
-                from sqlalchemy import delete as sa_delete
                 await db.execute(
-                    sa_delete(Fumen).where(Fumen.md5 == md5, sa.or_(Fumen.sha256.is_(None), Fumen.sha256 == ""))
+                    sa.text("""
+                        INSERT INTO fumen_table_entries (fumen_id, table_id, level, created_at, updated_at)
+                        SELECT :canonical_id, table_id, level, created_at, now()
+                        FROM fumen_table_entries
+                        WHERE fumen_id = :duplicate_id
+                        ON CONFLICT (fumen_id, table_id) DO NOTHING
+                    """),
+                    {"canonical_id": sha256_row.fumen_id, "duplicate_id": md5_only_row.fumen_id},
+                )
+                await db.execute(
+                    sa.text("""
+                        INSERT INTO user_fumen_tags (id, user_id, fumen_id, tag, display_order)
+                        SELECT gen_random_uuid(), user_id, :canonical_id, tag, display_order
+                        FROM user_fumen_tags
+                        WHERE fumen_id = :duplicate_id
+                        ON CONFLICT (user_id, fumen_id, tag) DO UPDATE
+                        SET display_order = LEAST(user_fumen_tags.display_order, EXCLUDED.display_order)
+                    """),
+                    {"canonical_id": sha256_row.fumen_id, "duplicate_id": md5_only_row.fumen_id},
+                )
+                await db.execute(
+                    sa.text("UPDATE user_scores SET fumen_id = :canonical_id WHERE fumen_id = :duplicate_id"),
+                    {"canonical_id": sha256_row.fumen_id, "duplicate_id": md5_only_row.fumen_id},
+                )
+                await db.execute(
+                    sa.delete(Fumen).where(Fumen.fumen_id == md5_only_row.fumen_id)
                 )
                 supplemented += 1
                 newly_supplemented_md5s.add(md5)
@@ -618,6 +678,15 @@ async def supplement_fumen_hashes(
         newly_supplemented_sha256s.update(sha256s_needing_md5)
 
     await db.flush()
+
+    if newly_supplemented_md5s or newly_supplemented_sha256s:
+        from app.services.table_import import _backfill_user_scores_for_hashes
+
+        await _backfill_user_scores_for_hashes(
+            db,
+            sha256s=newly_supplemented_sha256s,
+            md5s=newly_supplemented_md5s,
+        )
 
     # Recalculate sha256_list for courses affected by newly supplemented md5s
     courses_updated = 0
@@ -1001,7 +1070,14 @@ class YoutubeUrlRequest(BaseModel):
 
 
 async def _get_fumen_by_hash(hash_value: str, db: AsyncSession) -> Fumen:
-    if len(hash_value) == 64:
+    try:
+        fumen_uuid = _uuid.UUID(hash_value)
+    except ValueError:
+        fumen_uuid = None
+
+    if fumen_uuid is not None:
+        result = await db.execute(select(Fumen).where(Fumen.fumen_id == fumen_uuid))
+    elif len(hash_value) == 64:
         result = await db.execute(select(Fumen).where(Fumen.sha256 == hash_value))
     elif len(hash_value) == 32:
         result = await db.execute(select(Fumen).where(Fumen.md5 == hash_value))
@@ -1030,7 +1106,7 @@ async def update_youtube_url(
     fumen.youtube_url = body.youtube_url
     await db.commit()
     await db.refresh(fumen)
-    return FumenRead.model_validate(fumen)
+    return await _fumen_read(db, fumen)
 
 
 # ---------------------------------------------------------------------------
@@ -1044,17 +1120,12 @@ async def get_fumen_tags(
     db: AsyncSession = Depends(get_db),
 ) -> list[TagRead]:
     """Get current user's tags for a fumen."""
-    if len(hash_value) == 64:
-        condition = UserFumenTag.fumen_sha256 == hash_value
-    elif len(hash_value) == 32:
-        condition = (UserFumenTag.fumen_md5 == hash_value) & UserFumenTag.fumen_sha256.is_(None)
-    else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid hash length")
+    fumen = await _get_fumen_by_hash(hash_value, db)
 
     result = await db.execute(
         select(UserFumenTag).where(
             UserFumenTag.user_id == current_user.id,
-            condition,
+            UserFumenTag.fumen_id == fumen.fumen_id,
         ).order_by(UserFumenTag.display_order, UserFumenTag.tag)
     )
     tags = result.scalars().all()
@@ -1073,29 +1144,20 @@ async def add_fumen_tag(
     if not tag_text:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Tag cannot be empty")
 
-    sha256: str | None = None
-    md5: str | None = None
-    if len(hash_value) == 64:
-        sha256 = hash_value
-    elif len(hash_value) == 32:
-        md5 = hash_value
-    else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid hash length")
+    fumen = await _get_fumen_by_hash(hash_value, db)
 
     # display_order = 현재 태그 수 (마지막에 추가)
     count_result = await db.execute(
         select(sa.func.count()).select_from(UserFumenTag).where(
             UserFumenTag.user_id == current_user.id,
-            UserFumenTag.fumen_sha256 == sha256 if sha256 else
-            (UserFumenTag.fumen_md5 == md5) & UserFumenTag.fumen_sha256.is_(None),
+            UserFumenTag.fumen_id == fumen.fumen_id,
         )
     )
     next_order = count_result.scalar() or 0
 
     tag = UserFumenTag(
         user_id=current_user.id,
-        fumen_sha256=sha256,
-        fumen_md5=md5,
+        fumen_id=fumen.fumen_id,
         tag=tag_text,
         display_order=next_order,
     )

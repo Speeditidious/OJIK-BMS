@@ -13,7 +13,7 @@ from app.core.database import get_db
 from app.core.security import get_current_user, get_current_user_optional
 from app.models.course import Course
 from app.models.difficulty_table import DifficultyTable, UserFavoriteDifficultyTable
-from app.models.fumen import Fumen
+from app.models.fumen import Fumen, FumenTableEntry
 from app.models.score import UserPlayerStats, UserScore
 from app.models.user import User
 from app.services.clear_type_display import display_clear_type
@@ -1150,7 +1150,7 @@ async def get_recent_updates(
                 "artist": row.artist,
             }
 
-    # Build sha256 → [{symbol, level}] map from user's favorite tables via fumens.table_entries
+    # Build sha256 → [{symbol, level}] map from user's favorite tables.
     sha256_to_levels: dict[str, list[dict[str, str]]] = {}
     sha256_to_levels_seen: dict[str, set] = {}
     if sha256s:
@@ -1167,28 +1167,24 @@ async def get_recent_updates(
                 )
             )
             table_symbols: dict[str, str] = {str(row.id): row.symbol or "" for row in tables_result.all()}
-            fav_table_ids_str = set(table_symbols.keys())
 
             fumens_result = await db.execute(
-                select(Fumen.sha256, Fumen.table_entries).where(
+                select(Fumen.sha256, FumenTableEntry.table_id, FumenTableEntry.level)
+                .join(FumenTableEntry, FumenTableEntry.fumen_id == Fumen.fumen_id)
+                .where(
                     Fumen.sha256.in_(sha256s),
-                    Fumen.table_entries.isnot(None),
+                    FumenTableEntry.table_id.in_(fav_table_ids),
                 )
             )
             for fumen_row in fumens_result.all():
                 s256 = fumen_row.sha256
-                if not s256:
-                    continue
-                for entry in (fumen_row.table_entries or []):
-                    tid_str = str(entry.get("table_id", ""))
-                    if tid_str not in fav_table_ids_str:
-                        continue
-                    symbol = table_symbols.get(tid_str, "")
-                    level = str(entry.get("level", ""))
-                    key = (symbol, level)
-                    if key not in sha256_to_levels_seen.setdefault(s256, set()):
-                        sha256_to_levels_seen[s256].add(key)
-                        sha256_to_levels.setdefault(s256, []).append({"symbol": symbol, "level": level})
+                tid_str = str(fumen_row.table_id)
+                symbol = table_symbols.get(tid_str, "")
+                level = str(fumen_row.level)
+                key = (symbol, level)
+                if key not in sha256_to_levels_seen.setdefault(s256, set()):
+                    sha256_to_levels_seen[s256].add(key)
+                    sha256_to_levels.setdefault(s256, []).append({"symbol": symbol, "level": level})
 
     # ── Day-specific summary (only when date filter is active) ───────────────
     stat_only_ids: set[str] = set()
@@ -1669,13 +1665,14 @@ async def get_table_clear_distribution(
     level_order: list[str] = table.level_order or []
     table_id_str = str(table_id)
 
-    # Get fumens for this table via table_entries JSONB
+    # Get fumens for this table via normalized table entries.
     fumen_result = await db.execute(
-        select(Fumen).where(
-            Fumen.table_entries.contains([{"table_id": table_id_str}])
-        )
+        select(Fumen, FumenTableEntry.level)
+        .join(FumenTableEntry, FumenTableEntry.fumen_id == Fumen.fumen_id)
+        .where(FumenTableEntry.table_id == table_id)
     )
-    fumens = fumen_result.scalars().all()
+    fumen_rows = fumen_result.all()
+    fumens = [row[0] for row in fumen_rows]
 
     if not fumens:
         return {
@@ -1691,12 +1688,8 @@ async def get_table_clear_distribution(
     # Build song list from fumens with their levels
     sha256_list, md5_list = [], []
     songs_data: list[dict[str, Any]] = []
-    for f in fumens:
-        level = ""
-        for entry in (f.table_entries or []):
-            if str(entry.get("table_id")) == table_id_str:
-                level = str(entry.get("level", "")).strip()
-                break
+    for f, fumen_level in fumen_rows:
+        level = str(fumen_level or "").strip()
         songs_data.append({
             "sha256": f.sha256 or "",
             "md5": f.md5 or "",
@@ -1938,26 +1931,38 @@ async def get_score_updates(
     md5s = [r.fumen_md5 for r in fumen_best if r.fumen_md5 and not r.fumen_sha256]
 
     # ── 4. Fumen metadata lookup ──────────────────────────────────────────────
-    fumen_meta: dict[str, dict] = {}  # sha256 or md5 → {title, artist}
+    fumen_meta: dict[str, dict] = {}  # sha256 or md5 → {title, artist, table_entries}
+    fumen_id_to_keys: dict[uuid.UUID, list[str]] = {}
     md5_to_sha256: dict[str, str] = {}
     if sha256s:
         rows = await db.execute(
-            select(Fumen.sha256, Fumen.md5, Fumen.title, Fumen.artist, Fumen.table_entries)
+            select(Fumen.fumen_id, Fumen.sha256, Fumen.md5, Fumen.title, Fumen.artist)
             .where(Fumen.sha256.in_(sha256s))
         )
         for r in rows.all():
-            fumen_meta[r.sha256] = {"title": r.title, "artist": r.artist, "table_entries": r.table_entries or []}
+            fumen_meta[r.sha256] = {"title": r.title, "artist": r.artist, "table_entries": []}
+            fumen_id_to_keys.setdefault(r.fumen_id, []).append(r.sha256)
             if r.md5 and r.sha256:
                 md5_to_sha256[r.md5] = r.sha256
     if md5s:
         rows = await db.execute(
-            select(Fumen.md5, Fumen.sha256, Fumen.title, Fumen.artist, Fumen.table_entries)
+            select(Fumen.fumen_id, Fumen.md5, Fumen.sha256, Fumen.title, Fumen.artist)
             .where(Fumen.md5.in_(md5s))
         )
         for r in rows.all():
-            fumen_meta[r.md5] = {"title": r.title, "artist": r.artist, "table_entries": r.table_entries or []}
+            fumen_meta[r.md5] = {"title": r.title, "artist": r.artist, "table_entries": []}
+            fumen_id_to_keys.setdefault(r.fumen_id, []).append(r.md5)
             if r.md5 and r.sha256:
                 md5_to_sha256[r.md5] = r.sha256
+    if fumen_id_to_keys:
+        entries_result = await db.execute(
+            select(FumenTableEntry.fumen_id, FumenTableEntry.table_id, FumenTableEntry.level)
+            .where(FumenTableEntry.fumen_id.in_(list(fumen_id_to_keys)))
+        )
+        for entry in entries_result.all():
+            entry_dict = {"table_id": str(entry.table_id), "level": entry.level}
+            for key in fumen_id_to_keys.get(entry.fumen_id, []):
+                fumen_meta[key]["table_entries"].append(entry_dict)
 
     # ── 5. Build table_levels from favorite tables ────────────────────────────
     fav_result = await db.execute(

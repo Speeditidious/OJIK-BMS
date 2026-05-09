@@ -7,7 +7,7 @@ from app.models.difficulty_table import (
     DifficultyTable,
     UserFavoriteDifficultyTable,
 )
-from app.models.fumen import Fumen, UserFumenTag
+from app.models.fumen import Fumen, FumenTableEntry, UserFumenTag
 from app.models.ranking import (
     UserRanking,
     UserRatingUpdateDaily,
@@ -25,6 +25,7 @@ __all__ = [
     "User",
     "OAuthAccount",
     "Fumen",
+    "FumenTableEntry",
     "UserFumenTag",
     "UserScore",
     "UserPlayerStats",
