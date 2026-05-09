@@ -9,11 +9,15 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.dialects import postgresql
 
 from app.models.score import UserScore
 from app.models.user import User
 from app.routers.analysis import (
     _build_fumen_aggregate,
+    _initial_sync_exclusion_filters,
+    _initial_sync_exclusion_for_subq,
     _resolve_activity_window,
     _resolve_rating_update_window,
     get_score_updates,
@@ -48,6 +52,59 @@ def _make_rating_table(top_n: int = 2) -> SimpleNamespace:
         top_n=top_n,
         max_level=200,
     )
+
+
+def _compile_conditions(conditions) -> str:
+    return "\n".join(
+        str(
+            condition.compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+        for condition in conditions
+    )
+
+
+def test_initial_sync_exclusion_filters_apply_to_all_first_synced_clients():
+    user = SimpleNamespace(
+        first_synced_at={
+            "lr2": "2026-05-06T09:00:00+00:00",
+            "beatoraja": "2026-05-06T10:00:00+00:00",
+            "invalid": "not-a-timestamp",
+        }
+    )
+
+    conditions = _initial_sync_exclusion_filters(user)
+    compiled = _compile_conditions(conditions)
+
+    assert len(conditions) == 2
+    assert "user_scores.client_type != 'lr2'" in compiled
+    assert "user_scores.client_type != 'beatoraja'" in compiled
+    assert "user_scores.synced_at > '2026-05-06 12:00:00+00:00'" in compiled
+    assert "user_scores.synced_at > '2026-05-06 13:00:00+00:00'" in compiled
+
+
+def test_initial_sync_exclusion_subquery_filters_apply_to_all_first_synced_clients():
+    user = SimpleNamespace(
+        first_synced_at={
+            "lr2": "2026-05-06T09:00:00+00:00",
+            "beatoraja": "2026-05-06T10:00:00+00:00",
+        }
+    )
+    subq = select(
+        UserScore.client_type.label("client_type"),
+        UserScore.synced_at.label("synced_at"),
+    ).subquery()
+
+    conditions = _initial_sync_exclusion_for_subq(user, subq)
+    compiled = _compile_conditions(conditions)
+
+    assert len(conditions) == 2
+    assert "client_type != 'lr2'" in compiled
+    assert "client_type != 'beatoraja'" in compiled
+    assert "synced_at > '2026-05-06 12:00:00+00:00'" in compiled
+    assert "synced_at > '2026-05-06 13:00:00+00:00'" in compiled
 
 
 def _build_fake_ranking(scores, top_n: int):

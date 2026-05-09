@@ -102,16 +102,14 @@ async def _resolve_target_user(
 def _initial_sync_exclusion_filters(user: User) -> list:
     """Return SQLAlchemy filters that exclude scores imported during the initial
     bulk sync (synced_at <= first_synced_at[client_type] + initial sync window).
-    Currently applied to LR2 only.
     """
-    first_synced = user.first_synced_at or {}
     conditions = []
-    for ct in ("lr2",):
-        cutoff = initial_sync_cutoff(first_synced.get(ct))
+    for client_type, ts_str in (user.first_synced_at or {}).items():
+        cutoff = initial_sync_cutoff(ts_str)
         if cutoff is not None:
             conditions.append(
                 or_(
-                    UserScore.client_type != ct,
+                    UserScore.client_type != client_type,
                     UserScore.synced_at > cutoff,
                 )
             )
@@ -498,14 +496,13 @@ def _improvement_filter(subq):
 
 def _initial_sync_exclusion_for_subq(user: User, subq) -> list:
     """Like _initial_sync_exclusion_filters but operates on a subquery's columns."""
-    first_synced = user.first_synced_at or {}
     conditions = []
-    for ct in ("lr2",):
-        cutoff = initial_sync_cutoff(first_synced.get(ct))
+    for client_type, ts_str in (user.first_synced_at or {}).items():
+        cutoff = initial_sync_cutoff(ts_str)
         if cutoff is not None:
             conditions.append(
                 or_(
-                    subq.c.client_type != ct,
+                    subq.c.client_type != client_type,
                     subq.c.synced_at > cutoff,
                 )
             )
