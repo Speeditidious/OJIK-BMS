@@ -34,6 +34,65 @@ _HISTORY_REBUILD_LOCKS: dict[uuid.UUID, asyncio.Lock] = {}
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+async def _enrich_contribution_fumen_ids(
+    entries: list[dict[str, Any]],
+    user_id: uuid.UUID,
+    db: AsyncSession,
+) -> list[dict[str, Any]]:
+    """Add fumen_id to legacy stored contribution JSON when possible."""
+    missing = [entry for entry in entries if not entry.get("fumen_id")]
+    hashes = {
+        value
+        for entry in missing
+        for value in (entry.get("sha256"), entry.get("md5"), entry.get("hash"))
+        if isinstance(value, str) and value
+    }
+    if not hashes:
+        return entries
+
+    hash_list = sorted(hashes)
+    hash_to_fumen_id: dict[str, str] = {}
+    fumen_rows = await db.execute(
+        text("""
+            SELECT fumen_id, sha256, md5
+            FROM fumens
+            WHERE sha256 = ANY(:hashes)
+               OR md5 = ANY(:hashes)
+        """),
+        {"hashes": hash_list},
+    )
+    for row in fumen_rows.mappings().all():
+        if row["sha256"]:
+            hash_to_fumen_id[row["sha256"]] = str(row["fumen_id"])
+        if row["md5"]:
+            hash_to_fumen_id[row["md5"]] = str(row["fumen_id"])
+
+    score_rows = await db.execute(
+        text("""
+            SELECT DISTINCT fumen_id, fumen_sha256, fumen_md5
+            FROM user_scores
+            WHERE user_id = :user_id
+              AND fumen_id IS NOT NULL
+              AND (
+                  fumen_sha256 = ANY(:hashes)
+                  OR fumen_md5 = ANY(:hashes)
+              )
+        """),
+        {"user_id": str(user_id), "hashes": hash_list},
+    )
+    for row in score_rows.mappings().all():
+        if row["fumen_sha256"]:
+            hash_to_fumen_id[row["fumen_sha256"]] = str(row["fumen_id"])
+        if row["fumen_md5"]:
+            hash_to_fumen_id[row["fumen_md5"]] = str(row["fumen_id"])
+
+    for entry in missing:
+        for key in (entry.get("sha256"), entry.get("md5"), entry.get("hash")):
+            if isinstance(key, str) and key in hash_to_fumen_id:
+                entry["fumen_id"] = hash_to_fumen_id[key]
+                break
+    return entries
+
 def _resolve_dan_decoration(
     dan_title: str | None,
     table_cfg: TableRankingConfig,
@@ -389,6 +448,16 @@ async def get_my_rank(
         config.exp_level_step,
         table_cfg.max_level,
     )
+    rating_contributions = await _enrich_contribution_fumen_ids(
+        list(ranking["rating_contributions"] or []),
+        target_user.id,
+        db,
+    )
+    exp_top_contributions = await _enrich_contribution_fumen_ids(
+        list(ranking["exp_top_contributions"] or []),
+        target_user.id,
+        db,
+    )
 
     return {
         "table_slug": table_slug,
@@ -409,8 +478,8 @@ async def get_my_rank(
         "top_n": table_cfg.top_n,
         "max_level": table_cfg.max_level,
         **progress_fields,
-        "rating_contributions": ranking["rating_contributions"] or [],
-        "exp_top_contributions": ranking["exp_top_contributions"] or [],
+        "rating_contributions": rating_contributions,
+        "exp_top_contributions": exp_top_contributions,
     }
 
 

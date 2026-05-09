@@ -18,6 +18,7 @@ import {
 } from "@/components/charts/ClearDistributionChart";
 import { displayClearType } from "@/lib/clear-type-display";
 import { formatRatePercent } from "@/lib/rate-format";
+import { songHref } from "@/lib/song-href";
 
 // CSS variable refs per internal clear_type (0=NO PLAY, 1=FAILED, 2=ASSIST, 3=EASY, 4=NORMAL, 5=HARD, 6=EXHARD, 7=FC, 8=PERFECT, 9=MAX)
 const CLEAR_BADGE_STYLE: Record<number, React.CSSProperties> = {
@@ -102,9 +103,9 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
               </span>
             )}
             {clearBadge(u.clear_type, u.client_type, { exscore: u.exscore, rate: u.rate })}
-            {(u.fumen_sha256 || u.fumen_md5) ? (
+            {(u.fumen_id || u.fumen_sha256 || u.fumen_md5) ? (
               <Link
-                href={`/songs/${u.fumen_sha256 ?? u.fumen_md5}`}
+                href={songHref({ fumen_id: u.fumen_id, sha256: u.fumen_sha256, md5: u.fumen_md5 })}
                 className="text-label font-medium truncate max-w-[200px] hover:text-primary transition-colors"
                 onClick={(e) => e.stopPropagation()}
               >

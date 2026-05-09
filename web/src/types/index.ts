@@ -268,6 +268,7 @@ export interface CurrentState {
 
 /** Common base for all score update items. is_course=true means this is a course record. */
 export interface ScoreUpdateBase {
+  fumen_id: string | null;
   fumen_sha256: string | null;
   fumen_md5: string | null;
   title: string | null;

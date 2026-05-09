@@ -30,6 +30,7 @@ export interface ActivityDay {
 
 export interface RecentUpdate {
   id: string;
+  fumen_id: string | null;
   fumen_sha256: string | null;
   fumen_md5: string | null;
   fumen_hash_others: string | null;
@@ -129,6 +130,7 @@ export interface TableClearLevel {
 }
 
 export interface TableClearSong {
+  fumen_id: string;
   sha256: string;
   title: string;
   artist: string;

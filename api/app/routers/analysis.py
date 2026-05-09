@@ -1329,6 +1329,7 @@ async def get_recent_updates(
         "updates": [
             {
                 "id": str(e.id),
+                "fumen_id": str(e.fumen_id) if e.fumen_id else None,
                 "fumen_sha256": e.fumen_sha256,
                 "fumen_md5": e.fumen_md5,
                 "fumen_hash_others": e.fumen_hash_others,
@@ -1691,6 +1692,7 @@ async def get_table_clear_distribution(
     for f, fumen_level in fumen_rows:
         level = str(fumen_level or "").strip()
         songs_data.append({
+            "fumen_id": str(f.fumen_id),
             "sha256": f.sha256 or "",
             "md5": f.md5 or "",
             "title": f.title or "",
@@ -1778,6 +1780,7 @@ async def get_table_clear_distribution(
         play_count = score_data["play_count"] if score_data else None
 
         songs_out.append({
+            "fumen_id": s["fumen_id"],
             "sha256": sha256,
             "title": s["title"],
             "artist": s["artist"],
@@ -2096,6 +2099,7 @@ async def get_score_updates(
         best_min_bp = min((row.min_bp for row in all_rows if row.min_bp is not None), default=None)
         best_max_combo = max((row.max_combo for row in all_rows if row.max_combo is not None), default=None)
         course_base = {
+            "fumen_id": None,
             "fumen_sha256": None,
             "fumen_md5": None,
             "title": course.name,
@@ -2159,6 +2163,7 @@ async def get_score_updates(
         current_best_min_bp = current_state.get("min_bp")
 
         base = {
+            "fumen_id": str(r.fumen_id) if r.fumen_id else None,
             "fumen_sha256": r.fumen_sha256,
             "fumen_md5": r.fumen_md5,
             "title": meta.get("title"),

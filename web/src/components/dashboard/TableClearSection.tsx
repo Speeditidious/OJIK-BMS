@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, levelSortIndex, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
 import { formatRatePercent } from "@/lib/rate-format";
+import { songHref } from "@/lib/song-href";
 
 function getClearLabel(clientType: string | null, clearType: number): string {
   if (clientType === "lr2") return LR2_CLEAR_TYPE_LABELS[clearType] ?? String(clearType);
@@ -156,8 +157,8 @@ const SongRow = React.memo(function SongRow({
       <td className="px-2" data-title={song.title ?? ""} data-artist={song.artist ?? ""}>
         <div className="min-w-0 overflow-hidden">
           <div className="max-w-full truncate">
-            {song.sha256 ? (
-              <Link href={`/songs/${song.sha256}?user_id=${encodeURIComponent(userId)}`} className="text-label leading-tight hover:text-primary transition-colors">
+            {(song.fumen_id || song.sha256) ? (
+              <Link href={songHref(song, userId)} className="text-label leading-tight hover:text-primary transition-colors">
                 {song.title || "(제목 없음)"}
               </Link>
             ) : (

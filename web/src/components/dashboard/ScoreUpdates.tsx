@@ -27,6 +27,7 @@ import { compareTitles } from "@/lib/bms-sort";
 import { formatRateDelta, formatRatePercent } from "@/lib/rate-format";
 import { useScoreUpdatesPrefs, useUpdateScoreUpdatesPrefs } from "@/hooks/use-preferences";
 import { useAuthStore } from "@/stores/auth";
+import { songHref } from "@/lib/song-href";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -61,10 +62,20 @@ function formatDate(ts: string | null): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-function buildSongHref(hash: string | null, userId?: string): string {
-  if (!hash) return "#";
-  if (!userId) return `/songs/${hash}`;
-  return `/songs/${hash}?user_id=${encodeURIComponent(userId)}`;
+function buildSongHref(
+  fumen: {
+    fumen_id?: string | null;
+    fumen_sha256?: string | null;
+    fumen_md5?: string | null;
+    sha256?: string | null;
+    md5?: string | null;
+  },
+  userId?: string,
+): string {
+  const sha256 = fumen.fumen_sha256 ?? fumen.sha256 ?? null;
+  const md5 = fumen.fumen_md5 ?? fumen.md5 ?? null;
+  if (!fumen.fumen_id && !sha256 && !md5) return "#";
+  return songHref({ fumen_id: fumen.fumen_id, sha256, md5 }, userId);
 }
 
 // ── Merged course update (clear + score in one row) ────────────────────────────
@@ -432,9 +443,9 @@ function LampUpgradeRow({ item, userId }: { item: ClearTypeUpdateItem; userId?: 
       </td>
       <td className={cn("px-2 py-2", newCls)} data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
         <div className="max-w-full truncate">
-          {(item.fumen_sha256 || item.fumen_md5) ? (
+          {(item.fumen_id || item.fumen_sha256 || item.fumen_md5) ? (
             <Link
-              href={buildSongHref(item.fumen_sha256 || item.fumen_md5, userId)}
+              href={buildSongHref(item, userId)}
               className="text-label hover:text-primary transition-colors"
             >
               {item.title ?? "(알 수 없음)"}
@@ -485,9 +496,9 @@ function ScoreUpgradeRow({ item, userId }: { item: ExscoreUpdateItem; userId?: s
       </td>
       <td className={cn("px-2 py-2", newCls)} data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
         <div className="max-w-full truncate">
-          {(item.fumen_sha256 || item.fumen_md5) ? (
+          {(item.fumen_id || item.fumen_sha256 || item.fumen_md5) ? (
             <Link
-              href={buildSongHref(item.fumen_sha256 || item.fumen_md5, userId)}
+              href={buildSongHref(item, userId)}
               className="text-label hover:text-primary transition-colors"
             >
               {item.title ?? "(알 수 없음)"}
@@ -529,9 +540,9 @@ function BPUpgradeRow({ item, userId }: { item: MinBPUpdateItem; userId?: string
       </td>
       <td className="px-2 py-2" data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
         <div className="max-w-full truncate">
-          {(item.fumen_sha256 || item.fumen_md5) ? (
+          {(item.fumen_id || item.fumen_sha256 || item.fumen_md5) ? (
             <Link
-              href={buildSongHref(item.fumen_sha256 || item.fumen_md5, userId)}
+              href={buildSongHref(item, userId)}
               className="text-label hover:text-primary transition-colors"
             >
               {item.title ?? "(알 수 없음)"}
@@ -573,9 +584,9 @@ function ComboUpgradeRow({ item, userId }: { item: MaxComboUpdateItem; userId?: 
       </td>
       <td className="px-2 py-2" data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
         <div className="max-w-full truncate">
-          {(item.fumen_sha256 || item.fumen_md5) ? (
+          {(item.fumen_id || item.fumen_sha256 || item.fumen_md5) ? (
             <Link
-              href={buildSongHref(item.fumen_sha256 || item.fumen_md5, userId)}
+              href={buildSongHref(item, userId)}
               className="text-label hover:text-primary transition-colors"
             >
               {item.title ?? "(알 수 없음)"}
@@ -744,6 +755,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
 // ── Fumen tab ──────────────────────────────────────────────────────────────────
 
 interface MergedFumenUpdate {
+  fumen_id: string | null;
   sha256: string | null;
   md5: string | null;
   title: string | null;
@@ -774,6 +786,7 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
   const map = new Map<string, MergedFumenUpdate>();
 
   function getOrCreate(
+    fumen_id: string | null,
     sha256: string | null,
     md5: string | null,
     title: string | null,
@@ -786,9 +799,10 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
     source_client_detail?: Record<string, string | null> | null,
     currentState?: MergedFumenUpdate["currentState"],
   ): MergedFumenUpdate {
-    const key = sha256 ?? md5 ?? `unknown-${Math.random()}`;
+    const key = fumen_id ?? sha256 ?? md5 ?? `unknown-${Math.random()}`;
     if (!map.has(key)) {
       map.set(key, {
+        fumen_id,
         sha256,
         md5,
         title,
@@ -807,7 +821,7 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
 
   for (const item of data.clear_type_updates) {
     if (item.is_course) continue;
-    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
+    const entry = getOrCreate(item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.clear = { prev: item.prev_clear_type, new: item.new_clear_type };
     if (entry.bp == null && item.best_min_bp != null) {
       entry.bp = { prev: null, new: item.best_min_bp };
@@ -816,7 +830,7 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
 
   for (const item of data.exscore_updates) {
     if (item.is_course) continue;
-    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
+    const entry = getOrCreate(item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.score = { prev: item.prev_exscore, new: item.new_exscore, prev_rank: item.prev_rank, new_rank: item.new_rank };
     entry.rate = { prev: item.prev_rate, new: item.new_rate };
     if (entry.bp == null && item.best_min_bp != null) {
@@ -825,18 +839,18 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
   }
 
   for (const item of data.min_bp_updates) {
-    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
+    const entry = getOrCreate(item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.bp = { prev: item.prev_min_bp, new: item.new_min_bp };
   }
 
   for (const item of data.max_combo_updates) {
-    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
+    const entry = getOrCreate(item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.combo = { prev: item.prev_max_combo, new: item.new_max_combo };
   }
 
   for (const item of data.play_count_updates) {
     if (item.is_course) continue;
-    const entry = getOrCreate(item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
+    const entry = getOrCreate(item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.playCount = { prev: item.prev_play_count, new: item.new_play_count };
   }
 
@@ -867,9 +881,9 @@ function FumenRow({ fumen, userId }: { fumen: MergedFumenUpdate; userId?: string
 
       {/* Title + Artist */}
       <td className="px-2 py-2 align-top max-w-[220px]" data-title={fumen.title ?? ""} data-artist={fumen.artist ?? ""}>
-        {(fumen.sha256 || fumen.md5) ? (
+        {(fumen.fumen_id || fumen.sha256 || fumen.md5) ? (
           <Link
-            href={buildSongHref(fumen.sha256 || fumen.md5, userId)}
+            href={buildSongHref(fumen, userId)}
             className="text-label inline-block max-w-full truncate hover:text-primary transition-colors"
           >
             {fumen.title ?? "(알 수 없음)"}
@@ -1135,7 +1149,7 @@ function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: strin
               </thead>
               <tbody className="divide-y divide-border/30">
                 {fumens.map((fumen, i) => (
-                  <FumenRow key={fumen.sha256 ?? fumen.md5 ?? i} fumen={fumen} userId={userId} />
+                  <FumenRow key={fumen.fumen_id ?? fumen.sha256 ?? fumen.md5 ?? i} fumen={fumen} userId={userId} />
                 ))}
               </tbody>
             </table>

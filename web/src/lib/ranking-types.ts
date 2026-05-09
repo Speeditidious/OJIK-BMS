@@ -59,6 +59,7 @@ export interface RankingResponse {
 
 export interface RankingContribution {
   hash: string;
+  fumen_id?: string | null;
   level: string;
   song_rating?: number;
   song_exp?: number;
@@ -94,6 +95,7 @@ export interface MyRankData {
 export interface RankingContributionEntry {
   rank: number;
   previous_rank?: number | null;
+  fumen_id?: string | null;
   sha256: string | null;
   md5: string | null;
   title: string;

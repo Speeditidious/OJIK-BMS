@@ -14,6 +14,7 @@ import type {
   RatingContributionSortBy,
 } from "@/lib/ranking-types";
 import { formatRateDelta, formatRatePercent } from "@/lib/rate-format";
+import { songHref } from "@/lib/song-href";
 import { formatRelativeDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -581,9 +582,7 @@ function ContributionRow({
   columns: TableColumn[];
   userId?: string;
 }) {
-  const songHref = userId
-    ? `/songs/${entry.sha256 ?? entry.md5}?user_id=${encodeURIComponent(userId)}`
-    : `/songs/${entry.sha256 ?? entry.md5}`;
+  const songUrl = songHref({ fumen_id: entry.fumen_id, sha256: entry.sha256, md5: entry.md5 }, userId);
   const rowClass = CLEAR_ROW_CLASS[entry.clear_type] ?? "";
   const clearClient = entry.client_types[0] ?? "beatoraja";
 
@@ -597,7 +596,7 @@ function ContributionRow({
     if (column.key === "title") {
       return (
         <div className="min-w-0 overflow-hidden">
-          <Link href={songHref} className="block max-w-full truncate text-label leading-tight transition-colors hover:text-primary">
+          <Link href={songUrl} className="block max-w-full truncate text-label leading-tight transition-colors hover:text-primary">
             {entry.title}
           </Link>
           {entry.artist && (

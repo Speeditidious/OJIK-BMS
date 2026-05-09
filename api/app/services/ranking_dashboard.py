@@ -129,6 +129,7 @@ async def query_target_fumen_details(
     result = await db.execute(
         text(f"""
             SELECT
+                f.fumen_id,
                 f.sha256,
                 f.md5,
                 {title_select}
@@ -486,6 +487,7 @@ async def _query_table_score_history(
     result = await db.execute(
         text("""
             SELECT
+                us.fumen_id,
                 us.fumen_sha256,
                 us.fumen_md5,
                 us.clear_type,
@@ -619,6 +621,7 @@ def _build_rating_update_detail_entry(
 
 def _clone_best_score(score: BestScore) -> BestScore:
     return BestScore(
+        fumen_id=score.fumen_id,
         sha256=score.sha256,
         md5=score.md5,
         level=score.level,
@@ -1043,6 +1046,7 @@ def _build_breakdown_entry(
     return {
         "rank": rank,
         "previous_rank": previous_rank,
+        "fumen_id": str(target["fumen_id"]) if target.get("fumen_id") else None,
         "sha256": key[0],
         "md5": key[1],
         "title": target.get("title") or "(Unknown Title)",

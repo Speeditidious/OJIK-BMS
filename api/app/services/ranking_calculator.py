@@ -59,6 +59,7 @@ class BestScore:
     client_types: tuple[str, ...] = ()
     recorded_at: datetime | None = None
     sort_recorded_at: datetime | None = None
+    fumen_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -216,6 +217,7 @@ def _merge_best_score_fields(
 ) -> tuple[BestScore | None, bool]:
     """Merge one score row into the current best snapshot for a chart."""
     current = BestScore(
+        fumen_id=existing.fumen_id if existing is not None else row.get("fumen_id"),
         sha256=canonical_sha256,
         md5=canonical_md5,
         level=level,
@@ -301,6 +303,7 @@ def compute_ranking(
         if value > 0:
             entry = {
                 "hash": hash_key,
+                "fumen_id": str(score.fumen_id) if score.fumen_id else None,
                 "level": score.level,
                 "song_rating": round(value, 3),
                 "title": title,
@@ -383,6 +386,7 @@ async def compute_ranking_history_for_user(
     result = await db.execute(
         text("""
             SELECT
+                us.fumen_id,
                 us.fumen_sha256, us.fumen_md5,
                 us.clear_type, us.exscore, us.rate, us.rank, us.min_bp,
                 us.client_type,
@@ -487,7 +491,7 @@ async def query_target_fumens(
     """Return [{sha256, md5, level}] for all fumens in the given table."""
     result = await db.execute(
         text("""
-            SELECT f.sha256, f.md5,
+            SELECT f.fumen_id, f.sha256, f.md5,
                    fte.level AS level
             FROM fumen_table_entries fte
             JOIN fumens f ON f.fumen_id = fte.fumen_id
@@ -551,7 +555,7 @@ async def bulk_query_best_scores(
                   AND us.fumen_id IN (SELECT fumen_id FROM target_fumens)
             ),
             joined AS (
-                SELECT lpc.user_id, tf.sha256 AS tf_sha256, tf.md5 AS tf_md5, tf.level,
+                SELECT lpc.user_id, tf.fumen_id AS tf_fumen_id, tf.sha256 AS tf_sha256, tf.md5 AS tf_md5, tf.level,
                        lpc.client_type, lpc.clear_type, lpc.exscore, lpc.rate, lpc.rank, lpc.min_bp,
                        lpc.display_recorded_at, lpc.latest_ts
                 FROM latest_per_client lpc
@@ -561,7 +565,7 @@ async def bulk_query_best_scores(
             best_scores AS (
                 SELECT
                     user_id,
-                    tf_sha256, tf_md5, level,
+                    tf_fumen_id, tf_sha256, tf_md5, level,
                     MAX(clear_type) AS clear_type,
                     MAX(exscore) AS exscore,
                     (array_agg(rate ORDER BY exscore DESC NULLS LAST))[1] AS rate,
@@ -571,10 +575,11 @@ async def bulk_query_best_scores(
                     (array_agg(display_recorded_at ORDER BY latest_ts DESC NULLS LAST))[1] AS recorded_at,
                     MAX(latest_ts) AS latest_ts
                 FROM joined
-                GROUP BY user_id, tf_sha256, tf_md5, level
+                GROUP BY user_id, tf_fumen_id, tf_sha256, tf_md5, level
             )
             SELECT
                 user_id,
+                tf_fumen_id AS fumen_id,
                 tf_sha256 AS sha256,
                 tf_md5 AS md5,
                 level,
@@ -589,6 +594,7 @@ async def bulk_query_best_scores(
     for row in rows:
         uid = uuid.UUID(str(row["user_id"]))
         user_scores[uid].append(BestScore(
+            fumen_id=row["fumen_id"],
             sha256=row["sha256"],
             md5=row["md5"],
             level=row["level"],
