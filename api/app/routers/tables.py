@@ -349,16 +349,19 @@ async def import_table(
     success it is added to the user's favorites.
     """
     from app.parsers.table_fetcher import fetch_table
+    from app.services.table_sync import canonicalize_table_url
+
+    source_url = canonicalize_table_url(body.url)
 
     # Check for existing table with same URL
     existing_result = await db.execute(
-        select(DifficultyTable).where(DifficultyTable.source_url == body.url)
+        select(DifficultyTable).where(DifficultyTable.source_url == source_url)
     )
     existing = existing_result.scalar_one_or_none()
     if existing is not None:
         song_count = await _count_table_fumens(existing.id, db)
         if song_count == 0 or not existing.level_order:
-            table_data = await _fetch_import_table_data(body.url, fetch_table)
+            table_data = await _fetch_import_table_data(source_url, fetch_table)
             song_count = await _populate_imported_table(existing, table_data, db)
 
         await _ensure_favorite(current_user.id, existing.id, db)
@@ -367,14 +370,14 @@ async def import_table(
         return DifficultyTableRead.from_orm_with_count(existing, song_count)
 
     # Fetch and parse
-    table_data = await _fetch_import_table_data(body.url, fetch_table)
+    table_data = await _fetch_import_table_data(source_url, fetch_table)
 
     header = table_data.get("header", {})
     name: str = header.get("name") or body.url
 
     new_table = DifficultyTable(
         name=name,
-        source_url=body.url,
+        source_url=source_url,
         is_default=False,
     )
     db.add(new_table)

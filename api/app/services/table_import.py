@@ -356,9 +356,10 @@ async def _build_sha256_list(db: AsyncSession, md5_list: list) -> list:
     Returns:
         List of same length as md5_list. Unknown positions are None.
     """
-    from sqlalchemy import select, text
+    from sqlalchemy import select
 
     from app.models.fumen import Fumen
+    from app.models.score import UserScore
 
     non_null_md5s = [m for m in md5_list if m]
     if not non_null_md5s:
@@ -377,28 +378,210 @@ async def _build_sha256_list(db: AsyncSession, md5_list: list) -> list:
     missing = [m for m in non_null_md5s if m not in md5_to_sha256]
     if missing:
         scores_result = await db.execute(
-            text("""
-                SELECT DISTINCT ON (fumen_md5) fumen_md5, fumen_sha256
-                FROM user_scores
-                WHERE fumen_md5 = ANY(:md5s)
-                  AND fumen_sha256 IS NOT NULL
-            """),
-            {"md5s": missing},
+            select(UserScore.fumen_md5, UserScore.fumen_sha256).where(
+                UserScore.fumen_md5.in_(missing),
+                UserScore.fumen_sha256.isnot(None),
+            )
         )
-        for row in scores_result.mappings().all():
-            md5_to_sha256[row["fumen_md5"]] = row["fumen_sha256"]
+        for row in scores_result.all():
+            if row.fumen_md5 not in md5_to_sha256:
+                md5_to_sha256[row.fumen_md5] = row.fumen_sha256
 
     return [md5_to_sha256.get(m) if m else None for m in md5_list]
 
 
-async def upsert_courses(db: AsyncSession, table_id: uuid.UUID, courses: list[dict[str, Any]]) -> None:
-    """Sync course rows from header.json course/grade fields.
+CATEGORY_ORDER = ["layout", "ln", "gauge", "judge", "speed"]
+CATEGORY_TOKENS: dict[str, list[str]] = {
+    "layout": ["grade_mirror", "grade", "grade_random"],
+    "ln": ["ln", "cn", "hcn"],
+    "gauge": ["gauge_lr2", "gauge_5k", "gauge_7k", "gauge_9k", "gauge_24k"],
+    "judge": ["no_good", "no_great"],
+    "speed": ["no_speed"],
+}
+NEGATIVE_CATEGORIES = {"speed"}
 
-    - Existing courses for table_id: update md5_list, is_active=True.
-    - New courses: insert.
-    - Disappeared courses: is_active=False (soft-delete).
-    - After upsert, fills sha256_list for each course from the fumens table.
-    """
+
+def _hash_list_key(values: list[str | None]) -> tuple[str, ...]:
+    """Return a normalized ordered hash-list key."""
+    return tuple(str(value).strip().lower() for value in values if str(value).strip())
+
+
+def _normalize_constraint(values: Any) -> list[str]:
+    """Normalize course constraint tokens, preserving first-seen order."""
+    if not isinstance(values, list):
+        return []
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        token = value.strip().lower()
+        if token and token not in seen:
+            seen.add(token)
+            normalized.append(token)
+    return normalized
+
+
+def _normalize_hash_values(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return [str(value).strip().lower() for value in values if str(value).strip()]
+
+
+def _normalize_course_payload(raw: dict[str, Any]) -> dict[str, Any] | None:
+    name = str(raw.get("name") or "").strip()
+    md5_list = _normalize_hash_values(raw.get("md5_list") or raw.get("md5") or [])
+    sha256_list = _normalize_hash_values(
+        raw.get("sha256_list") or raw.get("sha256") or raw.get("sha256hash") or []
+    )
+    if not name or (not md5_list and not sha256_list):
+        return None
+    return {
+        "name": name,
+        "md5_list": md5_list,
+        "sha256_list": sha256_list,
+        "constraint": _normalize_constraint(raw.get("constraint") or []),
+    }
+
+
+def _course_payload_key(course_data: dict[str, Any]) -> tuple[Any, ...]:
+    md5_key = _hash_list_key(course_data.get("md5_list") or [])
+    sha256_key = _hash_list_key(course_data.get("sha256_list") or [])
+    hash_kind = "md5" if md5_key else "sha256"
+    hash_key = md5_key if md5_key else sha256_key
+    return (
+        course_data["name"],
+        hash_kind,
+        hash_key,
+        tuple(sorted(course_data.get("constraint") or [])),
+    )
+
+
+def _course_import_key(course: Any) -> tuple[Any, ...]:
+    md5_key = _hash_list_key(course.md5_list or [])
+    sha256_key = _hash_list_key(course.sha256_list or [])
+    hash_kind = "md5" if md5_key else "sha256"
+    hash_key = md5_key if md5_key else sha256_key
+    return (
+        course.name,
+        hash_kind,
+        hash_key,
+        tuple(sorted(course.constraint or [])),
+    )
+
+
+def _course_legacy_match_key(course: Any) -> tuple[Any, ...]:
+    md5_key = _hash_list_key(course.md5_list or [])
+    sha256_key = _hash_list_key(course.sha256_list or [])
+    hash_kind = "md5" if md5_key else "sha256"
+    hash_key = md5_key if md5_key else sha256_key
+    return (course.name, hash_kind, hash_key)
+
+
+def _course_payload_legacy_match_key(course_data: dict[str, Any]) -> tuple[Any, ...]:
+    md5_key = _hash_list_key(course_data.get("md5_list") or [])
+    sha256_key = _hash_list_key(course_data.get("sha256_list") or [])
+    hash_kind = "md5" if md5_key else "sha256"
+    hash_key = md5_key if md5_key else sha256_key
+    return (course_data["name"], hash_kind, hash_key)
+
+
+def _group_key(course: Any) -> tuple[str, tuple[str, ...]]:
+    """Return active-selection key. Names and constraints are intentionally ignored."""
+    md5_key = _hash_list_key(course.md5_list or [])
+    if md5_key:
+        return ("md5", md5_key)
+    return ("sha256", _hash_list_key(course.sha256_list or []))
+
+
+def _filter_by_category(candidates: list[Any], category: str) -> list[Any]:
+    tokens = CATEGORY_TOKENS[category]
+
+    def _has(course: Any, token: str) -> bool:
+        return token in (course.constraint or [])
+
+    if category in NEGATIVE_CATEGORIES:
+        without = [course for course in candidates if not _has(course, tokens[0])]
+        return without if without else candidates
+
+    has_any = [course for course in candidates if any(_has(course, token) for token in tokens)]
+    if not has_any:
+        return candidates
+    for preferred in tokens:
+        subset = [course for course in has_any if _has(course, preferred)]
+        if subset:
+            return subset
+    return has_any
+
+
+def select_active(group: list[Any]) -> Any:
+    """Return the single active Course winner for one identical hash-list group."""
+    if len(group) == 1:
+        return group[0]
+
+    remaining = list(group)
+    for category in CATEGORY_ORDER:
+        if len(remaining) == 1:
+            return remaining[0]
+        filtered = _filter_by_category(remaining, category)
+        if filtered:
+            remaining = filtered
+
+    remaining.sort(key=lambda course: (course.name, str(course.id) if getattr(course, "id", None) else ""))
+    return remaining[0]
+
+
+async def _fill_sha256_lists_for_courses(db: AsyncSession, courses: list[Any]) -> None:
+    """Fill active course sha256 lists with one fumens query and one score fallback query."""
+    from sqlalchemy import select
+
+    from app.models.fumen import Fumen
+    from app.models.score import UserScore
+
+    md5s = sorted(
+        {
+            md5
+            for course in courses
+            for md5 in _normalize_hash_values(course.md5_list or [])
+        }
+    )
+    if not md5s:
+        return
+
+    fumens_result = await db.execute(
+        select(Fumen.md5, Fumen.sha256).where(
+            Fumen.md5.in_(md5s),
+            Fumen.sha256.isnot(None),
+        )
+    )
+    md5_to_sha256: dict[str, str] = {
+        row.md5: row.sha256 for row in fumens_result.all() if row.md5 and row.sha256
+    }
+
+    missing = [md5 for md5 in md5s if md5 not in md5_to_sha256]
+    if missing:
+        scores_result = await db.execute(
+            select(UserScore.fumen_md5, UserScore.fumen_sha256).where(
+                UserScore.fumen_md5.in_(missing),
+                UserScore.fumen_sha256.isnot(None),
+            )
+        )
+        for row in scores_result.all():
+            if row.fumen_md5 and row.fumen_sha256 and row.fumen_md5 not in md5_to_sha256:
+                md5_to_sha256[row.fumen_md5] = row.fumen_sha256
+
+    for course in courses:
+        md5_list = _normalize_hash_values(course.md5_list or [])
+        if md5_list:
+            course.sha256_list = [md5_to_sha256.get(md5) for md5 in md5_list]
+
+
+async def upsert_courses(
+    db: AsyncSession,
+    table_id: uuid.UUID,
+    courses: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Sync courses for one table, applying constraint-based active selection."""
     from sqlalchemy import select
 
     from app.models.course import Course
@@ -406,42 +589,109 @@ async def upsert_courses(db: AsyncSession, table_id: uuid.UUID, courses: list[di
     result = await db.execute(
         select(Course).where(Course.source_table_id == table_id)
     )
-    existing_courses: dict[str, Course] = {c.name: c for c in result.scalars().all()}
-
-    seen_names: set[str] = set()
-    for course_data in courses:
-        name = course_data["name"]
-        md5_list = course_data["md5_list"]
-        seen_names.add(name)
-
-        if name in existing_courses:
-            c = existing_courses[name]
-            c.md5_list = md5_list
-            c.is_active = True
-            c.synced_at = datetime.now(UTC)
+    existing_rows = list(result.scalars().all())
+    existing: dict[tuple[Any, ...], Course] = {}
+    legacy_constraintless: dict[tuple[Any, ...], list[tuple[tuple[Any, ...], Course]]] = {}
+    duplicate_existing: list[Course] = []
+    for course in existing_rows:
+        key = _course_import_key(course)
+        if key in existing:
+            duplicate_existing.append(course)
         else:
-            new_course = Course(
-                name=name,
+            existing[key] = course
+            if not (course.constraint or []):
+                legacy_constraintless.setdefault(_course_legacy_match_key(course), []).append((key, course))
+
+    incoming_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for raw in courses:
+        normalized = _normalize_course_payload(raw)
+        if normalized is not None:
+            incoming_by_key[_course_payload_key(normalized)] = normalized
+
+    inserted = 0
+    updated = 0
+    deactivated = 0
+    seen_keys: set[tuple[Any, ...]] = set()
+
+    for key, course_data in incoming_by_key.items():
+        seen_keys.add(key)
+        md5_list = course_data["md5_list"]
+        sha256_list_from_header = course_data["sha256_list"] or None
+        course_constraint = course_data["constraint"]
+
+        legacy_match = None
+        if key not in existing:
+            candidates = legacy_constraintless.get(_course_payload_legacy_match_key(course_data), [])
+            while candidates:
+                old_key, candidate = candidates.pop(0)
+                if old_key in existing and existing[old_key] is candidate:
+                    legacy_match = (old_key, candidate)
+                    break
+
+        if key in existing or legacy_match is not None:
+            if legacy_match is not None:
+                old_key, course = legacy_match
+                existing.pop(old_key, None)
+                existing[key] = course
+            else:
+                course = existing[key]
+            course.name = course_data["name"]
+            course.md5_list = md5_list
+            if sha256_list_from_header or not md5_list:
+                course.sha256_list = sha256_list_from_header
+            course.constraint = course_constraint
+            course.is_active = True
+            course.synced_at = datetime.now(UTC)
+            updated += 1
+        else:
+            course = Course(
+                name=course_data["name"],
                 source_table_id=table_id,
                 md5_list=md5_list,
+                sha256_list=sha256_list_from_header,
+                constraint=course_constraint,
                 is_active=True,
                 dan_title="",
                 synced_at=datetime.now(UTC),
             )
-            db.add(new_course)
-            existing_courses[name] = new_course
+            db.add(course)
+            existing[key] = course
+            inserted += 1
 
-    for name, course in existing_courses.items():
-        if name not in seen_names:
+    for key, course in existing.items():
+        if key not in seen_keys and course.is_active:
             course.is_active = False
+            deactivated += 1
+
+    for course in duplicate_existing:
+        if course.is_active:
+            course.is_active = False
+            deactivated += 1
 
     await db.flush()
 
-    # Fill sha256_list for courses that were inserted or updated this run.
-    for name in seen_names:
-        course = existing_courses.get(name)
-        if course is None:
-            continue
-        course.sha256_list = await _build_sha256_list(db, course.md5_list or [])
+    active_rows = [course for course in existing.values() if course.is_active]
+    grouped: dict[tuple[str, tuple[str, ...]], list[Course]] = {}
+    for course in active_rows:
+        key = _group_key(course)
+        if key[1]:
+            grouped.setdefault(key, []).append(course)
+
+    for group in grouped.values():
+        winner = select_active(group)
+        for course in group:
+            if course is not winner and course.is_active:
+                course.is_active = False
+                deactivated += 1
 
     await db.flush()
+
+    active_after_selection = [course for course in active_rows if course.is_active]
+    await _fill_sha256_lists_for_courses(db, active_after_selection)
+    await db.flush()
+
+    return {
+        "inserted": inserted,
+        "updated": updated,
+        "deactivated": deactivated,
+    }

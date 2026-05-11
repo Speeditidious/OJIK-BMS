@@ -12,6 +12,7 @@ from sqlalchemy import delete, func, null, text, update
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
+from app.models.admin_action_log import AdminActionLog, AdminActionLogLine
 from app.models.client_update import ClientUpdateAnnouncement
 from app.models.course import Course
 from app.models.difficulty_table import (
@@ -32,6 +33,23 @@ from app.models.score import UserPlayerStats, UserScore
 from app.models.user import OAuthAccount, User
 
 RESETTABLE_CLIENT_TYPES = frozenset({"lr2", "beatoraja"})
+
+
+def _admin_user_id(request: Request) -> uuid.UUID | None:
+    raw = request.session.get("admin_user_id")
+    if not raw:
+        return None
+    try:
+        return uuid.UUID(str(raw))
+    except ValueError:
+        return None
+
+
+def _admin_details_redirect(request: Request, identity: str, pk: uuid.UUID) -> RedirectResponse:
+    return RedirectResponse(
+        request.url_for("admin:details", identity=identity, pk=str(pk)),
+        status_code=302,
+    )
 
 
 def _parse_admin_user_ids(raw_pks: str) -> list[uuid.UUID]:
@@ -229,6 +247,68 @@ class OAuthAccountAdmin(ModelView, model=OAuthAccount):
     column_sortable_list = [OAuthAccount.provider, OAuthAccount.provider_username]
 
 
+class AdminActionLogAdmin(ModelView, model=AdminActionLog):
+    name = "Action Log"
+    name_plural = "Action Logs"
+    icon = "fa-solid fa-clipboard-list"
+    column_list = [
+        AdminActionLog.id,
+        AdminActionLog.parent_log_id,
+        AdminActionLog.action_name,
+        AdminActionLog.target_kind,
+        AdminActionLog.target_label,
+        AdminActionLog.status,
+        AdminActionLog.last_message,
+        AdminActionLog.started_at,
+        AdminActionLog.completed_at,
+    ]
+    column_details_list = [
+        AdminActionLog.id,
+        AdminActionLog.parent_log_id,
+        AdminActionLog.action_name,
+        AdminActionLog.target_kind,
+        AdminActionLog.target_id,
+        AdminActionLog.target_label,
+        AdminActionLog.status,
+        AdminActionLog.celery_task_id,
+        AdminActionLog.payload,
+        AdminActionLog.last_message,
+        AdminActionLog.error_message,
+        AdminActionLog.started_at,
+        AdminActionLog.completed_at,
+        AdminActionLog.lines,
+    ]
+    column_searchable_list = [
+        AdminActionLog.action_name,
+        AdminActionLog.target_id,
+        AdminActionLog.target_label,
+        AdminActionLog.status,
+    ]
+    column_sortable_list = [AdminActionLog.started_at, AdminActionLog.completed_at, AdminActionLog.status]
+    column_default_sort = [(AdminActionLog.started_at, True)]
+    can_create = False
+    can_edit = False
+    can_delete = True
+
+
+class AdminActionLogLineAdmin(ModelView, model=AdminActionLogLine):
+    name = "Action Log Line"
+    name_plural = "Action Log Lines"
+    icon = "fa-solid fa-list-check"
+    column_list = [
+        AdminActionLogLine.log_id,
+        AdminActionLogLine.level,
+        AdminActionLogLine.message,
+        AdminActionLogLine.created_at,
+    ]
+    column_searchable_list = [AdminActionLogLine.level, AdminActionLogLine.message]
+    column_sortable_list = [AdminActionLogLine.created_at, AdminActionLogLine.level]
+    column_default_sort = [(AdminActionLogLine.created_at, True)]
+    can_create = False
+    can_edit = False
+    can_delete = True
+
+
 class DifficultyTableAdmin(ModelView, model=DifficultyTable):
     name = "Difficulty Table"
     name_plural = "Difficulty Tables"
@@ -245,6 +325,15 @@ class DifficultyTableAdmin(ModelView, model=DifficultyTable):
     column_sortable_list = [DifficultyTable.id, DifficultyTable.name, DifficultyTable.updated_at]
 
     @action(
+        name="add_by_url",
+        label="URL로 추가/최신화",
+        add_in_list=True,
+    )
+    async def add_by_url(self, request: Request) -> RedirectResponse:
+        """Open the URL-only table sync form."""
+        return RedirectResponse("/admin/difficulty-tables/add-by-url", status_code=302)
+
+    @action(
         name="sync_selected_tables",
         label="선택된 테이블 최신화",
         confirmation_message="선택된 난이도표들을 최신화합니다. 계속하시겠습니까?",
@@ -253,14 +342,44 @@ class DifficultyTableAdmin(ModelView, model=DifficultyTable):
     )
     async def sync_selected_tables(self, request: Request) -> RedirectResponse:
         """Queue Celery sync tasks for each selected difficulty table."""
+        from app.services.admin_action_log import create_log, mark_task_id
         from app.tasks.table_updater import update_difficulty_table
 
         pks = request.query_params.get("pks", "")
-        for pk in [p.strip() for p in pks.split(",") if p.strip()]:
-            update_difficulty_table.delay(pk)
+        selected = [p.strip() for p in pks.split(",") if p.strip()]
+        if not selected:
+            return RedirectResponse(
+                request.url_for("admin:list", identity=self.identity), status_code=302
+            )
 
-        return RedirectResponse(
-            request.url_for("admin:list", identity=self.identity), status_code=302
+        parent_log_id = None
+        if len(selected) > 1:
+            parent_log_id = await create_log(
+                action_name="sync_selected_tables",
+                target_kind="difficulty_table_batch",
+                target_label=f"{len(selected)} tables",
+                triggered_by=_admin_user_id(request),
+                payload={"table_ids": selected},
+            )
+
+        log_ids: list[uuid.UUID] = []
+        for pk in selected:
+            log_id = await create_log(
+                action_name="sync_selected_tables",
+                target_kind="difficulty_table",
+                target_id=pk,
+                parent_log_id=parent_log_id,
+                triggered_by=_admin_user_id(request),
+            )
+            task_result = update_difficulty_table.delay(pk, log_id=str(log_id))
+            if getattr(task_result, "id", None):
+                await mark_task_id(log_id, task_result.id)
+            log_ids.append(log_id)
+
+        return _admin_details_redirect(
+            request,
+            AdminActionLogAdmin.identity,
+            parent_log_id or log_ids[0],
         )
 
     @action(
@@ -272,13 +391,50 @@ class DifficultyTableAdmin(ModelView, model=DifficultyTable):
     )
     async def sync_all_tables(self, request: Request) -> RedirectResponse:
         """Queue a Celery task to sync all difficulty tables."""
+        from app.services.admin_action_log import create_log, mark_task_id
         from app.tasks.table_updater import update_all_difficulty_tables
 
-        update_all_difficulty_tables.delay()
-
-        return RedirectResponse(
-            request.url_for("admin:list", identity=self.identity), status_code=302
+        log_id = await create_log(
+            action_name="sync_all_tables",
+            target_kind="difficulty_table_batch",
+            target_label="All DB tables",
+            triggered_by=_admin_user_id(request),
+            payload={"default_only": False, "force": True},
         )
+        task_result = update_all_difficulty_tables.delay(log_id=str(log_id))
+        if getattr(task_result, "id", None):
+            await mark_task_id(log_id, task_result.id)
+
+        return _admin_details_redirect(request, AdminActionLogAdmin.identity, log_id)
+
+    @action(
+        name="sync_default_tables",
+        label="기본 테이블만 최신화",
+        confirmation_message="config.toml의 기본 난이도표만 강제로 최신화합니다. 계속하시겠습니까?",
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def sync_default_tables(self, request: Request) -> RedirectResponse:
+        """Queue a Celery task to force-sync default difficulty tables only."""
+        from app.services.admin_action_log import create_log, mark_task_id
+        from app.tasks.table_updater import update_all_difficulty_tables
+
+        log_id = await create_log(
+            action_name="sync_default_tables",
+            target_kind="difficulty_table_batch",
+            target_label="Default tables",
+            triggered_by=_admin_user_id(request),
+            payload={"default_only": True, "force": True},
+        )
+        task_result = update_all_difficulty_tables.delay(
+            log_id=str(log_id),
+            default_only=True,
+            force=True,
+        )
+        if getattr(task_result, "id", None):
+            await mark_task_id(log_id, task_result.id)
+
+        return _admin_details_redirect(request, AdminActionLogAdmin.identity, log_id)
 
     @action(
         name="recalculate_rankings",
@@ -289,6 +445,7 @@ class DifficultyTableAdmin(ModelView, model=DifficultyTable):
     )
     async def recalculate_rankings(self, request: Request) -> RedirectResponse:
         """Queue ranking recalculation for selected difficulty tables."""
+        from app.services.admin_action_log import create_log, mark_task_id
         from app.services.ranking_config import get_ranking_config
         from app.tasks.ranking_calculator import recalculate_all_rankings
 
@@ -301,16 +458,53 @@ class DifficultyTableAdmin(ModelView, model=DifficultyTable):
             config = None
 
         if config is None:
-            recalculate_all_rankings.delay()
-        else:
-            id_to_slug = {str(t.table_id): t.slug for t in config.tables}
-            for pk in ids:
-                slug = id_to_slug.get(pk)
-                if slug:
-                    recalculate_all_rankings.delay(slug)
+            log_id = await create_log(
+                action_name="recalculate_rankings",
+                target_kind="ranking_batch",
+                target_label="All ranking tables",
+                triggered_by=_admin_user_id(request),
+            )
+            task_result = recalculate_all_rankings.delay(log_id=str(log_id))
+            if getattr(task_result, "id", None):
+                await mark_task_id(log_id, task_result.id)
+            return _admin_details_redirect(request, AdminActionLogAdmin.identity, log_id)
 
-        return RedirectResponse(
-            request.url_for("admin:list", identity=self.identity), status_code=302
+        id_to_slug = {str(t.table_id): t.slug for t in config.tables}
+        slugs = [id_to_slug[pk] for pk in ids if pk in id_to_slug]
+        if not slugs:
+            return RedirectResponse(
+                request.url_for("admin:list", identity=self.identity), status_code=302
+            )
+
+        parent_log_id = None
+        if len(slugs) > 1:
+            parent_log_id = await create_log(
+                action_name="recalculate_rankings",
+                target_kind="ranking_batch",
+                target_label=f"{len(slugs)} ranking tables",
+                triggered_by=_admin_user_id(request),
+                payload={"slugs": slugs},
+            )
+
+        log_ids: list[uuid.UUID] = []
+        for slug in slugs:
+            log_id = await create_log(
+                action_name="recalculate_rankings",
+                target_kind="ranking_table",
+                target_id=slug,
+                target_label=slug,
+                parent_log_id=parent_log_id,
+                triggered_by=_admin_user_id(request),
+            )
+            task_result = recalculate_all_rankings.delay(slug, log_id=str(log_id))
+            if getattr(task_result, "id", None):
+                await mark_task_id(log_id, task_result.id)
+            log_ids.append(log_id)
+
+        return _admin_details_redirect(
+            request,
+            AdminActionLogAdmin.identity,
+            parent_log_id or log_ids[0],
         )
 
 
@@ -407,7 +601,15 @@ class CourseAdmin(ModelView, model=Course):
     name = "Course"
     name_plural = "Courses"
     icon = "fa-solid fa-list-ol"
-    column_list = [Course.id, Course.name, Course.source_table_id, Course.is_active, Course.dan_title, Course.synced_at]
+    column_list = [
+        Course.id,
+        Course.name,
+        Course.source_table_id,
+        Course.constraint,
+        Course.is_active,
+        Course.dan_title,
+        Course.synced_at,
+    ]
     column_searchable_list = [Course.name, Course.dan_title]
     column_sortable_list = [Course.synced_at, Course.is_active, Course.name]
 

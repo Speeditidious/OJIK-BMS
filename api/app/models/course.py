@@ -36,6 +36,9 @@ class Course(Base):
     )
     md5_list: Mapped[list] = mapped_column(JSONB, nullable=False)
     sha256_list: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    constraint: Mapped[list] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     dan_title: Mapped[str] = mapped_column(Text, nullable=False, server_default="''")
     synced_at: Mapped[datetime] = mapped_column(
@@ -44,5 +47,4 @@ class Course(Base):
 
     def __repr__(self) -> str:
         return f"<Course id={self.id} name={self.name}>"
-
 

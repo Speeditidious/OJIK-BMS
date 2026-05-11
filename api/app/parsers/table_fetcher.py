@@ -9,7 +9,7 @@ The parsed result is normalized to:
     "header": { ...original header.json fields },
     "songs": [ {level, md5, sha256, title, artist, url, url_diff, name_diff, ...}, ... ],
     "level_order": ["sl0", "sl1", ...],  # ordered level list
-    "courses": [ {name, md5_list}, ... ]  # parsed from header course/grade fields
+    "courses": [ {name, md5_list, sha256_list, constraint}, ... ]
   }
 """
 from __future__ import annotations
@@ -77,31 +77,57 @@ def _derive_level_order(songs: list[dict]) -> list[str]:
 def _parse_courses_from_header(header: dict) -> list[dict[str, Any]]:
     """Extract course entries from header.json course/grade fields.
 
-    Returns a list of {name: str, md5_list: [str, ...]} dicts.
+    Returns normalized course dicts with hash lists and constraint tokens.
     """
     courses: list[dict[str, Any]] = []
 
+    def _hash_list(values: Any) -> list[str]:
+        if not isinstance(values, list):
+            return []
+        return [str(value).strip().lower() for value in values if str(value).strip()]
+
+    def _constraint_list(values: Any) -> list[str]:
+        if not isinstance(values, list):
+            return []
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            token = value.strip().lower()
+            if token and token not in seen:
+                seen.add(token)
+                normalized.append(token)
+        return normalized
+
+    def _push(entry: dict[str, Any]) -> None:
+        name = entry.get("name") or ""
+        md5s = _hash_list(entry.get("md5") or entry.get("md5hash") or [])
+        sha256s = _hash_list(entry.get("sha256") or entry.get("sha256hash") or [])
+        if not name or (not md5s and not sha256s):
+            return
+        courses.append(
+            {
+                "name": name,
+                "md5_list": md5s,
+                "sha256_list": sha256s,
+                "constraint": _constraint_list(entry.get("constraint") or []),
+            }
+        )
+
     raw_grade: list[dict] = header.get("grade") or []
     for entry in raw_grade:
-        name = entry.get("name") or ""
-        md5s = entry.get("md5") or []
-        if name and md5s:
-            courses.append({"name": name, "md5_list": md5s})
+        if isinstance(entry, dict):
+            _push(entry)
 
     raw_course: list[Any] = header.get("course") or []
     for item in raw_course:
-        # course can be a list of lists
         if isinstance(item, list):
             for entry in item:
-                name = entry.get("name") or ""
-                md5s = entry.get("md5") or []
-                if name and md5s:
-                    courses.append({"name": name, "md5_list": md5s})
+                if isinstance(entry, dict):
+                    _push(entry)
         elif isinstance(item, dict):
-            name = item.get("name") or ""
-            md5s = item.get("md5") or []
-            if name and md5s:
-                courses.append({"name": name, "md5_list": md5s})
+            _push(item)
 
     return courses
 

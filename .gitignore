@@ -132,6 +132,9 @@ __pypackages__/
 celerybeat-schedule
 celerybeat.pid
 
+# URL-only table cache directories are generated operational data.
+api/difficulty_tables/url_*/
+
 # SageMath parsed files
 *.sage.py
 

@@ -5,7 +5,6 @@ from celery.schedules import crontab
 from app.parsers.table_fetcher import get_default_table_configs, get_update_config
 from app.tasks import UPDATE_ALL_TABLES_TASK, build_beat_schedule
 
-
 STELLAVERSE_SLUGS = {"satellite", "stella", "solar", "supernova"}
 
 
@@ -45,6 +44,9 @@ def test_build_beat_schedule_keeps_default_interval_for_non_overridden_tables():
     assert default_entry["task"] == UPDATE_ALL_TABLES_TASK
     assert default_entry["schedule"] == 168 * 3600
     assert set(default_entry["kwargs"]["exclude_slugs"]) == STELLAVERSE_SLUGS
+    assert default_entry["kwargs"]["default_only"] is True
+    assert default_entry["kwargs"]["force"] is False
+    assert default_entry["kwargs"]["respect_auto_update"] is True
 
 
 def test_build_beat_schedule_adds_stellaverse_weekly_midnight_entries():
@@ -59,7 +61,12 @@ def test_build_beat_schedule_adds_stellaverse_weekly_midnight_entries():
         schedule = entry["schedule"]
 
         assert entry["task"] == UPDATE_ALL_TABLES_TASK
-        assert entry["kwargs"] == {"slugs": [slug]}
+        assert entry["kwargs"] == {
+            "slugs": [slug],
+            "default_only": True,
+            "force": False,
+            "respect_auto_update": True,
+        }
         assert isinstance(schedule, crontab)
         assert schedule._orig_day_of_week == "mon"
         assert schedule._orig_hour == 0
@@ -97,6 +104,9 @@ def test_build_beat_schedule_does_not_schedule_disabled_tables():
     assert beat_schedule["update-difficulty-tables"]["schedule"] == 12 * 3600
     assert beat_schedule["update-difficulty-tables"]["kwargs"] == {
         "exclude_slugs": ["weekly-table"],
+        "default_only": True,
+        "force": False,
+        "respect_auto_update": True,
     }
     assert "update-difficulty-table-weekly-table" in beat_schedule
     assert "update-difficulty-table-disabled-table" not in beat_schedule

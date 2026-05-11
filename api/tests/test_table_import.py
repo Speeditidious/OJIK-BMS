@@ -60,6 +60,8 @@ class _FakeRequest:
 
     def url_for(self, name: str, **kwargs: Any) -> str:
         self.url_for_calls.append((name, kwargs))
+        if name == "admin:details":
+            return f"/admin/{kwargs['identity']}/details/{kwargs['pk']}"
         return f"/admin/{kwargs['identity']}/list"
 
 
@@ -203,11 +205,28 @@ async def test_import_table_populates_empty_existing_table(monkeypatch) -> None:
 async def test_difficulty_table_admin_actions_redirect_to_real_identity(monkeypatch) -> None:
     """Difficulty table admin actions should redirect to the hyphenated sqladmin identity."""
     delayed: list[Any] = []
+    created_logs: list[dict[str, Any]] = []
 
-    monkeypatch.setattr("app.tasks.table_updater.update_difficulty_table.delay", delayed.append)
-    monkeypatch.setattr("app.tasks.table_updater.update_all_difficulty_tables.delay", lambda: delayed.append("all"))
+    class _TaskResult:
+        id = "task-id"
+
+    async def fake_create_log(**kwargs: Any) -> uuid.UUID:
+        created_logs.append(kwargs)
+        return uuid.uuid4()
+
+    async def fake_mark_task_id(log_id: uuid.UUID, celery_task_id: str) -> None:
+        created_logs.append({"marked": str(log_id), "task": celery_task_id})
+
+    def fake_delay(*args: Any, **kwargs: Any) -> _TaskResult:
+        delayed.append((args, kwargs))
+        return _TaskResult()
+
+    monkeypatch.setattr("app.services.admin_action_log.create_log", fake_create_log)
+    monkeypatch.setattr("app.services.admin_action_log.mark_task_id", fake_mark_task_id)
+    monkeypatch.setattr("app.tasks.table_updater.update_difficulty_table.delay", fake_delay)
+    monkeypatch.setattr("app.tasks.table_updater.update_all_difficulty_tables.delay", fake_delay)
     monkeypatch.setattr("app.services.ranking_config.get_ranking_config", lambda: (_ for _ in ()).throw(RuntimeError()))
-    monkeypatch.setattr("app.tasks.ranking_calculator.recalculate_all_rankings.delay", lambda: delayed.append("rankings"))
+    monkeypatch.setattr("app.tasks.ranking_calculator.recalculate_all_rankings.delay", fake_delay)
 
     for action, pks in [
         (DifficultyTableAdmin.sync_selected_tables, "abc"),
@@ -217,8 +236,8 @@ async def test_difficulty_table_admin_actions_redirect_to_real_identity(monkeypa
         request = _FakeRequest(pks=pks)
         response = await action(DifficultyTableAdmin, request)
         assert response.status_code == 302
-        assert request.url_for_calls[-1] == (
-            "admin:list",
-            {"identity": DifficultyTableAdmin.identity},
-        )
+        assert request.url_for_calls[-1][0] == "admin:details"
+        assert request.url_for_calls[-1][1]["identity"] == "admin-action-log"
         assert DifficultyTableAdmin.identity == "difficulty-table"
+    assert delayed
+    assert created_logs

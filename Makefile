@@ -1,16 +1,20 @@
 .PHONY: update-tables seed-tables ci fix
 
 SLUG ?=
+URL ?=
 ENV ?=
+DEFAULT_ONLY ?=
+ARGS ?=
 
 COMPOSE_FILES = -f docker-compose.yml $(if $(filter prod,$(ENV)),-f docker-compose.prod.yml --env-file .env.prod,)
+UPDATE_TABLE_ARGS = $(if $(SLUG),--slug $(SLUG),) $(if $(URL),--url $(URL),) $(if $(DEFAULT_ONLY),--default-only,) $(ARGS)
+SEED_TABLE_ARGS = $(if $(SLUG),--slug $(SLUG),) $(if $(DEFAULT_ONLY),--default-only,) $(ARGS)
 
 update-tables:
-	docker compose $(COMPOSE_FILES) exec api python scripts/update_tables.py $(if $(SLUG),--slug $(SLUG),)
-	docker compose $(COMPOSE_FILES) exec api python scripts/seed_tables.py $(if $(SLUG),--slug $(SLUG),)
+	docker compose $(COMPOSE_FILES) exec api python scripts/update_tables.py $(UPDATE_TABLE_ARGS)
 
 seed-tables:
-	docker compose $(COMPOSE_FILES) exec api python scripts/seed_tables.py
+	docker compose $(COMPOSE_FILES) exec api python scripts/seed_tables.py $(SEED_TABLE_ARGS)
 
 ci:
 	@echo "=== API: ruff ==="

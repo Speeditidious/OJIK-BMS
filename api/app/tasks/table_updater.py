@@ -2,7 +2,6 @@
 import asyncio
 import logging
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 
 from app.tasks import celery_app
@@ -16,7 +15,12 @@ logger = logging.getLogger(__name__)
     max_retries=2,
     default_retry_delay=3600,
 )
-def update_difficulty_table(self: Any, table_id: str) -> dict:
+def update_difficulty_table(
+    self: Any,
+    table_id: str,
+    log_id: str | None = None,
+    force: bool = True,
+) -> dict:
     """Fetch and update a single difficulty table from its source URL.
 
     table_id is passed as a string for Celery JSON serialization.
@@ -26,92 +30,82 @@ def update_difficulty_table(self: Any, table_id: str) -> dict:
         if loop.is_closed():
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        return loop.run_until_complete(_async_update_difficulty_table(uuid.UUID(table_id)))
+        return loop.run_until_complete(
+            _async_update_difficulty_table(
+                uuid.UUID(table_id),
+                uuid.UUID(log_id) if log_id else None,
+                force=force,
+            )
+        )
     except Exception as exc:
         logger.error(f"Failed to update table {table_id}: {exc}")
         raise self.retry(exc=exc)
 
 
-async def _async_update_difficulty_table(table_id: uuid.UUID) -> dict:
-    from sqlalchemy import select
+async def _async_update_difficulty_table(
+    table_id: uuid.UUID,
+    log_id: uuid.UUID | None,
+    *,
+    force: bool = True,
+) -> dict:
+    from app.services.admin_action_log import refresh_parent_status
+    from app.services.table_sync import sync_table_by_id
 
-    from app.core.database import AsyncSessionLocal
-    from app.models.difficulty_table import DifficultyTable
-    from app.parsers.table_fetcher import (
-        fetch_table,
-        get_default_table_configs,
-        get_update_config,
-        save_table_to_disk,
+    result = await sync_table_by_id(
+        table_id,
+        log_id=log_id,
+        respect_min_interval=not force,
     )
-    from app.services.table_import import (
-        remove_stale_entries,
-        upsert_courses,
-        upsert_fumens,
-    )
+    logger.info(f"Updated DifficultyTable {table_id}: {result}")
+    if log_id:
+        from sqlalchemy import select
 
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(DifficultyTable).where(DifficultyTable.id == table_id)
+        from app.core.database import AsyncSessionLocal
+        from app.models.admin_action_log import AdminActionLog
+
+        async with AsyncSessionLocal() as db:
+            row_result = await db.execute(select(AdminActionLog.parent_log_id).where(AdminActionLog.id == log_id))
+            parent_log_id = row_result.scalar_one_or_none()
+        if parent_log_id:
+            await refresh_parent_status(parent_log_id)
+    return result
+
+
+@celery_app.task(
+    name="app.tasks.table_updater.update_difficulty_table_by_url",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=3600,
+)
+def update_difficulty_table_by_url(self: Any, url: str, log_id: str | None = None) -> dict:
+    """Fetch and update a difficulty table from an arbitrary source URL."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop.run_until_complete(
+            _async_update_difficulty_table_by_url(url, uuid.UUID(log_id) if log_id else None)
         )
-        table = result.scalar_one_or_none()
+    except Exception as exc:
+        logger.error(f"Failed to update table by URL {url}: {exc}")
+        raise self.retry(exc=exc)
 
-        if table is None:
-            return {"status": "not_found", "table_id": table_id}
 
-        if not table.source_url:
-            return {"status": "no_url", "table_id": table_id}
+async def _async_update_difficulty_table_by_url(url: str, log_id: uuid.UUID | None) -> dict:
+    from app.services.table_sync import sync_table_by_url
 
-        update_config = get_update_config()
-        min_hours = update_config.get("min_request_interval_hours", 1)
-        if table.updated_at:
-            elapsed = datetime.now(UTC) - table.updated_at
-            if elapsed.total_seconds() < min_hours * 3600:
-                logger.info(
-                    f"Skipping table {table_id} ({table.name}): last synced "
-                    f"{elapsed.total_seconds() / 3600:.1f}h ago (min: {min_hours}h)"
-                )
-                return {"status": "skipped_too_recent", "table_id": table_id, "name": table.name}
-
-        try:
-            table_data = await fetch_table(table.source_url)
-
-            if table.slug:
-                save_table_to_disk(table.slug, table_data)
-
-            table.level_order = table_data.get("level_order")
-            table.updated_at = datetime.now(UTC)
-
-            cfg_symbol = None
-            if table.slug:
-                cfg_map = {c["slug"]: c for c in get_default_table_configs()}
-                cfg_symbol = cfg_map.get(table.slug, {}).get("symbol")
-            effective_symbol = cfg_symbol or table_data.get("symbol")
-            if effective_symbol:
-                table.symbol = effective_symbol
-
-            seen_keys = await upsert_fumens(db, table_id, table_data.get("songs", []))
-            removed = await remove_stale_entries(db, table_id, seen_keys)
-            await upsert_courses(db, table_id, table_data.get("courses", []))
-            await db.commit()
-
-            logger.info(f"Updated DifficultyTable {table_id}: {table.name}, {len(seen_keys)} fumens")
-            return {
-                "status": "success",
-                "table_id": table_id,
-                "name": table.name,
-                "fumen_count": len(seen_keys),
-                "stale_removed": removed,
-            }
-
-        except Exception as exc:
-            logger.error(f"Error updating table {table_id} ({table.source_url}): {exc}")
-            raise
+    return await sync_table_by_url(url, is_default=False, save_disk_cache=True, log_id=log_id)
 
 
 @celery_app.task(name="app.tasks.table_updater.update_all_difficulty_tables")
 def update_all_difficulty_tables(
     slugs: list[str] | None = None,
     exclude_slugs: list[str] | None = None,
+    log_id: str | None = None,
+    default_only: bool = False,
+    force: bool = True,
+    respect_auto_update: bool = False,
 ) -> dict:
     """Trigger updates for all difficulty tables that have a source URL."""
     try:
@@ -120,7 +114,14 @@ def update_all_difficulty_tables(
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         return loop.run_until_complete(
-            _async_update_all_tables(slugs=slugs, exclude_slugs=exclude_slugs)
+            _async_update_all_tables(
+                slugs=slugs,
+                exclude_slugs=exclude_slugs,
+                log_id=uuid.UUID(log_id) if log_id else None,
+                default_only=default_only,
+                force=force,
+                respect_auto_update=respect_auto_update,
+            )
         )
     except Exception as exc:
         logger.error(f"Failed to queue table updates: {exc}")
@@ -130,41 +131,55 @@ def update_all_difficulty_tables(
 async def _async_update_all_tables(
     slugs: list[str] | None = None,
     exclude_slugs: list[str] | None = None,
+    log_id: uuid.UUID | None = None,
+    default_only: bool = False,
+    force: bool = True,
+    respect_auto_update: bool = False,
 ) -> dict:
-    from sqlalchemy import select
+    from app.services.admin_action_log import (
+        append_line,
+        create_log,
+        mark_task_id,
+        refresh_parent_status,
+        set_status,
+    )
+    from app.services.table_sync import list_table_sync_targets
 
-    from app.core.database import AsyncSessionLocal
-    from app.models.difficulty_table import DifficultyTable
-    from app.parsers.table_fetcher import get_default_table_configs
+    target_rows = await list_table_sync_targets(
+        slugs=slugs,
+        exclude_slugs=exclude_slugs,
+        default_only=default_only,
+        respect_auto_update=respect_auto_update,
+    )
 
-    requested_slugs = set(slugs) if slugs is not None else None
-    excluded_slugs = {
-        c["slug"] for c in get_default_table_configs()
-        if not c.get("auto_update", True)
-    }
-    if exclude_slugs:
-        excluded_slugs.update(exclude_slugs)
+    if log_id:
+        await set_status(log_id, "running")
+        await append_line(log_id, f"Queueing {len(target_rows)} table sync jobs")
 
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(DifficultyTable.id, DifficultyTable.slug)
-            .where(DifficultyTable.source_url.isnot(None))
+    table_ids: list[str] = []
+    action_name = "sync_default_tables" if default_only else "sync_all_tables"
+    for row in target_rows:
+        table_id = str(row.id)
+        table_ids.append(table_id)
+        child_log_id = None
+        if log_id:
+            child_log_id = await create_log(
+                action_name=action_name,
+                target_kind="difficulty_table",
+                target_id=table_id,
+                target_label=row.name,
+                parent_log_id=log_id,
+            )
+        task_result = update_difficulty_table.delay(
+            table_id,
+            log_id=str(child_log_id) if child_log_id else None,
+            force=force,
         )
-        rows = result.all()
+        if child_log_id and getattr(task_result, "id", None):
+            await mark_task_id(child_log_id, task_result.id)
 
-    table_ids = [
-        str(row[0])
-        for row in rows
-        if row[1] not in excluded_slugs
-        and (requested_slugs is None or row[1] in requested_slugs)
-    ]
-
-    if excluded_slugs:
-        skipped = [row[1] for row in rows if row[1] in excluded_slugs]
-        logger.info(f"Skipping auto-update for excluded tables: {skipped}")
-
-    for table_id in table_ids:
-        update_difficulty_table.delay(table_id)
+    if log_id:
+        await refresh_parent_status(log_id)
 
     logger.info(f"Queued updates for {len(table_ids)} difficulty tables")
     return {"queued": len(table_ids), "table_ids": table_ids}

@@ -47,7 +47,12 @@ def build_beat_schedule(update_config: dict, table_configs: list[dict]) -> dict:
         "update-difficulty-tables": {
             "task": UPDATE_ALL_TABLES_TASK,
             "schedule": update_interval_seconds,
-            "kwargs": {"exclude_slugs": scheduled_slugs},
+            "kwargs": {
+                "exclude_slugs": scheduled_slugs,
+                "default_only": True,
+                "force": False,
+                "respect_auto_update": True,
+            },
         },
         "recalculate-all-rankings": {
             "task": RECALCULATE_ALL_RANKINGS_TASK,
@@ -65,7 +70,12 @@ def build_beat_schedule(update_config: dict, table_configs: list[dict]) -> dict:
         beat_schedule[f"update-difficulty-table-{slug}"] = {
             "task": UPDATE_ALL_TABLES_TASK,
             "schedule": _build_update_schedule(schedule_config),
-            "kwargs": {"slugs": [slug]},
+            "kwargs": {
+                "slugs": [slug],
+                "default_only": True,
+                "force": False,
+                "respect_auto_update": True,
+            },
         }
 
     return beat_schedule
