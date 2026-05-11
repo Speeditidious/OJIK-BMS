@@ -192,30 +192,33 @@ async def fetch_table(
 
         resp = await client.get(url, headers=req_headers)
         resp.raise_for_status()
+        page_url = str(resp.url)
 
-        parsed = urlparse(url)
+        parsed = urlparse(page_url)
         is_json = parsed.path.endswith(".json") or "json" in resp.headers.get(
             "content-type", ""
         )
 
         if is_json:
-            header_url = url
+            header_url = page_url
+            header_base_url = header_url
             header: dict = resp.json()
         else:
             parser = _MetaTagParser()
             parser.feed(resp.text)
             if not parser.bmstable_url:
                 raise ValueError(f"No <meta name='bmstable'> found at {url}")
-            header_url = _make_absolute(parser.bmstable_url, url)
+            header_url = _make_absolute(parser.bmstable_url, page_url)
             header_resp = await client.get(header_url, headers={"User-Agent": req_headers["User-Agent"]})
             header_resp.raise_for_status()
+            header_base_url = str(header_resp.url)
             header = header_resp.json()
 
         data_url_raw: str = header.get("data_url") or header.get("data_url_no_cache", "")
         if not data_url_raw:
             raise ValueError(f"header.json at {header_url} has no data_url field")
 
-        data_url = _make_absolute(data_url_raw, header_url)
+        data_url = _make_absolute(data_url_raw, header_base_url)
         data_resp = await client.get(data_url, headers={"User-Agent": req_headers["User-Agent"]})
         data_resp.raise_for_status()
 
