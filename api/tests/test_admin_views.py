@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,8 @@ from app.admin.views import (
     _reset_user_play_data,
 )
 from app.models.score import UserScore
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_user_score_admin_searches_every_column() -> None:
@@ -44,6 +47,18 @@ def test_parse_admin_user_ids_ignores_invalid_values() -> None:
     valid = uuid.uuid4()
 
     assert _parse_admin_user_ids(f"{valid},not-a-uuid,") == [valid]
+
+
+def test_sqladmin_delete_modal_override_guards_missing_related_target() -> None:
+    """Delete modal override should preserve bulk-delete URLs from sqladmin JS."""
+    template = REPO_ROOT / "api" / "templates" / "sqladmin" / "modals" / "delete.html"
+    content = template.read_text(encoding="utf-8")
+
+    assert "event.relatedTarget || []" in content
+    assert 'trigger = window.jQuery("#action-delete")' in content
+    assert "isUsableDeleteUrl" in content
+    assert 'value !== "undefined"' in content
+    assert "selectedCount(pk)" in content
 
 
 @pytest.mark.asyncio

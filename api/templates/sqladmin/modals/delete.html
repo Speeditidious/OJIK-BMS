@@ -1,0 +1,78 @@
+<div class="modal modal-blur fade" id="modal-delete" tabindex="-1" role="dialog" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      <div class="modal-status bg-danger"></div>
+      <div class="modal-body text-center py-4">
+        <i class="text-danger fa-solid fa-triangle-exclamation fa-2x"></i>
+        <h3>Please confirm</h3>
+        <div id="modal-delete-text" class="text-muted"></div>
+      </div>
+      <div class="modal-footer">
+        <div class="w-100">
+          <div class="row">
+            <div class="col">
+              <a href="#" class="btn w-100" data-bs-dismiss="modal">
+                Cancel
+              </a>
+            </div>
+            <div class="col">
+              <button id="modal-delete-button" data-url="" class="btn btn-danger w-100">
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  if (!window.jQuery) {
+    return;
+  }
+
+  var $document = window.jQuery(document);
+
+  function isUsableDeleteUrl(value) {
+    return typeof value === "string" && value.length > 0 && value !== "undefined";
+  }
+
+  function selectedCount(pk) {
+    if (Array.isArray(pk)) {
+      return pk.length;
+    }
+    if (typeof pk === "string" && pk.length > 0) {
+      return pk.split(",").filter(Boolean).length;
+    }
+    return 0;
+  }
+
+  function confirmationText(name, pk) {
+    var count = selectedCount(pk);
+    if (count > 1 || Array.isArray(pk)) {
+      return "This will permanently delete " + count + " selected " + name + " items ?";
+    }
+    return "This will permanently delete " + name + " " + (pk || "") + " ?";
+  }
+
+  $document.off("shown.bs.modal", "#modal-delete");
+  $document.on("shown.bs.modal", "#modal-delete", function (event) {
+    var trigger = window.jQuery(event.relatedTarget || []);
+    if (!trigger.length) {
+      trigger = window.jQuery("#action-delete");
+    }
+
+    var name = trigger.data("name") || "item";
+    var pk = trigger.data("pk") || "";
+    var url = trigger.data("url");
+
+    window.jQuery("#modal-delete-text").text(confirmationText(name, pk));
+    if (isUsableDeleteUrl(url)) {
+      window.jQuery("#modal-delete-button").attr("data-url", url);
+    }
+  });
+});
+</script>
