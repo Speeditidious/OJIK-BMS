@@ -241,6 +241,7 @@ export function SourceCard({
             key={field.pathKey as string}
             label={field.label}
             value={(config[field.pathKey] as string) ?? ""}
+            inputName={`ojik-${field.pathKey as string}`}
             onChange={(next) =>
               onUpdate({ [field.pathKey]: next || null } as Partial<ClientConfig>)
             }

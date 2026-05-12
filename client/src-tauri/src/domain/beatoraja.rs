@@ -18,6 +18,7 @@ pub struct ParseStats {
     pub query_result_count: usize,
     pub skipped_hash: usize,
     pub skipped_lr2: usize,
+    pub skipped_no_play: usize,
     pub parsed_courses: usize,
     pub parsed: usize,
 }
@@ -33,6 +34,7 @@ pub struct ScoreLogStats {
     pub total_queried: usize,
     pub skipped_hash: usize,
     pub skipped_duplicate: usize,
+    pub skipped_no_play: usize,
     pub parsed: usize,
     pub parsed_courses: usize,
 }
@@ -120,6 +122,11 @@ pub fn parse_scores(
             .is_some_and(|value| value.trim().eq_ignore_ascii_case("LR2"))
         {
             stats.skipped_lr2 += 1;
+            continue;
+        }
+
+        if row_beatoraja_clear_type(row) == 0 {
+            stats.skipped_no_play += 1;
             continue;
         }
 
@@ -309,11 +316,12 @@ pub fn parse_score_log(
         }
 
         let exscore = get_i64(row, Some(score_col));
-        let clear = normalize_max_clear_type(
-            beatoraja_clear_type(get_i64(row, Some("clear")).unwrap_or(0)),
-            exscore,
-            None,
-        );
+        let raw_clear_type = row_beatoraja_clear_type(row);
+        if raw_clear_type == 0 {
+            stats.skipped_no_play += 1;
+            continue;
+        }
+        let clear = normalize_max_clear_type(raw_clear_type, exscore, None);
         if sha256.len() > 64 {
             history.push(ScoreItem {
                 fumen_hash_others: Some(sha256),
@@ -584,11 +592,7 @@ fn build_item(
     });
     let notes = none_if_zero(get_i64(row, cols.notes.as_deref()).unwrap_or(0));
     let exscore = beatoraja_exscore(&judgments);
-    let clear_type = normalize_max_clear_type(
-        beatoraja_clear_type(get_i64(row, Some("clear")).unwrap_or(0)),
-        Some(exscore),
-        notes,
-    );
+    let clear_type = normalize_max_clear_type(row_beatoraja_clear_type(row), Some(exscore), notes);
     let row_mode = get_i64(row, Some("mode")).unwrap_or(0);
     let scorehash = get_string(row, "scorehash")
         .map(|s| s.trim().to_string())
@@ -666,6 +670,10 @@ fn score_db_pairs(data_path: &Path) -> HashSet<(String, i64)> {
         }
     }
     pairs
+}
+
+fn row_beatoraja_clear_type(row: &Row<'_>) -> i64 {
+    beatoraja_clear_type(get_i64(row, Some("clear")).unwrap_or(0))
 }
 
 fn beatoraja_clear_type(value: i64) -> i64 {
@@ -925,24 +933,18 @@ mod tests {
         let (scores, courses, stats) =
             parse_scores(dir.to_str().unwrap()).expect("parse beatoraja scores");
 
-        assert_eq!(scores.len(), 2);
+        assert_eq!(scores.len(), 1);
         assert!(courses.is_empty());
         assert_eq!(stats.db_total, 4);
         assert_eq!(stats.query_result_count, 3);
         assert_eq!(stats.skipped_lr2, 1);
-        assert_eq!(stats.parsed, 2);
+        assert_eq!(stats.skipped_no_play, 1);
+        assert_eq!(stats.parsed, 1);
         let expected_sha256 = "c".repeat(64);
         let score = scores
             .iter()
             .find(|score| score.fumen_sha256.as_deref() == Some(expected_sha256.as_str()))
             .expect("played score included");
-        let expected_unplayed_sha256 = "z".repeat(64);
-        let unplayed = scores
-            .iter()
-            .find(|score| score.fumen_sha256.as_deref() == Some(expected_unplayed_sha256.as_str()))
-            .expect("unplayed score included");
-        assert_eq!(unplayed.play_count, Some(0));
-        assert_eq!(unplayed.clear_type, Some(0));
         assert_eq!(
             score.fumen_sha256.as_deref(),
             Some(expected_sha256.as_str())
@@ -1023,14 +1025,34 @@ mod tests {
             2,
             Some("dp"),
         );
+        let no_play_course_hash = format!("{}{}", "q".repeat(64), "r".repeat(64));
+        insert_score(
+            &dir,
+            &no_play_course_hash,
+            10000,
+            0,
+            0,
+            10,
+            10,
+            5,
+            5,
+            399,
+            676,
+            0,
+            0,
+            1755002699,
+            12966,
+            Some("no-play-course"),
+        );
 
         let (scores, courses, stats) =
             parse_scores(dir.to_str().unwrap()).expect("parse beatoraja scores");
 
         assert_eq!(scores.len(), 1);
         assert_eq!(courses.len(), 1);
-        assert_eq!(stats.db_total, 3);
-        assert_eq!(stats.query_result_count, 2);
+        assert_eq!(stats.db_total, 4);
+        assert_eq!(stats.query_result_count, 3);
+        assert_eq!(stats.skipped_no_play, 1);
         assert_eq!(stats.parsed_courses, 1);
         let course = &courses[0];
         assert_eq!(
@@ -1098,12 +1120,14 @@ mod tests {
         insert_scorelog(&dir, &history_course, 10000, 0, 5, 2222, 333, 4, 1755002700);
         insert_scorelog(&dir, &("m".repeat(64)), 0, 0, 4, 1500, 900, 10, 1700000001);
         insert_scorelog(&dir, &("n".repeat(64)), 1, 0, 7, 1800, 1200, 2, 1700000002);
+        insert_scorelog(&dir, &("z".repeat(64)), 0, 0, 0, 9999, 999, 0, 1700000003);
 
         let (history, stats) = parse_score_log(dir.to_str().unwrap(), None);
 
         assert_eq!(history.len(), 2);
-        assert_eq!(stats.total_queried, 3);
+        assert_eq!(stats.total_queried, 4);
         assert_eq!(stats.skipped_duplicate, 1);
+        assert_eq!(stats.skipped_no_play, 1);
         assert_eq!(stats.parsed, 1);
         assert_eq!(stats.parsed_courses, 1);
         let course = history

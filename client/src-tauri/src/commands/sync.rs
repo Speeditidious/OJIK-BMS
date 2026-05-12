@@ -373,6 +373,7 @@ async fn run_sync(
                         stats.db_total,
                         stats.skipped_filter(),
                         0,
+                        stats.skipped_no_play,
                         stats.skipped_hash,
                     );
                     all_scores.extend(scores);
@@ -431,6 +432,7 @@ async fn run_sync(
                         stats.db_total.saturating_sub(stats.skipped_lr2),
                         stats.skipped_filter(),
                         stats.skipped_lr2,
+                        stats.skipped_no_play,
                         stats.skipped_hash,
                     );
                     all_scores.extend(scores);
@@ -462,6 +464,7 @@ async fn run_sync(
                 stats.parsed + stats.parsed_courses,
                 stats.total_queried,
                 stats.skipped_duplicate,
+                stats.skipped_no_play,
                 stats.skipped_hash,
             );
             all_scores.extend(scorelog);
@@ -490,7 +493,10 @@ async fn run_sync(
         );
         let group_count = dedup_groups.len();
         for (i, group) in dedup_groups.iter().enumerate() {
-            let hash = group.kept.fumen_sha256.as_deref()
+            let hash = group
+                .kept
+                .fumen_sha256
+                .as_deref()
                 .or(group.kept.fumen_md5.as_deref())
                 .or(group.kept.fumen_hash_others.as_deref())
                 .unwrap_or("unknown");
@@ -510,8 +516,14 @@ async fn run_sync(
                 "debug",
                 &format!(
                     "[DEBUG]   채택: clear={}, exscore={}, recorded_at={}",
-                    group.kept.clear_type.map_or("-".to_string(), |v| v.to_string()),
-                    group.kept.exscore.map_or("-".to_string(), |v| v.to_string()),
+                    group
+                        .kept
+                        .clear_type
+                        .map_or("-".to_string(), |v| v.to_string()),
+                    group
+                        .kept
+                        .exscore
+                        .map_or("-".to_string(), |v| v.to_string()),
                     group.kept.recorded_at.as_deref().unwrap_or("-"),
                 ),
             );
@@ -522,7 +534,9 @@ async fn run_sync(
                     "debug",
                     &format!(
                         "[DEBUG]   제외: clear={}, exscore={}, recorded_at={}",
-                        dropped.clear_type.map_or("-".to_string(), |v| v.to_string()),
+                        dropped
+                            .clear_type
+                            .map_or("-".to_string(), |v| v.to_string()),
                         dropped.exscore.map_or("-".to_string(), |v| v.to_string()),
                         dropped.recorded_at.as_deref().unwrap_or("-"),
                     ),
@@ -943,6 +957,7 @@ fn log_parse_summary(
     effective_total: usize,
     skipped_filter: usize,
     skipped_lr2: usize,
+    skipped_no_play: usize,
     skipped_hash: usize,
 ) {
     log(
@@ -961,7 +976,7 @@ fn log_parse_summary(
             sync_run_id,
             "info",
             &format!(
-                "    미플레이/필터 제외: {}개 - 정상 동작 (플레이 기록 없는 차분 포함)",
+                "    필터 제외: {}개 - 정상 동작 (선택한 모드/플레이어 외 기록)",
                 format_count_usize(skipped_filter)
             ),
         );
@@ -974,6 +989,17 @@ fn log_parse_summary(
             &format!(
                 "    LR2 기록 제외: {}개 - 정상 동작 (LR2에서 임포트된 기록. Beatoraja 기록 아님)",
                 format_count_usize(skipped_lr2)
+            ),
+        );
+    }
+    if skipped_no_play > 0 {
+        log(
+            app,
+            sync_run_id,
+            "info",
+            &format!(
+                "    NO PLAY 제외: {}개 - 정상 동작 (플레이하지 않은 기록은 업로드하지 않음)",
+                format_count_usize(skipped_no_play)
             ),
         );
     }
@@ -996,6 +1022,7 @@ fn log_scorelog_summary(
     parsed: usize,
     total_queried: usize,
     skipped_duplicate: usize,
+    skipped_no_play: usize,
     skipped_hash: usize,
 ) {
     log(
@@ -1016,6 +1043,17 @@ fn log_scorelog_summary(
             &format!(
                 "    score.db 중복 제외: {}개 - 정상 동작 (현재 최고 기록과 동일한 항목)",
                 format_count_usize(skipped_duplicate)
+            ),
+        );
+    }
+    if skipped_no_play > 0 {
+        log(
+            app,
+            sync_run_id,
+            "info",
+            &format!(
+                "    NO PLAY 제외: {}개 - 정상 동작 (플레이하지 않은 기록은 업로드하지 않음)",
+                format_count_usize(skipped_no_play)
             ),
         );
     }
@@ -1043,8 +1081,14 @@ fn log_debug_updates(app: &AppHandle, sync_run_id: &str, updates: &[serde_json::
         &format!("[DEBUG] 메타데이터 수정 항목: {}건", updates.len()),
     );
     for (i, entry) in updates.iter().enumerate() {
-        let identifier = entry.get("identifier").and_then(|v| v.as_str()).unwrap_or("?");
-        let client_type = entry.get("client_type").and_then(|v| v.as_str()).unwrap_or("?");
+        let identifier = entry
+            .get("identifier")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let client_type = entry
+            .get("client_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
         let row_id = entry.get("row_id").and_then(|v| v.as_str()).unwrap_or("?");
         let changed_fields = entry
             .get("changed_fields")
@@ -1186,11 +1230,7 @@ struct StageCounts {
 
 impl StageCounts {
     fn from_result(result: &SyncResult) -> Self {
-        let errors_warn = result
-            .errors
-            .iter()
-            .filter(|e| e.level == "warn")
-            .count();
+        let errors_warn = result.errors.iter().filter(|e| e.level == "warn").count();
         let errors_error = result.errors.len() - errors_warn;
         Self {
             client_filter: result.client_filter.clone(),
@@ -1416,7 +1456,10 @@ fn dedup_same_day_records(
     let mut out: Vec<ScoreItem> = Vec::new();
     for (key, kept) in keep {
         if let Some(dropped) = dropped_by_key.remove(&key) {
-            groups.push(DedupGroup { kept: kept.clone(), dropped });
+            groups.push(DedupGroup {
+                kept: kept.clone(),
+                dropped,
+            });
             out.push(kept);
         } else {
             out.push(kept);
@@ -1431,9 +1474,7 @@ fn dedup_same_day_records(
     // "no improvement", which silently drops the bulk of scorelog history.
     // Items without recorded_at sort first (i64::MIN) — they hit the same-day
     // merge path on the server regardless of position.
-    out.sort_by_key(|item| {
-        recorded_at_unix_timestamp(&item.recorded_at).unwrap_or(i64::MIN)
-    });
+    out.sort_by_key(|item| recorded_at_unix_timestamp(&item.recorded_at).unwrap_or(i64::MIN));
 
     (out, groups)
 }
@@ -1478,10 +1519,24 @@ mod tests {
     #[test]
     fn dedup_keeps_latest_recorded_at_for_same_day_course() {
         let hash = "a".repeat(256);
-        let earlier = make_item(None, None, Some(&hash), "beatoraja",
-            Some("2025-03-19T11:20:14Z"), Some(1), Some(100));
-        let later = make_item(None, None, Some(&hash), "beatoraja",
-            Some("2025-03-19T11:33:12Z"), Some(4), Some(200));
+        let earlier = make_item(
+            None,
+            None,
+            Some(&hash),
+            "beatoraja",
+            Some("2025-03-19T11:20:14Z"),
+            Some(1),
+            Some(100),
+        );
+        let later = make_item(
+            None,
+            None,
+            Some(&hash),
+            "beatoraja",
+            Some("2025-03-19T11:33:12Z"),
+            Some(4),
+            Some(200),
+        );
         let (out, dropped) = dedup_same_day_records(vec![earlier, later], march19());
         assert_eq!(dropped.len(), 1);
         assert_eq!(out.len(), 1);
@@ -1501,10 +1556,24 @@ mod tests {
     #[test]
     fn dedup_keeps_recorded_at_some_over_none_on_collision() {
         let md5 = "c".repeat(32);
-        let with_ts = make_item(None, Some(&md5), None, "beatoraja",
-            Some("2025-03-19T12:00:00Z"), Some(2), Some(300));
-        let without_ts = make_item(None, Some(&md5), None, "beatoraja",
-            None, Some(1), Some(100));
+        let with_ts = make_item(
+            None,
+            Some(&md5),
+            None,
+            "beatoraja",
+            Some("2025-03-19T12:00:00Z"),
+            Some(2),
+            Some(300),
+        );
+        let without_ts = make_item(
+            None,
+            Some(&md5),
+            None,
+            "beatoraja",
+            None,
+            Some(1),
+            Some(100),
+        );
         // sync_now_utc_date == march19 so without_ts date key matches with_ts date key
         let (out, dropped) = dedup_same_day_records(vec![without_ts, with_ts], march19());
         assert_eq!(dropped.len(), 1);
@@ -1515,10 +1584,24 @@ mod tests {
     #[test]
     fn dedup_treats_different_dates_as_separate() {
         let sha256 = "d".repeat(64);
-        let day1 = make_item(Some(&sha256), None, None, "beatoraja",
-            Some("2025-03-19T12:00:00Z"), Some(2), Some(500));
-        let day2 = make_item(Some(&sha256), None, None, "beatoraja",
-            Some("2025-03-20T12:00:00Z"), Some(2), Some(500));
+        let day1 = make_item(
+            Some(&sha256),
+            None,
+            None,
+            "beatoraja",
+            Some("2025-03-19T12:00:00Z"),
+            Some(2),
+            Some(500),
+        );
+        let day2 = make_item(
+            Some(&sha256),
+            None,
+            None,
+            "beatoraja",
+            Some("2025-03-20T12:00:00Z"),
+            Some(2),
+            Some(500),
+        );
         let (out, dropped) = dedup_same_day_records(vec![day1, day2], march19());
         assert_eq!(dropped.len(), 0);
         assert_eq!(out.len(), 2);
@@ -1528,10 +1611,24 @@ mod tests {
     fn dedup_falls_back_to_clear_type_then_exscore_on_tie() {
         let sha256 = "e".repeat(64);
         let same_ts = "2025-03-19T12:00:00Z";
-        let low_clear = make_item(Some(&sha256), None, None, "beatoraja",
-            Some(same_ts), Some(1), Some(500));
-        let high_clear = make_item(Some(&sha256), None, None, "beatoraja",
-            Some(same_ts), Some(4), Some(300));
+        let low_clear = make_item(
+            Some(&sha256),
+            None,
+            None,
+            "beatoraja",
+            Some(same_ts),
+            Some(1),
+            Some(500),
+        );
+        let high_clear = make_item(
+            Some(&sha256),
+            None,
+            None,
+            "beatoraja",
+            Some(same_ts),
+            Some(4),
+            Some(300),
+        );
         let (out, dropped) = dedup_same_day_records(vec![low_clear, high_clear], march19());
         assert_eq!(dropped.len(), 1);
         assert_eq!(out.len(), 1);
@@ -1541,10 +1638,24 @@ mod tests {
     #[test]
     fn dedup_handles_md5_only_records() {
         let md5 = "f".repeat(32);
-        let item1 = make_item(None, Some(&md5), None, "lr2",
-            Some("2025-03-19T10:00:00Z"), Some(2), Some(400));
-        let item2 = make_item(None, Some(&md5), None, "lr2",
-            Some("2025-03-19T11:00:00Z"), Some(2), Some(450));
+        let item1 = make_item(
+            None,
+            Some(&md5),
+            None,
+            "lr2",
+            Some("2025-03-19T10:00:00Z"),
+            Some(2),
+            Some(400),
+        );
+        let item2 = make_item(
+            None,
+            Some(&md5),
+            None,
+            "lr2",
+            Some("2025-03-19T11:00:00Z"),
+            Some(2),
+            Some(450),
+        );
         let (out, dropped) = dedup_same_day_records(vec![item1, item2], march19());
         assert_eq!(dropped.len(), 1);
         assert_eq!(out.len(), 1);
@@ -1560,28 +1671,50 @@ mod tests {
         let h_mid = "2".repeat(64);
         let h_new = "3".repeat(64);
 
-        let item_new = make_item(Some(&h_new), None, None, "beatoraja",
-            Some("2025-03-19T12:00:00Z"), Some(2), Some(400));
-        let item_old = make_item(Some(&h_old), None, None, "beatoraja",
-            Some("2025-01-01T12:00:00Z"), Some(2), Some(300));
-        let item_mid = make_item(Some(&h_mid), None, None, "beatoraja",
-            Some("2025-02-15T12:00:00Z"), Some(2), Some(350));
+        let item_new = make_item(
+            Some(&h_new),
+            None,
+            None,
+            "beatoraja",
+            Some("2025-03-19T12:00:00Z"),
+            Some(2),
+            Some(400),
+        );
+        let item_old = make_item(
+            Some(&h_old),
+            None,
+            None,
+            "beatoraja",
+            Some("2025-01-01T12:00:00Z"),
+            Some(2),
+            Some(300),
+        );
+        let item_mid = make_item(
+            Some(&h_mid),
+            None,
+            None,
+            "beatoraja",
+            Some("2025-02-15T12:00:00Z"),
+            Some(2),
+            Some(350),
+        );
 
         // Intentionally pass items in non-chronological order to mimic the
         // HashMap-scrambled order that triggered the original bug.
-        let (out, _) = dedup_same_day_records(
-            vec![item_new, item_old, item_mid],
-            march19(),
-        );
+        let (out, _) = dedup_same_day_records(vec![item_new, item_old, item_mid], march19());
         assert_eq!(out.len(), 3);
-        let ts: Vec<&str> = out.iter()
+        let ts: Vec<&str> = out
+            .iter()
             .map(|s| s.recorded_at.as_deref().unwrap_or(""))
             .collect();
-        assert_eq!(ts, vec![
-            "2025-01-01T12:00:00Z",
-            "2025-02-15T12:00:00Z",
-            "2025-03-19T12:00:00Z",
-        ]);
+        assert_eq!(
+            ts,
+            vec![
+                "2025-01-01T12:00:00Z",
+                "2025-02-15T12:00:00Z",
+                "2025-03-19T12:00:00Z",
+            ]
+        );
     }
 
     #[test]
@@ -1590,10 +1723,16 @@ mod tests {
         // appear before any dated item.
         let md5 = "a".repeat(32);
         let sha = "b".repeat(64);
-        let dated = make_item(Some(&sha), None, None, "beatoraja",
-            Some("2025-03-19T12:00:00Z"), Some(2), Some(500));
-        let undated = make_item(None, Some(&md5), None, "lr2",
-            None, Some(2), Some(400));
+        let dated = make_item(
+            Some(&sha),
+            None,
+            None,
+            "beatoraja",
+            Some("2025-03-19T12:00:00Z"),
+            Some(2),
+            Some(500),
+        );
+        let undated = make_item(None, Some(&md5), None, "lr2", None, Some(2), Some(400));
 
         let (out, _) = dedup_same_day_records(vec![dated, undated], march19());
         assert_eq!(out.len(), 2);

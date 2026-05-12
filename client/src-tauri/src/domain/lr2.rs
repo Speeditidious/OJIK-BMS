@@ -15,6 +15,7 @@ pub struct ParseStats {
     pub db_total: usize,
     pub query_result_count: usize,
     pub skipped_hash: usize,
+    pub skipped_no_play: usize,
     pub parsed_courses: usize,
     pub parsed: usize,
 }
@@ -90,6 +91,11 @@ pub fn parse_scores(
         let raw_hash = clean_hash(get_string(row, &hash_col).unwrap_or_default());
         if raw_hash.is_empty() {
             stats.skipped_hash += 1;
+            continue;
+        }
+
+        if row_lr2_clear_type(row, &cols) == 0 {
+            stats.skipped_no_play += 1;
             continue;
         }
 
@@ -346,8 +352,7 @@ fn build_item(
         "poor": get_i64(row, cols.pr.as_deref()).unwrap_or(0),
     });
     let notes = none_if_zero(get_i64(row, cols.totalnotes.as_deref()).unwrap_or(0));
-    let clear_val = get_i64(row, cols.clear.as_deref()).unwrap_or(0);
-    let mut clear_type = lr2_clear_type(clear_val);
+    let mut clear_type = row_lr2_clear_type(row, cols);
     if fumen_hash_others.is_none() && clear_type == 7 {
         let good = judgments["good"].as_i64().unwrap_or(0);
         let bad = judgments["bad"].as_i64().unwrap_or(0);
@@ -400,6 +405,10 @@ fn build_item(
             }))
             .collect(),
     }
+}
+
+fn row_lr2_clear_type(row: &Row<'_>, cols: &Lr2Cols) -> i64 {
+    lr2_clear_type(get_i64(row, cols.clear.as_deref()).unwrap_or(0))
 }
 
 fn lr2_clear_type(value: i64) -> i64 {
@@ -608,23 +617,17 @@ mod tests {
         let (scores, courses, stats) =
             parse_scores(db.to_str().unwrap()).expect("parse lr2 scores");
 
-        assert_eq!(scores.len(), 2);
+        assert_eq!(scores.len(), 1);
         assert!(courses.is_empty());
         assert_eq!(stats.db_total, 2);
         assert_eq!(stats.query_result_count, 2);
-        assert_eq!(stats.parsed, 2);
+        assert_eq!(stats.skipped_no_play, 1);
+        assert_eq!(stats.parsed, 1);
         let expected_sha256 = "a".repeat(64);
         let score = scores
             .iter()
             .find(|score| score.fumen_sha256.as_deref() == Some(expected_sha256.as_str()))
             .expect("played score included");
-        let expected_unplayed_sha256 = "b".repeat(64);
-        let unplayed = scores
-            .iter()
-            .find(|score| score.fumen_sha256.as_deref() == Some(expected_unplayed_sha256.as_str()))
-            .expect("unplayed score included");
-        assert_eq!(unplayed.play_count, Some(0));
-        assert_eq!(unplayed.clear_type, Some(0));
         assert_eq!(
             score.fumen_sha256.as_deref(),
             Some(expected_sha256.as_str())
@@ -648,6 +651,7 @@ mod tests {
         let md5 = "m".repeat(32);
         let sha256 = "s".repeat(64);
         let course = format!("{}{}{}", "h".repeat(32), "c".repeat(32), "d".repeat(32));
+        let no_play_course = format!("{}{}{}", "n".repeat(32), "o".repeat(32), "p".repeat(32));
         insert_score(&db, &md5, 2, 1, 1, 0, 0, 0, 1, 1, 1, None, 2);
         insert_score(&db, &sha256, 2, 1, 1, 0, 0, 0, 1, 1, 1, None, 2);
         insert_score(
@@ -665,12 +669,28 @@ mod tests {
             Some("course-scorehash"),
             10,
         );
+        insert_score(
+            &db,
+            &no_play_course,
+            0,
+            10,
+            0,
+            0,
+            0,
+            0,
+            10,
+            0,
+            0,
+            Some("no-play-course"),
+            10,
+        );
 
         let (scores, courses, stats) =
             parse_scores(db.to_str().unwrap()).expect("parse lr2 scores");
 
         assert_eq!(scores.len(), 2);
         assert_eq!(courses.len(), 1);
+        assert_eq!(stats.skipped_no_play, 1);
         assert_eq!(stats.parsed_courses, 1);
         assert!(scores
             .iter()
@@ -692,6 +712,36 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["c".repeat(32), "d".repeat(32)]
         );
+
+        let _ = fs::remove_file(db);
+    }
+
+    #[test]
+    fn skips_lr2_no_play_before_judgment_based_clear_normalization() {
+        let db = temp_db("no_play_judgments");
+        create_score_db(&db);
+        insert_score(
+            &db,
+            &("q".repeat(64)),
+            0,
+            1000,
+            0,
+            0,
+            0,
+            0,
+            1000,
+            0,
+            0,
+            Some("no-play-with-judgments"),
+            1000,
+        );
+
+        let (scores, courses, stats) =
+            parse_scores(db.to_str().unwrap()).expect("parse lr2 scores");
+
+        assert!(scores.is_empty());
+        assert!(courses.is_empty());
+        assert_eq!(stats.skipped_no_play, 1);
 
         let _ = fs::remove_file(db);
     }

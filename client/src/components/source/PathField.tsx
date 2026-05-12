@@ -13,6 +13,7 @@ export interface PathFieldProps {
   dropTargetKey?: string;
   dropOver?: boolean;
   placeholder?: string;
+  inputName?: string;
   required?: boolean;
   hint?: string;
   validity?: ValidityState | null;
@@ -27,6 +28,7 @@ export function PathField({
   dropTargetKey,
   dropOver,
   placeholder = "경로를 입력하거나 파일을 드래그&드롭 하세요",
+  inputName,
   required,
   hint,
   validity: externalValidity,
@@ -86,9 +88,11 @@ export function PathField({
         <span className="field-input-wrap">
           <input
             type="text"
+            name={inputName}
             value={value ?? ""}
             placeholder={placeholder}
             onChange={(e) => onChange(e.target.value)}
+            autoComplete="off"
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
