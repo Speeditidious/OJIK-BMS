@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     # Internal CI ingest token for client update draft creation
     CLIENT_UPDATE_INGEST_TOKEN: str = ""
 
+    # Secret shared with Next.js /api/revalidate endpoint
+    REVALIDATE_SECRET: str = ""
+
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 

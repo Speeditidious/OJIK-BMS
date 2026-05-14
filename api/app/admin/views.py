@@ -4,6 +4,7 @@ Data integrity rules applied here mirror the constraints in the API:
 - Best-score tables (UserScore): no create, no delete.
 - User: no delete (prevents accidental cascade wipeout).
 """
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -691,6 +692,8 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
         is_published = data.get("is_published") if "is_published" in data else model.is_published
         if is_published and model.published_at is None:
             model.published_at = datetime.now(UTC)
+        if is_published:
+            await _trigger_revalidate()
 
     @action(
         name="publish_updates",
@@ -721,6 +724,9 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
                 )
                 await db.commit()
 
+        if pks:
+            await _trigger_revalidate()
+
         return RedirectResponse(request.url_for("admin:list", identity=self.identity), status_code=302)
 
     @action(
@@ -745,6 +751,25 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
                 await db.commit()
 
         return RedirectResponse(request.url_for("admin:list", identity=self.identity), status_code=302)
+
+
+async def _trigger_revalidate() -> None:
+    """Fire-and-forget call to Next.js /api/revalidate to bust the client-release cache."""
+    from app.core.config import settings
+
+    secret = settings.REVALIDATE_SECRET
+    frontend_url = settings.FRONTEND_URL
+    if not secret or not frontend_url:
+        return
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(
+                f"{frontend_url}/api/revalidate",
+                headers={"x-revalidate-secret": secret},
+            )
+    except Exception:
+        logging.getLogger(__name__).warning("Failed to trigger Next.js revalidate", exc_info=True)
 
 
 def _parse_uuid_pks(raw: str) -> list[uuid.UUID]:
