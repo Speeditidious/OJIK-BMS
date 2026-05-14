@@ -151,7 +151,6 @@ function ProfileTab() {
     <Card>
       <CardHeader>
         <CardTitle>{t("settings.profile.title")}</CardTitle>
-        <CardDescription>{t("settings.profile.title")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         {/* Avatar */}
@@ -189,7 +188,7 @@ function ProfileTab() {
               ) : (
                 <Upload className="h-4 w-4" />
               )}
-              Upload Image
+              {t("settings.profile.uploadImage")}
             </Button>
             <p className="text-label text-muted-foreground">JPEG, PNG, WebP, GIF · max 5MB</p>
             {avatarError && <p className="text-label text-destructive">{avatarError}</p>}
@@ -241,18 +240,12 @@ function ProfileTab() {
 // Preferences Tab
 // ---------------------------------------------------------------------------
 
-const SCORE_UPDATE_LABELS: { key: keyof ReturnType<typeof useScoreUpdatesPrefs>; label: string }[] = [
-  { key: "score_updates_lamp_include_new_plays", label: "Lamp Upgrade — include new plays" },
-  { key: "score_updates_score_include_new_plays", label: "Score Upgrade — include new plays" },
-  { key: "score_updates_bp_include_new_plays", label: "BP Upgrade — include new plays" },
-  { key: "score_updates_combo_include_new_plays", label: "Combo Upgrade — include new plays" },
+const SCORE_UPDATE_LABELS: { key: keyof ReturnType<typeof useScoreUpdatesPrefs>; labelKey: string }[] = [
+  { key: "score_updates_lamp_include_new_plays", labelKey: "settings.preferences.lampUpgradeIncludeNewPlays" },
+  { key: "score_updates_score_include_new_plays", labelKey: "settings.preferences.scoreUpgradeIncludeNewPlays" },
+  { key: "score_updates_bp_include_new_plays", labelKey: "settings.preferences.bpUpgradeIncludeNewPlays" },
+  { key: "score_updates_combo_include_new_plays", labelKey: "settings.preferences.comboUpgradeIncludeNewPlays" },
 ];
-
-const CLIENT_LABELS: Record<ClientVisibilityKey, string> = {
-  all: "All",
-  lr2: "LR2",
-  beatoraja: "Beatoraja",
-};
 
 function ClearVisibilityCard() {
   const { t } = useTranslation();
@@ -318,12 +311,12 @@ function ClearVisibilityCard() {
             <Switch
               checked={isGlobalActive}
               onCheckedChange={(v) => handleSwitchMode(v ? "global" : "per_client")}
-              aria-label="Enable global mode"
+              aria-label={t("settings.display.enableGlobalAria")}
             />
             <div className="flex-1">
-              <p className="text-body font-medium">Global</p>
+              <p className="text-body font-medium">{t("settings.display.global")}</p>
               <p className="text-label text-muted-foreground">
-                Applied uniformly across all views.
+                {t("settings.display.globalDescription")}
               </p>
             </div>
           </div>
@@ -356,12 +349,12 @@ function ClearVisibilityCard() {
             <Switch
               checked={isPerClientActive}
               onCheckedChange={(v) => handleSwitchMode(v ? "per_client" : "global")}
-              aria-label="Enable per-client mode"
+              aria-label={t("settings.display.enablePerClientAria")}
             />
             <div className="flex-1">
               <p className="text-body font-medium">{t("settings.display.sourceClient")}</p>
               <p className="text-label text-muted-foreground">
-                Configured independently per client view.
+                {t("settings.display.perClientDescription")}
               </p>
             </div>
           </div>
@@ -374,16 +367,16 @@ function ClearVisibilityCard() {
             aria-hidden={!isPerClientActive}
           >
             <div className="flex items-center gap-2">
-              <label className="text-body font-medium">Client</label>
+              <label className="text-body font-medium">{t("settings.display.client")}</label>
               <select
                 value={selectedClient}
                 onChange={(e) => setSelectedClient(e.target.value as ClientVisibilityKey)}
                 disabled={!isPerClientActive}
                 className="rounded-md border border-input bg-background px-3 py-1.5 text-body focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed"
               >
-                <option value="all">{CLIENT_LABELS.all}</option>
-                <option value="lr2">{CLIENT_LABELS.lr2}</option>
-                <option value="beatoraja">{CLIENT_LABELS.beatoraja}</option>
+                <option value="all">{t("settings.display.clientAll")}</option>
+                <option value="lr2">LR2</option>
+                <option value="beatoraja">Beatoraja</option>
               </select>
             </div>
 
@@ -459,13 +452,13 @@ function PreferencesTab() {
       {/* Score updates new-play toggle */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Score Updates Display</CardTitle>
+          <CardTitle className="text-base">{t("settings.preferences.scoreUpdatesTitle")}</CardTitle>
           <CardDescription>
-            Configure whether to include new plays (first play) in each category of the score updates view.
+            {t("settings.preferences.scoreUpdatesDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {SCORE_UPDATE_LABELS.map(({ key, label }) => (
+          {SCORE_UPDATE_LABELS.map(({ key, labelKey }) => (
             <label key={key} className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -473,7 +466,7 @@ function PreferencesTab() {
                 onChange={(e) => updateScorePrefs({ [key]: e.target.checked })}
                 className="h-4 w-4 rounded border-input accent-primary cursor-pointer"
               />
-              <span className="text-body">{label}</span>
+              <span className="text-body">{t(labelKey)}</span>
             </label>
           ))}
         </CardContent>

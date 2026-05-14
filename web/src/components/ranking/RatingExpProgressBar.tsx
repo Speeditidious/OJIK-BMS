@@ -47,11 +47,11 @@ export function RatingExpProgressBar({
       <div className="flex items-center justify-between gap-3">
         {isMaxLevel ? (
           <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-caption font-medium text-primary">
-            MAX LEVEL{maxLevel != null ? ` · Lv.${maxLevel}` : ""}
+            {t("ranking.detail.maxLevel")}{maxLevel != null ? ` · Lv.${maxLevel}` : ""}
           </span>
         ) : (
           <p className="text-caption text-muted-foreground">
-            {Math.max(0, Math.ceil(expToNextLevel)).toLocaleString()} {t("ranking.exp")} to next level
+            {t("ranking.detail.expToNextLevel", { value: Math.max(0, Math.ceil(expToNextLevel)).toLocaleString() })}
           </p>
         )}
         {levelChanged && (

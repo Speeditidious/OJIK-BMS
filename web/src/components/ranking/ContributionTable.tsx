@@ -178,22 +178,25 @@ function sectionDisplayRank(entry: RankingContributionEntry, section: SectionKey
   return section === "dropped" ? entry.previous_rank ?? entry.rank : entry.rank;
 }
 
-function sectionMeta(section: SectionKey, topN?: number): { label: string; badgeClass: string; helperText?: string } {
-  const topLabel = topN != null ? `TOP ${topN}` : "TOP";
+function sectionMeta(
+  section: SectionKey,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  topN?: number,
+): { label: string; badgeClass: string; helperText?: string } {
   if (section === "kept") {
     return {
-      label: `${topLabel} Updated`,
+      label: topN != null ? t("ranking.detail.topNUpdated", { n: topN }) : t("ranking.detail.topUpdated"),
       badgeClass: "border-primary/30 bg-primary/10 text-primary",
     };
   }
   if (section === "entered") {
     return {
-      label: `Entered ${topLabel}`,
+      label: topN != null ? t("ranking.detail.topNEntered", { n: topN }) : t("ranking.detail.topEntered"),
       badgeClass: "border-accent/35 bg-accent/10 text-accent",
     };
   }
   return {
-    label: `Dropped from ${topLabel}`,
+    label: topN != null ? t("ranking.detail.topNDropped", { n: topN }) : t("ranking.detail.topDropped"),
     badgeClass: "border-warning/35 bg-warning/10 text-warning",
   };
 }
@@ -788,7 +791,7 @@ function SectionCard({
   userId?: string;
 }) {
   const { t } = useTranslation();
-  const meta = sectionMeta(section, topN);
+  const meta = sectionMeta(section, t, topN);
   const columns = presentation === "day-detail" ? DAY_DETAIL_COLUMNS : DEFAULT_COLUMNS;
 
   return (

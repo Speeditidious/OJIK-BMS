@@ -178,9 +178,9 @@ function CourseSectionTable({
           </colgroup>
           <thead className="sticky top-0 z-10 bg-background text-foreground border-b border-border/50">
             <tr>
-              <th className={cn(thCls, "text-center")}>Prev</th>
-              <th className={cn(thCls, "text-center")}>Current</th>
-              <th className={thCls}>Course</th>
+              <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.prev")}</th>
+              <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.current")}</th>
+              <th className={thCls}>{t("dashboard.scoreUpdates.course")}</th>
               <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.bp")}</th>
               <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.rate")}</th>
               <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.rank")}</th>
@@ -401,7 +401,7 @@ function SectionTable({
               onChange={onToggleNewPlays}
               className="accent-primary"
             />
-            Include new plays
+            {t("dashboard.scoreUpdates.includeNewPlays")}
           </label>
         )}
       </div>
@@ -414,8 +414,8 @@ function SectionTable({
           </colgroup>
           <thead className="sticky top-0 z-10 bg-background text-foreground border-b border-border/50">
             <tr>
-              <th className={cn(thCls, "text-center")}>Prev</th>
-              <th className={cn(thCls, "text-center")}>Current</th>
+              <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.prev")}</th>
+              <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.current")}</th>
               <th className={thCls}>{t("dashboard.scoreUpdates.level")}</th>
               <th className={thCls}>{t("dashboard.scoreUpdates.title")}</th>
             </tr>

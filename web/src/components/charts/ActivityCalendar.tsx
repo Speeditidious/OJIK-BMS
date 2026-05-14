@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HeatmapDay, CourseActivityItem } from "@/hooks/use-analysis";
+import { localeFromLanguage } from "@/lib/i18n/locale";
 
 interface ActivityCalendarProps {
   data: HeatmapDay[];
@@ -20,8 +21,11 @@ interface ActivityCalendarProps {
   ratingUpdatesData?: Array<{ date: string; count: number }>;
 }
 
-const WEEKDAY_LABELS_KEY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
+function buildWeekdayLabels(locale: string): string[] {
+  const formatter = new Intl.DateTimeFormat(locale, { weekday: "short" });
+  // 2024-01-07 is a Sunday; use it as a stable reference for Sun..Sat.
+  return Array.from({ length: 7 }, (_, i) => formatter.format(new Date(Date.UTC(2024, 0, 7 + i))));
+}
 
 function toDateString(year: number, month: number, day: number): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -55,23 +59,23 @@ function getDotItems(
     dots.push({ label: `Beatoraja ${t("dashboard.activity.firstSync")}`, color: "accent" });
   if (courseInfo) {
     const prefix = courseInfo.hasFirstClear ? "★ " : "";
-    dots.push({ label: `${prefix}Course clear ×${courseInfo.count}`, color: "accent" });
+    dots.push({ label: `${prefix}${t("dashboard.activity.courseClear", { count: courseInfo.count })}`, color: "accent" });
   }
   if (lr2Updates !== undefined && beatorajaUpdates !== undefined) {
-    if (lr2Updates > 0) dots.push({ label: `${t("format.activity.categories.updates")} ×${lr2Updates} (LR2)`, color: "primary" });
-    if (beatorajaUpdates > 0) dots.push({ label: `${t("format.activity.categories.updates")} ×${beatorajaUpdates} (Beatoraja)`, color: "primary" });
-    if ((lr2NewPlays ?? 0) > 0) dots.push({ label: `${t("format.activity.categories.newPlays")} ×${lr2NewPlays} (LR2)`, color: "new-play" });
-    if ((beatorajaNewPlays ?? 0) > 0) dots.push({ label: `${t("format.activity.categories.newPlays")} ×${beatorajaNewPlays} (Beatoraja)`, color: "new-play" });
-    if ((lr2Plays ?? 0) > 0) dots.push({ label: `${t("format.activity.categories.plays")} ×${lr2Plays} (LR2)`, color: "play" });
-    if ((beatorajaPlays ?? 0) > 0) dots.push({ label: `${t("format.activity.categories.plays")} ×${beatorajaPlays} (Beatoraja)`, color: "play" });
+    if (lr2Updates > 0) dots.push({ label: `${t("dashboard.activity.scoreUpdates", { count: lr2Updates })} (LR2)`, color: "primary" });
+    if (beatorajaUpdates > 0) dots.push({ label: `${t("dashboard.activity.scoreUpdates", { count: beatorajaUpdates })} (Beatoraja)`, color: "primary" });
+    if ((lr2NewPlays ?? 0) > 0) dots.push({ label: `${t("dashboard.activity.newPlays", { count: lr2NewPlays })} (LR2)`, color: "new-play" });
+    if ((beatorajaNewPlays ?? 0) > 0) dots.push({ label: `${t("dashboard.activity.newPlays", { count: beatorajaNewPlays })} (Beatoraja)`, color: "new-play" });
+    if ((lr2Plays ?? 0) > 0) dots.push({ label: `${t("dashboard.activity.plays", { count: lr2Plays })} (LR2)`, color: "play" });
+    if ((beatorajaPlays ?? 0) > 0) dots.push({ label: `${t("dashboard.activity.plays", { count: beatorajaPlays })} (Beatoraja)`, color: "play" });
   } else {
-    if (updates > 0) dots.push({ label: `${t("format.activity.categories.updates")} ×${updates}`, color: "primary" });
-    if (newPlays > 0) dots.push({ label: `${t("format.activity.categories.newPlays")} ×${newPlays}`, color: "new-play" });
-    if (plays > 0) dots.push({ label: `${t("format.activity.categories.plays")} ×${plays}`, color: "play" });
+    if (updates > 0) dots.push({ label: t("dashboard.activity.scoreUpdates", { count: updates }), color: "primary" });
+    if (newPlays > 0) dots.push({ label: t("dashboard.activity.newPlays", { count: newPlays }), color: "new-play" });
+    if (plays > 0) dots.push({ label: t("dashboard.activity.plays", { count: plays }), color: "play" });
   }
   const isFirstSync = firstSyncDates?.lr2 === dateStr || firstSyncDates?.beatoraja === dateStr;
   if (!isFirstSync && ratingUpdates > 0) {
-    dots.push({ label: `${t("format.activity.categories.ratingUpdates")} ×${ratingUpdates}`, color: "rating" });
+    dots.push({ label: t("dashboard.activity.ratingUpdates", { count: ratingUpdates }), color: "rating" });
   }
   return dots;
 }
@@ -88,7 +92,13 @@ export function ActivityCalendar({
   courseData,
   ratingUpdatesData,
 }: ActivityCalendarProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const dateLocale = localeFromLanguage(i18n.language);
+  const weekdayLabels = useMemo(() => buildWeekdayLabels(dateLocale), [dateLocale]);
+  const monthYearLabel = useMemo(
+    () => new Date(year, month - 1, 1).toLocaleDateString(dateLocale, { year: "numeric", month: "long" }),
+    [year, month, dateLocale],
+  );
   const today = new Date();
   const todayStr = toDateString(today.getFullYear(), today.getMonth() + 1, today.getDate());
 
@@ -206,7 +216,7 @@ export function ActivityCalendar({
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <span className="text-body font-semibold">
-          {t("format.date.monthYear", { year, month })}
+          {monthYearLabel}
         </span>
         <Button variant="ghost" size="icon" onClick={nextMonth}>
           <ChevronRight className="h-4 w-4" />
@@ -215,8 +225,8 @@ export function ActivityCalendar({
 
       {/* Weekday labels */}
       <div className="grid grid-cols-7 gap-1">
-        {WEEKDAY_LABELS_KEY.map((label) => (
-          <div key={label} className="text-center text-label text-muted-foreground font-medium py-1">
+        {weekdayLabels.map((label, i) => (
+          <div key={i} className="text-center text-label text-muted-foreground font-medium py-1">
             {label}
           </div>
         ))}
@@ -264,7 +274,7 @@ export function ActivityCalendar({
                 .filter(Boolean)
                 .join(" ")}
               onClick={() => onDayClick(dateStr)}
-              title={updates > 0 || newPlays > 0 || (!cellIsFirstSync && ratingUpdates > 0) ? `${cell.day} — ${t("format.activity.categories.updates")} ${updates} / ${t("format.activity.categories.newPlays")} ${newPlays}${!cellIsFirstSync && ratingUpdates > 0 ? ` / ${t("format.activity.categories.ratingUpdates")} ${ratingUpdates}` : ""}` : plays > 0 ? `${cell.day} — ${t("format.activity.categories.plays")} ${plays}` : String(cell.day)}
+              title={updates > 0 || newPlays > 0 || (!cellIsFirstSync && ratingUpdates > 0) ? `${cell.day} — ${t("dashboard.activity.scoreUpdates", { count: updates })} / ${t("dashboard.activity.newPlays", { count: newPlays })}${!cellIsFirstSync && ratingUpdates > 0 ? ` / ${t("dashboard.activity.ratingUpdates", { count: ratingUpdates })}` : ""}` : plays > 0 ? `${cell.day} — ${t("dashboard.activity.plays", { count: plays })}` : String(cell.day)}
             >
               {/* Date number top-left — badge on today */}
               {isToday ? (

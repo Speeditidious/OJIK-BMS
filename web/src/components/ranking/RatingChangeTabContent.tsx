@@ -52,6 +52,7 @@ function SummaryCard({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation();
   const hasPrev = previous !== null && current !== null;
   const previousDisplay = previous === null ? null : displayMetricValue(previous, digits);
   const currentDisplay = current === null ? null : displayMetricValue(current, digits);
@@ -67,7 +68,7 @@ function SummaryCard({
   const caption = current === null
     ? "-"
     : !hasPrev
-      ? "No comparison baseline"
+      ? t("ranking.detail.noComparisonBaseline")
       : isZero
       ? formatValue(currentDisplay!)
       : `${formatValue(previousDisplay!)} → ${formatValue(currentDisplay!)}`;
