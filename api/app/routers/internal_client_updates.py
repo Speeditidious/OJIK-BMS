@@ -31,6 +31,8 @@ class ClientUpdateDraftIngestRequest(BaseModel):
     installer_kind: str = "nsis"
     title: str
     body_markdown: str
+    body_markdown_en: str | None = None
+    body_markdown_ja: str | None = None
     release_page_url: str
     update_url: str
     tauri_signature: str
@@ -142,6 +144,8 @@ async def ingest_client_update_draft(
                 installer_kind=payload.installer_kind,
                 title=payload.title,
                 body_markdown=payload.body_markdown,
+                body_markdown_en=payload.body_markdown_en,
+                body_markdown_ja=payload.body_markdown_ja,
                 release_page_url=payload.release_page_url,
                 update_url=payload.update_url,
                 tauri_signature=payload.tauri_signature,
@@ -163,6 +167,10 @@ async def ingest_client_update_draft(
 
         existing.title = payload.title
         existing.body_markdown = payload.body_markdown
+        if "body_markdown_en" in payload.model_fields_set:
+            existing.body_markdown_en = payload.body_markdown_en
+        if "body_markdown_ja" in payload.model_fields_set:
+            existing.body_markdown_ja = payload.body_markdown_ja
         existing.release_page_url = payload.release_page_url
         existing.update_url = payload.update_url
         existing.tauri_signature = payload.tauri_signature

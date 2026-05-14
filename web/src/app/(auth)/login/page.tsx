@@ -2,14 +2,17 @@
 
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
+import Link from "next/link";
 import { Suspense } from "react";
 import { AlertCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 function LoginContent() {
+  const { t } = useTranslation();
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
 
@@ -20,9 +23,9 @@ function LoginContent() {
           <div className="flex justify-center mb-4">
             <Image src="/ojikbms_logo.png" alt="OJIK BMS" width={64} height={64} />
           </div>
-          <CardTitle className="text-2xl">OJIK BMS에 오신 것을 환영합니다</CardTitle>
+          <CardTitle className="text-2xl">{t("auth.login.title")}</CardTitle>
           <CardDescription>
-            Discord 계정으로 로그인하여 BMS 플레이 데이터를 관리하세요
+            {t("auth.login.description")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -41,15 +44,15 @@ function LoginContent() {
                 height={194}
                 style={{ width: 20, height: "auto" }}
               />
-              Discord로 로그인
+              {t("auth.login.discordLogin")}
             </Button>
           </a>
           <p className="text-center text-body text-muted-foreground">
-            로그인하면{" "}
-            <a href="#" className="underline underline-offset-4 hover:text-primary">
-              이용약관
-            </a>
-            에 동의한 것으로 간주됩니다.
+            {t("auth.login.termsPrefix")}{" "}
+            <Link href="/rules" className="underline underline-offset-4 hover:text-primary">
+              {t("auth.login.termsLink")}
+            </Link>
+            {t("auth.login.termsSuffix")}
           </p>
         </CardContent>
       </Card>

@@ -51,6 +51,15 @@
 
 .wizard-card-content { display: grid; gap: 12px; }
 
+.wizard-language-section {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
 .wizard-card-actions {
   display: flex;
   align-items: center;

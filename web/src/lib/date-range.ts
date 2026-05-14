@@ -17,12 +17,27 @@ export const PRESET_DAYS: Record<Exclude<RangePreset, "custom">, number> = {
 
 /** Human-readable labels for presets. */
 export const PRESET_LABELS: Record<RangePreset, string> = {
-  week: "1주",
-  month: "1달",
-  "3month": "3달",
-  year: "1년",
-  custom: "직접",
+  week: "1 week",
+  month: "1 month",
+  "3month": "3 months",
+  year: "1 year",
+  custom: "Custom",
 };
+
+/** Translation keys for preset labels. */
+export const PRESET_LABEL_KEYS: Record<RangePreset, string> = {
+  week: "format.dateRange.presets.week",
+  month: "format.dateRange.presets.month",
+  "3month": "format.dateRange.presets.3month",
+  year: "format.dateRange.presets.year",
+  custom: "format.dateRange.presets.custom",
+};
+
+export type Translate = (key: string, options?: Record<string, unknown>) => string;
+
+export function getPresetLabel(preset: RangePreset, t?: Translate): string {
+  return t ? t(PRESET_LABEL_KEYS[preset]) : PRESET_LABELS[preset];
+}
 
 function toIsoDate(date: Date): string {
   return date.toISOString().slice(0, 10);

@@ -1,3 +1,5 @@
+"use client";
+
 import Image, { type StaticImageData } from "next/image";
 import Link from "next/link";
 import {
@@ -7,6 +9,7 @@ import {
   RefreshCw,
   type LucideIcon,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import step1ClientDownloadImage from "../../../public/guide/step1_client_download.png";
 import step2ClientSyncImage from "../../../public/guide/step2_client_sync.png";
@@ -29,51 +32,35 @@ type GuideStep = {
   images: GuideImage[];
 };
 
-const guideSteps: GuideStep[] = [
+type GuideStepCopy = {
+  title: string;
+  description: string;
+  ctaLabel?: string;
+  imageAlt: string;
+};
+
+const guideStepData = [
   {
     number: "01",
-    title: "클라이언트를 다운로드받습니다",
-    description:
-      "플레이 데이터를 서버에 동기화하려면 전용 클라이언트가 필요합니다. 클라이언트 다운로드 메뉴에서 exe파일을 받습니다.",
     icon: Download,
     cta: {
       href: "/download",
-      label: "다운로드 페이지로 이동",
     },
-    images: [
-      {
-        src: step1ClientDownloadImage,
-        alt: "클라이언트 다운로드 페이지에서 설치 파일을 확인하는 화면",
-      },
-    ],
+    imageSrc: step1ClientDownloadImage,
   },
   {
     number: "02",
-    title: "클라이언트를 실행해 데이터를 동기화합니다",
-    description:
-      "처음에는 전체 동기화로 가지고 있는 차분 데이터를 포함해 기록을 서버에 보내시는 걸 추천드립니다. 이후 새로운 차분이 추가되지 않았으면 플레이 데이터만 보내기 위해 빠른 동기화를 추천드립니다 (훨씬 빠름).",
     icon: RefreshCw,
-    images: [
-      {
-        src: step2ClientSyncImage,
-        alt: "클라이언트에서 전체 동기화와 빠른 동기화 옵션을 확인하는 화면",
-      },
-    ],
+    cta: undefined,
+    imageSrc: step2ClientSyncImage,
   },
   {
     number: "03",
-    title: "홈페이지에서 기록과 설정을 확인합니다",
-    description:
-      "로그인 후 우측 상단 프로필 사진을 눌러 대시보드에서 동기화 결과를 확인합니다. 같은 메뉴의 설정에서 선호 설정으로 들어가 표시 방식과 개인 선호를 조정할 수 있습니다.",
     icon: LayoutDashboard,
-    images: [
-      {
-        src: step3NavbarDropdownImage,
-        alt: "우측 상단 프로필 메뉴에서 대시보드와 설정으로 이동하는 화면",
-      },
-    ],
+    cta: undefined,
+    imageSrc: step3NavbarDropdownImage,
   },
-];
+] as const;
 
 function GuideStepImages({ step }: { step: GuideStep }) {
   if (step.images.length === 1) {
@@ -132,12 +119,37 @@ function GuideStepImages({ step }: { step: GuideStep }) {
 }
 
 export function GuideSection() {
+  const { t } = useTranslation();
+  const stepCopies = t("home.guide.steps", { returnObjects: true }) as GuideStepCopy[];
+  const guideSteps: GuideStep[] = guideStepData.map((step, index) => {
+    const copy = stepCopies[index];
+
+    return {
+      number: step.number,
+      title: copy.title,
+      description: copy.description,
+      icon: step.icon,
+      cta: step.cta
+        ? {
+            href: step.cta.href,
+            label: copy.ctaLabel ?? "",
+          }
+        : undefined,
+      images: [
+        {
+          src: step.imageSrc,
+          alt: copy.imageAlt,
+        },
+      ],
+    };
+  });
+
   return (
     <section aria-labelledby="guide-title" className="border-t border-border/60 py-20">
       <div className="container mx-auto px-4">
         <div className="mx-auto max-w-3xl text-center">
           <h2 id="guide-title" className="text-3xl font-bold tracking-tight">
-            가이드
+            {t("home.guide.title")}
           </h2>
         </div>
 
@@ -179,7 +191,7 @@ export function GuideSection() {
                       </div>
                     </div>
 
-                    <p className="mt-4 max-w-2xl text-body leading-relaxed text-muted-foreground">
+                    <p className="mt-4 text-body leading-relaxed text-muted-foreground">
                       {step.description}
                     </p>
 

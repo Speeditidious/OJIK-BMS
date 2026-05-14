@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useTranslation } from "react-i18next";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import { timeAgo } from "@/lib/time";
@@ -22,6 +23,8 @@ export function RatingProfileHeader({
   data,
   isLoading,
 }: RatingProfileHeaderProps) {
+  const { t } = useTranslation();
+
   if (isLoading) {
     return <div className="h-44 rounded-xl border border-border bg-card/60 animate-pulse" />;
   }
@@ -42,10 +45,10 @@ export function RatingProfileHeader({
 
   const metaInfo = data && data.status === "ok" ? (
     <div className="flex flex-col gap-0.5 text-label text-muted-foreground">
-      {data.last_synced_at && <span>플레이 데이터 동기화: {timeAgo(data.last_synced_at)}</span>}
-      {data.calculated_at && <span>레이팅 계산 적용: {timeAgo(data.calculated_at)}</span>}
+      {data.last_synced_at && <span>{t("ranking.profileHeader.syncedAt", { time: timeAgo(data.last_synced_at, t) })}</span>}
+      {data.calculated_at && <span>{t("ranking.profileHeader.calculatedAt", { time: timeAgo(data.calculated_at, t) })}</span>}
       {data.last_synced_at && data.calculated_at && new Date(data.last_synced_at) > new Date(data.calculated_at) && (
-        <span className="text-warning">동기화 후 아직 랭킹에 미반영</span>
+        <span className="text-warning">{t("ranking.profileHeader.pending")}</span>
       )}
     </div>
   ) : null;
@@ -54,13 +57,13 @@ export function RatingProfileHeader({
   if (!data || data.status === "no_scores") {
     body = (
       <p className="text-body text-muted-foreground">
-        아직 동기화된 플레이 기록이 없습니다. 클라이언트에서 데이터를 동기화하면 레이팅 상세가 표시됩니다.
+        {t("ranking.profileHeader.noSyncedRecords")}
       </p>
     );
   } else if (data.status === "pending") {
     body = (
       <p className="text-body text-muted-foreground">
-        플레이 데이터는 감지되었지만 랭킹 계산이 아직 반영되지 않았습니다. 잠시 후 다시 확인해주세요.
+        {t("ranking.profileHeader.calculationPending")}
       </p>
     );
   } else {
@@ -69,14 +72,14 @@ export function RatingProfileHeader({
         <div className="grid gap-3 md:grid-cols-4">
           <div className="rounded-lg border border-border/60 bg-secondary/30 px-4 py-3">
             <p className="flex items-center text-label text-muted-foreground">
-              현재 경험치
+              {t("ranking.profileHeader.currentExp")}
               <MetricInfoIcon metric="exp" />
             </p>
             <p className="text-stat font-bold">{Math.round(data.exp).toLocaleString()}</p>
           </div>
           <div className="rounded-lg border border-border/60 bg-secondary/30 px-4 py-3">
             <p className="flex items-center text-label text-muted-foreground">
-              현재 레벨
+              {t("ranking.profileHeader.currentLevel")}
               <MetricInfoIcon metric="level" />
             </p>
             <div className="flex flex-wrap items-center gap-2">
@@ -90,7 +93,7 @@ export function RatingProfileHeader({
           </div>
           <div className="rounded-lg border border-border/60 bg-secondary/30 px-4 py-3">
             <p className="flex items-center text-label text-muted-foreground">
-              TOP {data.top_n} 레이팅 합산
+              {t("ranking.profileHeader.topRatingSum", { n: data.top_n })}
               <MetricInfoIcon metric="rating" />
             </p>
             <p className="text-stat font-bold">{Math.round(data.rating).toLocaleString()}</p>

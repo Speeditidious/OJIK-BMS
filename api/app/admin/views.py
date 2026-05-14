@@ -618,6 +618,7 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
     name = "Client Update"
     name_plural = "Client Updates"
     icon = "fa-solid fa-bullhorn"
+    column_default_sort = [(ClientUpdateAnnouncement.updated_at, True)]
     column_list = [
         ClientUpdateAnnouncement.version,
         ClientUpdateAnnouncement.channel,
@@ -633,6 +634,8 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
         ClientUpdateAnnouncement.version,
         ClientUpdateAnnouncement.title,
         ClientUpdateAnnouncement.body_markdown,
+        ClientUpdateAnnouncement.body_markdown_en,
+        ClientUpdateAnnouncement.body_markdown_ja,
     ]
     column_sortable_list = [
         ClientUpdateAnnouncement.version,
@@ -649,6 +652,8 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
         ClientUpdateAnnouncement.installer_kind,
         ClientUpdateAnnouncement.title,
         ClientUpdateAnnouncement.body_markdown,
+        ClientUpdateAnnouncement.body_markdown_en,
+        ClientUpdateAnnouncement.body_markdown_ja,
         ClientUpdateAnnouncement.release_page_url,
         ClientUpdateAnnouncement.update_url,
         ClientUpdateAnnouncement.tauri_signature,
@@ -664,7 +669,7 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
         """Stamp published_at when an admin publishes a client update, and validate signed rows."""
         from sqladmin.exceptions import SQLAdminException
 
-        update_url = (model.update_url or "").strip()
+        update_url = (data.get("update_url") or model.update_url or "").strip()
         if not update_url.startswith("https://"):
             raise SQLAdminException("update_url은 https:// 로 시작해야 합니다.")
 
@@ -674,13 +679,17 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
                 "update_url은 GitHub 릴리즈 페이지가 아닌 직접 다운로드 URL이어야 합니다."
             )
 
-        if model.tauri_signature:
-            if not model.asset_sha256 or not model.asset_size_bytes:
+        tauri_signature = data.get("tauri_signature") if "tauri_signature" in data else model.tauri_signature
+        asset_sha256 = data.get("asset_sha256") if "asset_sha256" in data else model.asset_sha256
+        asset_size_bytes = data.get("asset_size_bytes") if "asset_size_bytes" in data else model.asset_size_bytes
+        if tauri_signature:
+            if not asset_sha256 or not asset_size_bytes:
                 raise SQLAdminException(
                     "tauri_signature가 있으면 asset_sha256과 asset_size_bytes도 필수입니다."
                 )
 
-        if model.is_published and model.published_at is None:
+        is_published = data.get("is_published") if "is_published" in data else model.is_published
+        if is_published and model.published_at is None:
             model.published_at = datetime.now(UTC)
 
     @action(

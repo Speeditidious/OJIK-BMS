@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HeatmapDay, CourseActivityItem } from "@/hooks/use-analysis";
@@ -19,7 +20,7 @@ interface ActivityCalendarProps {
   ratingUpdatesData?: Array<{ date: string; count: number }>;
 }
 
-const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
+const WEEKDAY_LABELS_KEY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 
 function toDateString(year: number, month: number, day: number): string {
@@ -37,6 +38,7 @@ function getDotItems(
   newPlays: number,
   plays: number,
   ratingUpdates: number,
+  t: (key: string, opts?: Record<string, unknown>) => string,
   firstSyncDates?: { lr2?: string; beatoraja?: string },
   lr2Updates?: number,
   lr2NewPlays?: number,
@@ -48,28 +50,28 @@ function getDotItems(
 ): DotItem[] {
   const dots: DotItem[] = [];
   if (firstSyncDates?.lr2 === dateStr)
-    dots.push({ label: "첫 동기화 (LR2)", color: "accent" });
+    dots.push({ label: `LR2 ${t("dashboard.activity.firstSync")}`, color: "accent" });
   if (firstSyncDates?.beatoraja === dateStr)
-    dots.push({ label: "첫 동기화 (Beatoraja)", color: "accent" });
+    dots.push({ label: `Beatoraja ${t("dashboard.activity.firstSync")}`, color: "accent" });
   if (courseInfo) {
     const prefix = courseInfo.hasFirstClear ? "★ " : "";
-    dots.push({ label: `${prefix}코스 클리어 ${courseInfo.count}건`, color: "accent" });
+    dots.push({ label: `${prefix}Course clear ×${courseInfo.count}`, color: "accent" });
   }
   if (lr2Updates !== undefined && beatorajaUpdates !== undefined) {
-    if (lr2Updates > 0) dots.push({ label: `갱신 ${lr2Updates}개 (LR2)`, color: "primary" });
-    if (beatorajaUpdates > 0) dots.push({ label: `갱신 ${beatorajaUpdates}개 (Beatoraja)`, color: "primary" });
-    if ((lr2NewPlays ?? 0) > 0) dots.push({ label: `신규 ${lr2NewPlays}개 (LR2)`, color: "new-play" });
-    if ((beatorajaNewPlays ?? 0) > 0) dots.push({ label: `신규 ${beatorajaNewPlays}개 (Beatoraja)`, color: "new-play" });
-    if ((lr2Plays ?? 0) > 0) dots.push({ label: `플레이 ${lr2Plays}회 (LR2)`, color: "play" });
-    if ((beatorajaPlays ?? 0) > 0) dots.push({ label: `플레이 ${beatorajaPlays}회 (Beatoraja)`, color: "play" });
+    if (lr2Updates > 0) dots.push({ label: `${t("format.activity.categories.updates")} ×${lr2Updates} (LR2)`, color: "primary" });
+    if (beatorajaUpdates > 0) dots.push({ label: `${t("format.activity.categories.updates")} ×${beatorajaUpdates} (Beatoraja)`, color: "primary" });
+    if ((lr2NewPlays ?? 0) > 0) dots.push({ label: `${t("format.activity.categories.newPlays")} ×${lr2NewPlays} (LR2)`, color: "new-play" });
+    if ((beatorajaNewPlays ?? 0) > 0) dots.push({ label: `${t("format.activity.categories.newPlays")} ×${beatorajaNewPlays} (Beatoraja)`, color: "new-play" });
+    if ((lr2Plays ?? 0) > 0) dots.push({ label: `${t("format.activity.categories.plays")} ×${lr2Plays} (LR2)`, color: "play" });
+    if ((beatorajaPlays ?? 0) > 0) dots.push({ label: `${t("format.activity.categories.plays")} ×${beatorajaPlays} (Beatoraja)`, color: "play" });
   } else {
-    if (updates > 0) dots.push({ label: `갱신 ${updates}개`, color: "primary" });
-    if (newPlays > 0) dots.push({ label: `신규 ${newPlays}개`, color: "new-play" });
-    if (plays > 0) dots.push({ label: `플레이 ${plays}회`, color: "play" });
+    if (updates > 0) dots.push({ label: `${t("format.activity.categories.updates")} ×${updates}`, color: "primary" });
+    if (newPlays > 0) dots.push({ label: `${t("format.activity.categories.newPlays")} ×${newPlays}`, color: "new-play" });
+    if (plays > 0) dots.push({ label: `${t("format.activity.categories.plays")} ×${plays}`, color: "play" });
   }
   const isFirstSync = firstSyncDates?.lr2 === dateStr || firstSyncDates?.beatoraja === dateStr;
   if (!isFirstSync && ratingUpdates > 0) {
-    dots.push({ label: `레이팅 갱신 ${ratingUpdates}건`, color: "rating" });
+    dots.push({ label: `${t("format.activity.categories.ratingUpdates")} ×${ratingUpdates}`, color: "rating" });
   }
   return dots;
 }
@@ -86,6 +88,7 @@ export function ActivityCalendar({
   courseData,
   ratingUpdatesData,
 }: ActivityCalendarProps) {
+  const { t } = useTranslation();
   const today = new Date();
   const todayStr = toDateString(today.getFullYear(), today.getMonth() + 1, today.getDate());
 
@@ -203,7 +206,7 @@ export function ActivityCalendar({
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <span className="text-body font-semibold">
-          {year}년 {month}월
+          {t("format.date.monthYear", { year, month })}
         </span>
         <Button variant="ghost" size="icon" onClick={nextMonth}>
           <ChevronRight className="h-4 w-4" />
@@ -212,7 +215,7 @@ export function ActivityCalendar({
 
       {/* Weekday labels */}
       <div className="grid grid-cols-7 gap-1">
-        {WEEKDAY_LABELS.map((label) => (
+        {WEEKDAY_LABELS_KEY.map((label) => (
           <div key={label} className="text-center text-label text-muted-foreground font-medium py-1">
             {label}
           </div>
@@ -239,6 +242,7 @@ export function ActivityCalendar({
             newPlays,
             plays,
             ratingUpdates,
+            t,
             firstSyncDates,
             lr2UpdatesMap?.[dateStr] ?? (lr2UpdatesMap ? 0 : undefined),
             lr2NewPlaysMap?.[dateStr] ?? (lr2NewPlaysMap ? 0 : undefined),
@@ -260,7 +264,7 @@ export function ActivityCalendar({
                 .filter(Boolean)
                 .join(" ")}
               onClick={() => onDayClick(dateStr)}
-              title={updates > 0 || newPlays > 0 || (!cellIsFirstSync && ratingUpdates > 0) ? `${cell.day}일 — 갱신 ${updates}건 / 신규 ${newPlays}건${!cellIsFirstSync && ratingUpdates > 0 ? ` / 레이팅 갱신 ${ratingUpdates}건` : ""}` : plays > 0 ? `${cell.day}일 — 플레이 ${plays}회` : String(cell.day)}
+              title={updates > 0 || newPlays > 0 || (!cellIsFirstSync && ratingUpdates > 0) ? `${cell.day} — ${t("format.activity.categories.updates")} ${updates} / ${t("format.activity.categories.newPlays")} ${newPlays}${!cellIsFirstSync && ratingUpdates > 0 ? ` / ${t("format.activity.categories.ratingUpdates")} ${ratingUpdates}` : ""}` : plays > 0 ? `${cell.day} — ${t("format.activity.categories.plays")} ${plays}` : String(cell.day)}
             >
               {/* Date number top-left — badge on today */}
               {isToday ? (

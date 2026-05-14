@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useRatingBreakdown, type AggregatedRatingUpdateTable } from "@/hooks/use-analysis";
 import { useMyRank } from "@/hooks/use-rankings";
@@ -66,7 +67,7 @@ function SummaryCard({
   const caption = current === null
     ? "-"
     : !hasPrev
-      ? "비교 기준 없음"
+      ? "No comparison baseline"
       : isZero
       ? formatValue(currentDisplay!)
       : `${formatValue(previousDisplay!)} → ${formatValue(currentDisplay!)}`;
@@ -148,6 +149,7 @@ export function RatingChangeTabContent({
   onMetricChange,
   enabled = true,
 }: RatingChangeTabContentProps) {
+  const { t } = useTranslation();
   const [metricLocal, setMetricLocal] = useState<RatingHistoryMetric>("rating");
   // Controlled: use prop when provided; otherwise use local state
   const metric = metricProp !== undefined ? metricProp : metricLocal;
@@ -233,14 +235,9 @@ export function RatingChangeTabContent({
     onSelectTable(resolvedTableSlug);
   }, [onSelectTable, resolvedTableSlug, selectedTableSlug]);
 
-  const metricLabel = metric === "exp"
-    ? "경험치"
-    : metric === "rating"
-      ? "레이팅"
-      : "BMSFORCE";
   const emptyMessage = hasUpdatesElsewhere
-    ? `선택한 난이도표에는 ${metricLabel} 기여 변화가 없습니다. 위의 다른 난이도표를 선택해 보세요.`
-    : `해당 날짜에는 ${metricLabel} 기여 변화가 없습니다.`;
+    ? t("ranking.detail.noTableRecords")
+    : t("ranking.detail.noData");
 
   function handleSortChange(nextSortBy: RatingContributionSortBy) {
     if (metric !== "exp") return;
@@ -255,7 +252,7 @@ export function RatingChangeTabContent({
   if (tables.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-border px-6 py-10 text-center text-body text-muted-foreground">
-        레이팅 연동 난이도표가 없습니다.
+        {t("ranking.detail.noLinkedTables")}
       </div>
     );
   }
@@ -279,7 +276,7 @@ export function RatingChangeTabContent({
               <span>{table.display_name}</span>
               <span className="tabular-nums font-semibold opacity-90">{table.count}</span>
               {breakdown.isFetching && table.table_slug === resolvedTableSlug && (
-                <span className="text-caption text-muted-foreground">로딩 중</span>
+                <span className="text-caption text-muted-foreground">{t("common.status.loading")}</span>
               )}
             </button>
           ))}
@@ -287,7 +284,7 @@ export function RatingChangeTabContent({
 
         <div className="grid items-stretch gap-3 md:grid-cols-3">
           <SummaryCard
-            label="경험치"
+            label={t("ranking.exp")}
             infoMetric="exp"
             previous={previousSnapshot?.exp ?? null}
             current={currentSnapshot?.exp ?? null}
@@ -298,7 +295,9 @@ export function RatingChangeTabContent({
             onSelect={() => setMetric("exp")}
           />
           <SummaryCard
-            label={selectedTable ? `TOP ${selectedTable.top_n} 레이팅 합산` : "TOP 레이팅 합산"}
+            label={selectedTable
+              ? t("ranking.profileHeader.topRatingSum", { n: selectedTable.top_n })
+              : t("ranking.rating")}
             infoMetric="rating"
             previous={previousSnapshot?.rating ?? null}
             current={currentSnapshot?.rating ?? null}
@@ -322,9 +321,9 @@ export function RatingChangeTabContent({
         {currentSnapshot && (
           <div className="rounded-lg border border-border/60 bg-secondary/20 px-4 py-4">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-label text-muted-foreground">경험치 진행도</p>
+              <p className="text-label text-muted-foreground">{t("ranking.profileHeader.currentExp")}</p>
               <p className="text-caption text-muted-foreground">
-                현재 레벨 Lv.{currentSnapshot.exp_level}
+                {t("ranking.profileHeader.currentLevel")} Lv.{currentSnapshot.exp_level}
                 {currentSnapshot.is_max_level ? " MAX" : ""}
               </p>
             </div>
@@ -344,7 +343,7 @@ export function RatingChangeTabContent({
           <div className="h-64 animate-pulse rounded-lg bg-secondary/40" />
         ) : breakdown.error ? (
           <div className="rounded-lg border border-dashed border-border px-6 py-10 text-center text-body text-muted-foreground">
-            레이팅 변동 데이터를 불러오지 못했습니다.
+            {t("common.states.loadFailed")}
           </div>
         ) : breakdown.data ? (
           <>
@@ -372,7 +371,7 @@ export function RatingChangeTabContent({
           </>
         ) : (
           <div className="rounded-lg border border-dashed border-border px-6 py-10 text-center text-body text-muted-foreground">
-            레이팅 변동을 표시할 난이도표를 선택해주세요.
+            {t("ranking.detail.noData")}
           </div>
         )}
       </div>

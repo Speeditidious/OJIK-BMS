@@ -55,6 +55,8 @@ class ClientUpdateAnnouncement(Base, TimestampMixin):
     installer_kind: Mapped[str] = mapped_column(String(16), default="nsis", nullable=False, server_default=text("'nsis'"))
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     body_markdown: Mapped[str] = mapped_column(Text, nullable=False)
+    body_markdown_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    body_markdown_ja: Mapped[str | None] = mapped_column(Text, nullable=True)
     release_page_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     update_url: Mapped[str] = mapped_column(Text, nullable=False)
     tauri_signature: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Bar,
   BarChart,
@@ -55,6 +56,7 @@ interface ClearDistributionChartProps {
 
 export function ClearDistributionChart({ data, clientType, getDisplayClearType }: ClearDistributionChartProps) {
   // All hooks at top before any early returns
+  const { t } = useTranslation();
   const [chartRef, chartWidth] = useChartWidth(150);
 
   const labelMap = useMemo(
@@ -134,7 +136,7 @@ export function ClearDistributionChart({ data, clientType, getDisplayClearType }
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center h-48 text-muted-foreground text-body">
-        스코어 데이터가 없습니다
+        {t("charts.tableClearHistogram.noData")}
       </div>
     );
   }

@@ -4,6 +4,7 @@ import { useRef, memo, useEffect } from "react";
 import Link from "next/link";
 import { useVirtualizer, defaultRangeExtractor } from "@tanstack/react-virtual";
 import { Package, FileCode, Youtube } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SourceClientBadge } from "@/components/common/SourceClientBadge";
 import { TableLevelBadges } from "@/components/common/TableLevelBadges";
@@ -101,7 +102,7 @@ const SongRow = memo(function SongRow({ item, index, tableSymbolMap, isLoggedIn 
         <div className="min-w-0 overflow-hidden">
           <div className="max-w-full truncate">
             <Link href={href} className="text-label hover:text-primary transition-colors">
-              {item.title || "(제목 없음)"}
+              {item.title || "(Untitled)"}
             </Link>
           </div>
           {item.artist && <div className="text-caption row-muted max-w-full truncate">{item.artist}</div>}
@@ -201,6 +202,7 @@ export function SongListTable({
   sortDir,
   onSort,
 }: SongListTableProps) {
+  const { t } = useTranslation();
   const parentRef = useRef<HTMLDivElement>(null);
   const pinnedRangeRef = useRef<[number, number] | null>(null);
 
@@ -258,7 +260,7 @@ export function SongListTable({
   if (isLoading && items.length === 0) {
     return (
       <div className="flex items-center justify-center h-32 text-muted-foreground text-body">
-        불러오는 중...
+        {t("common.status.loading")}
       </div>
     );
   }
@@ -266,7 +268,7 @@ export function SongListTable({
   if (!isLoading && items.length === 0) {
     return (
       <div className="flex items-center justify-center h-32 text-muted-foreground text-body">
-        검색 결과가 없습니다.
+        {t("songs.empty")}
       </div>
     );
   }
@@ -305,23 +307,23 @@ export function SongListTable({
 
             <thead className="sticky top-0 z-10 bg-background text-label text-foreground font-medium">
               <tr className="border-b">
-                <Th col="level" label="레벨" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                <Th col="title" label="제목 / 아티스트" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                <Th col="level" label={t("songs.columns.level")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                <Th col="title" label={t("songs.columns.titleArtist")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 {isLoggedIn && (
                   <>
-                    <Th col="clear" label="클리어" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                    <Th col="bp" label="BP" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                    <Th col="rate" label="판정" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                    <Th col="rank" label="랭크" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                    <Th col="score" label="점수" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                    <Th col="plays" label="플레이" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                    <Th col="option" label="배치" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                    <Th col="env" label="구동기" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                    <Th col="clear" label={t("songs.columns.lamp")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                    <Th col="bp" label={t("songs.columns.bp")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                    <Th col="rate" label={t("songs.columns.rate")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                    <Th col="rank" label={t("songs.columns.rank")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                    <Th col="score" label={t("songs.columns.score")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                    <Th col="plays" label={t("songs.columns.plays")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                    <Th col="option" label={t("songs.columns.option")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                    <Th col="env" label={t("songs.columns.env")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                   </>
                 )}
                 <Th col="bpm" label="BPM" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                <Th col="notes" label="노트 수" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                <Th col="length" label="곡 길이" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                <Th col="notes" label={t("songs.columns.notes")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                <Th col="length" label={t("songs.columns.length")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">URL1</th>
                 <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">URL2</th>
                 <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">Youtube</th>

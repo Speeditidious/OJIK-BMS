@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Download, ExternalLink, Terminal, ChevronDown, ChevronUp } from "lucide-react";
+import { Download, ExternalLink } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,8 +9,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useGitHubRelease } from "@/hooks/use-github-release";
 import { Navbar } from "@/components/layout/navbar";
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("ko-KR", {
+type DownloadStep = {
+  title: string;
+  description: string;
+};
+
+function formatDate(iso: string, language: string) {
+  const locale = language.startsWith("ja") ? "ja-JP" : language.startsWith("en") ? "en-US" : "ko-KR";
+
+  return new Date(iso).toLocaleDateString(locale, {
     year: "numeric",
     month: "long",
     day: "numeric",
@@ -18,8 +25,9 @@ function formatDate(iso: string) {
 }
 
 export default function DownloadPage() {
+  const { t, i18n } = useTranslation();
   const { data: release, isLoading, isError } = useGitHubRelease();
-  const [cliOpen, setCliOpen] = useState(false);
+  const steps = t("download.steps", { returnObjects: true }) as DownloadStep[];
 
   const hasRelease = release && release.version;
 
@@ -29,9 +37,9 @@ export default function DownloadPage() {
     <div className="container max-w-2xl py-12 space-y-6">
       {/* Header */}
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold">OJIK BMS 클라이언트 다운로드</h1>
+        <h1 className="text-3xl font-bold">{t("download.title")}</h1>
         <p className="text-muted-foreground">
-          로컬에 있는 BMS 데이터베이스들을 스캔하고 서버에 동기화하는 도구입니다.
+          {t("download.description")}
         </p>
       </div>
 
@@ -43,14 +51,14 @@ export default function DownloadPage() {
               <Skeleton className="h-6 w-32" />
             ) : hasRelease ? (
               <>
-                <span>최신 버전</span>
+                <span>{t("download.latestVersion")}</span>
                 <Badge variant="secondary">{release.version}</Badge>
                 <span className="text-body font-normal text-muted-foreground ml-auto">
-                  {formatDate(release.publishedAt)}
+                  {formatDate(release.publishedAt, i18n.language)}
                 </span>
               </>
             ) : (
-              <span>다운로드</span>
+              <span>{t("download.download")}</span>
             )}
           </CardTitle>
         </CardHeader>
@@ -66,18 +74,18 @@ export default function DownloadPage() {
                 <Button asChild>
                   <a href={release.exeDownloadUrl} download>
                     <Download className="h-4 w-4 mr-2" />
-                    Windows 설치 파일 다운로드
+                    {t("download.windowsDownload")}
                   </a>
                 </Button>
               ) : (
                 <Button disabled>
                   <Download className="h-4 w-4 mr-2" />
-                  Windows 설치 파일 (준비 중)
+                  {t("download.windowsPreparing")}
                 </Button>
               )}
               <Button variant="outline" asChild>
                 <a href={release.releasePageUrl} target="_blank" rel="noopener noreferrer">
-                  GitHub 릴리즈 페이지
+                  {t("download.githubRelease")}
                   <ExternalLink className="h-4 w-4 ml-2" />
                 </a>
               </Button>
@@ -85,7 +93,7 @@ export default function DownloadPage() {
           ) : isError || !process.env.NEXT_PUBLIC_GITHUB_REPO ? (
             <div className="space-y-3">
               <p className="text-muted-foreground text-body">
-                릴리즈 정보를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.
+                {t("download.loadFailed")}
               </p>
               {process.env.NEXT_PUBLIC_GITHUB_REPO && (
                 <Button variant="outline" asChild>
@@ -94,7 +102,7 @@ export default function DownloadPage() {
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    GitHub에서 직접 다운로드
+                    {t("download.directDownload")}
                     <ExternalLink className="h-4 w-4 ml-2" />
                   </a>
                 </Button>
@@ -102,7 +110,7 @@ export default function DownloadPage() {
             </div>
           ) : (
             <p className="text-muted-foreground text-body">
-              아직 배포된 릴리즈가 없습니다. 곧 출시될 예정입니다.
+              {t("download.noRelease")}
             </p>
           )}
         </CardContent>
@@ -111,42 +119,21 @@ export default function DownloadPage() {
       {/* Getting started */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle>시작하기</CardTitle>
+          <CardTitle>{t("download.gettingStarted")}</CardTitle>
         </CardHeader>
         <CardContent>
           <ol className="space-y-4">
-            <li className="flex gap-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-body font-semibold">
-                1
-              </span>
-              <div>
-                <p className="font-medium">exe 파일 다운로드 후 실행</p>
-                <p className="text-body text-muted-foreground">실행시키면 OJIK BMS Client 설치가 진행됩니다. 나중에 삭제하고 싶으시면 제어판에서 삭제 가능합니다.</p>
-              </div>
-            </li>
-            <li className="flex gap-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-body font-semibold">
-                2
-              </span>
-              <div>
-                <p className="font-medium">첫 동기화 가이드라인</p>
-                <p className="text-body text-muted-foreground">
-                  설치 완료 후 첫 실행 시 Discord 계정 로그인부터 BMS 데이터베이스 경로 추가 안내까지 진행합니다. 다 건너뛰기 하셔도 대시보드에서 설정 가능해서 괜찮습니다.
-                </p>
-              </div>
-            </li>
-            <li className="flex gap-3">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-body font-semibold">
-                3
-              </span>
-              <div>
-                <p className="font-medium">전체 동기화 및 빠른 동기화</p>
-                <p className="text-body text-muted-foreground">
-                  동기화 버튼을 누르면 서버에 데이터를 전송합니다. 전체 동기화는 차분 메타데이터를 포함해 전송하며, 빠른 동기화는 플레이 데이터만 전송합니다.
-                  처음에는 전체 동기화를 하고 이후 새로운 차분이 추가되지 않았으면 빠른 동기화를 추천드립니다.
-                </p>
-              </div>
-            </li>
+            {steps.map((step, index) => (
+              <li key={step.title} className="flex gap-3">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-body font-semibold">
+                  {index + 1}
+                </span>
+                <div>
+                  <p className="font-medium">{step.title}</p>
+                  <p className="text-body text-muted-foreground">{step.description}</p>
+                </div>
+              </li>
+            ))}
           </ol>
         </CardContent>
       </Card>

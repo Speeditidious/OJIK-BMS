@@ -2,6 +2,7 @@
 
 import { useState, memo } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronUp, ChevronRight } from "lucide-react";
 import { RecentUpdate, HeatmapDay, ClientTypeFilter } from "@/hooks/use-analysis";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -78,11 +79,12 @@ export function clearText(
 }
 
 export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const songName =
     u.title ??
     (u.fumen_sha256 ? u.fumen_sha256.slice(0, 8) + "…" : null) ??
-    (u.fumen_md5 ? u.fumen_md5.slice(0, 8) + "…" : "(알 수 없음)");
+    (u.fumen_md5 ? u.fumen_md5.slice(0, 8) + "…" : t("common.states.noData"));
   const rankChanged = u.rank !== null;
   const firstClear = (u.clear_type ?? 0) >= 3;
 
@@ -99,11 +101,11 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
                 className="inline-flex items-center rounded-full px-2 py-0.5 text-caption font-medium border shrink-0"
                 style={{ borderColor: "hsl(var(--warning)/0.6)", background: "hsl(var(--warning)/0.15)", color: "hsl(var(--warning))" }}
               >
-                ★ 첫 클리어
+                ★ First Clear
               </span>
             )}
             {clearBadge(u.clear_type, u.client_type, { exscore: u.exscore, rate: u.rate })}
-            {(u.fumen_id || u.fumen_sha256 || u.fumen_md5) ? (
+            {(u.fumen_sha256 || u.fumen_md5) ? (
               <Link
                 href={songHref({ fumen_id: u.fumen_id, sha256: u.fumen_sha256, md5: u.fumen_md5 })}
                 className="text-label font-medium truncate max-w-[200px] hover:text-primary transition-colors"
@@ -168,27 +170,27 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="text-caption text-muted-foreground cursor-help">
-                      플레이 수: - → {u.play_count}
+                      {t("dashboard.scoreUpdates.plays")}: - → {u.play_count}
                     </span>
                   </TooltipTrigger>
                   <TooltipContent className="text-label">
-                    첫 동기화 — 이전 플레이 횟수 불명
+                    {t("dashboard.activity.firstSync")} — {t("common.states.noData")}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             ) : u.prev_play_count !== null ? (
               <span className="text-caption text-muted-foreground">
-                플레이 수: {u.prev_play_count} → {u.play_count}
+                {t("dashboard.scoreUpdates.plays")}: {u.prev_play_count} → {u.play_count}
               </span>
             ) : (
               <span className="text-caption text-muted-foreground">
-                플레이 수: {u.play_count}
+                {t("dashboard.scoreUpdates.plays")}: {u.play_count}
               </span>
             )
           )}
           {u.rate !== null && (
             <span className="text-caption text-muted-foreground">
-              스코어율: {formatRatePercent(u.rate)}
+              {t("dashboard.scoreUpdates.rate")}: {formatRatePercent(u.rate)}
             </span>
           )}
           {u.artist && (
@@ -205,8 +207,8 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
 // ── Thread row helpers ─────────────────────────────────────────────────────────
 
 function formatDateLabel(dateStr: string): string {
-  const [, m, d] = dateStr.split("-").map(Number);
-  return `${m}월 ${d}일`;
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function formatRelativeTime(dateStr: string): string {
@@ -216,15 +218,15 @@ function formatRelativeTime(dateStr: string): string {
   yesterday.setDate(today.getDate() - 1);
   const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
 
-  if (dateStr === todayStr) return "오늘";
-  if (dateStr === yesterdayStr) return "어제";
+  if (dateStr === todayStr) return "Today";
+  if (dateStr === yesterdayStr) return "Yesterday";
 
   const diffMs = today.getTime() - new Date(dateStr + "T00:00:00").getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays < 7) return `${diffDays}일 전`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}주 전`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)}달 전`;
-  return `${Math.floor(diffDays / 365)}년 전`;
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+  if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
+  return `${Math.floor(diffDays / 365)} years ago`;
 }
 
 // ── Thread row list component ──────────────────────────────────────────────────
@@ -246,9 +248,10 @@ export function RecentActivity({
   ratingUpdatesByDate = {},
   firstSyncDates,
   onDayClick,
-  emptyMessage = "활동 내역이 없습니다.",
+  emptyMessage,
   userId,
 }: Props) {
+  const { t } = useTranslation();
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const allDays = heatmapData
@@ -266,13 +269,13 @@ export function RecentActivity({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>최근 활동</CardTitle>
-        <CardDescription>날짜를 클릭하면 해당 날의 기록을 확인합니다.</CardDescription>
+        <CardTitle>{t("dashboard.activity.title")}</CardTitle>
+        <CardDescription>{t("common.states.noRecords")}</CardDescription>
       </CardHeader>
       <CardContent className="p-0">
         {allDays.length === 0 ? (
           <div className="flex items-center justify-center h-32 text-muted-foreground text-body px-6">
-            {emptyMessage}
+            {emptyMessage ?? t("dashboard.activity.noRecords")}
           </div>
         ) : (
           <div>
@@ -295,19 +298,19 @@ export function RecentActivity({
                   <span className="text-caption text-muted-foreground">{formatRelativeTime(day.date)}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {/* Order: 갱신 기록 → 신규 기록 → 레이팅 갱신 → 플레이 횟수 */}
+                  {/* Order: score updates → new plays → rating updates → play count */}
                   <span
                     className="text-caption bg-muted rounded px-1.5 py-0.5"
                     style={{ color: "hsl(var(--warning))" }}
                   >
-                    갱신 {day.updates}건
+                    {t("dashboard.activity.scoreUpdates", { count: day.updates })}
                   </span>
                   {(day.new_plays ?? 0) > 0 && (
                     <span
                       className="text-caption bg-muted rounded px-1.5 py-0.5"
                       style={{ color: "hsl(var(--primary))" }}
                     >
-                      신규 {day.new_plays}건
+                      {t("dashboard.activity.newPlays", { count: day.new_plays })}
                     </span>
                   )}
                   {(ratingUpdatesByDate[day.date] ?? 0) > 0 && !(firstSyncDates?.lr2 === day.date || firstSyncDates?.beatoraja === day.date) && (
@@ -315,14 +318,14 @@ export function RecentActivity({
                       className="text-caption bg-muted rounded px-1.5 py-0.5"
                       style={{ color: "hsl(var(--chart-rating))" }}
                     >
-                      레이팅 갱신 {ratingUpdatesByDate[day.date]}건
+                      {t("dashboard.activity.ratingUpdates", { count: ratingUpdatesByDate[day.date] })}
                     </span>
                   )}
                   <span
                     className="text-caption bg-muted rounded px-1.5 py-0.5"
                     style={{ color: "hsl(var(--chart-play))" }}
                   >
-                    플레이 {day.plays}회
+                    {t("dashboard.activity.plays", { count: day.plays })}
                   </span>
                   <ChevronRight className="h-4 w-4 text-muted-foreground" />
                 </div>
@@ -334,7 +337,7 @@ export function RecentActivity({
                 className="flex items-center justify-center gap-2 px-6 py-3 cursor-pointer hover:bg-muted/50 transition-colors text-label text-muted-foreground"
                 onClick={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
               >
-                <span>더보기 ({remaining}개 남음)</span>
+                <span>Show more ({remaining})</span>
                 <ChevronDown className="h-4 w-4" />
               </div>
             )}

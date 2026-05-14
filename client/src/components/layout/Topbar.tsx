@@ -1,8 +1,10 @@
 import { ExternalLink, Info, LogIn, LogOut } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import logoUrl from "../../assets/ojikbms_logo.png";
-import type { AuthStatus } from "../../types";
+import type { AuthStatus, LanguageCode } from "../../types";
 import { AuthPill } from "../auth/AuthPill";
+import { LanguageMenu } from "../language/LanguageMenu";
 import { Button } from "../primitives/Button";
 
 export function Topbar({
@@ -12,6 +14,8 @@ export function Topbar({
   onOpenDiagnostics,
   onOpenSite,
   isLoggingIn,
+  language,
+  onLanguageChange,
 }: {
   auth: AuthStatus | null;
   onLogin: () => void;
@@ -19,24 +23,29 @@ export function Topbar({
   onOpenDiagnostics: () => void;
   onOpenSite: () => void;
   isLoggingIn: boolean;
+  language: LanguageCode;
+  onLanguageChange: (language: LanguageCode) => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <header className="topbar">
       <div className="topbar-brand">
         <img src={logoUrl} alt="" className="topbar-logo" />
         <div>
           <div className="topbar-eyebrow">OJIK BMS Client</div>
-          <div className="topbar-title">동기화 대시보드</div>
+          <div className="topbar-title">{t("client.topbar.title")}</div>
         </div>
       </div>
       <div className="topbar-actions">
+        <LanguageMenu value={language} onChange={onLanguageChange} />
         <Button
           variant="ghost"
           size="sm"
           leadingIcon={<ExternalLink size={15} aria-hidden="true" />}
           onClick={onOpenSite}
         >
-          사이트 바로가기
+          {t("client.topbar.openSite")}
         </Button>
         <AuthPill status={auth} />
         {auth?.logged_in ? (
@@ -46,7 +55,7 @@ export function Topbar({
             leadingIcon={<LogOut size={15} aria-hidden="true" />}
             onClick={onLogout}
           >
-            로그아웃
+            {t("client.topbar.logout")}
           </Button>
         ) : (
           <Button
@@ -56,13 +65,13 @@ export function Topbar({
             onClick={onLogin}
             disabled={isLoggingIn}
           >
-            {isLoggingIn ? "로그인 중…" : "Discord 로그인"}
+            {isLoggingIn ? t("client.topbar.loggingIn") : t("client.topbar.login")}
           </Button>
         )}
         <Button
           variant="ghost"
           iconOnly
-          aria-label="정보 열기"
+          aria-label={t("client.topbar.openDiagnostics")}
           onClick={onOpenDiagnostics}
         >
           <Info size={16} aria-hidden="true" />

@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "./toaster";
 import { refreshTokens, getRefreshToken } from "@/lib/api";
+import { I18nProvider } from "@/lib/i18n/client";
+import type { LanguageCode } from "@/lib/i18n/languages";
 import { RankingDisplayConfigProvider } from "@/components/ranking/RankingDisplayConfigProvider";
 
 const CHUNK_LOAD_RETRY_KEY = "ojikbms:chunk-load-retry-at";
@@ -110,7 +112,13 @@ function useChunkLoadRecovery() {
   }, []);
 }
 
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({
+  children,
+  initialLanguage,
+}: {
+  children: React.ReactNode;
+  initialLanguage: LanguageCode;
+}) {
   useChunkLoadRecovery();
 
   const [queryClient] = useState(
@@ -136,12 +144,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
-      <QueryClientProvider client={queryClient}>
-        <RankingDisplayConfigProvider>
-          {children}
-        </RankingDisplayConfigProvider>
-        <Toaster />
-      </QueryClientProvider>
+      <I18nProvider initialLanguage={initialLanguage}>
+        <QueryClientProvider client={queryClient}>
+          <RankingDisplayConfigProvider>
+            {children}
+          </RankingDisplayConfigProvider>
+          <Toaster />
+        </QueryClientProvider>
+      </I18nProvider>
     </ThemeProvider>
   );
 }

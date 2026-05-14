@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Trophy } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Navbar } from "@/components/layout/navbar";
 import { RankingTableSelector } from "@/components/ranking/RankingTableSelector";
 import { RankingTypeToggle } from "@/components/ranking/RankingTypeToggle";
@@ -18,6 +19,7 @@ function RankingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
+  const { t } = useTranslation();
 
   const { data: tables, isLoading: tablesLoading } = useRankingTables();
 
@@ -62,10 +64,10 @@ function RankingContent() {
       {/* Title */}
       <div className="flex items-center gap-3">
         <Trophy className="h-7 w-7 text-primary" />
-        <h1 className="text-3xl font-bold">랭킹</h1>
+        <h1 className="text-3xl font-bold">{t("ranking.title")}</h1>
       </div>
 
-      {/* 중앙정렬 컨트롤 영역 */}
+      {/* Centered controls area */}
       <div className="flex flex-col items-center gap-3">
         {tablesLoading ? (
           <div className="flex gap-1">
@@ -84,7 +86,7 @@ function RankingContent() {
           />
         ) : (
           <p className="text-muted-foreground text-body">
-            현재 랭킹에 등록된 난이도표가 없습니다.
+            {t("ranking.noTables")}
           </p>
         )}
 

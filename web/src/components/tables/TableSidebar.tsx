@@ -18,6 +18,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { GripVertical, Plus, Star, StarOff } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -49,6 +50,7 @@ function SortableTableRow({
   onToggleFavorite,
   isLoggedIn,
 }: SortableTableRowProps) {
+  const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: table.id });
 
@@ -75,7 +77,7 @@ function SortableTableRow({
         {...listeners}
         onClick={(e) => e.stopPropagation()}
         className="shrink-0 opacity-40 hover:opacity-80 transition-opacity cursor-grab active:cursor-grabbing"
-        title="순서 변경"
+        title={t("tables.sidebar.reorderTitle")}
       >
         <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
       </button>
@@ -94,7 +96,7 @@ function SortableTableRow({
         <button
           onClick={(e) => onToggleFavorite(table, e)}
           className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"
-          title="즐겨찾기 해제"
+          title={t("tables.sidebar.removeFavoriteTitle")}
         >
           <StarOff className="h-3.5 w-3.5" />
         </button>
@@ -116,6 +118,7 @@ function StaticTableRow({
   onToggleFavorite: (table: DifficultyTable, e: React.MouseEvent) => void;
   isLoggedIn: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       key={table.id}
@@ -139,7 +142,7 @@ function StaticTableRow({
         <button
           onClick={(e) => onToggleFavorite(table, e)}
           className="shrink-0 text-muted-foreground hover:text-yellow-400 transition-colors"
-          title="즐겨찾기 추가"
+          title={t("tables.sidebar.addFavoriteTitle")}
         >
           <Star className="h-3.5 w-3.5" />
         </button>
@@ -156,6 +159,7 @@ export function TableSidebar({
   onImportClick,
   isLoggedIn,
 }: TableSidebarProps) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const favoriteIds = new Set(favorites.map((t) => t.id));
 
@@ -217,10 +221,10 @@ export function TableSidebar({
     <div className="flex flex-col h-full border-r">
       <div className="px-4 py-3 flex items-center justify-between border-b">
         <span className="text-body font-semibold text-muted-foreground uppercase tracking-wide">
-          난이도표
+          {t("tables.sidebar.title")}
         </span>
         {isLoggedIn && (
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onImportClick} title="외부 난이도표 추가">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onImportClick} title={t("tables.sidebar.addExternal")}>
             <Plus className="h-4 w-4" />
           </Button>
         )}
@@ -231,7 +235,7 @@ export function TableSidebar({
         {/* Favorites section */}
         {isLoggedIn && displayedFavorites.length > 0 && (
           <>
-            <p className="px-2 pb-1 text-label text-muted-foreground font-medium">즐겨찾기</p>
+            <p className="px-2 pb-1 text-label text-muted-foreground font-medium">{t("tables.sidebar.favorites")}</p>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={displayedFavorites.map((t) => t.id)} strategy={verticalListSortingStrategy}>
                 {displayedFavorites.map((t) => (
@@ -250,11 +254,11 @@ export function TableSidebar({
           </>
         )}
 
-        {/* 전체 section */}
+        {/* All tables section */}
         {otherTables.length > 0 && (
           <>
             {isLoggedIn && displayedFavorites.length > 0 && (
-              <p className="px-2 pb-1 text-label text-muted-foreground font-medium">전체</p>
+              <p className="px-2 pb-1 text-label text-muted-foreground font-medium">{t("tables.sidebar.all")}</p>
             )}
             {otherTables.map((t) => (
               <StaticTableRow
@@ -271,7 +275,7 @@ export function TableSidebar({
 
         {allTables.length === 0 && (
           <p className="px-2 py-4 text-body text-muted-foreground text-center">
-            난이도표 데이터를 불러오는 중...
+            {t("tables.sidebar.loading")}
           </p>
         )}
       </div>

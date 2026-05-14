@@ -65,7 +65,7 @@ export function useUpdateScoreUpdatesPrefs() {
 /** Clear types that can be hidden (MAX=9 … ASSIST=2). FAILED(1) and NO PLAY(0) are always shown. */
 export const HIDEABLE_CLEAR_TYPES = [9, 8, 7, 6, 5, 4, 3, 2] as const;
 
-/** LR2에 존재하지 않는 clear type들. LR2 버킷 UI에서 렌더 제외. */
+/** Clear types not present in LR2. Excluded from the LR2 bucket UI. */
 export const LR2_MISSING_CLEAR_TYPES: ReadonlySet<number> = new Set([2, 6]);
 
 export type ClientVisibilityKey = "all" | "lr2" | "beatoraja";

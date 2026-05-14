@@ -1,5 +1,6 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { probeForValidity, type ValidityState } from "../../lib/path-validity";
 import { pickFile, pickFolder, probePath, isTauriRuntime } from "../../tauri";
@@ -13,31 +14,31 @@ const CLIENT_LABEL: Record<ClientType, string> = {
 };
 
 interface SourceFieldSpec {
-  label: string;
+  labelKey: string;
   pickKind: string;
   pathKey: keyof ClientConfig;
   required: boolean;
-  hint?: string;
+  hintKey: string;
   pickerType?: "file" | "folder";
   validation: "lr2-score" | "lr2-song" | "beatoraja-score-dir" | "beatoraja-songdata" | "beatoraja-songinfo";
 }
 
 const LR2_FIELDS: SourceFieldSpec[] = [
   {
-    label: "<username>.db",
+    labelKey: "client.source.cards.lr2Score.label",
     pickKind: "lr2-score",
     pathKey: "lr2_db_path",
     required: false,
-    hint: "LR2files/Database/Score 경로에 있는 {username}.db 파일을 업로드 해주세요. 일반적으로 용량이 제일 큰 파일입니다.",
+    hintKey: "client.source.cards.lr2Score.hint",
     pickerType: "file",
     validation: "lr2-score",
   },
   {
-    label: "song.db",
+    labelKey: "client.source.cards.lr2Song.label",
     pickKind: "lr2-song",
     pathKey: "lr2_song_db_path",
     required: false,
-    hint: "LR2files/Database 경로에 있는 song.db 파일을 업로드 해주세요.",
+    hintKey: "client.source.cards.lr2Song.hint",
     pickerType: "file",
     validation: "lr2-song",
   },
@@ -45,29 +46,29 @@ const LR2_FIELDS: SourceFieldSpec[] = [
 
 const BEATORAJA_FIELDS: SourceFieldSpec[] = [
   {
-    label: "플레이 기록 DB 폴더",
+    labelKey: "client.source.cards.beatorajaScoreFolder.label",
     pickKind: "bea-dir",
     pathKey: "beatoraja_db_dir",
     required: false,
-    hint: "score.db / scorelog.db가 들어 있는 폴더를 업로드 해주세요. 일반적으로 player/player1 폴더입니다.",
+    hintKey: "client.source.cards.beatorajaScoreFolder.hint",
     pickerType: "folder",
     validation: "beatoraja-score-dir",
   },
   {
-    label: "songdata.db",
+    labelKey: "client.source.cards.beatorajaSongData.label",
     pickKind: "bea-songdata",
     pathKey: "beatoraja_songdata_db_path",
     required: false,
-    hint: "beatoraja 최상위 폴더에 있는 songdata.db 파일을 업로드 해주세요.",
+    hintKey: "client.source.cards.beatorajaSongData.hint",
     pickerType: "file",
     validation: "beatoraja-songdata",
   },
   {
-    label: "songinfo.db",
+    labelKey: "client.source.cards.beatorajaSongInfo.label",
     pickKind: "bea-songinfo",
     pathKey: "beatoraja_songinfo_db_path",
     required: false,
-    hint: "beatoraja 최상위 폴더에 있는 songinfo.db 파일을 업로드 해주세요.",
+    hintKey: "client.source.cards.beatorajaSongInfo.hint",
     pickerType: "file",
     validation: "beatoraja-songinfo",
   },
@@ -91,6 +92,7 @@ export function SourceCard({
   onUpdate,
   onPickError,
 }: SourceCardProps) {
+  const { t } = useTranslation();
   const fields = FIELDS[client];
   const [isDropOver, setIsDropOver] = useState(false);
   const [activeDropKey, setActiveDropKey] = useState<string | null>(null);
@@ -124,11 +126,17 @@ export function SourceCard({
     },
   );
 
-  const status: { tone: "success" | "warn" | "danger" | "muted"; label: string } = !hasAllRequired
-    ? { tone: "warn", label: "경로 누락" }
+  const statusTone: "success" | "warn" | "danger" | "muted" = !hasAllRequired
+    ? "warn"
     : hasPathProblems
-      ? { tone: "danger", label: "경로 오류" }
-      : { tone: "success", label: "준비됨" };
+      ? "danger"
+      : "success";
+  const statusLabel = !hasAllRequired
+    ? t("client.source.status.missing")
+    : hasPathProblems
+      ? t("client.source.status.invalid")
+      : t("client.source.status.ready");
+
   const clientLabel = CLIENT_LABEL[client];
 
   const handleFieldDrop = useCallback((spec: SourceFieldSpec, hint: string) => {
@@ -181,7 +189,7 @@ export function SourceCard({
         if (field) {
           handleFieldDrop(field, path);
         }
-        // 카드 전체 영역 드롭은 어떤 칸용인지 알 수 없으므로 무시한다.
+        // Drop on the whole card without a specific target field is ignored.
       })
       .then((nextUnlisten) => {
         if (cancelled) {
@@ -225,21 +233,21 @@ export function SourceCard({
       onDrop={(e) => {
         e.preventDefault();
         setIsDropOver(false);
-        // 카드 전체 영역 드롭은 어떤 칸용인지 알 수 없으므로 무시한다.
+        // Drop on the whole card without a specific target field is ignored.
       }}
     >
       <header className="source-card-hd">
         <div className="source-card-title">
           {clientLabel}
         </div>
-        <Badge tone={status.tone}>{status.label}</Badge>
+        <Badge tone={statusTone}>{statusLabel}</Badge>
       </header>
 
       <div className="source-card-paths">
         {fields.map((field) => (
           <PathField
             key={field.pathKey as string}
-            label={field.label}
+            label={t(field.labelKey)}
             value={(config[field.pathKey] as string) ?? ""}
             inputName={`ojik-${field.pathKey as string}`}
             onChange={(next) =>
@@ -250,7 +258,7 @@ export function SourceCard({
             dropTargetKey={field.pathKey as string}
             dropOver={activeDropKey === field.pathKey}
             required={field.required}
-            hint={field.hint}
+            hint={t(field.hintKey)}
             validity={validityMap[field.pathKey as string] ?? null}
           />
         ))}
@@ -267,32 +275,32 @@ async function validateSourcePath(path: string | null, spec: SourceFieldSpec): P
   const name = basename(base.path).toLowerCase();
   switch (spec.validation) {
     case "lr2-score":
-      if (base.kind !== "file") return invalid(base, "파일을 선택해 주세요");
-      if (!name.endsWith(".db")) return invalid(base, ".db 파일이어야 합니다");
+      if (base.kind !== "file") return invalid(base, "client.source.validation.fileRequired");
+      if (!name.endsWith(".db")) return invalid(base, "client.source.validation.dbFileRequired");
       return base;
     case "lr2-song":
-      if (base.kind !== "file") return invalid(base, "파일을 선택해 주세요");
-      if (name !== "song.db") return invalid(base, "파일명이 song.db여야 합니다");
+      if (base.kind !== "file") return invalid(base, "client.source.validation.fileRequired");
+      if (name !== "song.db") return invalid(base, "client.source.validation.exactFileNameRequired:song.db");
       return base;
     case "beatoraja-score-dir": {
-      if (base.kind !== "dir") return invalid(base, "폴더를 선택해 주세요");
+      if (base.kind !== "dir") return invalid(base, "client.source.validation.dirRequired");
       const score = await probePath(joinPath(base.path, "score.db"));
       if (!score?.exists || score.kind !== "file") {
-        return invalid(base, "폴더 안에 score.db가 없습니다");
+        return invalid(base, "client.source.validation.missingScoreDb");
       }
       const scorelog = await probePath(joinPath(base.path, "scorelog.db"));
       if (!scorelog?.exists || scorelog.kind !== "file") {
-        return invalid(base, "폴더 안에 scorelog.db가 없습니다");
+        return invalid(base, "client.source.validation.missingScoreLogDb");
       }
       return base;
     }
     case "beatoraja-songdata":
-      if (base.kind !== "file") return invalid(base, "파일을 선택해 주세요");
-      if (name !== "songdata.db") return invalid(base, "파일명이 songdata.db여야 합니다");
+      if (base.kind !== "file") return invalid(base, "client.source.validation.fileRequired");
+      if (name !== "songdata.db") return invalid(base, "client.source.validation.exactFileNameRequired:songdata.db");
       return base;
     case "beatoraja-songinfo":
-      if (base.kind !== "file") return invalid(base, "파일을 선택해 주세요");
-      if (name !== "songinfo.db") return invalid(base, "파일명이 songinfo.db여야 합니다");
+      if (base.kind !== "file") return invalid(base, "client.source.validation.fileRequired");
+      if (name !== "songinfo.db") return invalid(base, "client.source.validation.exactFileNameRequired:songinfo.db");
       return base;
     default:
       return base;

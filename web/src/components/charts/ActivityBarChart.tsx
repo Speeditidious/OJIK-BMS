@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import {
   CartesianGrid,
   Line,
@@ -39,11 +40,11 @@ function seriesColor(mode: ActivitySeries): string {
   return "hsl(var(--chart-play))";
 }
 
-function seriesLabel(mode: ActivitySeries): string {
-  if (mode === "plays") return "플레이";
-  if (mode === "new_plays") return "신규 기록";
-  if (mode === "rating_updates") return "레이팅 갱신";
-  return "갱신 기록";
+function seriesLabel(mode: ActivitySeries, t: (key: string) => string): string {
+  if (mode === "plays") return t("format.activity.categories.plays");
+  if (mode === "new_plays") return t("format.activity.categories.newPlays");
+  if (mode === "rating_updates") return t("format.activity.categories.ratingUpdates");
+  return t("format.activity.categories.updates");
 }
 
 function SyncLabel({ viewBox, labels }: { viewBox?: { x: number; y: number }; labels: string[] }) {
@@ -75,6 +76,7 @@ function ChartTooltip({
   payload?: any[];
   activeModes: ActivitySeries[];
 }) {
+  const { t } = useTranslation();
   if (!active || !payload?.length) return null;
   const row = payload[0].payload as {
     fullDate: string;
@@ -123,7 +125,7 @@ function ChartTooltip({
               fontWeight: 600,
             }}
           >
-            {seriesLabel(mode)}: {mode === "plays" ? `${value}회` : `${value}건`}
+            {seriesLabel(mode, t)}: {value}
           </p>
         );
       })}
@@ -140,6 +142,7 @@ export function ActivityBarChart({
   rangeFrom,
   rangeTo,
 }: ActivityBarChartProps) {
+  const { t } = useTranslation();
   const [chartRef, chartWidth] = useChartWidth(150);
   const enabledModes = useMemo<ActivitySeries[]>(() => {
     const set = new Set<string>(activeModes.length > 0 ? activeModes : ["updates"]);
@@ -167,17 +170,17 @@ export function ActivityBarChart({
     if (!firstSyncDates) return map;
     if (clientType !== "beatoraja" && firstSyncDates.lr2) {
       const prev = map[firstSyncDates.lr2] ?? { labels: [], hideCount: true };
-      prev.labels.push("LR2 첫 동기화");
+      prev.labels.push(`LR2 ${t("dashboard.activity.firstSync")}`);
       map[firstSyncDates.lr2] = prev;
     }
     if (clientType !== "lr2" && firstSyncDates.beatoraja) {
       const prev = map[firstSyncDates.beatoraja] ?? { labels: [], hideCount: true };
-      prev.labels.push("Beatoraja 첫 동기화");
+      prev.labels.push(`Beatoraja ${t("dashboard.activity.firstSync")}`);
       prev.hideCount = false;
       map[firstSyncDates.beatoraja] = prev;
     }
     return map;
-  }, [firstSyncDates, clientType]);
+  }, [firstSyncDates, clientType, t]);
 
   const courseByDate = useMemo(() => {
     if (!courseData?.length) return {} as Record<string, string[]>;
@@ -186,7 +189,7 @@ export function ActivityBarChart({
       if (!course.date) continue;
       const label = course.course_name
         ? (course.dan_title ? `[${course.dan_title}] ` : "") + course.course_name
-        : `코스 (${course.course_hash.slice(0, 6)}…)`;
+        : `Course (${course.course_hash.slice(0, 6)}…)`;
       (map[course.date] ??= []).push(label);
     }
     return map;
@@ -264,7 +267,7 @@ export function ActivityBarChart({
   if (chartData.length === 0) {
     return (
       <div className="flex items-center justify-center h-[280px] text-muted-foreground text-body">
-        이 기간에 동기화된 데이터가 없습니다
+        {t("charts.activity.noData")}
       </div>
     );
   }
@@ -278,7 +281,7 @@ export function ActivityBarChart({
 
   const legendItems: LegendItem[] = ACTIVITY_CATEGORIES
     .filter((cat) => enabledModes.includes(cat.key as ActivitySeries))
-    .map((cat) => ({ key: cat.key, label: cat.label, color: cat.hslColor }));
+    .map((cat) => ({ key: cat.key, label: t(cat.labelKey), color: cat.hslColor }));
 
   return (
     <div ref={chartRef} className="space-y-2">
@@ -287,7 +290,7 @@ export function ActivityBarChart({
         <XAxis
           dataKey="fullDate"
           ticks={tickDates}
-          tickFormatter={(v: string) => formatTick(v, tickInterval)}
+          tickFormatter={(v: string) => formatTick(v, tickInterval, t)}
           tick={{ fontSize: "var(--text-caption)", fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={false}

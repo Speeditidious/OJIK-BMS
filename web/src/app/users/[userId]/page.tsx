@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, use, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useRouter } from "next/navigation";
 import { UserCircle } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
@@ -15,6 +16,7 @@ import { useAuthStore } from "@/stores/auth";
 const CURRENT_YEAR = new Date().getFullYear();
 
 function UserProfileContent({ userId }: { userId: string }) {
+  const { t } = useTranslation();
   const router = useRouter();
   const currentUser = useAuthStore((state) => state.user);
   const isOwner = currentUser?.id === userId;
@@ -49,7 +51,7 @@ function UserProfileContent({ userId }: { userId: string }) {
       <div className="min-h-screen bg-background">
         <Navbar />
         <main className="container mx-auto px-4 py-8">
-          <p className="text-muted-foreground">해당 유저를 찾을 수 없습니다.</p>
+          <p className="text-muted-foreground">{t("common.states.notFound")}</p>
         </main>
       </div>
     );
@@ -62,7 +64,7 @@ function UserProfileContent({ userId }: { userId: string }) {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <UserCircle className="h-7 w-7 text-primary" />
-            <h1 className="text-3xl font-bold">프로필</h1>
+            <h1 className="text-3xl font-bold">Profile</h1>
           </div>
           <ProfileActionBar isOwner={isOwner} />
         </div>
@@ -84,7 +86,7 @@ function UserProfileContent({ userId }: { userId: string }) {
           ratingUpdatesByDate={heatmapRatingMap}
           firstSyncDates={firstSyncDates}
           onDayClick={(date) => router.push(`/users/${userId}/dashboard?tab=calendar&date=${date}`)}
-          emptyMessage={isOwner ? "동기화된 활동 내역이 없습니다." : "이 유저는 아직 공개된 활동 내역이 없습니다."}
+          emptyMessage={isOwner ? t("dashboard.activity.noRecords") : t("common.states.noRecords")}
         />
       </main>
     </div>

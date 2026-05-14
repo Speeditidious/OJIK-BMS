@@ -3,10 +3,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth";
 
 export function LoginButton() {
+  const { t } = useTranslation();
   const { user, isInitialized } = useAuthStore();
   const router = useRouter();
 
@@ -31,7 +33,7 @@ export function LoginButton() {
           height={194}
           style={{ width: 20, height: "auto" }}
         />
-        Discord로 시작하기
+        {t("home.hero.primaryAction")}
       </Button>
     </Link>
   );

@@ -1,16 +1,9 @@
 import { AlertTriangle, Download, RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import type { UpdateError } from "../../types";
 import { Button } from "../primitives/Button";
 import { Dialog } from "../primitives/Dialog";
-
-const STAGE_LABEL: Record<UpdateError["stage"], string> = {
-  check: "업데이트 확인",
-  download: "업데이트 다운로드",
-  verify: "서명 검증",
-  install: "설치",
-  restart: "재시작",
-};
 
 export function UpdateFailureDialog({
   open,
@@ -27,6 +20,11 @@ export function UpdateFailureDialog({
   onOpenDownloadPage: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
+
+  const stageKey = `client.updates.stages.${error.stage}` as const;
+  const stageLabel = t(stageKey, { defaultValue: error.stage });
+
   return (
     <Dialog
       open={open}
@@ -35,14 +33,14 @@ export function UpdateFailureDialog({
       title={
         <span style={{ color: "var(--danger)", display: "inline-flex", alignItems: "center", gap: 6 }}>
           <AlertTriangle size={16} aria-hidden="true" />
-          업데이트가 실패했습니다
+          {t("client.updates.failureTitle")}
         </span>
       }
       footer={
         <>
           {!mandatory ? (
             <Button variant="ghost" onClick={onClose}>
-              닫기
+              {t("client.updates.close")}
             </Button>
           ) : null}
           <Button
@@ -50,21 +48,21 @@ export function UpdateFailureDialog({
             leadingIcon={<Download size={14} aria-hidden="true" />}
             onClick={onOpenDownloadPage}
           >
-            다운로드 페이지 열기
+            {t("client.updates.openDownload")}
           </Button>
           <Button
             variant="primary"
             leadingIcon={<RefreshCw size={14} aria-hidden="true" />}
             onClick={onRetry}
           >
-            다시 시도
+            {t("client.updates.retry")}
           </Button>
         </>
       }
     >
       <div style={{ display: "grid", gap: 10 }}>
         <div style={{ color: "var(--muted)", fontSize: "0.86rem" }}>
-          단계: <b style={{ color: "var(--text)" }}>{STAGE_LABEL[error.stage]}</b>
+          {t("client.updates.stage")}: <b style={{ color: "var(--text)" }}>{stageLabel}</b>
         </div>
         <pre
           style={{
@@ -85,9 +83,9 @@ export function UpdateFailureDialog({
         {mandatory ? (
           <div className="banner banner-warn">
             <div>
-              <div className="banner-title">필수 업데이트가 끝나야 동기화가 다시 활성화됩니다</div>
+              <div className="banner-title">{t("client.updates.failureMandatoryTitle")}</div>
               <div className="banner-body">
-                다시 시도가 계속 실패하면 다운로드 페이지에서 수동으로 최신 인스톨러를 받아 주세요.
+                {t("client.updates.failureMandatoryBody")}
               </div>
             </div>
           </div>

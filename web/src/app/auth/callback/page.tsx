@@ -2,10 +2,12 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import { setTokens } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth";
 
 export default function CallbackPage() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { fetchUser } = useAuthStore();
 
@@ -17,11 +19,11 @@ export default function CallbackPage() {
 
     if (error) {
       const messages: Record<string, string> = {
-        account_banned: "계정이 정지되었습니다.",
-        oauth_token_failed: "Discord 인증에 실패했습니다.",
-        oauth_user_failed: "Discord 사용자 정보를 가져오지 못했습니다.",
+        account_banned: t("auth.callback.errors.accountBanned"),
+        oauth_token_failed: t("auth.callback.errors.oauthTokenFailed"),
+        oauth_user_failed: t("auth.callback.errors.oauthUserFailed"),
       };
-      const msg = messages[error] ?? "로그인에 실패했습니다.";
+      const msg = messages[error] ?? t("auth.callback.errors.default");
       router.push(`/login?error=${encodeURIComponent(msg)}`);
       return;
     }
@@ -39,13 +41,13 @@ export default function CallbackPage() {
     } else {
       router.push("/login");
     }
-  }, [router, fetchUser]);
+  }, [router, fetchUser, t]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="text-center">
         <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-4" />
-        <p className="text-muted-foreground">로그인 처리 중...</p>
+        <p className="text-muted-foreground">{t("auth.callback.processing")}</p>
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { memo, useState, useMemo, useCallback, useDeferredValue, useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { useVirtualizer, defaultRangeExtractor } from "@tanstack/react-virtual";
 import Link from "next/link";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
@@ -157,12 +158,12 @@ const SongRow = React.memo(function SongRow({
       <td className="px-2" data-title={song.title ?? ""} data-artist={song.artist ?? ""}>
         <div className="min-w-0 overflow-hidden">
           <div className="max-w-full truncate">
-            {(song.fumen_id || song.sha256) ? (
+            {song.sha256 ? (
               <Link href={songHref(song, userId)} className="text-label leading-tight hover:text-primary transition-colors">
-                {song.title || "(제목 없음)"}
+                {song.title || "(Untitled)"}
               </Link>
             ) : (
-              <span className="text-label leading-tight">{song.title || "(제목 없음)"}</span>
+              <span className="text-label leading-tight">{song.title || "(Untitled)"}</span>
             )}
           </div>
           {song.artist && <div className="text-caption text-muted-foreground row-muted max-w-full truncate">{song.artist}</div>}
@@ -203,6 +204,7 @@ const SongTable = React.memo(function SongTable({
   userId: string;
   getDisplayClearType?: (ct: number) => number;
 }) {
+  const { t } = useTranslation();
   const [sortKey, setSortKey] = useState<SortKey>("level");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const parentRef = useRef<HTMLDivElement>(null);
@@ -273,7 +275,7 @@ const SongTable = React.memo(function SongTable({
   if (songs.length === 0) {
     return (
       <div className="flex items-center justify-center h-24 text-muted-foreground text-body">
-        해당 조건의 곡이 없습니다
+        No songs match the current filter.
       </div>
     );
   }
@@ -303,21 +305,21 @@ const SongTable = React.memo(function SongTable({
       <div className="flex items-center justify-end px-3 py-1 border-b border-border bg-card">
         <button
           className="flex items-center gap-1.5 text-label text-muted-foreground hover:text-foreground transition-colors px-3 py-1 rounded-md border border-border/50 hover:border-border hover:bg-secondary/30"
-          title="엑셀 내보내기 (.xlsx)"
+          title={t("tables.detail.excelExportTitle")}
           disabled={sorted.length === 0}
           onClick={() => {
             const columns = [
-              { key: "level", header: "레벨" },
-              { key: "title", header: "제목" },
-              { key: "artist", header: "아티스트" },
-              { key: "lamp", header: "클리어" },
-              { key: "bp", header: "BP" },
-              { key: "rate", header: "판정" },
-              { key: "rank", header: "랭크" },
-              { key: "score", header: "점수" },
-              { key: "plays", header: "플레이" },
-              { key: "option", header: "배치" },
-              { key: "env", header: "구동기" },
+              { key: "level", header: t("dashboard.scoreUpdates.level") },
+              { key: "title", header: t("dashboard.scoreUpdates.title") },
+              { key: "artist", header: t("common.fields.artist") },
+              { key: "lamp", header: t("dashboard.scoreUpdates.clear") },
+              { key: "bp", header: t("dashboard.scoreUpdates.bp") },
+              { key: "rate", header: t("dashboard.scoreUpdates.rate") },
+              { key: "rank", header: t("dashboard.scoreUpdates.rank") },
+              { key: "score", header: t("dashboard.scoreUpdates.score") },
+              { key: "plays", header: t("dashboard.scoreUpdates.plays") },
+              { key: "option", header: t("dashboard.scoreUpdates.option") },
+              { key: "env", header: t("dashboard.scoreUpdates.env") },
             ];
             const data = sorted.map((song) => {
               const arrangementName = parseArrangement(song.options, song.client_type);
@@ -339,7 +341,7 @@ const SongTable = React.memo(function SongTable({
           }}
         >
           <FileSpreadsheet className="h-3.5 w-3.5" />
-          엑셀 내보내기
+          {t("tables.detail.excelExportButton")}
         </button>
       </div>
 
@@ -365,16 +367,16 @@ const SongTable = React.memo(function SongTable({
 
           <thead className="sticky top-0 z-10 bg-background text-label text-foreground font-medium">
             <tr className="border-b border-border">
-              {thSort("레벨", "level")}
-              {thSort("제목", "title")}
-              {thSort("클리어", "clear_type")}
-              {thSort("BP", "min_bp")}
-              {thSort("판정", "rate")}
-              {thSort("랭크", "rank")}
-              {thSort("점수", "ex_score")}
-              {thSort("플레이", "plays")}
-              {thSort("배치", "option")}
-              <th className="px-2 py-2 text-left font-medium whitespace-nowrap">구동기</th>
+              {thSort(t("dashboard.scoreUpdates.level"), "level")}
+              {thSort(t("dashboard.scoreUpdates.title"), "title")}
+              {thSort(t("dashboard.scoreUpdates.clear"), "clear_type")}
+              {thSort(t("dashboard.scoreUpdates.bp"), "min_bp")}
+              {thSort(t("dashboard.scoreUpdates.rate"), "rate")}
+              {thSort(t("dashboard.scoreUpdates.rank"), "rank")}
+              {thSort(t("dashboard.scoreUpdates.score"), "ex_score")}
+              {thSort(t("dashboard.scoreUpdates.plays"), "plays")}
+              {thSort(t("dashboard.scoreUpdates.option"), "option")}
+              <th className="px-2 py-2 text-left font-medium whitespace-nowrap">{t("dashboard.scoreUpdates.env")}</th>
             </tr>
           </thead>
 
@@ -430,11 +432,12 @@ const FilterPanel = memo(function FilterPanel({
   onToggleClearType,
   onTitleChange,
 }: FilterPanelProps) {
+  const { t } = useTranslation();
   // Which clear types are relevant for this client
   const clearTypes = useMemo(() => {
     return (ALL_CLEAR_TYPES as readonly number[]).filter((ct) => {
       if (clientType === "lr2" && (ct === 2 || ct === 6)) return false;
-      if (hiddenClearTypes?.has(ct)) return false; // 설정에서 숨긴 ct는 필터 버튼에서도 제외
+      if (hiddenClearTypes?.has(ct)) return false; // exclude types hidden in settings from filter buttons too
       return true;
     });
   }, [clientType, hiddenClearTypes]);
@@ -460,7 +463,7 @@ const FilterPanel = memo(function FilterPanel({
     <div className="rounded-lg border border-border/50 bg-card/50 p-3 space-y-3">
       {/* Clear type toggles */}
       <div className="flex gap-2 items-start">
-        <span className="text-caption text-muted-foreground pt-[3px] w-14 shrink-0">클리어</span>
+        <span className="text-caption text-muted-foreground pt-[3px] w-14 shrink-0">{t("dashboard.scoreUpdates.clear")}</span>
         <div className="flex flex-wrap gap-1 flex-1">
           {clearTypes.map((ct) => {
             const active = filterClearTypes.has(ct);
@@ -485,7 +488,7 @@ const FilterPanel = memo(function FilterPanel({
 
       {/* Level toggles */}
       <div className="flex gap-2 items-start">
-        <span className="text-caption text-muted-foreground pt-[3px] w-14 shrink-0">레벨</span>
+        <span className="text-caption text-muted-foreground pt-[3px] w-14 shrink-0">{t("dashboard.scoreUpdates.level")}</span>
         <div className="flex flex-wrap gap-1 max-h-[72px] overflow-y-auto pr-1">
           {levels.map((lv) => {
             const active = filterLevels.has(lv);
@@ -509,13 +512,13 @@ const FilterPanel = memo(function FilterPanel({
 
       {/* Title search */}
       <div className="flex gap-2 items-center">
-        <span className="text-caption text-muted-foreground w-14 shrink-0">검색</span>
+        <span className="text-caption text-muted-foreground w-14 shrink-0">{t("common.actions.search")}</span>
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
           <Input
             value={filterTitle}
             onChange={(e) => onTitleChange(e.target.value)}
-            placeholder="곡명 / 아티스트"
+            placeholder={t("common.fields.titleArtist")}
             className="h-7 pl-6 pr-6 text-label"
           />
           {filterTitle && (
@@ -537,6 +540,7 @@ const FilterPanel = memo(function FilterPanel({
 // ---------------------------------------------------------------------------
 
 function FavoritesSettingsLinkButton() {
+  const { t } = useTranslation();
   return (
     <TooltipProvider delayDuration={150}>
       <Tooltip>
@@ -544,14 +548,14 @@ function FavoritesSettingsLinkButton() {
           <Link
             href="/tables"
             className="text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="난이도표 허브에서 즐겨찾기 관리"
+            aria-label={t("dashboard.tableClear.settingsAria")}
             onClick={(e) => e.stopPropagation()}
           >
             <Settings2 className="h-3.5 w-3.5" />
           </Link>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs text-label">
-          난이도표 허브에서 즐겨찾는 난이도표를 관리할 수 있습니다. 여기엔 즐겨찾기로 등록된 난이도표만 표시됩니다.
+          {t("dashboard.tableClear.settingsDescription")}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
@@ -622,7 +626,7 @@ interface TableClearSectionProps {
   onClearVisibilitySourceChange: (next: ClearVisibilitySource) => void;
 }
 
-// URL param 키 (대시보드 기존 tab/date 파라미터와 충돌하지 않도록 접두사 d_ 사용)
+// URL param keys (prefixed with d_ to avoid collision with dashboard's existing tab/date params)
 const P_TBL = "d_tbl";
 const P_LV  = "d_lv";
 const P_CT  = "d_ct";
@@ -638,7 +642,8 @@ export function TableClearSection({
   clearVisibilitySource,
   onClearVisibilitySourceChange,
 }: TableClearSectionProps) {
-  // clientType undefined = 통합 뷰 → visibility 버킷은 "all"
+  const { t } = useTranslation();
+  // clientType undefined = combined view → visibility bucket is "all"
   const clientKey: ClientVisibilityKey =
     clientType === "lr2" ? "lr2" : clientType === "beatoraja" ? "beatoraja" : "all";
   const { hiddenTypes, getDisplayClearType } = useDashboardClearVisibility(
@@ -657,7 +662,7 @@ export function TableClearSection({
   const router = useRouter();
   const pathname = usePathname();
 
-  // URL에서 상태 읽기
+  // Read state from URL
   const selectedTableId = searchParams.get(P_TBL);
   const filterLevels = useMemo(
     () => new Set(searchParams.get(P_LV)?.split(",").filter(Boolean) ?? []),
@@ -666,7 +671,7 @@ export function TableClearSection({
   const filterClearTypes = useMemo(
     () => {
       const raw = (searchParams.get(P_CT)?.split(",").filter(Boolean) ?? []).map(Number);
-      // 숨김 설정이 바뀌어 stale해진 ct는 display ct로 정규화 (orphan filter 방지)
+      // Normalize stale ct values to display ct when hidden settings change (prevent orphan filters)
       return new Set(raw.map((ct) => getDisplayClearType(ct)));
     },
     [searchParams, getDisplayClearType]
@@ -674,7 +679,7 @@ export function TableClearSection({
   const filterTitle = searchParams.get(P_Q) ?? "";
   const deferredTitle = useDeferredValue(filterTitle);
 
-  // URL 업데이트 헬퍼 (기존 파라미터 보존)
+  // URL update helper (preserves existing params)
   const updateParams = useCallback((updates: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams.toString());
     for (const [k, v] of Object.entries(updates)) {
@@ -805,10 +810,10 @@ export function TableClearSection({
       {showTargetList && (
         <FavTableList
           tables={targetFavTables ?? []}
-          title={`${targetUsername}님의 즐겨찾기 난이도표 리스트`}
+          title={`${targetUsername}'s favorite tables`}
           selectedId={effectiveTableId}
           onSelect={handleTableSelect}
-          emptyMessage={`${targetUsername}님이 즐겨찾기한 난이도표가 없습니다.`}
+          emptyMessage={`${targetUsername} has no favorited tables.`}
         />
       )}
 
@@ -816,11 +821,11 @@ export function TableClearSection({
       {showViewerList && (
         <FavTableList
           tables={viewerFavTables ?? []}
-          title="나의 즐겨찾기 난이도표 리스트"
+          title="My favorite tables"
           selectedId={effectiveTableId}
           onSelect={handleTableSelect}
           headerAction={<FavoritesSettingsLinkButton />}
-          emptyMessage="내가 즐겨찾기한 난이도표가 없습니다."
+          emptyMessage="You have no favorited tables."
         />
       )}
 
@@ -828,17 +833,17 @@ export function TableClearSection({
       {showGuestList && (
         <FavTableList
           tables={targetFavTables ?? []}
-          title={`${targetUsername}님의 즐겨찾기 난이도표 리스트`}
+          title={`${targetUsername}'s favorite tables`}
           selectedId={effectiveTableId}
           onSelect={handleTableSelect}
-          emptyMessage={`${targetUsername}님이 즐겨찾기한 난이도표가 없습니다.`}
+          emptyMessage={`${targetUsername} has no favorited tables.`}
         />
       )}
 
       {/* Bottom panel: histogram + filters + song table */}
       {effectiveTableId === null ? (
         <div className="flex items-center justify-center h-48 text-muted-foreground text-body">
-          표시할 즐겨찾기 난이도표가 없습니다.
+          {t("dashboard.tableClear.noTableData")}
         </div>
       ) : null}
       {effectiveTableId !== null && (
@@ -847,7 +852,7 @@ export function TableClearSection({
           <div className="h-48 bg-muted rounded animate-pulse" />
         ) : !dist || dist.levels.length === 0 ? (
           <div className="flex items-center justify-center h-48 text-muted-foreground text-body">
-            스코어 데이터가 없습니다
+            {t("charts.tableClearHistogram.noData")}
           </div>
         ) : (
           <>
@@ -880,7 +885,7 @@ export function TableClearSection({
             {/* Active filters display */}
             {isFiltered && (
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-label text-muted-foreground">필터:</span>
+                <span className="text-label text-muted-foreground">Filter:</span>
                 {[...filterLevels].map((lv) => (
                   <Badge key={lv} variant="secondary" className="text-label gap-1 h-5">
                     {formatLevel(lv, tableSymbol)}
@@ -911,16 +916,16 @@ export function TableClearSection({
                   className="h-5 text-label px-2"
                   onClick={clearFilters}
                 >
-                  초기화
+                  Reset
                 </Button>
               </div>
             )}
 
             {/* Song count */}
             <div className="text-label text-muted-foreground">
-              {filteredSongs.length}곡
+              {filteredSongs.length} charts
               {dist.songs.length !== filteredSongs.length && (
-                <span> / 전체 {dist.songs.length}곡</span>
+                <span> / {dist.songs.length} total</span>
               )}
             </div>
 

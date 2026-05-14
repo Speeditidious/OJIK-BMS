@@ -16,6 +16,634 @@ use crate::logging::{EnvironmentSnapshot, PathChecks};
 const SCORE_BATCH_SIZE: usize = 500;
 const REFRESH_TOKEN_PROACTIVE_RENEW_DAYS: u32 = 3;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SyncLanguage {
+    Ko,
+    En,
+    Ja,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SyncText {
+    language: SyncLanguage,
+}
+
+impl SyncText {
+    fn new(language: &str) -> Self {
+        let language = match language
+            .trim()
+            .to_ascii_lowercase()
+            .split(['-', '_'])
+            .next()
+        {
+            Some("en") => SyncLanguage::En,
+            Some("ja") => SyncLanguage::Ja,
+            _ => SyncLanguage::Ko,
+        };
+        Self { language }
+    }
+
+    fn record_word(&self, count: impl Into<i64>) -> &'static str {
+        match self.language {
+            SyncLanguage::En if count.into().abs() == 1 => "record",
+            SyncLanguage::En => "records",
+            SyncLanguage::Ko | SyncLanguage::Ja => "건",
+        }
+    }
+
+    fn checking_paths(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "[INFO] 설정과 DB 경로를 확인합니다.".to_string(),
+            SyncLanguage::En => "[INFO] Checking settings and DB paths.".to_string(),
+            SyncLanguage::Ja => "[INFO] 設定とDBパスを確認します。".to_string(),
+        }
+    }
+
+    fn progress_validating(&self) -> &'static str {
+        match self.language {
+            SyncLanguage::Ko => "설정 확인 중",
+            SyncLanguage::En => "Checking settings",
+            SyncLanguage::Ja => "設定を確認中",
+        }
+    }
+
+    fn progress_local_db(&self) -> &'static str {
+        match self.language {
+            SyncLanguage::Ko => "로컬 기록 DB 처리 중",
+            SyncLanguage::En => "Processing local record DBs",
+            SyncLanguage::Ja => "ローカル記録DBを処理中",
+        }
+    }
+
+    fn progress_lr2_user_db(&self) -> &'static str {
+        match self.language {
+            SyncLanguage::Ko => "LR2 <username>.db 처리 중",
+            SyncLanguage::En => "Processing LR2 <username>.db",
+            SyncLanguage::Ja => "LR2 <username>.dbを処理中",
+        }
+    }
+
+    fn lr2_user_db_log(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "[INFO] LR2 <username>.db 처리 중...".to_string(),
+            SyncLanguage::En => "[INFO] Processing LR2 <username>.db...".to_string(),
+            SyncLanguage::Ja => "[INFO] LR2 <username>.dbを処理中...".to_string(),
+        }
+    }
+
+    fn lr2_play_record_label(&self) -> &'static str {
+        match self.language {
+            SyncLanguage::Ko => "LR2 플레이 기록",
+            SyncLanguage::En => "LR2 play records",
+            SyncLanguage::Ja => "LR2プレイ記録",
+        }
+    }
+
+    fn progress_beatoraja_scores(&self) -> &'static str {
+        match self.language {
+            SyncLanguage::Ko => "Beatoraja score.db 및 scorelog.db 처리 중",
+            SyncLanguage::En => "Processing Beatoraja score.db and scorelog.db",
+            SyncLanguage::Ja => "Beatoraja score.dbとscorelog.dbを処理中",
+        }
+    }
+
+    fn beatoraja_scores_log(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "[INFO] Beatoraja score.db 및 scorelog.db 처리 중...".to_string(),
+            SyncLanguage::En => {
+                "[INFO] Processing Beatoraja score.db and scorelog.db...".to_string()
+            }
+            SyncLanguage::Ja => "[INFO] Beatoraja score.dbとscorelog.dbを処理中...".to_string(),
+        }
+    }
+
+    fn parsing_error_message(&self, client: &str) -> String {
+        match self.language {
+            SyncLanguage::Ko => format!("{client} 파싱 오류"),
+            SyncLanguage::En => format!("{client} parsing error"),
+            SyncLanguage::Ja => format!("{client}解析エラー"),
+        }
+    }
+
+    fn parsing_error_log(&self, client: &str, stage: &str, detail: &str) -> String {
+        match self.language {
+            SyncLanguage::Ko => format!("[ERROR][stage={stage}] {client} 파싱 오류: {detail}"),
+            SyncLanguage::En => format!("[ERROR][stage={stage}] {client} parsing error: {detail}"),
+            SyncLanguage::Ja => format!("[ERROR][stage={stage}] {client}解析エラー: {detail}"),
+        }
+    }
+
+    fn reauth_required(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "로그인 세션이 만료되었습니다. 다시 로그인해주세요.".to_string(),
+            SyncLanguage::En => "Your login session has expired. Please log in again.".to_string(),
+            SyncLanguage::Ja => {
+                "ログインセッションの期限が切れました。再度ログインしてください。".to_string()
+            }
+        }
+    }
+
+    fn scorelog_duplicate_debug(&self, count: usize) -> String {
+        let count = format_count_usize(count);
+        match self.language {
+            SyncLanguage::Ko => format!(
+                "[DEBUG] Beatoraja scorelog.db 같은 날 같은 차분 중복 {count}건을 가장 최근 기록으로 통합했습니다."
+            ),
+            SyncLanguage::En => format!(
+                "[DEBUG] Merged {count} same-day duplicate Beatoraja scorelog.db chart records into the latest record."
+            ),
+            SyncLanguage::Ja => format!(
+                "[DEBUG] Beatoraja scorelog.dbの同日同一差分の重複{count}件を最新記録に統合しました。"
+            ),
+        }
+    }
+
+    fn debug_group(&self, index: usize, total: usize, hash: &str, client: &str) -> String {
+        match self.language {
+            SyncLanguage::Ko => {
+                format!("[DEBUG] 통합 그룹 {index}/{total}: hash={hash}, client={client}")
+            }
+            SyncLanguage::En => {
+                format!("[DEBUG] Merge group {index}/{total}: hash={hash}, client={client}")
+            }
+            SyncLanguage::Ja => {
+                format!("[DEBUG] 統合グループ {index}/{total}: hash={hash}, client={client}")
+            }
+        }
+    }
+
+    fn debug_record(
+        &self,
+        kind: DebugRecordKind,
+        clear: String,
+        exscore: String,
+        recorded_at: &str,
+    ) -> String {
+        let label = match (self.language, kind) {
+            (SyncLanguage::Ko, DebugRecordKind::Kept) => "채택",
+            (SyncLanguage::Ko, DebugRecordKind::Dropped) => "제외",
+            (SyncLanguage::En, DebugRecordKind::Kept) => "kept",
+            (SyncLanguage::En, DebugRecordKind::Dropped) => "dropped",
+            (SyncLanguage::Ja, DebugRecordKind::Kept) => "採用",
+            (SyncLanguage::Ja, DebugRecordKind::Dropped) => "除外",
+        };
+        match self.language {
+            SyncLanguage::Ko | SyncLanguage::Ja => {
+                format!("[DEBUG]   {label}: clear={clear}, exscore={exscore}, recorded_at={recorded_at}")
+            }
+            SyncLanguage::En => {
+                format!("[DEBUG]   {label}: clear={clear}, exscore={exscore}, recorded_at={recorded_at}")
+            }
+        }
+    }
+
+    fn no_data(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "[WARN] 동기화할 데이터가 없습니다.".to_string(),
+            SyncLanguage::En => "[WARN] No data to sync.".to_string(),
+            SyncLanguage::Ja => "[WARN] 同期するデータがありません。".to_string(),
+        }
+    }
+
+    fn progress_server_upload(&self) -> &'static str {
+        match self.language {
+            SyncLanguage::Ko => "서버 업로드 중",
+            SyncLanguage::En => "Uploading to server",
+            SyncLanguage::Ja => "サーバーへアップロード中",
+        }
+    }
+
+    fn server_syncing(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "[INFO] 서버에 동기화 중...".to_string(),
+            SyncLanguage::En => "[INFO] Syncing with server...".to_string(),
+            SyncLanguage::Ja => "[INFO] サーバーに同期中...".to_string(),
+        }
+    }
+
+    fn progress_uploading(&self) -> &'static str {
+        match self.language {
+            SyncLanguage::Ko => "서버에 업로드 중",
+            SyncLanguage::En => "Uploading to server",
+            SyncLanguage::Ja => "サーバーへアップロード中",
+        }
+    }
+
+    fn server_response_error(&self, error: &str) -> String {
+        match self.language {
+            SyncLanguage::Ko => format!("[ERROR][stage=uploading] 서버 응답 오류: {error}"),
+            SyncLanguage::En => format!("[ERROR][stage=uploading] Server response error: {error}"),
+            SyncLanguage::Ja => format!("[ERROR][stage=uploading] サーバー応答エラー: {error}"),
+        }
+    }
+
+    fn progress_done(&self) -> &'static str {
+        match self.language {
+            SyncLanguage::Ko => "동기화 완료",
+            SyncLanguage::En => "Sync complete",
+            SyncLanguage::Ja => "同期完了",
+        }
+    }
+
+    fn server_sync_complete(&self, inserted: i64, updated: i64) -> String {
+        let inserted_text = format_count_i64(inserted);
+        let updated_text = format_count_i64(updated);
+        match self.language {
+            SyncLanguage::Ko => format!(
+                "[INFO] 동기화 완료 - 등록된 기록 {inserted_text}건, 수정된 기록 {updated_text}건"
+            ),
+            SyncLanguage::En => format!(
+                "[INFO] Sync complete - inserted {inserted_text} {}, updated {updated_text} {}",
+                self.record_word(inserted),
+                self.record_word(updated)
+            ),
+            SyncLanguage::Ja => {
+                format!("[INFO] 同期完了 - 新規記録{inserted_text}件、更新記録{updated_text}件")
+            }
+        }
+    }
+
+    fn unchanged_message(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => {
+                "서버의 improvement check에서 변경 없음으로 처리된 기록".to_string()
+            }
+            SyncLanguage::En => {
+                "Records treated as unchanged by the server improvement check".to_string()
+            }
+            SyncLanguage::Ja => "サーバーの改善チェックで変更なしとして処理された記録".to_string(),
+        }
+    }
+
+    fn aborted_progress(&self) -> &'static str {
+        match self.language {
+            SyncLanguage::Ko => "오류로 동기화 중단",
+            SyncLanguage::En => "Sync stopped due to an error",
+            SyncLanguage::Ja => "エラーにより同期中断",
+        }
+    }
+
+    fn parsing_aborted_log(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => {
+                "[ERROR] 파싱 오류가 발생해 서버 업로드를 중단했습니다. 경로를 확인한 뒤 다시 시도해주세요.".to_string()
+            }
+            SyncLanguage::En => {
+                "[ERROR] A parsing error occurred, so server upload was stopped. Check the path and try again.".to_string()
+            }
+            SyncLanguage::Ja => {
+                "[ERROR] 解析エラーが発生したため、サーバーへのアップロードを中断しました。パスを確認してから再試行してください。".to_string()
+            }
+        }
+    }
+
+    fn detail_progress(&self) -> &'static str {
+        match self.language {
+            SyncLanguage::Ko => "차분 상세 정보 준비 중",
+            SyncLanguage::En => "Preparing chart detail information",
+            SyncLanguage::Ja => "差分詳細情報を準備中",
+        }
+    }
+
+    fn beatoraja_songdata_processing(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "[INFO] Beatoraja songdata.db 처리 중...".to_string(),
+            SyncLanguage::En => "[INFO] Processing Beatoraja songdata.db...".to_string(),
+            SyncLanguage::Ja => "[INFO] Beatoraja songdata.dbを処理中...".to_string(),
+        }
+    }
+
+    fn songdata_empty(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "[INFO] songdata.db: 유효한 항목 없음 (건너뜀)".to_string(),
+            SyncLanguage::En => "[INFO] songdata.db: no valid items (skipped)".to_string(),
+            SyncLanguage::Ja => "[INFO] songdata.db: 有効な項目なし (スキップ)".to_string(),
+        }
+    }
+
+    fn beatoraja_detail_ready(&self, count: usize) -> String {
+        let count = format_count_usize(count);
+        match self.language {
+            SyncLanguage::Ko => {
+                format!("[INFO] Beatoraja 차분 상세 정보: {count}개 항목 준비 완료")
+            }
+            SyncLanguage::En => {
+                format!("[INFO] Beatoraja chart detail information: {count} items ready")
+            }
+            SyncLanguage::Ja => format!("[INFO] Beatoraja差分詳細情報: {count}件の準備完了"),
+        }
+    }
+
+    fn lr2_detail_ready(&self, count: usize) -> String {
+        let count = format_count_usize(count);
+        match self.language {
+            SyncLanguage::Ko => format!("[INFO] LR2 차분 상세 정보: {count}개 항목 준비 완료"),
+            SyncLanguage::En => format!("[INFO] LR2 chart detail information: {count} items ready"),
+            SyncLanguage::Ja => format!("[INFO] LR2差分詳細情報: {count}件の準備完了"),
+        }
+    }
+
+    fn no_detail_items(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "[INFO] 차분 상세 정보: 전송할 신규/보강 항목 없음".to_string(),
+            SyncLanguage::En => {
+                "[INFO] Chart detail information: no new/enrichment items to send".to_string()
+            }
+            SyncLanguage::Ja => "[INFO] 差分詳細情報: 送信する新規/補完項目なし".to_string(),
+        }
+    }
+
+    fn fumen_detail_summary(&self, inserted: i64, supplemented: i64, skipped: i64) -> String {
+        let inserted = format_count_i64(inserted);
+        let supplemented = format_count_i64(supplemented);
+        let skipped = format_count_i64(skipped);
+        match self.language {
+            SyncLanguage::Ko => format!(
+                "[INFO] 차분 상세 정보 동기화 완료 - 신규 {inserted}개, 보강 {supplemented}개, 이미 존재한 데이터 {skipped}개"
+            ),
+            SyncLanguage::En => format!(
+                "[INFO] Chart detail sync complete - new {inserted}, enriched {supplemented}, already existing {skipped}"
+            ),
+            SyncLanguage::Ja => format!(
+                "[INFO] 差分詳細情報の同期完了 - 新規{inserted}件、補完{supplemented}件、既存データ{skipped}件"
+            ),
+        }
+    }
+
+    fn fumen_detail_error(&self, error: &str) -> String {
+        if let Some(detail) = error.strip_prefix("해시 보강 오류: ") {
+            return match self.language {
+                SyncLanguage::Ko => error.to_string(),
+                SyncLanguage::En => format!("Hash enrichment error: {detail}"),
+                SyncLanguage::Ja => format!("ハッシュ補完エラー: {detail}"),
+            };
+        }
+        if let Some(detail) = error.strip_prefix("차분 상세 전송 오류: ") {
+            return match self.language {
+                SyncLanguage::Ko => error.to_string(),
+                SyncLanguage::En => format!("Chart detail upload error: {detail}"),
+                SyncLanguage::Ja => format!("差分詳細送信エラー: {detail}"),
+            };
+        }
+        error.to_string()
+    }
+
+    fn recognized_lr2(&self, path: &str) -> String {
+        match self.language {
+            SyncLanguage::Ko => format!("[INFO] LR2 기록 DB 인식됨: {path}"),
+            SyncLanguage::En => format!("[INFO] LR2 record DB detected: {path}"),
+            SyncLanguage::Ja => format!("[INFO] LR2記録DBを検出: {path}"),
+        }
+    }
+
+    fn recognized_beatoraja(&self, path: &str) -> String {
+        match self.language {
+            SyncLanguage::Ko => format!("[INFO] Beatoraja 기록 DB 인식됨: {path}"),
+            SyncLanguage::En => format!("[INFO] Beatoraja record DB detected: {path}"),
+            SyncLanguage::Ja => format!("[INFO] Beatoraja記録DBを検出: {path}"),
+        }
+    }
+
+    fn lr2_path_missing(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "[WARN] LR2 기록 DB: 경로가 설정되어 있지만 파일/폴더를 찾을 수 없습니다. 경로를 다시 확인해주세요.".to_string(),
+            SyncLanguage::En => "[WARN] LR2 record DB: a path is set, but the file/folder could not be found. Please check the path again.".to_string(),
+            SyncLanguage::Ja => "[WARN] LR2記録DB: パスは設定されていますが、ファイル/フォルダが見つかりません。パスを再確認してください。".to_string(),
+        }
+    }
+
+    fn beatoraja_dir_missing(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "[WARN] Beatoraja 기록 DB 폴더: 경로가 설정되어 있지만 파일/폴더를 찾을 수 없습니다. 경로를 다시 확인해주세요.".to_string(),
+            SyncLanguage::En => "[WARN] Beatoraja record DB folder: a path is set, but the file/folder could not be found. Please check the path again.".to_string(),
+            SyncLanguage::Ja => "[WARN] Beatoraja記録DBフォルダ: パスは設定されていますが、ファイル/フォルダが見つかりません。パスを再確認してください。".to_string(),
+        }
+    }
+
+    fn beatoraja_score_missing(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => {
+                "[WARN] Beatoraja: score.db를 찾을 수 없습니다. 폴더 경로를 다시 확인해주세요."
+                    .to_string()
+            }
+            SyncLanguage::En => {
+                "[WARN] Beatoraja: score.db could not be found. Please check the folder path again."
+                    .to_string()
+            }
+            SyncLanguage::Ja => {
+                "[WARN] Beatoraja: score.dbが見つかりません。フォルダパスを再確認してください。"
+                    .to_string()
+            }
+        }
+    }
+
+    fn beatoraja_scorelog_missing(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "[WARN] Beatoraja: scorelog.db를 찾을 수 없습니다. 폴더 경로를 다시 확인해주세요.".to_string(),
+            SyncLanguage::En => "[WARN] Beatoraja: scorelog.db could not be found. Please check the folder path again.".to_string(),
+            SyncLanguage::Ja => "[WARN] Beatoraja: scorelog.dbが見つかりません。フォルダパスを再確認してください。".to_string(),
+        }
+    }
+
+    fn beatoraja_songdata_missing(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "[WARN] Beatoraja 전체 동기화: songdata.db 경로가 설정되지 않았거나 파일을 찾을 수 없습니다. 해시 보강을 건너뜁니다.".to_string(),
+            SyncLanguage::En => "[WARN] Beatoraja full sync: songdata.db path is not set or the file could not be found. Hash enrichment will be skipped.".to_string(),
+            SyncLanguage::Ja => "[WARN] Beatoraja全体同期: songdata.dbのパスが未設定、またはファイルが見つかりません。ハッシュ補完をスキップします。".to_string(),
+        }
+    }
+
+    fn lr2_no_path(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "[INFO] LR2 DB: 경로 없음 (동기화 건너뜀)".to_string(),
+            SyncLanguage::En => "[INFO] LR2 DB: no path set (sync skipped)".to_string(),
+            SyncLanguage::Ja => "[INFO] LR2 DB: パス未設定 (同期をスキップ)".to_string(),
+        }
+    }
+
+    fn beatoraja_no_path(&self) -> String {
+        match self.language {
+            SyncLanguage::Ko => "[INFO] Beatoraja DB: 경로 없음 (동기화 건너뜀)".to_string(),
+            SyncLanguage::En => "[INFO] Beatoraja DB: no path set (sync skipped)".to_string(),
+            SyncLanguage::Ja => "[INFO] Beatoraja DB: パス未設定 (同期をスキップ)".to_string(),
+        }
+    }
+
+    fn parse_summary(&self, label: &str, total_processed: usize, effective_total: usize) -> String {
+        let total_processed = format_count_usize(total_processed);
+        let effective_total = format_count_usize(effective_total);
+        match self.language {
+            SyncLanguage::Ko => {
+                format!("[INFO] {label} 처리 완료 ({total_processed}/{effective_total})")
+            }
+            SyncLanguage::En => {
+                format!("[INFO] {label} processed ({total_processed}/{effective_total})")
+            }
+            SyncLanguage::Ja => {
+                format!("[INFO] {label}の処理完了 ({total_processed}/{effective_total})")
+            }
+        }
+    }
+
+    fn skipped_filter(&self, count: usize) -> String {
+        let count = format_count_usize(count);
+        match self.language {
+            SyncLanguage::Ko => {
+                format!("    필터 제외: {count}개 - 정상 동작 (선택한 모드/플레이어 외 기록)")
+            }
+            SyncLanguage::En => {
+                format!("    Filter skipped: {count} records - expected behavior (outside the selected mode/player)")
+            }
+            SyncLanguage::Ja => {
+                format!("    フィルター除外: {count}件 - 正常動作 (選択したモード/プレイヤー以外の記録)")
+            }
+        }
+    }
+
+    fn skipped_lr2_imported(&self, count: usize) -> String {
+        let count = format_count_usize(count);
+        match self.language {
+            SyncLanguage::Ko => {
+                format!("    LR2 기록 제외: {count}개 - 정상 동작 (LR2에서 임포트된 기록. Beatoraja 기록 아님)")
+            }
+            SyncLanguage::En => {
+                format!("    LR2 records skipped: {count} records - expected behavior (records imported from LR2, not native Beatoraja records)")
+            }
+            SyncLanguage::Ja => {
+                format!("    LR2記録除外: {count}件 - 正常動作 (LR2からインポートされた記録。Beatoraja本来の記録ではありません)")
+            }
+        }
+    }
+
+    fn skipped_no_play(&self, count: usize) -> String {
+        let count = format_count_usize(count);
+        match self.language {
+            SyncLanguage::Ko => {
+                format!("    NO PLAY 제외: {count}개 - 정상 동작 (플레이하지 않은 기록은 업로드하지 않음)")
+            }
+            SyncLanguage::En => {
+                format!("    NO PLAY skipped: {count} records - expected behavior (unplayed records are not uploaded)")
+            }
+            SyncLanguage::Ja => {
+                format!(
+                    "    NO PLAY除外: {count}件 - 正常動作 (未プレイ記録はアップロードしません)"
+                )
+            }
+        }
+    }
+
+    fn skipped_hash(&self, count: usize, sync_unavailable: bool) -> String {
+        let count = format_count_usize(count);
+        match (self.language, sync_unavailable) {
+            (SyncLanguage::Ko, true) => {
+                format!("    ⚠ 해시 오류: {count}개 - 주의: 해시 없음 또는 길이 불일치 (sync 불가, DB 손상 가능성)")
+            }
+            (SyncLanguage::Ko, false) => {
+                format!("    ⚠ 해시 오류: {count}개 - 주의: 해시 없음 또는 길이 불일치")
+            }
+            (SyncLanguage::En, true) => {
+                format!("    ⚠ Hash errors: {count} records - warning: missing hash or length mismatch (cannot sync, possible DB corruption)")
+            }
+            (SyncLanguage::En, false) => {
+                format!(
+                    "    ⚠ Hash errors: {count} records - warning: missing hash or length mismatch"
+                )
+            }
+            (SyncLanguage::Ja, true) => {
+                format!("    ⚠ ハッシュエラー: {count}件 - 注意: ハッシュなし、または長さ不一致 (同期不可、DB破損の可能性)")
+            }
+            (SyncLanguage::Ja, false) => {
+                format!("    ⚠ ハッシュエラー: {count}件 - 注意: ハッシュなし、または長さ不一致")
+            }
+        }
+    }
+
+    fn scorelog_summary(&self, parsed: usize, total_queried: usize) -> String {
+        let parsed = format_count_usize(parsed);
+        let total_queried = format_count_usize(total_queried);
+        match self.language {
+            SyncLanguage::Ko => {
+                format!("[INFO] Beatoraja scorelog.db 처리 완료 ({parsed}/{total_queried})")
+            }
+            SyncLanguage::En => {
+                format!("[INFO] Beatoraja scorelog.db processed ({parsed}/{total_queried})")
+            }
+            SyncLanguage::Ja => {
+                format!("[INFO] Beatoraja scorelog.dbの処理完了 ({parsed}/{total_queried})")
+            }
+        }
+    }
+
+    fn skipped_scorelog_duplicate(&self, count: usize) -> String {
+        let count = format_count_usize(count);
+        match self.language {
+            SyncLanguage::Ko => {
+                format!(
+                    "    score.db 중복 제외: {count}개 - 정상 동작 (현재 최고 기록과 동일한 항목)"
+                )
+            }
+            SyncLanguage::En => {
+                format!("    score.db duplicates skipped: {count} records - expected behavior (same as current best records)")
+            }
+            SyncLanguage::Ja => {
+                format!("    score.db重複除外: {count}件 - 正常動作 (現在のベスト記録と同一の項目)")
+            }
+        }
+    }
+
+    fn metadata_update_count(&self, count: usize) -> String {
+        let count = format_count_usize(count);
+        match self.language {
+            SyncLanguage::Ko => format!("[DEBUG] 메타데이터 수정 항목: {count}건"),
+            SyncLanguage::En => format!("[DEBUG] Metadata updates: {count} records"),
+            SyncLanguage::Ja => format!("[DEBUG] メタデータ更新項目: {count}件"),
+        }
+    }
+
+    fn metadata_update_entry(
+        &self,
+        index: usize,
+        identifier: &str,
+        client_type: &str,
+        row_id: &str,
+        changed_fields: &str,
+    ) -> String {
+        match self.language {
+            SyncLanguage::Ko => format!(
+                "[DEBUG] #{index} 수정: {identifier} ({client_type}, row_id={row_id}), 변경 필드: [{changed_fields}]"
+            ),
+            SyncLanguage::En => format!(
+                "[DEBUG] #{index} updated: {identifier} ({client_type}, row_id={row_id}), changed fields: [{changed_fields}]"
+            ),
+            SyncLanguage::Ja => format!(
+                "[DEBUG] #{index}更新: {identifier} ({client_type}, row_id={row_id}), 変更フィールド: [{changed_fields}]"
+            ),
+        }
+    }
+
+    fn before_json(&self, value: &str) -> String {
+        match self.language {
+            SyncLanguage::Ko => format!("[DEBUG]   이전: {value}"),
+            SyncLanguage::En => format!("[DEBUG]   before: {value}"),
+            SyncLanguage::Ja => format!("[DEBUG]   以前: {value}"),
+        }
+    }
+
+    fn after_json(&self, value: &str) -> String {
+        match self.language {
+            SyncLanguage::Ko => format!("[DEBUG]   이후: {value}"),
+            SyncLanguage::En => format!("[DEBUG]   after: {value}"),
+            SyncLanguage::Ja => format!("[DEBUG]   以後: {value}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum DebugRecordKind {
+    Kept,
+    Dropped,
+}
+
 #[derive(Default)]
 pub struct SyncRegistry {
     runs: Mutex<HashMap<String, Arc<AtomicBool>>>,
@@ -179,11 +807,14 @@ pub fn start_sync(
                 );
             } else {
                 let msg = format!("{:#}", error);
+                let text = config::load(&app_for_task)
+                    .map(|cfg| SyncText::new(&cfg.language))
+                    .unwrap_or_else(|_| SyncText::new("ko"));
                 write_error_log(&app_for_task, &run_id_for_task, None, Some(&msg));
                 if msg.contains(auth_domain::REAUTH_REQUIRED_TAG) {
                     // Notify the auth store so the header switches to logged-out
                     // and broadcast a dedicated event so the UI can show a
-                    // "다시 로그인" banner instead of a generic sync error.
+                    // re-login banner instead of a generic sync error.
                     let status = AuthStatus {
                         logged_in: false,
                         refresh_token_expire_days: auth_domain::refresh_token_expire_days(
@@ -195,8 +826,7 @@ pub fn start_sync(
                         "auth:reauth-required",
                         ReauthRequiredEvent {
                             sync_run_id: run_id_for_task.clone(),
-                            message: "로그인 세션이 만료되었습니다. 다시 로그인해주세요."
-                                .to_string(),
+                            message: text.reauth_required(),
                         },
                     );
                 } else {
@@ -222,18 +852,14 @@ async fn run_sync(
     cancel_flag: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let cfg = config::load(&app)?;
+    let text = SyncText::new(&cfg.language);
     ensure_session_for_sync(&app, &cfg.api_url).await?;
     let api = ApiClient::new(cfg.api_url.clone(), app.clone(), cfg.debug_mode)?;
     let include_lr2 = matches!(request.client_filter.as_str(), "all" | "lr2");
     let include_bea = matches!(request.client_filter.as_str(), "all" | "beatoraja");
     let mut errors: Vec<SyncErrorEntry> = Vec::new();
 
-    log(
-        &app,
-        &sync_run_id,
-        "info",
-        "[INFO] 설정과 DB 경로를 확인합니다.",
-    );
+    log(&app, &sync_run_id, "info", &text.checking_paths());
     progress(
         &app,
         &sync_run_id,
@@ -241,7 +867,7 @@ async fn run_sync(
         "validating",
         None,
         None,
-        "설정 확인 중",
+        text.progress_validating(),
     );
 
     let lr2_path_ok = cfg
@@ -277,38 +903,24 @@ async fn run_sync(
         lr2_path_ok,
         bea_score_db_ok,
         bea_songdata_ok,
+        text,
     );
 
     if include_lr2 && cfg.lr2_db_path.is_some() && !lr2_path_ok {
-        log(
-            &app,
-            &sync_run_id,
-            "warn",
-            "[WARN] LR2 기록 DB: 경로가 설정되어 있지만 파일/폴더를 찾을 수 없습니다. 경로를 다시 확인해주세요.",
-        );
+        log(&app, &sync_run_id, "warn", &text.lr2_path_missing());
     }
     if include_bea && cfg.beatoraja_db_dir.is_some() && !bea_dir_ok {
-        log(
-            &app,
-            &sync_run_id,
-            "warn",
-            "[WARN] Beatoraja 기록 DB 폴더: 경로가 설정되어 있지만 파일/폴더를 찾을 수 없습니다. 경로를 다시 확인해주세요.",
-        );
+        log(&app, &sync_run_id, "warn", &text.beatoraja_dir_missing());
     }
     if include_bea && bea_dir_ok && !bea_score_db_ok {
-        log(
-            &app,
-            &sync_run_id,
-            "warn",
-            "[WARN] Beatoraja: score.db를 찾을 수 없습니다. 폴더 경로를 다시 확인해주세요.",
-        );
+        log(&app, &sync_run_id, "warn", &text.beatoraja_score_missing());
     }
     if include_bea && bea_dir_ok && !bea_scorelog_ok {
         log(
             &app,
             &sync_run_id,
             "warn",
-            "[WARN] Beatoraja: scorelog.db를 찾을 수 없습니다. 폴더 경로를 다시 확인해주세요.",
+            &text.beatoraja_scorelog_missing(),
         );
     }
     if request.full_sync
@@ -321,7 +933,7 @@ async fn run_sync(
             &app,
             &sync_run_id,
             "warn",
-            "[WARN] Beatoraja 전체 동기화: songdata.db 경로가 설정되지 않았거나 파일을 찾을 수 없습니다. 해시 보강을 건너뜁니다.",
+            &text.beatoraja_songdata_missing(),
         );
     }
 
@@ -329,7 +941,16 @@ async fn run_sync(
 
     if request.full_sync {
         errors.extend(
-            run_full_detail_sync(&app, &sync_run_id, &api, &cfg, include_lr2, include_bea).await,
+            run_full_detail_sync(
+                &app,
+                &sync_run_id,
+                &api,
+                &cfg,
+                include_lr2,
+                include_bea,
+                text,
+            )
+            .await,
         );
         check_cancel(&cancel_flag)?;
     }
@@ -341,7 +962,7 @@ async fn run_sync(
         "parsing",
         None,
         None,
-        "로컬 기록 DB 처리 중",
+        text.progress_local_db(),
     );
     let mut all_scores: Vec<ScoreItem> = Vec::new();
     let mut all_player_stats: Vec<PlayerStats> = Vec::new();
@@ -355,26 +976,22 @@ async fn run_sync(
                 "parsing",
                 None,
                 None,
-                "LR2 <username>.db 처리 중",
+                text.progress_lr2_user_db(),
             );
-            log(
-                &app,
-                &sync_run_id,
-                "info",
-                "[INFO] LR2 <username>.db 처리 중...",
-            );
+            log(&app, &sync_run_id, "info", &text.lr2_user_db_log());
             match lr2::parse_scores(path) {
                 Ok((scores, courses, stats)) => {
                     log_parse_summary(
                         &app,
                         &sync_run_id,
-                        "LR2 플레이 기록",
+                        text.lr2_play_record_label(),
                         stats.parsed + stats.parsed_courses,
                         stats.db_total,
                         stats.skipped_filter(),
                         0,
                         stats.skipped_no_play,
                         stats.skipped_hash,
+                        text,
                     );
                     all_scores.extend(scores);
                     all_scores.extend(courses);
@@ -386,7 +1003,7 @@ async fn run_sync(
                     let detail = format!("path={path} | {error:#}");
                     errors.push(SyncErrorEntry {
                         client: Some("lr2".to_string()),
-                        message: "LR2 파싱 오류".to_string(),
+                        message: text.parsing_error_message("LR2"),
                         detail: Some(detail.clone()),
                         level: "error".to_string(),
                     });
@@ -394,9 +1011,9 @@ async fn run_sync(
                         &app,
                         &sync_run_id,
                         "error",
-                        &format!("[ERROR][stage=parsing/lr2] LR2 파싱 오류: {detail}"),
+                        &text.parsing_error_log("LR2", "parsing/lr2", &detail),
                     );
-                    finish_sync_aborted_by_error(&app, sync_run_id, request, errors);
+                    finish_sync_aborted_by_error(&app, sync_run_id, request, errors, text);
                     return Ok(());
                 }
             }
@@ -414,14 +1031,9 @@ async fn run_sync(
                 "parsing",
                 None,
                 None,
-                "Beatoraja score.db 및 scorelog.db 처리 중",
+                text.progress_beatoraja_scores(),
             );
-            log(
-                &app,
-                &sync_run_id,
-                "info",
-                "[INFO] Beatoraja score.db 및 scorelog.db 처리 중...",
-            );
+            log(&app, &sync_run_id, "info", &text.beatoraja_scores_log());
             match beatoraja::parse_scores(path) {
                 Ok((scores, courses, stats)) => {
                     log_parse_summary(
@@ -434,6 +1046,7 @@ async fn run_sync(
                         stats.skipped_lr2,
                         stats.skipped_no_play,
                         stats.skipped_hash,
+                        text,
                     );
                     all_scores.extend(scores);
                     all_scores.extend(courses);
@@ -442,7 +1055,7 @@ async fn run_sync(
                     let detail = format!("path={path} | error={error:#}");
                     errors.push(SyncErrorEntry {
                         client: Some("beatoraja".to_string()),
-                        message: "Beatoraja 파싱 오류".to_string(),
+                        message: text.parsing_error_message("Beatoraja"),
                         detail: Some(detail.clone()),
                         level: "error".to_string(),
                     });
@@ -450,9 +1063,9 @@ async fn run_sync(
                         &app,
                         &sync_run_id,
                         "error",
-                        &format!("[ERROR][stage=parsing/beatoraja] Beatoraja 파싱 오류: {detail}"),
+                        &text.parsing_error_log("Beatoraja", "parsing/beatoraja", &detail),
                     );
-                    finish_sync_aborted_by_error(&app, sync_run_id, request, errors);
+                    finish_sync_aborted_by_error(&app, sync_run_id, request, errors, text);
                     return Ok(());
                 }
             }
@@ -466,6 +1079,7 @@ async fn run_sync(
                 stats.skipped_duplicate,
                 stats.skipped_no_play,
                 stats.skipped_hash,
+                text,
             );
             all_scores.extend(scorelog);
 
@@ -487,9 +1101,7 @@ async fn run_sync(
             &app,
             &sync_run_id,
             "debug",
-            &format!(
-                "[DEBUG] Beatoraja scorelog.db 같은 날 같은 차분 중복 {total_dropped}건을 가장 최근 기록으로 통합했습니다."
-            ),
+            &text.scorelog_duplicate_debug(total_dropped),
         );
         let group_count = dedup_groups.len();
         for (i, group) in dedup_groups.iter().enumerate() {
@@ -504,18 +1116,14 @@ async fn run_sync(
                 &app,
                 &sync_run_id,
                 "debug",
-                &format!(
-                    "[DEBUG] 통합 그룹 {}/{group_count}: hash={hash}, client={}",
-                    i + 1,
-                    group.kept.client_type,
-                ),
+                &text.debug_group(i + 1, group_count, hash, &group.kept.client_type),
             );
             log(
                 &app,
                 &sync_run_id,
                 "debug",
-                &format!(
-                    "[DEBUG]   채택: clear={}, exscore={}, recorded_at={}",
+                &text.debug_record(
+                    DebugRecordKind::Kept,
                     group
                         .kept
                         .clear_type
@@ -532,8 +1140,8 @@ async fn run_sync(
                     &app,
                     &sync_run_id,
                     "debug",
-                    &format!(
-                        "[DEBUG]   제외: clear={}, exscore={}, recorded_at={}",
+                    &text.debug_record(
+                        DebugRecordKind::Dropped,
                         dropped
                             .clear_type
                             .map_or("-".to_string(), |v| v.to_string()),
@@ -546,12 +1154,7 @@ async fn run_sync(
     }
 
     if all_scores.is_empty() && all_player_stats.is_empty() {
-        log(
-            &app,
-            &sync_run_id,
-            "warn",
-            "[WARN] 동기화할 데이터가 없습니다.",
-        );
+        log(&app, &sync_run_id, "warn", &text.no_data());
         emit_finished(
             &app,
             SyncResult {
@@ -579,9 +1182,9 @@ async fn run_sync(
         "uploading",
         Some(0),
         Some(all_scores.len()),
-        "서버 업로드 중",
+        text.progress_server_upload(),
     );
-    log(&app, &sync_run_id, "info", "[INFO] 서버에 동기화 중...");
+    log(&app, &sync_run_id, "info", &text.server_syncing());
 
     let mut inserted = 0;
     let mut synced = 0;
@@ -624,7 +1227,7 @@ async fn run_sync(
             }
             server_errors.extend(response.errors);
             if cfg.debug_mode {
-                log_debug_updates(&app, &sync_run_id, &response.debug_updates);
+                log_debug_updates(&app, &sync_run_id, &response.debug_updates, text);
             }
             progress(
                 &app,
@@ -633,7 +1236,7 @@ async fn run_sync(
                 "uploading",
                 Some(idx + 1),
                 Some(chunks),
-                "서버에 업로드 중",
+                text.progress_uploading(),
             );
         }
     }
@@ -652,7 +1255,7 @@ async fn run_sync(
             &app,
             &sync_run_id,
             "error",
-            &format!("[ERROR][stage=uploading] 서버 응답 오류: {error}"),
+            &text.server_response_error(&error),
         );
         errors.push(SyncErrorEntry {
             client: None,
@@ -662,16 +1265,20 @@ async fn run_sync(
         });
     }
 
-    progress(&app, &sync_run_id, None, "done", None, None, "동기화 완료");
+    progress(
+        &app,
+        &sync_run_id,
+        None,
+        "done",
+        None,
+        None,
+        text.progress_done(),
+    );
     log(
         &app,
         &sync_run_id,
         "info",
-        &format!(
-            "[INFO] 동기화 완료 - 등록된 기록 {}건, 수정된 기록 {}건",
-            format_count_i64(inserted),
-            format_count_i64(metadata_updated)
-        ),
+        &text.server_sync_complete(inserted, metadata_updated),
     );
 
     emit_finished(
@@ -689,9 +1296,7 @@ async fn run_sync(
                 .then(|| SyncSkipReason {
                     code: "unchanged".to_string(),
                     count: skipped,
-                    message: Some(
-                        "서버의 improvement check에서 변경 없음으로 처리된 기록".to_string(),
-                    ),
+                    message: Some(text.unchanged_message()),
                 })
                 .into_iter()
                 .collect(),
@@ -709,6 +1314,7 @@ fn finish_sync_aborted_by_error(
     sync_run_id: String,
     request: SyncRequest,
     errors: Vec<SyncErrorEntry>,
+    text: SyncText,
 ) {
     progress(
         app,
@@ -717,14 +1323,9 @@ fn finish_sync_aborted_by_error(
         "done",
         None,
         None,
-        "오류로 동기화 중단",
+        text.aborted_progress(),
     );
-    log(
-        app,
-        &sync_run_id,
-        "error",
-        "[ERROR] 파싱 오류가 발생해 서버 업로드를 중단했습니다. 경로를 확인한 뒤 다시 시도해주세요.",
-    );
+    log(app, &sync_run_id, "error", &text.parsing_aborted_log());
     emit_finished(
         app,
         SyncResult {
@@ -768,6 +1369,7 @@ async fn run_full_detail_sync(
     cfg: &config::ClientConfig,
     include_lr2: bool,
     include_bea: bool,
+    text: SyncText,
 ) -> Vec<SyncErrorEntry> {
     let mut errors = Vec::new();
     progress(
@@ -777,7 +1379,7 @@ async fn run_full_detail_sync(
         "supplementing",
         None,
         None,
-        "차분 상세 정보 준비 중",
+        text.detail_progress(),
     );
     let mut bea_items = Vec::new();
     if include_bea {
@@ -787,7 +1389,7 @@ async fn run_full_detail_sync(
                     app,
                     sync_run_id,
                     "info",
-                    "[INFO] Beatoraja songdata.db 처리 중...",
+                    &text.beatoraja_songdata_processing(),
                 );
                 bea_items = beatoraja::parse_songdata(songdata_path);
                 if let Some(songinfo_path) = cfg.beatoraja_songinfo_db_path.as_deref() {
@@ -808,21 +1410,13 @@ async fn run_full_detail_sync(
                     }
                 }
                 if bea_items.is_empty() {
-                    log(
-                        app,
-                        sync_run_id,
-                        "info",
-                        "[INFO] songdata.db: 유효한 항목 없음 (건너뜀)",
-                    );
+                    log(app, sync_run_id, "info", &text.songdata_empty());
                 } else {
                     log(
                         app,
                         sync_run_id,
                         "info",
-                        &format!(
-                            "[INFO] Beatoraja 차분 상세 정보: {}개 항목 준비 완료",
-                            format_count_usize(bea_items.len())
-                        ),
+                        &text.beatoraja_detail_ready(bea_items.len()),
                     );
                 }
             }
@@ -843,20 +1437,12 @@ async fn run_full_detail_sync(
             app,
             sync_run_id,
             "info",
-            &format!(
-                "[INFO] LR2 차분 상세 정보: {}개 항목 준비 완료",
-                format_count_usize(lr2_items.len())
-            ),
+            &text.lr2_detail_ready(lr2_items.len()),
         );
     }
 
     if bea_items.is_empty() && lr2_items.is_empty() {
-        log(
-            app,
-            sync_run_id,
-            "info",
-            "[INFO] 차분 상세 정보: 전송할 신규/보강 항목 없음",
-        );
+        log(app, sync_run_id, "info", &text.no_detail_items());
         return errors;
     }
 
@@ -865,23 +1451,23 @@ async fn run_full_detail_sync(
         app,
         sync_run_id,
         "info",
-        &format!(
-            "[INFO] 차분 상세 정보 동기화 완료 - 신규 {}개, 보강 {}개, 이미 존재한 데이터 {}개",
-            format_count_i64(summary.inserted),
-            format_count_i64(summary.supplemented + summary.updated),
-            format_count_i64(summary.skipped)
+        &text.fumen_detail_summary(
+            summary.inserted,
+            summary.supplemented + summary.updated,
+            summary.skipped,
         ),
     );
     for error in summary.errors.into_iter().take(5) {
+        let message = text.fumen_detail_error(&error);
         log(
             app,
             sync_run_id,
             "warn",
-            &format!("[WARN][stage=supplementing] {error}"),
+            &format!("[WARN][stage=supplementing] {message}"),
         );
         errors.push(SyncErrorEntry {
             client: None,
-            message: error,
+            message,
             detail: Some("stage=supplementing".to_string()),
             level: "warn".to_string(),
         });
@@ -898,6 +1484,7 @@ fn log_recognition_summary(
     lr2_ok: bool,
     bea_ok: bool,
     bea_songdata_ok: bool,
+    text: SyncText,
 ) {
     if client_filter != "all" {
         return;
@@ -905,47 +1492,22 @@ fn log_recognition_summary(
 
     if lr2_ok {
         if let Some(path) = cfg.lr2_db_path.as_deref() {
-            log(
-                app,
-                sync_run_id,
-                "info",
-                &format!("[INFO] LR2 기록 DB 인식됨: {path}"),
-            );
+            log(app, sync_run_id, "info", &text.recognized_lr2(path));
         }
     } else if cfg.lr2_db_path.is_none() {
-        log(
-            app,
-            sync_run_id,
-            "info",
-            "[INFO] LR2 DB: 경로 없음 (동기화 건너뜀)",
-        );
+        log(app, sync_run_id, "info", &text.lr2_no_path());
     }
 
     if bea_ok {
         if let Some(path) = cfg.beatoraja_db_dir.as_deref() {
-            log(
-                app,
-                sync_run_id,
-                "info",
-                &format!("[INFO] Beatoraja 기록 DB 인식됨: {path}"),
-            );
+            log(app, sync_run_id, "info", &text.recognized_beatoraja(path));
         }
     } else if cfg.beatoraja_db_dir.is_none() {
-        log(
-            app,
-            sync_run_id,
-            "info",
-            "[INFO] Beatoraja DB: 경로 없음 (동기화 건너뜀)",
-        );
+        log(app, sync_run_id, "info", &text.beatoraja_no_path());
     }
 
     if full_sync && bea_ok && !bea_songdata_ok {
-        log(
-            app,
-            sync_run_id,
-            "warn",
-            "[WARN] Beatoraja 전체 동기화: songdata.db 경로가 설정되지 않았거나 파일을 찾을 수 없습니다. 해시 보강을 건너뜁니다.",
-        );
+        log(app, sync_run_id, "warn", &text.beatoraja_songdata_missing());
     }
 }
 
@@ -959,26 +1521,20 @@ fn log_parse_summary(
     skipped_lr2: usize,
     skipped_no_play: usize,
     skipped_hash: usize,
+    text: SyncText,
 ) {
     log(
         app,
         sync_run_id,
         "info",
-        &format!(
-            "[INFO] {label} 처리 완료 ({}/{})",
-            format_count_usize(total_processed),
-            format_count_usize(effective_total)
-        ),
+        &text.parse_summary(label, total_processed, effective_total),
     );
     if skipped_filter > 0 {
         log(
             app,
             sync_run_id,
             "info",
-            &format!(
-                "    필터 제외: {}개 - 정상 동작 (선택한 모드/플레이어 외 기록)",
-                format_count_usize(skipped_filter)
-            ),
+            &text.skipped_filter(skipped_filter),
         );
     }
     if skipped_lr2 > 0 {
@@ -986,10 +1542,7 @@ fn log_parse_summary(
             app,
             sync_run_id,
             "info",
-            &format!(
-                "    LR2 기록 제외: {}개 - 정상 동작 (LR2에서 임포트된 기록. Beatoraja 기록 아님)",
-                format_count_usize(skipped_lr2)
-            ),
+            &text.skipped_lr2_imported(skipped_lr2),
         );
     }
     if skipped_no_play > 0 {
@@ -997,10 +1550,7 @@ fn log_parse_summary(
             app,
             sync_run_id,
             "info",
-            &format!(
-                "    NO PLAY 제외: {}개 - 정상 동작 (플레이하지 않은 기록은 업로드하지 않음)",
-                format_count_usize(skipped_no_play)
-            ),
+            &text.skipped_no_play(skipped_no_play),
         );
     }
     if skipped_hash > 0 {
@@ -1008,10 +1558,7 @@ fn log_parse_summary(
             app,
             sync_run_id,
             "warn",
-            &format!(
-                "    ⚠ 해시 오류: {}개 - 주의: 해시 없음 또는 길이 불일치 (sync 불가, DB 손상 가능성)",
-                format_count_usize(skipped_hash)
-            ),
+            &text.skipped_hash(skipped_hash, true),
         );
     }
 }
@@ -1024,26 +1571,20 @@ fn log_scorelog_summary(
     skipped_duplicate: usize,
     skipped_no_play: usize,
     skipped_hash: usize,
+    text: SyncText,
 ) {
     log(
         app,
         sync_run_id,
         "info",
-        &format!(
-            "[INFO] Beatoraja scorelog.db 처리 완료 ({}/{})",
-            format_count_usize(parsed),
-            format_count_usize(total_queried)
-        ),
+        &text.scorelog_summary(parsed, total_queried),
     );
     if skipped_duplicate > 0 {
         log(
             app,
             sync_run_id,
             "info",
-            &format!(
-                "    score.db 중복 제외: {}개 - 정상 동작 (현재 최고 기록과 동일한 항목)",
-                format_count_usize(skipped_duplicate)
-            ),
+            &text.skipped_scorelog_duplicate(skipped_duplicate),
         );
     }
     if skipped_no_play > 0 {
@@ -1051,10 +1592,7 @@ fn log_scorelog_summary(
             app,
             sync_run_id,
             "info",
-            &format!(
-                "    NO PLAY 제외: {}개 - 정상 동작 (플레이하지 않은 기록은 업로드하지 않음)",
-                format_count_usize(skipped_no_play)
-            ),
+            &text.skipped_no_play(skipped_no_play),
         );
     }
     if skipped_hash > 0 {
@@ -1062,15 +1600,17 @@ fn log_scorelog_summary(
             app,
             sync_run_id,
             "warn",
-            &format!(
-                "    ⚠ 해시 오류: {}개 - 주의: 해시 없음 또는 길이 불일치",
-                format_count_usize(skipped_hash)
-            ),
+            &text.skipped_hash(skipped_hash, false),
         );
     }
 }
 
-fn log_debug_updates(app: &AppHandle, sync_run_id: &str, updates: &[serde_json::Value]) {
+fn log_debug_updates(
+    app: &AppHandle,
+    sync_run_id: &str,
+    updates: &[serde_json::Value],
+    text: SyncText,
+) {
     if updates.is_empty() {
         return;
     }
@@ -1078,7 +1618,7 @@ fn log_debug_updates(app: &AppHandle, sync_run_id: &str, updates: &[serde_json::
         app,
         sync_run_id,
         "debug",
-        &format!("[DEBUG] 메타데이터 수정 항목: {}건", updates.len()),
+        &text.metadata_update_count(updates.len()),
     );
     for (i, entry) in updates.iter().enumerate() {
         let identifier = entry
@@ -1104,32 +1644,15 @@ fn log_debug_updates(app: &AppHandle, sync_run_id: &str, updates: &[serde_json::
             app,
             sync_run_id,
             "debug",
-            &format!(
-                "[DEBUG] #{} 수정: {} ({}, row_id={}), 변경 필드: [{}]",
-                i + 1,
-                identifier,
-                client_type,
-                row_id,
-                changed_fields
-            ),
+            &text.metadata_update_entry(i + 1, identifier, client_type, row_id, &changed_fields),
         );
         if let Some(before) = entry.get("before") {
             let before_str = serde_json::to_string(before).unwrap_or_else(|_| "?".to_string());
-            log(
-                app,
-                sync_run_id,
-                "debug",
-                &format!("[DEBUG]   이전: {before_str}"),
-            );
+            log(app, sync_run_id, "debug", &text.before_json(&before_str));
         }
         if let Some(after) = entry.get("after") {
             let after_str = serde_json::to_string(after).unwrap_or_else(|_| "?".to_string());
-            log(
-                app,
-                sync_run_id,
-                "debug",
-                &format!("[DEBUG]   이후: {after_str}"),
-            );
+            log(app, sync_run_id, "debug", &text.after_json(&after_str));
         }
     }
 }
@@ -1738,5 +2261,58 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert!(out[0].recorded_at.is_none());
         assert!(out[1].recorded_at.is_some());
+    }
+
+    #[test]
+    fn sync_text_renders_japanese_runtime_logs() {
+        let text = SyncText::new("ja");
+
+        assert_eq!(text.checking_paths(), "[INFO] 設定とDBパスを確認します。");
+        assert_eq!(
+            text.fumen_detail_summary(0, 2, 47_140),
+            "[INFO] 差分詳細情報の同期完了 - 新規0件、補完2件、既存データ47,140件"
+        );
+        assert_eq!(
+            text.parse_summary("LR2プレイ記録", 5_636, 5_648),
+            "[INFO] LR2プレイ記録の処理完了 (5,636/5,648)"
+        );
+        assert_eq!(
+            text.skipped_no_play(12),
+            "    NO PLAY除外: 12件 - 正常動作 (未プレイ記録はアップロードしません)"
+        );
+        assert_eq!(
+            text.scorelog_duplicate_debug(3),
+            "[DEBUG] Beatoraja scorelog.dbの同日同一差分の重複3件を最新記録に統合しました。"
+        );
+        assert_eq!(
+            text.fumen_detail_error("차분 상세 전송 오류: timeout"),
+            "差分詳細送信エラー: timeout"
+        );
+    }
+
+    #[test]
+    fn sync_text_renders_english_runtime_logs() {
+        let text = SyncText::new("en-US");
+
+        assert_eq!(
+            text.checking_paths(),
+            "[INFO] Checking settings and DB paths."
+        );
+        assert_eq!(
+            text.server_sync_complete(1, 2),
+            "[INFO] Sync complete - inserted 1 record, updated 2 records"
+        );
+        assert_eq!(
+            text.skipped_lr2_imported(2_843),
+            "    LR2 records skipped: 2,843 records - expected behavior (records imported from LR2, not native Beatoraja records)"
+        );
+        assert_eq!(
+            text.metadata_update_entry(2, "abc", "beatoraja", "row-1", "title, artist"),
+            "[DEBUG] #2 updated: abc (beatoraja, row_id=row-1), changed fields: [title, artist]"
+        );
+        assert_eq!(
+            text.reauth_required(),
+            "Your login session has expired. Please log in again."
+        );
     }
 }

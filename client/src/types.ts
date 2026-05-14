@@ -2,6 +2,8 @@ export type ClientType = "lr2" | "beatoraja";
 
 export type ClientFilter = "all" | ClientType;
 
+export type LanguageCode = "ko" | "en" | "ja";
+
 export interface ClientConfig {
   api_url: string;
   bms_folders: string[];
@@ -24,6 +26,7 @@ export interface ClientConfig {
   last_update_failure_message: string | null;
   debug_mode: boolean;
   verbose_disk_logging: boolean;
+  language: LanguageCode;
 }
 
 export interface AuthStatus {
@@ -36,6 +39,8 @@ export interface UpdateAnnouncement {
   version: string;
   title: string;
   body_markdown: string;
+  body_markdown_en?: string | null;
+  body_markdown_ja?: string | null;
   release_page_url?: string | null;
   mandatory: boolean;
   asset_size_bytes?: number | null;

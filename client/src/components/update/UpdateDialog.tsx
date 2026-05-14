@@ -1,7 +1,9 @@
 import { Download, ExternalLink } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { formatBytes } from "../../lib/format";
-import type { UpdateAnnouncement } from "../../types";
+import { selectAnnouncementBody } from "../../lib/update-announcement";
+import type { LanguageCode, UpdateAnnouncement } from "../../types";
 import { Button } from "../primitives/Button";
 import { Dialog } from "../primitives/Dialog";
 
@@ -30,8 +32,11 @@ export function UpdateDialog({
   onOpenReleasePage,
   onClose,
 }: UpdateDialogProps) {
+  const { i18n, t } = useTranslation();
   const mandatory = announcement.mandatory;
   const dismissable = !mandatory;
+  const language = (i18n.language?.split("-")[0] ?? "ko") as LanguageCode;
+  const bodyMarkdown = selectAnnouncementBody(announcement, language);
 
   return (
     <Dialog
@@ -41,7 +46,7 @@ export function UpdateDialog({
       closeOnBackdrop={dismissable}
       title={
         <span>
-          {mandatory ? "필수 업데이트" : "새 버전이 준비되어 있어요"} ·{" "}
+          {mandatory ? t("client.updates.mandatoryDialogTitle") : t("client.updates.dialogTitle")} ·{" "}
           <span style={{ color: "var(--muted)" }}>v{announcement.version}</span>
         </span>
       }
@@ -53,19 +58,19 @@ export function UpdateDialog({
               leadingIcon={<ExternalLink size={14} aria-hidden="true" />}
               onClick={() => onOpenReleasePage?.(announcement.release_page_url!)}
             >
-              릴리즈 페이지
+              {t("client.updates.openDownload")}
             </Button>
           ) : null}
           {!mandatory ? (
             <>
               {onSkip ? (
                 <Button variant="ghost" onClick={onSkip}>
-                  이 버전 건너뛰기
+                  {t("client.updates.skipVersion")}
                 </Button>
               ) : null}
               {onLater ? (
                 <Button variant="default" onClick={onLater}>
-                  나중에
+                  {t("client.updates.later")}
                 </Button>
               ) : null}
             </>
@@ -77,10 +82,10 @@ export function UpdateDialog({
             disabled={isInstalling}
           >
             {isInstalling
-              ? "업데이트 중..."
+              ? t("client.updates.installing")
               : supportsAutoInstall
-                ? "지금 업데이트"
-                : "설치 파일 다운로드"}
+                ? t("client.updates.installNow")
+                : t("client.updates.downloadInstaller")}
           </Button>
         </>
       }
@@ -90,10 +95,10 @@ export function UpdateDialog({
 
         <div style={{ display: "flex", gap: 14, color: "var(--muted)", fontSize: "0.84rem", flexWrap: "wrap" }}>
           {announcement.asset_size_bytes ? (
-            <span>다운로드 크기: <b style={{ color: "var(--text)" }}>{formatBytes(announcement.asset_size_bytes)}</b></span>
+            <span>{t("client.updates.downloadSize")}: <b style={{ color: "var(--text)" }}>{formatBytes(announcement.asset_size_bytes)}</b></span>
           ) : null}
           {announcement.published_at ? (
-            <span>배포일: <b style={{ color: "var(--text)" }}>{new Date(announcement.published_at).toLocaleDateString()}</b></span>
+            <span>{t("client.updates.publishedAt")}: <b style={{ color: "var(--text)" }}>{new Date(announcement.published_at).toLocaleDateString()}</b></span>
           ) : null}
         </div>
 
@@ -112,7 +117,7 @@ export function UpdateDialog({
             whiteSpace: "pre-wrap",
           }}
         >
-          {announcement.body_markdown}
+          {bodyMarkdown}
         </pre>
 
         {downloadProgress ? (
@@ -123,7 +128,7 @@ export function UpdateDialog({
           <div className="banner banner-info">
             <div>
               <div className="banner-body">
-                이 버전은 앱 내 자동 설치 파일이 아직 준비되지 않아 다운로드 페이지에서 설치해야 합니다.
+                {t("client.updates.manualInstallerHint")}
               </div>
             </div>
           </div>
@@ -132,9 +137,9 @@ export function UpdateDialog({
         {mandatory ? (
           <div className="banner banner-warn">
             <div>
-              <div className="banner-title">이번 업데이트는 필수입니다</div>
+              <div className="banner-title">{t("client.updates.mandatoryBlocked")}</div>
               <div className="banner-body">
-                동기화는 업데이트 완료 또는 수동 설치 전까지 일시적으로 비활성화됩니다.
+                {t("client.updates.mandatoryBody")}
               </div>
             </div>
           </div>
@@ -145,6 +150,7 @@ export function UpdateDialog({
 }
 
 function DownloadProgress({ downloaded, total }: { downloaded: number; total: number | null }) {
+  const { t } = useTranslation();
   const indeterminate = !total || total <= 0;
   const pct = indeterminate ? 0 : Math.min(100, (downloaded / total) * 100);
   return (
@@ -153,7 +159,7 @@ function DownloadProgress({ downloaded, total }: { downloaded: number; total: nu
         <span className="sync-bar-fill" style={{ width: `${pct}%` }} />
       </div>
       <span style={{ color: "var(--muted)", fontSize: "0.78rem" }}>
-        {indeterminate ? "다운로드 중…" : `${formatBytes(downloaded)} / ${formatBytes(total)}`}
+        {indeterminate ? t("client.updates.downloading") : `${formatBytes(downloaded)} / ${formatBytes(total)}`}
       </span>
     </div>
   );

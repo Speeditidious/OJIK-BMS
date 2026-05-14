@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, memo, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import Link from "next/link";
 import { Eye, User, Users } from "lucide-react";
 import type { ClearVisibilitySource } from "@/hooks/use-dashboard-clear-visibility";
@@ -79,7 +80,7 @@ const CustomTooltip = memo(function CustomTooltip({ active, payload, label, tabl
         );
       })()}
       {(() => {
-        // display ct별로 raw 카운트 합산 (숨긴 ct는 그 아래 visible ct로 병합됨)
+        // Accumulate raw counts per display ct (hidden cts are merged into the next visible lower ct)
         const displayMap = new Map<number, number>();
         for (const ct of ALL_CLEAR_TYPES) {
           if (clientType === "lr2" && (ct === 2 || ct === 6)) continue;
@@ -89,7 +90,7 @@ const CustomTooltip = memo(function CustomTooltip({ active, payload, label, tabl
           displayMap.set(display, (displayMap.get(display) ?? 0) + rawCount);
         }
 
-        // ALL_CLEAR_TYPES 정렬 순서(높은→낮은)로 display ct만 순회
+        // Iterate display cts in ALL_CLEAR_TYPES order (highest → lowest)
         const visibleDisplayCts = ALL_CLEAR_TYPES.filter(
           (ct) => displayMap.has(ct) && (displayMap.get(ct) ?? 0) > 0,
         );
@@ -133,7 +134,7 @@ const CustomTooltip = memo(function CustomTooltip({ active, payload, label, tabl
                 ({ownPct.toFixed(1)}%)
               </span>
               <span style={{ width: 80, fontSize: 'var(--text-caption)', color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--muted-foreground))" }}>
-                누적 {cumPct.toFixed(1)}%
+                cum. {cumPct.toFixed(1)}%
               </span>
             </div>
           );
@@ -182,6 +183,7 @@ const YAxisTick = memo(function YAxisTick({
 
 export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect, onLevelSelect, getDisplayClearType, hiddenClearTypes, legendAction }: TableClearHistogramProps) {
   // All hooks at top — no early returns before this block
+  const { t } = useTranslation();
   const [activeEntry, setActiveEntry] = useState<{ level: string; ct: number } | null>(null);
   const highlightStyleRef = useRef<HTMLStyleElement>(null);
   const [chartRef, chartWidth] = useChartWidth(150);
@@ -290,7 +292,7 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
   if (levels.length === 0) {
     return (
       <div className="flex items-center justify-center h-32 text-muted-foreground text-body">
-        난이도표 데이터가 없습니다
+        {t("charts.tableClearHistogram.noData")}
       </div>
     );
   }
@@ -363,8 +365,8 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
             onClick={(data) => onSelect?.(data.level as string, ct)}
             onMouseEnter={(data) => {
               const entry = { level: data.level as string, ct };
-              setActiveEntry(entry);        // tooltip용 (React 상태)
-              updateBarHighlight(entry);    // bar 시각효과 (DOM 직접 조작)
+              setActiveEntry(entry);        // for tooltip (React state)
+              updateBarHighlight(entry);    // bar highlight (direct DOM manipulation)
             }}
             onMouseLeave={() => {
               setActiveEntry(null);
@@ -391,6 +393,7 @@ interface ClearTypeLegendProps {
 }
 
 export function ClearTypeLegend({ clientType, className, hiddenClearTypes, legendAction = { kind: "settings_link" } }: ClearTypeLegendProps) {
+  const { t } = useTranslation();
   const labelMap =
     clientType === "lr2"
       ? LR2_CLEAR_TYPE_LABELS
@@ -420,13 +423,13 @@ export function ClearTypeLegend({ clientType, className, hiddenClearTypes, legen
             <Link
               href="/settings?tab=preferences#clear-visibility"
               className="text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="클리어 분포 표시 설정 페이지로 이동"
+              aria-label={t("settings.display.clearDistribution")}
             >
               <Eye className="h-4 w-4" />
             </Link>
           </TooltipTrigger>
           <TooltipContent>
-            클리어 분포에 표시되는 클리어 타입을 변경할 수 있는 설정 페이지로 이동합니다.
+            {t("settings.display.title")}
           </TooltipContent>
         </UITooltip>
       );
@@ -435,8 +438,8 @@ export function ClearTypeLegend({ clientType, className, hiddenClearTypes, legen
     const { source, targetUsername, onChange } = legendAction;
     const isViewerActive = source === "viewer";
     const tooltipText = isViewerActive
-      ? `클리어 분포 표시 설정을 ${targetUsername}님 기준으로 바꿉니다.`
-      : "클리어 분포 표시 설정을 내 기준으로 바꿉니다.";
+      ? `Switch clear distribution view to ${targetUsername}'s settings.`
+      : "Switch clear distribution view to my settings.";
     return (
       <UITooltip>
         <TooltipTrigger asChild>

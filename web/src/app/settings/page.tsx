@@ -33,6 +33,7 @@ import {
   AlertTriangle,
   ExternalLink,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/use-auth";
 import { useAuthStore } from "@/stores/auth";
 import { api, clearTokens, apiFetch } from "@/lib/api";
@@ -60,6 +61,7 @@ const EXPECTED_CONFIRMATION = "Yes, I want to delete my OJIK BMS account";
 // ---------------------------------------------------------------------------
 
 function ProfileTab() {
+  const { t } = useTranslation();
   const { user } = useAuth(true);
   const { setUser } = useAuthStore();
   const queryClient = useQueryClient();
@@ -113,7 +115,7 @@ function ProfileTab() {
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "저장에 실패했습니다.");
+      setSaveError(err instanceof Error ? err.message : t("settings.profile.saveFailed"));
     } finally {
       setIsSaving(false);
     }
@@ -137,7 +139,7 @@ function ProfileTab() {
       setUser({ ...updated });
       queryClient.invalidateQueries({ queryKey: ["user-profile", updated.id] });
     } catch (err) {
-      setAvatarError(err instanceof Error ? err.message : "업로드에 실패했습니다.");
+      setAvatarError(err instanceof Error ? err.message : t("toasts.saveFailed"));
     } finally {
       setIsUploadingAvatar(false);
       e.target.value = "";
@@ -147,8 +149,8 @@ function ProfileTab() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>프로필</CardTitle>
-        <CardDescription>프로필 이미지, 유저네임 및 자기소개 설정</CardDescription>
+        <CardTitle>{t("settings.profile.title")}</CardTitle>
+        <CardDescription>{t("settings.profile.title")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         {/* Avatar */}
@@ -186,34 +188,34 @@ function ProfileTab() {
               ) : (
                 <Upload className="h-4 w-4" />
               )}
-              이미지 업로드
+              Upload Image
             </Button>
-            <p className="text-label text-muted-foreground">JPEG, PNG, WebP, GIF · 최대 5MB</p>
+            <p className="text-label text-muted-foreground">JPEG, PNG, WebP, GIF · max 5MB</p>
             {avatarError && <p className="text-label text-destructive">{avatarError}</p>}
           </div>
         </div>
 
         {/* Username */}
         <div>
-          <label className="text-body font-medium mb-1 block">유저네임</label>
+          <label className="text-body font-medium mb-1 block">{t("settings.profile.username")}</label>
           <input
             type="text"
             value={displayUsername}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder={user?.username ?? "유저네임"}
+            placeholder={user?.username ?? t("settings.profile.username")}
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-body focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
 
         {/* Bio */}
         <div>
-          <label className="text-body font-medium mb-1 block">자기소개</label>
+          <label className="text-body font-medium mb-1 block">{t("settings.profile.about")}</label>
           <textarea
             value={bio}
             onChange={(e) => setBio(e.target.value)}
             maxLength={500}
             rows={3}
-            placeholder="자기소개를 입력하세요. 게임 프로필에 표시됩니다."
+            placeholder={t("profile.about.empty")}
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-body focus:outline-none focus:ring-2 focus:ring-ring resize-none"
           />
           <p className="text-label text-muted-foreground text-right">{bio.length}/500</p>
@@ -227,7 +229,7 @@ function ProfileTab() {
           ) : saveSuccess ? (
             <Check className="h-4 w-4" />
           ) : null}
-          {saveSuccess ? "저장됨" : "저장"}
+          {isSaving ? t("settings.profile.saving") : saveSuccess ? t("settings.profile.saved") : t("settings.profile.save")}
         </Button>
       </CardContent>
     </Card>
@@ -239,19 +241,20 @@ function ProfileTab() {
 // ---------------------------------------------------------------------------
 
 const SCORE_UPDATE_LABELS: { key: keyof ReturnType<typeof useScoreUpdatesPrefs>; label: string }[] = [
-  { key: "score_updates_lamp_include_new_plays", label: "Lamp Upgrade — 신규 기록 포함" },
-  { key: "score_updates_score_include_new_plays", label: "Score Upgrade — 신규 기록 포함" },
-  { key: "score_updates_bp_include_new_plays", label: "BP Upgrade — 신규 기록 포함" },
-  { key: "score_updates_combo_include_new_plays", label: "Combo Upgrade — 신규 기록 포함" },
+  { key: "score_updates_lamp_include_new_plays", label: "Lamp Upgrade — include new plays" },
+  { key: "score_updates_score_include_new_plays", label: "Score Upgrade — include new plays" },
+  { key: "score_updates_bp_include_new_plays", label: "BP Upgrade — include new plays" },
+  { key: "score_updates_combo_include_new_plays", label: "Combo Upgrade — include new plays" },
 ];
 
 const CLIENT_LABELS: Record<ClientVisibilityKey, string> = {
-  all: "통합",
+  all: "All",
   lr2: "LR2",
   beatoraja: "Beatoraja",
 };
 
 function ClearVisibilityCard() {
+  const { t } = useTranslation();
   const { prefs } = useClearTypeVisibility();
   const { mutate: updatePrefs } = useUpdateClearTypeVisibility();
   const [selectedClient, setSelectedClient] = useState<ClientVisibilityKey>("all");
@@ -302,25 +305,24 @@ function ClearVisibilityCard() {
   return (
     <Card id="clear-visibility">
       <CardHeader>
-        <CardTitle className="text-base">클리어 분포 표시 설정</CardTitle>
+        <CardTitle className="text-base">{t("settings.display.title")}</CardTitle>
         <CardDescription>
-          체크 해제된 클리어 타입은 가장 가까운 하위 클리어 타입으로 표시됩니다.
-          게임 프로필의 클리어 분포 뷰에만 적용됩니다.
+          {t("settings.display.clearDistribution")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* ─────────── 전체 섹션 ─────────── */}
+        {/* Global section */}
         <div className="rounded-md border border-border p-4 space-y-3">
           <div className="flex items-center gap-3">
             <Switch
               checked={isGlobalActive}
               onCheckedChange={(v) => handleSwitchMode(v ? "global" : "per_client")}
-              aria-label="전체 모드 활성화"
+              aria-label="Enable global mode"
             />
             <div className="flex-1">
-              <p className="text-body font-medium">전체</p>
+              <p className="text-body font-medium">Global</p>
               <p className="text-label text-muted-foreground">
-                모든 뷰에 동일하게 적용됩니다.
+                Applied uniformly across all views.
               </p>
             </div>
           </div>
@@ -347,18 +349,18 @@ function ClearVisibilityCard() {
           </div>
         </div>
 
-        {/* ─────────── 구동기별 (통합 포함) 섹션 ─────────── */}
+        {/* Per-client (includes All) section */}
         <div className="rounded-md border border-border p-4 space-y-3">
           <div className="flex items-center gap-3">
             <Switch
               checked={isPerClientActive}
               onCheckedChange={(v) => handleSwitchMode(v ? "per_client" : "global")}
-              aria-label="구동기별 모드 활성화"
+              aria-label="Enable per-client mode"
             />
             <div className="flex-1">
-              <p className="text-body font-medium">구동기별 (통합 포함)</p>
+              <p className="text-body font-medium">{t("settings.display.sourceClient")}</p>
               <p className="text-label text-muted-foreground">
-                각 구동기 뷰마다 독립적으로 설정됩니다.
+                Configured independently per client view.
               </p>
             </div>
           </div>
@@ -371,7 +373,7 @@ function ClearVisibilityCard() {
             aria-hidden={!isPerClientActive}
           >
             <div className="flex items-center gap-2">
-              <label className="text-body font-medium">구동기</label>
+              <label className="text-body font-medium">Client</label>
               <select
                 value={selectedClient}
                 onChange={(e) => setSelectedClient(e.target.value as ClientVisibilityKey)}
@@ -406,6 +408,7 @@ function ClearVisibilityCard() {
 }
 
 function PreferencesTab() {
+  const { t } = useTranslation();
   const { data: favTables } = useFavoriteTables();
   const scorePrefs = useScoreUpdatesPrefs();
   const { mutate: updateScorePrefs } = useUpdateScoreUpdatesPrefs();
@@ -415,36 +418,36 @@ function PreferencesTab() {
       {/* Favorite tables */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">즐겨찾기 난이도표</CardTitle>
+          <CardTitle className="text-base">{t("tables.sidebar.favorites")}</CardTitle>
           <CardDescription>
-            즐겨찾기한 난이도표는 게임 프로필의 클리어 분포에 표시됩니다. 현재 즐겨찾기된 난이도표와 순서는 다음과 같습니다:
+            {t("dashboard.tableClear.settingsDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {favTables && favTables.length > 0 ? (
             <ol className="space-y-1 text-body">
-              {favTables.map((t, i) => (
-                <li key={t.id} className="flex items-center gap-2">
+              {favTables.map((tbl, i) => (
+                <li key={tbl.id} className="flex items-center gap-2">
                   <span className="text-muted-foreground text-label w-5 text-right">{i + 1}.</span>
                   <span>
-                    {t.symbol && <span className="mr-1 text-muted-foreground">{t.symbol}</span>}
-                    {t.name}
+                    {tbl.symbol && <span className="mr-1 text-muted-foreground">{tbl.symbol}</span>}
+                    {tbl.name}
                   </span>
                 </li>
               ))}
             </ol>
           ) : (
-            <p className="text-body text-muted-foreground">즐겨찾기한 난이도표가 없습니다.</p>
+            <p className="text-body text-muted-foreground">{t("dashboard.tableClear.noTableData")}</p>
           )}
           <div className="pt-1">
             <Link href="/tables">
               <Button variant="outline" size="sm" className="gap-2">
                 <ExternalLink className="h-4 w-4" />
-                난이도표 허브로 이동
+                {t("tables.hub.title")}
               </Button>
             </Link>
             <p className="text-label text-muted-foreground mt-2">
-              즐겨찾기 설정 및 순서 변경은 난이도표 허브에서 할 수 있습니다.
+              {t("dashboard.tableClear.settingsAria")}
             </p>
           </div>
         </CardContent>
@@ -455,9 +458,9 @@ function PreferencesTab() {
       {/* Score updates new-play toggle */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">기록 갱신 표시 설정</CardTitle>
+          <CardTitle className="text-base">Score Updates Display</CardTitle>
           <CardDescription>
-            날짜별 기록 갱신 표시 페이지에서 각 카테고리에서 신규 기록(첫 플레이)을 포함할지 설정합니다.
+            Configure whether to include new plays (first play) in each category of the score updates view.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -489,6 +492,7 @@ function PreferencesTab() {
 type DeleteStep = "idle" | "confirming" | "verified" | "deleting";
 
 function AccountTab() {
+  const { t } = useTranslation();
   const [syncStatus, setSyncStatus] = useState<{ last_synced_at: string | null } | null>(null);
   const [oauthAccounts, setOauthAccounts] = useState<
     { provider: string; provider_username: string | null }[]
@@ -595,7 +599,7 @@ function AccountTab() {
       clearTokens();
       window.location.href = "/";
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : "계정 삭제에 실패했습니다.");
+      setDeleteError(err instanceof Error ? err.message : t("toasts.saveFailed"));
       setDeleteStep("verified");
     }
   };
@@ -607,7 +611,7 @@ function AccountTab() {
       {/* Connected accounts */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">연결된 계정</CardTitle>
+          <CardTitle className="text-base">Connected Accounts</CardTitle>
         </CardHeader>
         <CardContent>
           {oauthAccounts.length > 0 ? (
@@ -624,11 +628,11 @@ function AccountTab() {
                     <span className="text-label text-muted-foreground">{acc.provider_username}</span>
                   )}
                 </div>
-                <span className="text-label text-primary">연결됨</span>
+                <span className="text-label text-primary">Connected</span>
               </div>
             ))
           ) : (
-            <p className="text-body text-muted-foreground">연결된 계정이 없습니다.</p>
+            <p className="text-body text-muted-foreground">No connected accounts.</p>
           )}
         </CardContent>
       </Card>
@@ -636,14 +640,14 @@ function AccountTab() {
       {/* Sync status */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">동기화 상태</CardTitle>
+          <CardTitle className="text-base">Sync Status</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="text-body">
-            <span className="text-muted-foreground">마지막 동기화: </span>
+            <span className="text-muted-foreground">Last synced: </span>
             {syncStatus?.last_synced_at ? (
               <span className="font-medium">
-                {new Date(syncStatus.last_synced_at).toLocaleString("ko-KR", {
+                {new Date(syncStatus.last_synced_at).toLocaleString(undefined, {
                   year: "numeric",
                   month: "long",
                   day: "numeric",
@@ -652,13 +656,13 @@ function AccountTab() {
                 })}
               </span>
             ) : (
-              <span className="text-muted-foreground">없음</span>
+              <span className="text-muted-foreground">{t("profile.info.neverSynced")}</span>
             )}
           </div>
           <Link href="/download">
             <Button variant="outline" size="sm" className="gap-2">
               <Download className="h-4 w-4" />
-              클라이언트 다운로드
+              {t("common.nav.download")}
             </Button>
           </Link>
         </CardContent>
@@ -671,19 +675,19 @@ function AccountTab() {
         <CardHeader>
           <CardTitle className="text-destructive flex items-center gap-2">
             <AlertTriangle className="h-4 w-4" />
-            위험 구역
+            Danger Zone
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
-            <p className="text-body font-medium mb-1">계정 삭제</p>
+            <p className="text-body font-medium mb-1">{t("settings.account.deleteAccount")}</p>
             <ul className="text-label text-muted-foreground space-y-0.5 mb-3 list-disc list-inside">
-              <li>모든 플레이 기록이 영구 삭제됩니다</li>
-              <li>즐겨찾기, 태그, 설정이 모두 삭제됩니다</li>
-              <li>삭제된 데이터는 복구할 수 없습니다</li>
+              <li>All play records will be permanently deleted</li>
+              <li>Favorites, tags, and settings will all be deleted</li>
+              <li>Deleted data cannot be recovered</li>
             </ul>
             <Button variant="destructive" size="sm" onClick={handleOpenDeleteModal}>
-              계정 삭제
+              {t("settings.account.deleteAccount")}
             </Button>
           </div>
         </CardContent>
@@ -695,24 +699,24 @@ function AccountTab() {
           <DialogHeader>
             <DialogTitle className="text-destructive flex items-center gap-2">
               <AlertTriangle className="h-5 w-5" />
-              계정 영구 삭제
+              {t("settings.account.deleteAccount")}
             </DialogTitle>
             <DialogDescription>
-              이 작업은 되돌릴 수 없습니다. 계정과 모든 데이터가 영구적으로 삭제됩니다.
+              This action cannot be undone. Your account and all data will be permanently deleted.
             </DialogDescription>
           </DialogHeader>
 
           {deleteStep === "confirming" && (
             <div className="space-y-4">
               <p className="text-body">
-                계속하려면 Discord 계정으로 본인 인증을 해주세요.
+                To continue, please verify your identity with your Discord account.
               </p>
               {verifyError && <p className="text-label text-destructive">{verifyError}</p>}
               <Button onClick={openDeleteVerification} variant="outline" className="w-full gap-2">
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z" />
                 </svg>
-                Discord로 본인 인증
+                Verify with Discord
               </Button>
             </div>
           )}
@@ -721,10 +725,10 @@ function AccountTab() {
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-body text-green-500">
                 <Check className="h-4 w-4" />
-                Discord 인증 완료
+                Discord verification complete
               </div>
               <div>
-                <p className="text-body mb-2">계정을 삭제하려면 아래 문구를 정확히 입력하세요:</p>
+                <p className="text-body mb-2">To delete your account, type the following phrase exactly:</p>
                 <p className="text-label font-mono bg-muted px-3 py-2 rounded-md mb-2 break-all">
                   {EXPECTED_CONFIRMATION}
                 </p>
@@ -732,7 +736,7 @@ function AccountTab() {
                   type="text"
                   value={confirmText}
                   onChange={(e) => setConfirmText(e.target.value)}
-                  placeholder="위 문구를 입력하세요"
+                  placeholder="Type the phrase above"
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-body focus:outline-none focus:ring-2 focus:ring-ring"
                   disabled={deleteStep === "deleting"}
                 />
@@ -743,7 +747,7 @@ function AccountTab() {
 
           <DialogFooter>
             <Button variant="outline" onClick={handleCloseDeleteModal} disabled={deleteStep === "deleting"}>
-              취소
+              {t("common.actions.cancel")}
             </Button>
             {(deleteStep === "verified" || deleteStep === "deleting") && (
               <Button
@@ -753,7 +757,7 @@ function AccountTab() {
                 className="gap-2"
               >
                 {deleteStep === "deleting" && <Loader2 className="h-4 w-4 animate-spin" />}
-                영구 삭제
+                {t("settings.account.confirmDelete")}
               </Button>
             )}
           </DialogFooter>
@@ -768,6 +772,7 @@ function AccountTab() {
 // ---------------------------------------------------------------------------
 
 function SettingsContent() {
+  const { t } = useTranslation();
   const { isLoading } = useAuth(true);
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -793,14 +798,14 @@ function SettingsContent() {
         <main className="container mx-auto px-4 py-8 max-w-2xl">
           <div className="flex items-center gap-3 mb-8">
             <Settings className="h-8 w-8 text-primary" />
-            <h1 className="text-3xl font-bold">설정</h1>
+            <h1 className="text-3xl font-bold">{t("common.actions.settings")}</h1>
           </div>
 
           <Tabs value={tab} onValueChange={handleTabChange}>
             <TabsList className="mb-6">
-              <TabsTrigger value="profile">프로필</TabsTrigger>
-              <TabsTrigger value="preferences">선호 설정</TabsTrigger>
-              <TabsTrigger value="account">계정 관리</TabsTrigger>
+              <TabsTrigger value="profile">{t("settings.tabs.profile")}</TabsTrigger>
+              <TabsTrigger value="preferences">{t("settings.tabs.privacy")}</TabsTrigger>
+              <TabsTrigger value="account">{t("settings.tabs.account")}</TabsTrigger>
             </TabsList>
 
             <TabsContent value="profile">

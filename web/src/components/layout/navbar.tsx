@@ -15,6 +15,8 @@ import {
   UserCircle,
   Trophy,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 import { cn } from "@/lib/utils";
@@ -29,14 +31,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const navItems = [
-  { href: "/ranking", label: "랭킹", icon: Trophy },
-  { href: "/tables", label: "난이도표", icon: Table2 },
-  { href: "/songs", label: "차분 목록", icon: Music2 },
-  { href: "/custom", label: "커스텀", icon: ListMusic },
-  { href: "/download", label: "클라이언트 다운로드", icon: Download },
+  { href: "/ranking", labelKey: "common.nav.ranking", icon: Trophy },
+  { href: "/tables", labelKey: "common.nav.tables", icon: Table2 },
+  { href: "/songs", labelKey: "common.nav.songs", icon: Music2 },
+  { href: "/custom", labelKey: "common.nav.custom", icon: ListMusic },
+  { href: "/download", labelKey: "common.nav.download", icon: Download },
 ];
 
 export function Navbar() {
+  const { t } = useTranslation();
   const pathname = usePathname();
   const router = useRouter();
   const { user, isInitialized, fetchUser, logout } = useAuthStore();
@@ -74,7 +77,7 @@ export function Navbar() {
                 )}
               >
                 <Icon className="h-4 w-4" />
-                {item.label}
+                {t(item.labelKey)}
               </Link>
             );
           })}
@@ -82,6 +85,8 @@ export function Navbar() {
 
         {/* Right side */}
         <div className="flex items-center gap-1">
+          <LanguageSwitcher className="text-white hover:bg-white/10 dark:text-foreground dark:hover:bg-secondary" />
+
           {/* Dark/Light mode toggle */}
           <ThemeToggle className="text-white hover:bg-white/10 dark:text-foreground dark:hover:bg-secondary" />
 
@@ -126,15 +131,15 @@ export function Navbar() {
                   </div>
                   <DropdownMenuItem onClick={() => router.push(`/users/${user.id}/dashboard`)}>
                     <LayoutDashboard className="h-4 w-4" />
-                    대시보드
+                    {t("common.nav.dashboard")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => router.push(`/users/${user.id}`)}>
                     <UserCircle className="h-4 w-4" />
-                    프로필
+                    {t("common.nav.profile")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => router.push("/settings")}>
                     <Settings className="h-4 w-4" />
-                    설정
+                    {t("common.nav.settings")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -142,7 +147,7 @@ export function Navbar() {
                     className="text-destructive focus:text-destructive"
                   >
                     <LogOut className="h-4 w-4" />
-                    로그아웃
+                    {t("common.nav.logout")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -150,7 +155,7 @@ export function Navbar() {
               <button
                 onClick={() => router.push("/login")}
                 className="rounded-full p-1 text-white hover:bg-white/10 dark:text-foreground dark:hover:bg-secondary transition-colors cursor-pointer"
-                aria-label="로그인"
+                aria-label={t("common.nav.login")}
               >
                 <UserCircle className="h-7 w-7" />
               </button>

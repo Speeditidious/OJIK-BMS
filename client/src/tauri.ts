@@ -36,6 +36,7 @@ const browserConfig: ClientConfig = {
   last_update_failure_message: null,
   debug_mode: false,
   verbose_disk_logging: false,
+  language: "ko",
 };
 
 let mockConfig: ClientConfig | null = null;
@@ -113,7 +114,7 @@ export async function getAuthStatus(): Promise<AuthStatus> {
 
 export async function startLogin(): Promise<AuthStatus> {
   if (!isTauriRuntime()) {
-    throw new Error("Discord 로그인은 데스크톱 앱에서만 동작합니다.");
+    throw new Error("client.tauri.discordDesktopOnly");
   }
   return invoke<AuthStatus>("start_login");
 }
@@ -141,7 +142,7 @@ export async function checkUpdatePolicy(manual: boolean): Promise<UpdatePolicy> 
   if (!isTauriRuntime()) {
     return {
       update_available: false,
-      message: manual ? "브라우저 미리보기에서는 업데이트를 확인하지 않습니다." : null,
+      message: manual ? "client.tauri.updateSkippedInBrowser" : null,
     };
   }
   return invoke<UpdatePolicy>("check_update_policy", { manual });
@@ -158,7 +159,7 @@ export async function installUpdate(_updateId: string, options: InstallUpdateOpt
   options.onStage?.("check");
   const update = await check({ timeout: 30_000 });
   if (!update) {
-    throw new Error("설치 가능한 서명된 업데이트를 찾을 수 없습니다.");
+    throw new Error("client.tauri.signedUpdateNotFound");
   }
 
   let downloaded = 0;
@@ -241,4 +242,3 @@ export async function probePath(path: string): Promise<PathProbe | null> {
     return null;
   }
 }
-

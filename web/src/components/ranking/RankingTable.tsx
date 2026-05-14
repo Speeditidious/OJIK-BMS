@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,8 @@ export function RankingTable({
   myUserId,
   isLoading,
 }: RankingTableProps) {
+  const { t } = useTranslation();
+
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -41,7 +44,7 @@ export function RankingTable({
   if (!entries.length) {
     return (
       <div className="py-16 text-center text-muted-foreground">
-        이 난이도표에는 아직 기록된 랭킹이 없습니다.
+        {t("ranking.empty")}
       </div>
     );
   }
@@ -62,22 +65,22 @@ export function RankingTable({
             gridCols,
           )}
         >
-          <span className="text-center">순위</span>
-          <span>닉네임</span>
+          <span className="text-center">{t("ranking.rank")}</span>
+          <span>{t("ranking.nickname")}</span>
           {type === "exp" && (
             <span className="flex items-center justify-end text-right">
-              레벨
+              {t("ranking.level")}
               <MetricInfoIcon metric="level" />
             </span>
           )}
           {type === "bmsforce" && (
             <span className="flex items-center justify-end text-right">
-              레이팅
+              {t("ranking.rating")}
               <MetricInfoIcon metric="rating" />
             </span>
           )}
           <span className="flex items-center justify-end text-right">
-            {type === "exp" ? "경험치" : "BMSFORCE"}
+            {type === "exp" ? t("ranking.exp") : "BMSFORCE"}
             <MetricInfoIcon metric={type === "exp" ? "exp" : "bmsforce"} />
           </span>
         </div>
@@ -96,14 +99,14 @@ export function RankingTable({
                 isMe ? "bg-primary/5 dark:bg-primary/10" : "hover:bg-secondary/30",
               )}
             >
-              {/* 순위 */}
+              {/* Rank */}
               <div className="text-center tabular-nums font-semibold text-lg text-foreground">
                 {hasRankingValue
                   ? entry.rank.toLocaleString()
                   : MASKED_RANKING_VALUE}
               </div>
 
-              {/* 닉네임 + 아바타 */}
+              {/* Nickname + avatar */}
               <div className="flex items-center gap-3 min-w-0">
                 {entry.avatar_url ? (
                   <Image
@@ -130,7 +133,7 @@ export function RankingTable({
                 </Link>
               </div>
 
-              {/* 레벨 / 레이팅 */}
+              {/* Level / Rating */}
               {type === "exp" && (
                 <div className="text-right tabular-nums font-medium text-muted-foreground text-base">
                   {hasRankingValue
@@ -146,7 +149,7 @@ export function RankingTable({
                 </div>
               )}
 
-              {/* 경험치 / BMSFORCE */}
+              {/* EXP / BMSFORCE */}
               <div className="text-right tabular-nums font-semibold text-lg">
                 {type === "exp" &&
                   (hasRankingValue

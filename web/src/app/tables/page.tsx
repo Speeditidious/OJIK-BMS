@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Table2, Plus } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import type { DifficultyTable } from "@/types";
 function TablesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { t } = useTranslation();
   const [importOpen, setImportOpen] = useState(false);
   const { user } = useAuthStore();
   const isLoggedIn = !!user;
@@ -61,12 +63,12 @@ function TablesContent() {
 
       <div className="flex items-center gap-3 px-6 py-4 border-b">
         <Table2 className="h-6 w-6 text-primary" />
-        <h1 className="text-2xl font-bold">난이도표 허브</h1>
+        <h1 className="text-2xl font-bold">{t("tables.hub.title")}</h1>
         <div className="ml-auto flex items-center gap-2">
           {isLoggedIn && (
             <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
-              난이도표 추가
+              {t("tables.hub.addTable")}
             </Button>
           )}
         </div>
@@ -98,16 +100,16 @@ function TablesContent() {
             <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground">
               <Table2 className="h-16 w-16 opacity-20" />
               <div className="text-center">
-                <p className="font-medium">난이도표를 선택하세요</p>
+                <p className="font-medium">{t("tables.select.prompt")}</p>
                 <p className="text-body mt-1">
                   {allTables.length > 0
-                    ? `${allTables.length}개의 난이도표가 있습니다`
-                    : "난이도표를 불러오는 중..."}
+                    ? t("tables.select.count", { count: allTables.length })
+                    : t("tables.select.loading")}
                 </p>
               </div>
               {!isLoggedIn && (
                 <p className="text-label">
-                  로그인하면 즐겨찾기 기능을 사용할 수 있습니다.
+                  {t("tables.loginHint")}
                 </p>
               )}
             </div>

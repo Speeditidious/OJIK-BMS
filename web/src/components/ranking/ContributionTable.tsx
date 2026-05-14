@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { SourceClientBadge } from "@/components/common/SourceClientBadge";
 import { clearText } from "@/components/dashboard/RecentActivity";
@@ -180,18 +181,18 @@ function sectionMeta(section: SectionKey, topN?: number): { label: string; badge
   const topLabel = topN != null ? `TOP ${topN}` : "TOP";
   if (section === "kept") {
     return {
-      label: `${topLabel} 내부 갱신`,
+      label: `${topLabel} Updated`,
       badgeClass: "border-primary/30 bg-primary/10 text-primary",
     };
   }
   if (section === "entered") {
     return {
-      label: `신규 진입 ${topLabel}`,
+      label: `Entered ${topLabel}`,
       badgeClass: "border-accent/35 bg-accent/10 text-accent",
     };
   }
   return {
-    label: `${topLabel} 탈락`,
+    label: `Dropped from ${topLabel}`,
     badgeClass: "border-warning/35 bg-warning/10 text-warning",
   };
 }
@@ -307,20 +308,21 @@ function SortableHeader({
 function columnHeaderConfig(
   column: TableColumn,
   valueLabel: string,
+  t: (key: string) => string,
 ): { label: string; sortKey: RatingContributionSortBy; title?: string } {
-  if (column.key === "rank") return { label: "순위", sortKey: "rank" };
-  if (column.key === "level") return { label: "레벨", sortKey: "level" };
-  if (column.key === "title") return { label: "제목", sortKey: "title" };
-  if (column.key === "recorded_at") return { label: "기록 날짜", sortKey: "recorded_at" };
-  if (column.key === "clear_type") return { label: "클리어", sortKey: "clear_type" };
+  if (column.key === "rank") return { label: t("ranking.rank"), sortKey: "rank" };
+  if (column.key === "level") return { label: t("common.fields.level"), sortKey: "level" };
+  if (column.key === "title") return { label: t("common.fields.title"), sortKey: "title" };
+  if (column.key === "recorded_at") return { label: t("common.fields.recordedAt"), sortKey: "recorded_at" };
+  if (column.key === "clear_type") return { label: t("common.fields.clear"), sortKey: "clear_type" };
   if (column.key === "min_bp") return { label: "BP", sortKey: "min_bp" };
-  if (column.key === "rate") return { label: "판정", sortKey: "rate" };
-  if (column.key === "rank_grade") return { label: "랭크", sortKey: "rank_grade" };
+  if (column.key === "rate") return { label: t("common.fields.rate"), sortKey: "rate" };
+  if (column.key === "rank_grade") return { label: t("common.fields.rank"), sortKey: "rank_grade" };
   if (column.key === "env") {
     return {
-      label: "구동기",
+      label: t("common.fields.env"),
       sortKey: "env",
-      title: "LR = LR2, BR = Beatoraja, MIX = 양쪽 기록",
+      title: "LR = LR2, BR = Beatoraja, MIX = both clients",
     };
   }
   return { label: valueLabel, sortKey: "value" };
@@ -582,7 +584,10 @@ function ContributionRow({
   columns: TableColumn[];
   userId?: string;
 }) {
-  const songUrl = songHref({ fumen_id: entry.fumen_id, sha256: entry.sha256, md5: entry.md5 }, userId);
+  const { t } = useTranslation();
+  const songUrl = entry.sha256 || entry.md5
+    ? songHref({ fumen_id: entry.fumen_id, sha256: entry.sha256, md5: entry.md5 }, userId)
+    : null;
   const rowClass = CLEAR_ROW_CLASS[entry.clear_type] ?? "";
   const clearClient = entry.client_types[0] ?? "beatoraja";
 
@@ -596,9 +601,13 @@ function ContributionRow({
     if (column.key === "title") {
       return (
         <div className="min-w-0 overflow-hidden">
-          <Link href={songUrl} className="block max-w-full truncate text-label leading-tight transition-colors hover:text-primary">
-            {entry.title}
-          </Link>
+          {songUrl ? (
+            <Link href={songUrl} className="block max-w-full truncate text-label leading-tight transition-colors hover:text-primary">
+              {entry.title}
+            </Link>
+          ) : (
+            <span className="block max-w-full truncate text-label leading-tight">{entry.title}</span>
+          )}
           {entry.artist && (
             <div className="max-w-full truncate text-caption text-muted-foreground/80 row-muted">{entry.artist}</div>
           )}
@@ -612,7 +621,7 @@ function ContributionRow({
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="cursor-default">
-                  {formatRelativeDate(entry.recorded_at)}
+                  {formatRelativeDate(entry.recorded_at, "--", t)}
                   <span className="ml-0.5 text-accent/70 leading-none">●</span>
                 </span>
               </TooltipTrigger>
@@ -634,7 +643,7 @@ function ContributionRow({
                 </span>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-64 text-label">
-                첫 동기화 당일 혹은 그 이전 기록으로, 정확한 날짜를 알 수 없습니다.
+                This record was made on or before the first sync date; the exact date is unknown.
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -713,6 +722,7 @@ function TableHeader({
   onSortChange,
   valueLabel,
   columns,
+  t,
 }: {
   allowSort: boolean;
   sortBy: RatingContributionSortBy;
@@ -720,12 +730,13 @@ function TableHeader({
   onSortChange?: (sortBy: RatingContributionSortBy) => void;
   valueLabel: string;
   columns: TableColumn[];
+  t: (key: string) => string;
 }) {
   return (
     <thead className="sticky top-0 z-10 bg-background text-label text-foreground font-medium">
       <tr className="border-b border-border">
         {columns.map((column) => {
-          const config = columnHeaderConfig(column, valueLabel);
+          const config = columnHeaderConfig(column, valueLabel, t);
           return (
             <th
               key={column.key}
@@ -774,6 +785,7 @@ function SectionCard({
   presentation: "default" | "day-detail" | "rating-detail";
   userId?: string;
 }) {
+  const { t } = useTranslation();
   const meta = sectionMeta(section, topN);
   const columns = presentation === "day-detail" ? DAY_DETAIL_COLUMNS : DEFAULT_COLUMNS;
 
@@ -785,11 +797,11 @@ function SectionCard({
             <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-caption font-medium", meta.badgeClass)}>
               {meta.label}
             </span>
-            <span className="text-caption text-muted-foreground">{count}개</span>
+            <span className="text-caption text-muted-foreground">{count}</span>
           </div>
           {section === "kept" && averageDelta != null && (
             <span className="text-caption text-muted-foreground">
-              평균 변동 {formatSigned(averageDelta, 2)}
+              Avg. change {formatSigned(averageDelta, 2)}
             </span>
           )}
         </div>
@@ -805,7 +817,7 @@ function SectionCard({
               <col key={index} style={column.width ? { width: column.width } : undefined} />
             ))}
           </colgroup>
-          <TableHeader allowSort={false} sortBy="value" sortDir="desc" valueLabel={valueLabel} columns={columns} />
+          <TableHeader allowSort={false} sortBy="value" sortDir="desc" valueLabel={valueLabel} columns={columns} t={t} />
           <tbody>
             {rows.map((row) => (
               row.kind === "ellipsis"
@@ -835,11 +847,12 @@ export function ContributionTable({
   presentation = "default",
   userId,
 }: ContributionTableProps) {
+  const { t } = useTranslation();
   const parentRef = useRef<HTMLDivElement | null>(null);
   const shouldRenderSections = metric === "rating" && !!previousTopKeys && !!currentTopKeys;
   // rating-detail: no virtualization (render all, no scroll container)
   const shouldVirtualize = !shouldRenderSections && presentation !== "rating-detail" && entries.length >= 50;
-  const valueLabel = metric === "exp" ? "경험치" : "레이팅";
+  const valueLabel = metric === "exp" ? t("ranking.exp") : t("ranking.rating");
   // rating-detail uses same column layout as default
   const columns = presentation === "day-detail" ? DAY_DETAIL_COLUMNS : DEFAULT_COLUMNS;
   const colSpan = columns.length;
@@ -1007,6 +1020,7 @@ export function ContributionTable({
             onSortChange={onSortChange}
             valueLabel={valueLabel}
             columns={columns}
+            t={t}
           />
           <tbody>
             {shouldVirtualize && paddingTop > 0 && (

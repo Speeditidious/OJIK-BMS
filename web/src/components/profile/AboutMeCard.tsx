@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface AboutMeCardProps {
@@ -9,6 +10,8 @@ interface AboutMeCardProps {
 }
 
 export function AboutMeCard({ bio, isOwner }: AboutMeCardProps) {
+  const { t } = useTranslation();
+
   return (
     <Card>
       <CardHeader>
@@ -20,11 +23,11 @@ export function AboutMeCard({ bio, isOwner }: AboutMeCardProps) {
         ) : (
           <>
             <p className="text-body text-muted-foreground">
-              아직 자기소개가 작성되지 않았습니다.
+              {t("profile.about.empty")}
             </p>
             {isOwner && (
               <Link href="/settings" className="inline-flex text-label text-primary hover:underline">
-                설정에서 자기소개 편집
+                {t("profile.about.editInSettings")}
               </Link>
             )}
           </>

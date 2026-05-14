@@ -2,6 +2,7 @@
 
 import { useDeferredValue, useMemo, useState } from "react";
 import { Search } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { UserPublicRead } from "@/hooks/use-user-profile";
 import { useRankingContributionRows } from "@/hooks/use-rankings";
 import type {
@@ -46,6 +47,7 @@ export function RatingDetailSection({
   onSortChange,
   enabled = true,
 }: RatingDetailSectionProps) {
+  const { t } = useTranslation();
   const selectedTable = useMemo(
     () => tables.find((table) => table.slug === selectedTableSlug) ?? null,
     [selectedTableSlug, tables],
@@ -94,7 +96,7 @@ export function RatingDetailSection({
         />
       ) : (
         <div className="rounded-xl border border-border bg-card/50 px-6 py-10 text-center text-body text-muted-foreground">
-          현재 랭킹 연동 난이도표가 없습니다.
+          {t("ranking.detail.noLinkedTables")}
         </div>
       )}
 
@@ -132,7 +134,7 @@ export function RatingDetailSection({
                     scope === "all" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  전체
+                  {t("ranking.detail.all")}
                 </button>
               </div>
             </div>
@@ -144,7 +146,7 @@ export function RatingDetailSection({
                 onChange={(event) => {
                   setSearchText(event.target.value);
                 }}
-                placeholder="제목/아티스트 검색"
+                placeholder={t("ranking.detail.searchPlaceholder")}
                 className="w-full rounded-lg border border-border bg-card px-9 py-2 text-body outline-none transition-colors focus:border-primary"
               />
             </label>
@@ -157,10 +159,10 @@ export function RatingDetailSection({
             totalEntries={scope === "top" ? displayEntries.length : (contributionQuery.data?.total_count ?? 0)}
             emptyMessage={
               deferredSearch
-                ? "검색 결과가 없습니다."
+                ? t("ranking.detail.noSearchResults")
                 : scope === "all"
-                  ? "해당 테이블 기록이 없습니다."
-                  : "TOP 기여 차분이 없습니다."
+                  ? t("ranking.detail.noTableRecords")
+                  : t("ranking.detail.noTopContributions")
             }
             allowSort={scope === "all"}
             sortBy={sortBy}
@@ -173,8 +175,8 @@ export function RatingDetailSection({
       ) : tables.length > 0 ? (
         <div className="rounded-xl border border-dashed border-border px-6 py-10 text-center text-body text-muted-foreground">
           {myRank?.status === "pending"
-            ? "아직 랭킹 미반영 상태입니다. 계산이 반영되면 레이팅 상세 표가 표시됩니다."
-            : "레이팅 상세를 표시할 플레이 데이터가 없습니다."}
+            ? t("ranking.detail.pending")
+            : t("common.states.noData")}
         </div>
       ) : null}
     </div>

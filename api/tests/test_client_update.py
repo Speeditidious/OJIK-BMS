@@ -11,6 +11,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.core.database import get_db
+from app.admin.views import ClientUpdateAnnouncementAdmin
 from app.main import app
 from app.models.client_update import ClientUpdateAnnouncement
 
@@ -50,6 +51,8 @@ def _make_row(
     row.installer_kind = "nsis"
     row.title = "Test"
     row.body_markdown = "Notes"
+    row.body_markdown_en = None
+    row.body_markdown_ja = None
     row.release_page_url = None
     row.update_url = "https://github.com/o/r/releases/download/v2/setup.exe"
     row.tauri_signature = tauri_signature
@@ -97,10 +100,46 @@ def patch_token(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# sqladmin Client Updates
+# ---------------------------------------------------------------------------
+
+class TestClientUpdateAdmin:
+    async def test_create_validates_update_url_from_submitted_form_data(self):
+        row = _make_row(version="1.0.0-beta.2", is_published=False)
+        row.update_url = None
+
+        await ClientUpdateAnnouncementAdmin.on_model_change(
+            ClientUpdateAnnouncementAdmin,
+            {"update_url": "https://github.com/o/r/releases/download/v1/setup.exe"},
+            row,
+            True,
+            None,
+        )
+
+
+# ---------------------------------------------------------------------------
 # /client/update-policy: supports_auto_install field
 # ---------------------------------------------------------------------------
 
 class TestUpdatePolicySupportsAutoInstall:
+    async def test_returns_localized_body_fields(self):
+        row = _make_row(version="2.0.0", tauri_signature="real-sig")
+        row.body_markdown_en = "English notes"
+        row.body_markdown_ja = "Japanese notes"
+
+        with patch("app.routers.client.get_latest_visible_update", AsyncMock(return_value=row)):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                resp = await ac.get("/client/update-policy", params={
+                    "version": "1.0.0", "target": "windows", "arch": "x86_64",
+                    "channel": "stable", "installer_kind": "nsis",
+                })
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["announcement"]["body_markdown"] == "Notes"
+        assert data["announcement"]["body_markdown_en"] == "English notes"
+        assert data["announcement"]["body_markdown_ja"] == "Japanese notes"
+
     async def test_supports_auto_install_false_when_no_signature(self):
         unsigned_row = _make_row(version="2.0.0", tauri_signature=None)
 
@@ -269,6 +308,33 @@ class TestIngestEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["created"] is False
+
+    async def test_resend_without_localized_bodies_preserves_existing_translations(self, patch_token):
+        existing_row = _make_row(version="1.0.0-beta.2", is_published=False)
+        existing_row.body_markdown_en = "Existing English notes"
+        existing_row.body_markdown_ja = "Existing Japanese notes"
+
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = existing_row
+        db.execute.return_value = result
+
+        with patch("app.routers.internal_client_updates.AsyncSessionLocal") as mock_session_cls:
+            ctx = AsyncMock()
+            ctx.__aenter__.return_value = db
+            ctx.__aexit__.return_value = False
+            mock_session_cls.return_value = ctx
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                resp = await ac.post(
+                    "/internal/client-updates/from-release",
+                    json=_VALID_INGEST_PAYLOAD,
+                    headers=_ingest_headers(),
+                )
+
+        assert resp.status_code == 200
+        assert existing_row.body_markdown_en == "Existing English notes"
+        assert existing_row.body_markdown_ja == "Existing Japanese notes"
 
     async def test_invalid_update_url_tag_rejected(self, patch_token):
         bad = {**_VALID_INGEST_PAYLOAD, "update_url": "https://github.com/o/r/releases/tag/v1"}

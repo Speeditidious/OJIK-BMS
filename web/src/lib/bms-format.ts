@@ -1,4 +1,4 @@
-/** BPM 표시: "150" 또는 "120~180 (150)" — min==max이면 단일 값 */
+/** BPM display: "150" or "120~180 (150)" — min==max renders as a single value. */
 export function formatBpm(
   main: number | null,
   min: number | null,
@@ -12,7 +12,7 @@ export function formatBpm(
   return String(main ?? min ?? max ?? "-");
 }
 
-/** Notes 표시 */
+/** Notes display. */
 export function formatNotes(
   total: number | null,
   n: number | null,
@@ -29,7 +29,7 @@ export function formatNotes(
   return { total: String(total), detail: parts.join(" ") };
 }
 
-/** Length 표시: ms → "2:30" または "1:05:30" */
+/** Length display: milliseconds to "2:30" or "1:05:30". */
 export function formatLength(ms: number | null): string {
   if (ms === null) return "-";
   const totalSec = Math.floor(ms / 1000);

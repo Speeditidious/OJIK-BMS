@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { HeatmapDay, ClientTypeFilter, CourseActivityItem } from "@/hooks/use-analysis";
 import {
   Tooltip,
@@ -69,6 +70,7 @@ interface MonthGroup {
 }
 
 export function ActivityHeatmap({ data, year, firstSyncDates, clientType, courseData, viewMode = "updates" }: ActivityHeatmapProps) {
+  const { t } = useTranslation();
   const courseMap = useMemo<Record<string, { count: number; hasFirstClear: boolean }>>(() => {
     if (!courseData?.length) return {};
     const map: Record<string, { count: number; hasFirstClear: boolean }> = {};
@@ -228,7 +230,7 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
                               : getIntensityClass(activeVal, maxValue, viewMode)
                           }`;
                           const syncLabel = isFirstSync
-                            ? syncClients.map((c) => (c === "lr2" ? "LR2" : "Beatoraja")).join(" + ") + " 첫 동기화"
+                            ? syncClients.map((c) => (c === "lr2" ? "LR2" : "Beatoraja")).join(" + ") + " " + t("dashboard.activity.firstSync")
                             : null;
 
                           return (
@@ -253,41 +255,41 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
                                 {syncLabel ? (
                                   <p className="text-label text-muted-foreground">{syncLabel}</p>
                                 ) : activeVal === 0 && cell.updates === 0 && cell.new_plays === 0 && cell.plays === 0 && cell.rating_updates === 0 ? (
-                                  <p className="text-label text-muted-foreground">기록 없음</p>
+                                  <p className="text-label text-muted-foreground">{t("common.states.noRecords")}</p>
                                 ) : (
                                   <>
                                     <p className="text-label" style={{ color: viewMode === "plays" ? "hsl(var(--chart-play))" : viewMode === "new_plays" ? "hsl(var(--primary))" : viewMode === "rating_updates" ? "hsl(var(--chart-rating))" : "hsl(var(--warning))" }}>
                                       {viewMode === "plays"
-                                        ? `${cell.plays} 플레이`
+                                        ? `${cell.plays} ${t("format.activity.categories.plays")}`
                                         : viewMode === "new_plays"
-                                          ? `${cell.new_plays} 신규 기록`
+                                          ? `${cell.new_plays} ${t("format.activity.categories.newPlays")}`
                                           : viewMode === "rating_updates"
-                                            ? `${cell.rating_updates} 레이팅 갱신`
-                                            : `${cell.updates} 갱신 기록`}
+                                            ? `${cell.rating_updates} ${t("format.activity.categories.ratingUpdates")}`
+                                            : `${cell.updates} ${t("format.activity.categories.updates")}`}
                                     </p>
                                     {viewMode === "new_plays" && cell.updates > 0 && (
-                                      <p className="text-label text-muted-foreground">{cell.updates} 갱신 기록</p>
+                                      <p className="text-label text-muted-foreground">{cell.updates} {t("format.activity.categories.updates")}</p>
                                     )}
                                     {viewMode !== "rating_updates" && cell.rating_updates > 0 && (
-                                      <p className="text-label" style={{ color: "hsl(var(--chart-rating))" }}>{cell.rating_updates} 레이팅 갱신</p>
+                                      <p className="text-label" style={{ color: "hsl(var(--chart-rating))" }}>{cell.rating_updates} {t("format.activity.categories.ratingUpdates")}</p>
                                     )}
                                     {viewMode !== "new_plays" && cell.new_plays > 0 && (
-                                      <p className="text-label" style={{ color: "hsl(var(--primary))" }}>{cell.new_plays} 신규 기록</p>
+                                      <p className="text-label" style={{ color: "hsl(var(--primary))" }}>{cell.new_plays} {t("format.activity.categories.newPlays")}</p>
                                     )}
                                     {viewMode === "plays" && cell.updates > 0 && (
-                                      <p className="text-label text-muted-foreground">{cell.updates} 갱신 기록</p>
+                                      <p className="text-label text-muted-foreground">{cell.updates} {t("format.activity.categories.updates")}</p>
                                     )}
                                     {viewMode === "updates" && cell.plays > 0 && (
-                                      <p className="text-label text-muted-foreground">{cell.plays} 플레이</p>
+                                      <p className="text-label text-muted-foreground">{cell.plays} {t("format.activity.categories.plays")}</p>
                                     )}
                                     {viewMode === "new_plays" && cell.plays > 0 && (
-                                      <p className="text-label text-muted-foreground">{cell.plays} 플레이</p>
+                                      <p className="text-label text-muted-foreground">{cell.plays} {t("format.activity.categories.plays")}</p>
                                     )}
                                   </>
                                 )}
                                 {courseInfo && (
                                   <p className="text-label" style={{ color: "hsl(var(--accent))" }}>
-                                    {courseInfo.hasFirstClear ? "★ " : ""}코스 클리어 {courseInfo.count}건
+                                    {courseInfo.hasFirstClear ? "★ " : ""}Course clear ×{courseInfo.count}
                                   </p>
                                 )}
                               </TooltipContent>
@@ -318,7 +320,7 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
           {Object.keys(firstSyncMap).length > 0 && (
             <div className="flex items-center gap-1">
               <div className="w-3 h-3 rounded-[2px] bg-accent border border-accent" />
-              <span>첫 동기화</span>
+              <span>{t("dashboard.activity.firstSync")}</span>
             </div>
           )}
           {Object.keys(courseMap).length > 0 && (
@@ -327,7 +329,7 @@ export function ActivityHeatmap({ data, year, firstSyncDates, clientType, course
                 className="w-1.5 h-1.5 rounded-full"
                 style={{ backgroundColor: "hsl(var(--accent))" }}
               />
-              <span>코스 클리어</span>
+              <span>Course clear</span>
             </div>
           )}
         </div>

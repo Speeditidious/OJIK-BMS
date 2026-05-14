@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import { timeAgo } from "@/lib/time";
@@ -30,21 +31,23 @@ export function MyRankCard({
   tableSlug,
   user,
 }: MyRankCardProps) {
+  const { t } = useTranslation();
+
   if (!isLoggedIn || !user) return null;
 
   const metaInfo =
     data && data.status === "ok" ? (
       <div className="flex flex-col gap-0.5 text-label text-muted-foreground text-right">
         {data.last_synced_at && (
-          <span>플레이 데이터 동기화: {timeAgo(data.last_synced_at)}</span>
+          <span>{t("ranking.profileHeader.syncedAt", { time: timeAgo(data.last_synced_at, t) })}</span>
         )}
         {data.calculated_at && (
-          <span>레이팅 계산 적용: {timeAgo(data.calculated_at)}</span>
+          <span>{t("ranking.profileHeader.calculatedAt", { time: timeAgo(data.calculated_at, t) })}</span>
         )}
         {data.last_synced_at &&
           data.calculated_at &&
           new Date(data.last_synced_at) > new Date(data.calculated_at) && (
-            <span className="text-yellow-500/80">동기화 후 아직 랭킹에 미반영</span>
+            <span className="text-yellow-500/80">{t("ranking.profileHeader.pending")}</span>
           )}
       </div>
     ) : null;
@@ -56,13 +59,13 @@ export function MyRankCard({
   } else if (!data || data.status === "no_scores") {
     body = (
       <p className="text-body text-muted-foreground">
-        아직 기록이 없습니다. 클라이언트를 통해 플레이 데이터를 동기화해보세요.
+        {t("ranking.profileHeader.noSyncedRecords")}
       </p>
     );
   } else if (data.status === "pending") {
     body = (
       <p className="text-body text-muted-foreground">
-        플레이 데이터는 감지되었지만 랭킹 계산이 아직 반영되지 않았습니다. 잠시 후 새로고침해주세요.
+        {t("ranking.profileHeader.calculationPending")}
       </p>
     );
   } else {
@@ -74,7 +77,7 @@ export function MyRankCard({
           {type === "exp" ? (
             <>
               <div>
-                <p className="text-body-sm text-muted-foreground">내 순위</p>
+                <p className="text-body-sm text-muted-foreground">{t("ranking.rank")}</p>
                 <p className="text-2xl font-bold">
                   {hasRankingValue ? (
                     <>
@@ -90,7 +93,7 @@ export function MyRankCard({
               </div>
               <div>
                 <p className="flex items-center justify-center text-body-sm text-muted-foreground">
-                  레벨
+                  {t("ranking.level")}
                   <MetricInfoIcon metric="level" />
                 </p>
                 <div className="flex flex-wrap items-center justify-center gap-2">
@@ -108,7 +111,7 @@ export function MyRankCard({
               </div>
               <div>
                 <p className="flex items-center justify-center text-body-sm text-muted-foreground">
-                  경험치
+                  {t("ranking.exp")}
                   <MetricInfoIcon metric="exp" />
                 </p>
                 <p className="text-2xl font-bold tabular-nums">
@@ -122,7 +125,7 @@ export function MyRankCard({
             /* bmsforce */
             <>
               <div>
-                <p className="text-body-sm text-muted-foreground">내 순위</p>
+                <p className="text-body-sm text-muted-foreground">{t("ranking.rank")}</p>
                 <p className="text-2xl font-bold">
                   {hasRankingValue ? (
                     <>
@@ -138,7 +141,7 @@ export function MyRankCard({
               </div>
               <div>
                 <p className="flex items-center justify-center text-body-sm text-muted-foreground">
-                  TOP {data.top_n} 레이팅 합산
+                  {t("ranking.profileHeader.topRatingSum", { n: data.top_n })}
                   <MetricInfoIcon metric="rating" />
                 </p>
                 <p className="text-2xl font-bold tabular-nums">
@@ -175,7 +178,7 @@ export function MyRankCard({
           {metaInfo}
         </div>
 
-        {/* Header: 아이덴티티 */}
+        {/* Header: user identity */}
         <div className="min-w-0 flex justify-center">
           <Link
             href={`/users/${user.id}/dashboard`}
@@ -204,7 +207,7 @@ export function MyRankCard({
           </Link>
         </div>
 
-        {/* Body: 순위/수치 블록 */}
+        {/* Body: rank/score block */}
         {body}
       </section>
     </TooltipProvider>

@@ -1,6 +1,7 @@
 import { Database, Download, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
-import { formatKoreanDateTime, formatNumber, formatRelativeTime } from "../../lib/format";
+import { formatLocalizedDateTime, formatNumber, formatRelativeTime } from "../../lib/format";
 import type { ClientConfig, SyncResult } from "../../types";
 import { Button } from "../primitives/Button";
 
@@ -25,55 +26,56 @@ export function SyncHero({
   onFullSync,
   onCancel,
 }: SyncHeroProps) {
+  const { t } = useTranslation();
   const lastResultErrorCount = lastResult?.errors.filter((e) => e.level !== "warn").length ?? 0;
   const lastSyncedAt = lastResultErrorCount > 0
     ? config.last_synced_at
     : lastResult?.finished_at ?? config.last_synced_at;
 
   return (
-    <section className="sync-hero" aria-label="동기화">
+    <section className="sync-hero" aria-label={t("client.sync.hero.ariaLabel")}>
       <div className="sync-hero-info">
         <div className="sync-hero-eyebrow">
           {syncRunning ? (
             <>
               <Loader2 size={12} className="spin" aria-hidden="true" />
-              동기화 진행 중
+              {t("client.sync.hero.running")}
             </>
           ) : (
             <>
               <Sparkles size={12} aria-hidden="true" />
-              지금 동기화
+              {t("client.sync.hero.syncNow")}
             </>
           )}
         </div>
 
         {lastSyncedAt ? (
           <>
-            <h2 className="sync-hero-title">마지막 동기화 {formatRelativeTime(lastSyncedAt)}</h2>
+            <h2 className="sync-hero-title">{t("client.sync.hero.lastSync")} {formatRelativeTime(lastSyncedAt, t)}</h2>
             <div className="sync-hero-meta">
-              <span title={lastSyncedAt}>{formatKoreanDateTime(lastSyncedAt)}</span>
+              <span title={lastSyncedAt}>{formatLocalizedDateTime(lastSyncedAt, t)}</span>
               {lastResult && lastResultErrorCount === 0 ? (
                 <>
                   <span>
-                    등록된 기록 <b>{formatNumber(lastResult.inserted)}</b>건
+                    {t("client.sync.hero.inserted")} <b>{formatNumber(lastResult.inserted)}</b>
                   </span>
                   <span>
-                    수정된 기록 <b>{formatNumber(lastResult.metadata_updated)}</b>건
+                    {t("client.sync.hero.updated")} <b>{formatNumber(lastResult.metadata_updated)}</b>
                   </span>
                 </>
               ) : null}
               {lastResultErrorCount > 0 ? (
                 <span style={{ color: "var(--danger)" }}>
-                  최근 시도 오류 <b>{formatNumber(lastResultErrorCount)}</b>건
+                  {t("client.sync.hero.recentErrors")} <b>{formatNumber(lastResultErrorCount)}</b>
                 </span>
               ) : null}
             </div>
           </>
         ) : (
           <>
-            <h2 className="sync-hero-title">아직 동기화한 적이 없어요</h2>
+            <h2 className="sync-hero-title">{t("client.sync.hero.neverSyncedTitle")}</h2>
             <div className="sync-hero-meta">
-              경로를 채우고 첫 동기화를 시작해 보세요. 곡 메타까지 함께 보내려면 전체 동기화를 사용하세요.
+              {t("client.sync.hero.neverSyncedBody")}
             </div>
           </>
         )}
@@ -82,7 +84,7 @@ export function SyncHero({
       <div className="sync-hero-actions">
         {syncRunning ? (
           <Button variant="danger" size="lg" leadingIcon={<X size={16} aria-hidden="true" />} onClick={onCancel}>
-            동기화 취소
+            {t("client.sync.hero.cancel")}
           </Button>
         ) : (
           <>
@@ -94,7 +96,7 @@ export function SyncHero({
               disabled={syncDisabled}
               title={syncDisabledReason}
             >
-              빠른 동기화
+              {t("client.sync.hero.quick")}
             </Button>
             <Button
               variant="accent"
@@ -104,7 +106,7 @@ export function SyncHero({
               disabled={syncDisabled}
               title={syncDisabledReason}
             >
-              전체 동기화
+              {t("client.sync.hero.full")}
             </Button>
           </>
         )}
@@ -114,11 +116,12 @@ export function SyncHero({
 }
 
 export function SyncStubNotice({ message }: { message: string }) {
+  const { t } = useTranslation();
   return (
     <div className="stub-card" role="status">
       <RefreshCw size={16} aria-hidden="true" />
       <div>
-        <div className="stub-card-title">동기화 엔진은 곧 연결됩니다</div>
+        <div className="stub-card-title">{t("client.sync.hero.enginePending")}</div>
         <div className="stub-card-body">{message}</div>
       </div>
     </div>

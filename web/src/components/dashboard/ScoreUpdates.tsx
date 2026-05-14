@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SourceClientBadge } from "@/components/common/SourceClientBadge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -36,17 +37,17 @@ const CLEAR_TYPE_LABELS_SIMPLE: Record<number, string> = {
   5: "HARD", 6: "EX HARD", 7: "FULL COMBO", 8: "PERFECT", 9: "MAX",
 };
 
-/** 개별 <td>에 클리어 타입 CSS 클래스 반환 (globals.css clear-cell-* 참조) */
+/** Returns CSS class for a clear-type <td> (references globals.css clear-cell-*) */
 export function clearTdClass(clearType: number | null | undefined, dim = false): string {
   const ct = clearType ?? 0;
-  // NO PLAY(0)은 이미 dim한 색 — dim 변형 불필요
+  // NO PLAY(0) is already dimmed — no dim variant needed
   return (dim && ct !== 0) ? `clear-cell-${ct}-dim` : `clear-cell-${ct}`;
 }
 
-/** 개별 <td>에 랭크 기반 CSS 클래스 반환 (globals.css rank-cell-* 참조) */
+/** Returns CSS class for a rank-based <td> (references globals.css rank-cell-*) */
 export function rankTdClass(rank: string | null | undefined, dim = false): string {
   const r = rank ?? "F";
-  // F는 이미 dim한 색 — dim 변형 불필요
+  // F is already dimmed — no dim variant needed
   return (dim && r !== "F") ? `rank-cell-${r}-dim` : `rank-cell-${r}`;
 }
 
@@ -74,7 +75,7 @@ function buildSongHref(
 ): string {
   const sha256 = fumen.fumen_sha256 ?? fumen.sha256 ?? null;
   const md5 = fumen.fumen_md5 ?? fumen.md5 ?? null;
-  if (!fumen.fumen_id && !sha256 && !md5) return "#";
+  if (!sha256 && !md5) return "#";
   return songHref({ fumen_id: fumen.fumen_id, sha256, md5 }, userId);
 }
 
@@ -102,7 +103,7 @@ interface MergedCourseUpdate {
 }
 
 function isFirstClear(prevClear: number | null | undefined, newClear: number | null | undefined): boolean {
-  // ASSIST EASY(2)는 클리어 아님. EASY CLEAR(3)부터 실제 클리어.
+  // ASSIST EASY(2) is not a clear. EASY CLEAR(3) or above counts as a real clear.
   return (prevClear == null || prevClear < 3) && (newClear != null && newClear >= 3);
 }
 
@@ -151,6 +152,7 @@ function CourseSectionTable({
   count: number;
   children: React.ReactNode;
 }) {
+  const { t } = useTranslation();
   const thCls = "px-2 py-2 font-medium whitespace-nowrap text-left";
   return (
     <div className="border border-border/40 rounded-lg overflow-hidden">
@@ -176,16 +178,16 @@ function CourseSectionTable({
           </colgroup>
           <thead className="sticky top-0 z-10 bg-background text-foreground border-b border-border/50">
             <tr>
-              <th className={cn(thCls, "text-center")}>이전</th>
-              <th className={cn(thCls, "text-center")}>현재</th>
-              <th className={thCls}>코스</th>
-              <th className={cn(thCls, "text-center")}>BP</th>
-              <th className={cn(thCls, "text-center")}>판정</th>
-              <th className={cn(thCls, "text-center")}>랭크</th>
-              <th className={cn(thCls, "text-center")}>점수</th>
-              <th className={cn(thCls, "text-center")}>플레이</th>
-              <th className={thCls}>배치</th>
-              <th className={thCls}>구동기</th>
+              <th className={cn(thCls, "text-center")}>Prev</th>
+              <th className={cn(thCls, "text-center")}>Current</th>
+              <th className={thCls}>Course</th>
+              <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.bp")}</th>
+              <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.rate")}</th>
+              <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.rank")}</th>
+              <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.score")}</th>
+              <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.plays")}</th>
+              <th className={thCls}>{t("dashboard.scoreUpdates.option")}</th>
+              <th className={thCls}>{t("dashboard.scoreUpdates.env")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/20">{children}</tbody>
@@ -203,18 +205,18 @@ function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
   const playOnlyClearCls = isPlayOnly ? clearTdClass(playOnlyCt) : "";
   const rowColorCls = item.clear ? newClearCls : isPlayOnly ? playOnlyClearCls : "";
 
-  // BP — currentState 그대로 표시 (퓨먼과 동일)
+  // BP — display currentState as-is (same as FumenRow)
   const bp = item.currentState?.min_bp ?? null;
 
-  // Rate — FumenRow와 동일 패턴: rate 전용 필드 우선, 없으면 currentState 폴백
+  // Rate — same pattern as FumenRow: prefer dedicated rate field, fall back to currentState
   const rateVal = item.currentState?.rate ?? null;
   const rateLabel = rateVal != null ? formatRatePercent(rateVal) : null;
 
-  // Rank — FumenRow와 동일 패턴
+  // Rank — same pattern as FumenRow
   const rankNew = item.score?.new_rank ?? item.currentState?.rank ?? null;
   const rankPrev = item.score?.prev_rank ?? null;
 
-  // Score — FumenRow와 동일 패턴
+  // Score — same pattern as FumenRow
   const scoreNew = item.score?.new ?? item.currentState?.exscore ?? null;
   const scorePrev = item.score?.prev ?? null;
   const scoreDiff = scoreNew != null && scorePrev != null ? scoreNew - scorePrev : null;
@@ -266,14 +268,14 @@ function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
         )}
       </td>
 
-      {/* Course name — Prev/Current 바로 다음 */}
+      {/* Course name — immediately after Prev/Current */}
       <td className={cn("px-2 py-2", rowColorCls)}>
         <div className="flex items-center gap-1.5 flex-wrap min-w-0">
           {item.dan_title && (
             <span className="text-label font-bold text-accent shrink-0">{item.dan_title}</span>
           )}
           <span className="text-label font-medium truncate">
-            {item.course_name ?? "(코스 불명)"}
+            {item.course_name ?? "(Unknown course)"}
           </span>
         </div>
       </td>
@@ -283,7 +285,7 @@ function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
         {bp != null ? <span className="text-label">{bp}</span> : <span className="row-muted">—</span>}
       </td>
 
-      {/* Rate — FumenRow와 동일 패턴 */}
+      {/* Rate — same pattern as FumenRow */}
       <td className={cn("px-2 py-2 whitespace-nowrap text-center", rowColorCls)}>
         {item.rate?.prev != null ? (
           <div className="flex items-baseline gap-1 justify-center">
@@ -382,6 +384,7 @@ function SectionTable({
   colWidths?: [string?, string?, string?, string?];
   children: React.ReactNode;
 }) {
+  const { t } = useTranslation();
   const thCls = "px-2 py-2 font-medium whitespace-nowrap text-left";
   return (
     <div className="border border-border/40 rounded-lg overflow-hidden">
@@ -398,7 +401,7 @@ function SectionTable({
               onChange={onToggleNewPlays}
               className="accent-primary"
             />
-            신규 기록 포함
+            Include new plays
           </label>
         )}
       </div>
@@ -411,10 +414,10 @@ function SectionTable({
           </colgroup>
           <thead className="sticky top-0 z-10 bg-background text-foreground border-b border-border/50">
             <tr>
-              <th className={cn(thCls, "text-center")}>이전</th>
-              <th className={cn(thCls, "text-center")}>현재</th>
-              <th className={thCls}>레벨</th>
-              <th className={thCls}>제목</th>
+              <th className={cn(thCls, "text-center")}>Prev</th>
+              <th className={cn(thCls, "text-center")}>Current</th>
+              <th className={thCls}>{t("dashboard.scoreUpdates.level")}</th>
+              <th className={thCls}>{t("dashboard.scoreUpdates.title")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/20">{children}</tbody>
@@ -443,15 +446,15 @@ function LampUpgradeRow({ item, userId }: { item: ClearTypeUpdateItem; userId?: 
       </td>
       <td className={cn("px-2 py-2", newCls)} data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
         <div className="max-w-full truncate">
-          {(item.fumen_id || item.fumen_sha256 || item.fumen_md5) ? (
+          {(item.fumen_sha256 || item.fumen_md5) ? (
             <Link
               href={buildSongHref(item, userId)}
               className="text-label hover:text-primary transition-colors"
             >
-              {item.title ?? "(알 수 없음)"}
+              {item.title ?? "(Unknown)"}
             </Link>
           ) : (
-            <span className="text-label">{item.title ?? "(알 수 없음)"}</span>
+            <span className="text-label">{item.title ?? "(Unknown)"}</span>
           )}
         </div>
         {item.artist && <div className="text-caption max-w-full truncate opacity-70">{item.artist}</div>}
@@ -496,15 +499,15 @@ function ScoreUpgradeRow({ item, userId }: { item: ExscoreUpdateItem; userId?: s
       </td>
       <td className={cn("px-2 py-2", newCls)} data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
         <div className="max-w-full truncate">
-          {(item.fumen_id || item.fumen_sha256 || item.fumen_md5) ? (
+          {(item.fumen_sha256 || item.fumen_md5) ? (
             <Link
               href={buildSongHref(item, userId)}
               className="text-label hover:text-primary transition-colors"
             >
-              {item.title ?? "(알 수 없음)"}
+              {item.title ?? "(Unknown)"}
             </Link>
           ) : (
-            <span className="text-label">{item.title ?? "(알 수 없음)"}</span>
+            <span className="text-label">{item.title ?? "(Unknown)"}</span>
           )}
         </div>
         {item.artist && <div className="text-caption max-w-full truncate opacity-70">{item.artist}</div>}
@@ -540,15 +543,15 @@ function BPUpgradeRow({ item, userId }: { item: MinBPUpdateItem; userId?: string
       </td>
       <td className="px-2 py-2" data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
         <div className="max-w-full truncate">
-          {(item.fumen_id || item.fumen_sha256 || item.fumen_md5) ? (
+          {(item.fumen_sha256 || item.fumen_md5) ? (
             <Link
               href={buildSongHref(item, userId)}
               className="text-label hover:text-primary transition-colors"
             >
-              {item.title ?? "(알 수 없음)"}
+              {item.title ?? "(Unknown)"}
             </Link>
           ) : (
-            <span className="text-label">{item.title ?? "(알 수 없음)"}</span>
+            <span className="text-label">{item.title ?? "(Unknown)"}</span>
           )}
         </div>
         {item.artist && <div className="text-caption text-muted-foreground max-w-full truncate opacity-70">{item.artist}</div>}
@@ -584,15 +587,15 @@ function ComboUpgradeRow({ item, userId }: { item: MaxComboUpdateItem; userId?: 
       </td>
       <td className="px-2 py-2" data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
         <div className="max-w-full truncate">
-          {(item.fumen_id || item.fumen_sha256 || item.fumen_md5) ? (
+          {(item.fumen_sha256 || item.fumen_md5) ? (
             <Link
               href={buildSongHref(item, userId)}
               className="text-label hover:text-primary transition-colors"
             >
-              {item.title ?? "(알 수 없음)"}
+              {item.title ?? "(Unknown)"}
             </Link>
           ) : (
-            <span className="text-label">{item.title ?? "(알 수 없음)"}</span>
+            <span className="text-label">{item.title ?? "(Unknown)"}</span>
           )}
         </div>
         {item.artist && <div className="text-caption text-muted-foreground max-w-full truncate opacity-70">{item.artist}</div>}
@@ -604,6 +607,7 @@ function ComboUpgradeRow({ item, userId }: { item: MaxComboUpdateItem; userId?: 
 // ── Category tab ───────────────────────────────────────────────────────────────
 
 function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: string }) {
+  const { t } = useTranslation();
   const prefs = useScoreUpdatesPrefs();
   const { mutate: updatePrefs } = useUpdateScoreUpdatesPrefs();
   const { user, isInitialized } = useAuthStore();
@@ -666,7 +670,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
     [comboAll, prefs.score_updates_combo_include_new_plays],
   );
 
-  // 요약 탭: 개선된 기록만 표시 (playCount-only 제외)
+  // Summary tab: show only improved records (exclude playCount-only)
   const summaryCourses = useMemo(
     () => mergedCourses.filter((c) => c.clear || c.score),
     [mergedCourses],
@@ -682,7 +686,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
   if (empty) {
     return (
       <p className="text-body text-muted-foreground text-center py-8">
-        기록 상세 데이터가 없습니다.
+        {t("dashboard.scoreUpdates.noUpdates")}
       </p>
     );
   }
@@ -691,7 +695,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
     <div className="space-y-3">
       {/* Course records */}
       {summaryCourses.length > 0 && (
-        <CourseSectionTable title="코스 기록" count={summaryCourses.length}>
+        <CourseSectionTable title="Course Records" count={summaryCourses.length}>
           {summaryCourses.map((c, i) => (
             <CourseTableRow key={i} item={c} />
           ))}
@@ -701,7 +705,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {lampAll.length > 0 && (
           <SectionTable
-            title="클리어 갱신"
+            title={t("dashboard.scoreUpdates.clear") + " Updates"}
             count={lamp.length}
             showNewPlays={prefs.score_updates_lamp_include_new_plays}
             onToggleNewPlays={canPersistPrefs
@@ -713,7 +717,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
         )}
         {scoreAll.length > 0 && (
           <SectionTable
-            title="점수 갱신"
+            title={t("dashboard.scoreUpdates.score") + " Updates"}
             count={score.length}
             showNewPlays={prefs.score_updates_score_include_new_plays}
             onToggleNewPlays={canPersistPrefs
@@ -725,7 +729,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
         )}
         {bpAll.length > 0 && (
           <SectionTable
-            title="BP 갱신"
+            title={t("dashboard.scoreUpdates.bp") + " Updates"}
             count={bp.length}
             showNewPlays={prefs.score_updates_bp_include_new_plays}
             onToggleNewPlays={canPersistPrefs
@@ -737,7 +741,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
         )}
         {comboAll.length > 0 && (
           <SectionTable
-            title="최대 콤보 갱신"
+            title="Max Combo Updates"
             count={combo.length}
             showNewPlays={prefs.score_updates_combo_include_new_plays}
             onToggleNewPlays={canPersistPrefs
@@ -881,15 +885,15 @@ function FumenRow({ fumen, userId }: { fumen: MergedFumenUpdate; userId?: string
 
       {/* Title + Artist */}
       <td className="px-2 py-2 align-top max-w-[220px]" data-title={fumen.title ?? ""} data-artist={fumen.artist ?? ""}>
-        {(fumen.fumen_id || fumen.sha256 || fumen.md5) ? (
+        {(fumen.sha256 || fumen.md5) ? (
           <Link
             href={buildSongHref(fumen, userId)}
             className="text-label inline-block max-w-full truncate hover:text-primary transition-colors"
           >
-            {fumen.title ?? "(알 수 없음)"}
+            {fumen.title ?? "(Unknown)"}
           </Link>
         ) : (
-          <span className="text-label inline-block max-w-full truncate">{fumen.title ?? "(알 수 없음)"}</span>
+          <span className="text-label inline-block max-w-full truncate">{fumen.title ?? "(Unknown)"}</span>
         )}
         {fumen.artist && <><br /><span className="text-caption row-muted inline-block max-w-full truncate">{fumen.artist}</span></>}
       </td>
@@ -1025,6 +1029,7 @@ function FumenRow({ fumen, userId }: { fumen: MergedFumenUpdate; userId?: string
 type FumenSortKey = "recorded_at" | "level" | "title" | "lamp" | "score" | "bp" | "rate" | "rank" | "plays" | "option" | "env";
 
 function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: string }) {
+  const { t } = useTranslation();
   const [sortKey, setSortKey] = useState<FumenSortKey>("level");
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -1102,7 +1107,7 @@ function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: strin
   if (empty) {
     return (
       <p className="text-body text-muted-foreground text-center py-8">
-        기록 상세 데이터가 없습니다.
+        {t("dashboard.scoreUpdates.noUpdates")}
       </p>
     );
   }
@@ -1110,7 +1115,7 @@ function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: strin
   return (
     <div className="space-y-4">
       {mergedCourses.length > 0 && (
-        <CourseSectionTable title="코스 기록" count={mergedCourses.length}>
+        <CourseSectionTable title="Course Records" count={mergedCourses.length}>
           {mergedCourses.map((c, i) => (
             <CourseTableRow key={i} item={c} />
           ))}
@@ -1135,16 +1140,16 @@ function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: strin
               </colgroup>
               <thead className="sticky top-0 z-10 bg-background text-foreground border-b border-border/50">
                 <tr>
-                  <th className={thClass("level")} onClick={() => toggleSort("level")}>레벨{sortIcon("level")}</th>
-                  <th className={thClass("title")} onClick={() => toggleSort("title")}>제목{sortIcon("title")}</th>
-                  <th className={thClass("lamp", true)} onClick={() => toggleSort("lamp")}>클리어{sortIcon("lamp")}</th>
-                  <th className={thClass("bp", true)} onClick={() => toggleSort("bp")}>BP{sortIcon("bp")}</th>
-                  <th className={thClass("rate", true)} onClick={() => toggleSort("rate")}>판정{sortIcon("rate")}</th>
-                  <th className={thClass("rank", true)} onClick={() => toggleSort("rank")}>랭크{sortIcon("rank")}</th>
-                  <th className={thClass("score", true)} onClick={() => toggleSort("score")}>점수{sortIcon("score")}</th>
-                  <th className={thClass("plays", true)} onClick={() => toggleSort("plays")}>플레이{sortIcon("plays")}</th>
-                  <th className={thClass("option")} onClick={() => toggleSort("option")}>배치{sortIcon("option")}</th>
-                  <th className={thClass("env")} onClick={() => toggleSort("env")}>구동기{sortIcon("env")}</th>
+                  <th className={thClass("level")} onClick={() => toggleSort("level")}>{t("dashboard.scoreUpdates.level")}{sortIcon("level")}</th>
+                  <th className={thClass("title")} onClick={() => toggleSort("title")}>{t("dashboard.scoreUpdates.title")}{sortIcon("title")}</th>
+                  <th className={thClass("lamp", true)} onClick={() => toggleSort("lamp")}>{t("dashboard.scoreUpdates.clear")}{sortIcon("lamp")}</th>
+                  <th className={thClass("bp", true)} onClick={() => toggleSort("bp")}>{t("dashboard.scoreUpdates.bp")}{sortIcon("bp")}</th>
+                  <th className={thClass("rate", true)} onClick={() => toggleSort("rate")}>{t("dashboard.scoreUpdates.rate")}{sortIcon("rate")}</th>
+                  <th className={thClass("rank", true)} onClick={() => toggleSort("rank")}>{t("dashboard.scoreUpdates.rank")}{sortIcon("rank")}</th>
+                  <th className={thClass("score", true)} onClick={() => toggleSort("score")}>{t("dashboard.scoreUpdates.score")}{sortIcon("score")}</th>
+                  <th className={thClass("plays", true)} onClick={() => toggleSort("plays")}>{t("dashboard.scoreUpdates.plays")}{sortIcon("plays")}</th>
+                  <th className={thClass("option")} onClick={() => toggleSort("option")}>{t("dashboard.scoreUpdates.option")}{sortIcon("option")}</th>
+                  <th className={thClass("env")} onClick={() => toggleSort("env")}>{t("dashboard.scoreUpdates.env")}{sortIcon("env")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/30">
@@ -1187,6 +1192,7 @@ export function ScoreUpdates({
   viewMode: viewModeProp,
   onViewModeChange,
 }: ScoreUpdatesProps) {
+  const { t } = useTranslation();
   const { data, isLoading } = useScoreUpdates(clientType, date, limit, userId);
   const [viewModeLocal, setViewModeLocal] = useState<ScoreUpdatesViewMode>("summary");
   // Controlled: use prop when provided; otherwise use local state
@@ -1199,7 +1205,7 @@ export function ScoreUpdates({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle>기록 상세</CardTitle>
+        <CardTitle>Record Details</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading && (
@@ -1220,10 +1226,10 @@ export function ScoreUpdates({
           >
             <div className="flex justify-center mb-4">
               <TabsList>
-                <TabsTrigger value="summary">갱신 요약</TabsTrigger>
+                <TabsTrigger value="summary">Update Summary</TabsTrigger>
                 {ratingSlot !== undefined && (
                   <TabsTrigger value="rating">
-                    레이팅 변동
+                    Rating Changes
                     {ratingBadgeCount > 0 && (
                       <span className="ml-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary/20 px-1.5 text-caption font-semibold text-primary">
                         {ratingBadgeCount}
@@ -1231,7 +1237,7 @@ export function ScoreUpdates({
                     )}
                   </TabsTrigger>
                 )}
-                <TabsTrigger value="all">전체</TabsTrigger>
+                <TabsTrigger value="all">All</TabsTrigger>
               </TabsList>
             </div>
             <TabsContent value="summary">

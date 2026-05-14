@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { X, Plus, GripVertical } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   DndContext,
   DragEndEvent,
@@ -42,6 +43,7 @@ function SortableTagPill({
   tag: { id: string; tag: string };
   onDelete: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: tag.id });
 
@@ -57,13 +59,13 @@ function SortableTagPill({
       }}
       className="inline-flex items-center gap-0.5 rounded-full pl-1.5 pr-2 py-0.5 text-label font-medium border select-none"
     >
-      {/* 드래그 핸들 */}
+      {/* Drag handle */}
       <button
         {...attributes}
         {...listeners}
         className="opacity-40 hover:opacity-80 transition-opacity cursor-grab active:cursor-grabbing p-0.5"
         tabIndex={-1}
-        aria-label="순서 변경"
+        aria-label={t("fumen.tags.title")}
       >
         <GripVertical className="h-3 w-3" />
       </button>
@@ -71,7 +73,7 @@ function SortableTagPill({
       <button
         onClick={() => onDelete(tag.id)}
         className="ml-0.5 opacity-60 hover:opacity-100 transition-opacity"
-        aria-label={`태그 삭제: ${tag.tag}`}
+        aria-label={t("fumen.tags.remove", { tag: tag.tag })}
       >
         <X className="h-3 w-3" />
       </button>
@@ -84,13 +86,14 @@ interface FumenTagsProps {
 }
 
 export function FumenTags({ hash }: FumenTagsProps) {
+  const { t } = useTranslation();
   const { data: serverTags = [] } = useFumenTags(hash);
   const { data: myTags = [] } = useMyTags();
   const addTag = useAddFumenTag(hash);
   const deleteTag = useDeleteFumenTag(hash);
   const reorderTags = useReorderFumenTags(hash);
 
-  // 낙관적 순서 상태 (드래그 중 즉시 반영)
+  // Optimistic order state (immediately reflected during drag)
   const [optimisticOrder, setOptimisticOrder] = useState<string[] | null>(null);
   const tags = optimisticOrder
     ? optimisticOrder.map(id => serverTags.find(t => t.id === id)).filter(Boolean)
@@ -185,7 +188,7 @@ export function FumenTags({ hash }: FumenTagsProps) {
           className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-border px-2 py-0.5 text-label text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors"
         >
           <Plus className="h-3 w-3" />
-          태그 추가
+          {t("fumen.tags.add")}
         </button>
 
         {open && (
@@ -196,7 +199,7 @@ export function FumenTags({ hash }: FumenTagsProps) {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="태그 검색 또는 입력..."
+                placeholder={t("fumen.tags.add")}
                 className="w-full bg-transparent text-label outline-none placeholder:text-muted-foreground/50 py-0.5"
               />
             </div>
@@ -223,7 +226,6 @@ export function FumenTags({ hash }: FumenTagsProps) {
                   className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-secondary/60 transition-colors"
                 >
                   <Plus className="h-3 w-3 text-muted-foreground shrink-0" />
-                  <span className="text-label text-muted-foreground">생성:</span>
                   <span
                     className="inline-flex items-center rounded-full px-2.5 py-0.5 text-label font-medium border"
                     style={tagStyle(input.trim())}
@@ -233,7 +235,7 @@ export function FumenTags({ hash }: FumenTagsProps) {
                 </button>
               ) : (
                 <p className="px-3 py-2 text-label text-muted-foreground/60">
-                  아직 만든 태그가 없습니다
+                  {t("fumen.tags.empty")}
                 </p>
               )}
             </div>

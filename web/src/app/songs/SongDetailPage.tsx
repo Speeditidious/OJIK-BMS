@@ -1,14 +1,17 @@
 "use client";
 
 import { use, useState, useMemo, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Package, FileCode, Youtube, ExternalLink } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import Link from "next/link";
+import { ArrowLeft, Package, FileCode, Youtube, ExternalLink, X } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FumenTags } from "@/components/fumen/FumenTags";
 import { api } from "@/lib/api";
+import { songHref, parseSongRouteSegment } from "@/lib/song-href";
 import { useUserProfile } from "@/hooks/use-user-profile";
 import { useAuthStore } from "@/stores/auth";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
@@ -19,6 +22,7 @@ import { formatRelativeDate } from "@/lib/time";
 import { displayClearType } from "@/lib/clear-type-display";
 import { cn } from "@/lib/utils";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement } from "@/lib/fumen-table-utils";
+import { buildFumenExternalLinkGroups, type ExternalHashType, type FumenExternalLink } from "@/lib/fumen-external-links";
 import type { DifficultyTable, FumenDetail, UserScore } from "@/types";
 
 interface SongDetailPageProps {
@@ -33,6 +37,112 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div className="flex gap-2">
       <span className="text-body text-muted-foreground w-24 shrink-0">{label}</span>
       <span className="text-body font-mono">{value}</span>
+    </div>
+  );
+}
+
+function hexContrastColor(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5 ? "#1a1a2e" : "#ffffff";
+}
+
+function ExternalLinksRow({
+  label,
+  links,
+  onMissingHash,
+  onOpenLink,
+}: {
+  label: string;
+  links: FumenExternalLink[];
+  onMissingHash: (hashType: ExternalHashType) => void;
+  onOpenLink: () => void;
+}) {
+  if (links.length === 0) return null;
+
+  const baseClass = "inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-label transition-all duration-150";
+  const plainClass = `${baseClass} border border-border/60 text-muted-foreground hover:text-foreground hover:border-primary/60`;
+
+  function colorStyle(link: FumenExternalLink): React.CSSProperties | undefined {
+    if (!link.color) return undefined;
+    const textColor = link.textColor ?? hexContrastColor(link.color);
+    return { backgroundColor: `${link.color}cc`, color: textColor };
+  }
+
+  function handleColorEnter(e: React.MouseEvent<HTMLElement>, link: FumenExternalLink) {
+    if (!link.color) return;
+    e.currentTarget.style.backgroundColor = link.color;
+    e.currentTarget.style.filter = "brightness(1.1)";
+  }
+
+  function handleColorLeave(e: React.MouseEvent<HTMLElement>, link: FumenExternalLink) {
+    if (!link.color) return;
+    e.currentTarget.style.backgroundColor = `${link.color}cc`;
+    e.currentTarget.style.filter = "";
+  }
+
+  return (
+    <div className="flex gap-2 items-center">
+      <span className="text-body text-muted-foreground w-24 shrink-0">{label}</span>
+      <div className="flex flex-wrap gap-2">
+        {links.map((link) => {
+          if (link.color) {
+            return link.href ? (
+              <a
+                key={link.name}
+                href={link.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`${baseClass} font-medium`}
+                style={colorStyle(link)}
+                onClick={onOpenLink}
+                onMouseEnter={(e) => handleColorEnter(e, link)}
+                onMouseLeave={(e) => handleColorLeave(e, link)}
+              >
+                {link.name}
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : (
+              <button
+                key={link.name}
+                type="button"
+                className={`${baseClass} font-medium`}
+                style={colorStyle(link)}
+                onClick={() => onMissingHash(link.missingHashType!)}
+                onMouseEnter={(e) => handleColorEnter(e, link)}
+                onMouseLeave={(e) => handleColorLeave(e, link)}
+              >
+                {link.name}
+                <ExternalLink className="h-3 w-3" />
+              </button>
+            );
+          }
+          return link.href ? (
+            <a
+              key={link.name}
+              href={link.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={plainClass}
+              onClick={onOpenLink}
+            >
+              {link.name}
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          ) : (
+            <button
+              key={link.name}
+              type="button"
+              className={plainClass}
+              onClick={() => onMissingHash(link.missingHashType!)}
+            >
+              {link.name}
+              <ExternalLink className="h-3 w-3" />
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -99,6 +209,8 @@ function ScoreHistorySection({
   onSort: (key: SortKey) => void;
   thClass: (align?: "left" | "right") => string;
 }) {
+  const { t } = useTranslation();
+
   return (
     <div>
       <h2 className="text-body font-semibold mb-2 text-muted-foreground uppercase tracking-wide">{title}</h2>
@@ -116,31 +228,31 @@ function ScoreHistorySection({
             <thead className="bg-background text-foreground border-b">
               <tr>
                 <th className={thClass()} onClick={() => onSort("clear_type")}>
-                  클리어<SortIcon col="clear_type" sortKey={sortKey} sortDir={sortDir} />
+                  {t("common.fields.clear")}<SortIcon col="clear_type" sortKey={sortKey} sortDir={sortDir} />
                 </th>
                 <th className={thClass()} onClick={() => onSort("min_bp")}>
-                  BP<SortIcon col="min_bp" sortKey={sortKey} sortDir={sortDir} />
+                  {t("common.fields.bp")}<SortIcon col="min_bp" sortKey={sortKey} sortDir={sortDir} />
                 </th>
                 <th className={thClass()} onClick={() => onSort("rate")}>
-                  판정<SortIcon col="rate" sortKey={sortKey} sortDir={sortDir} />
+                  {t("common.fields.rate")}<SortIcon col="rate" sortKey={sortKey} sortDir={sortDir} />
                 </th>
                 <th className={thClass()} onClick={() => onSort("rank")}>
-                  랭크<SortIcon col="rank" sortKey={sortKey} sortDir={sortDir} />
+                  {t("common.fields.rank")}<SortIcon col="rank" sortKey={sortKey} sortDir={sortDir} />
                 </th>
                 <th className={thClass()} onClick={() => onSort("exscore")}>
-                  점수<SortIcon col="exscore" sortKey={sortKey} sortDir={sortDir} />
+                  {t("common.fields.score")}<SortIcon col="exscore" sortKey={sortKey} sortDir={sortDir} />
                 </th>
                 <th className={thClass()} onClick={() => onSort("play_count")}>
-                  플레이<SortIcon col="play_count" sortKey={sortKey} sortDir={sortDir} />
+                  {t("common.fields.plays")}<SortIcon col="play_count" sortKey={sortKey} sortDir={sortDir} />
                 </th>
                 <th className={thClass()} onClick={() => onSort("option")}>
-                  배치<SortIcon col="option" sortKey={sortKey} sortDir={sortDir} />
+                  {t("common.fields.option")}<SortIcon col="option" sortKey={sortKey} sortDir={sortDir} />
                 </th>
                 <th className={thClass()} onClick={() => onSort("client_type")}>
-                  구동기<SortIcon col="client_type" sortKey={sortKey} sortDir={sortDir} />
+                  {t("common.fields.env")}<SortIcon col="client_type" sortKey={sortKey} sortDir={sortDir} />
                 </th>
                 <th className={thClass()} onClick={() => onSort("recorded_at")}>
-                  기록 날짜<SortIcon col="recorded_at" sortKey={sortKey} sortDir={sortDir} />
+                  {t("common.fields.recordedAt")}<SortIcon col="recorded_at" sortKey={sortKey} sortDir={sortDir} />
                 </th>
               </tr>
             </thead>
@@ -152,7 +264,7 @@ function ScoreHistorySection({
                 const rowClass = CLEAR_ROW_CLASS[displayType ?? 0] ?? "";
                 const effectiveTs = displayScoreRecordedAt(s);
                 const sortTs = sortScoreRecordedAt(s);
-                const relativeDate = formatRelativeDate(effectiveTs);
+                const relativeDate = formatRelativeDate(effectiveTs, "--", t);
                 const exactDate = effectiveTs ? new Date(effectiveTs).toLocaleDateString("ko-KR") : null;
                 return (
                   <tr key={s.id} className={cn("border-b border-border/30 last:border-0", rowClass || "hover:bg-secondary/50")}>
@@ -207,7 +319,7 @@ function ScoreHistorySection({
                               </span>
                             </TooltipTrigger>
                             <TooltipContent side="top" className="max-w-64 text-label">
-                              첫 동기화 당일 혹은 그 이전 기록으로, 정확한 날짜를 알 수 없습니다.
+                              {t("fumen.detail.firstSyncUnknownDate")}
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
@@ -227,8 +339,11 @@ function ScoreHistorySection({
 }
 
 export default function SongDetailPage({ params }: SongDetailPageProps) {
-  const { fumen_id: routeFumenId } = use(params);
+  const { t } = useTranslation();
+  const { fumen_id: routeFumenIdRaw } = use(params);
+  const routeFumenId = parseSongRouteSegment(routeFumenIdRaw);
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
   const isLoggedIn = !!user;
@@ -237,6 +352,7 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
 
   const [sortKey, setSortKey] = useState<SortKey>("recorded_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [missingExternalHash, setMissingExternalHash] = useState<ExternalHashType | null>(null);
 
   const { data: fumen, isLoading } = useQuery<FumenDetail>({
     queryKey: ["fumen", routeFumenId],
@@ -246,14 +362,22 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
 
   const effectiveFumenId = fumen?.fumen_id ?? routeFumenId;
 
-  // Canonical URL redirect: preserve legacy hash links but settle on fumen_id.
+  // Canonical URL redirect: resolve to the externally shareable hash URL.
+  // If the API cannot resolve a fumen, the original hash URL remains and the page
+  // falls through to the normal not-found state.
   useEffect(() => {
-    if (fumen?.fumen_id && fumen.fumen_id !== routeFumenId) {
-      const params = searchParams.toString();
-      const suffix = params ? `?${params}` : "";
-      router.replace(`/songs/${fumen.fumen_id}${suffix}`);
+    if (!fumen) return;
+    const canonical = songHref({
+      fumen_id: fumen.fumen_id,
+      sha256: fumen.sha256,
+      md5: fumen.md5,
+    });
+    if (canonical !== pathname) {
+      const qs = searchParams.toString();
+      const suffix = qs ? `?${qs}` : "";
+      router.replace(`${canonical}${suffix}`);
     }
-  }, [fumen?.fumen_id, routeFumenId, router, searchParams]);
+  }, [fumen, pathname, router, searchParams]);
 
   const { data: allTables = [] } = useQuery<DifficultyTable[]>({
     queryKey: ["tables"],
@@ -312,6 +436,19 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
   );
 
   const tableEntries = fumen?.table_entries ?? [];
+  const externalLinkGroups = useMemo(
+    () => buildFumenExternalLinkGroups({ md5: fumen?.md5, sha256: fumen?.sha256 }),
+    [fumen?.md5, fumen?.sha256],
+  );
+
+  // Reset the missing-hash banner when the user navigates to a different fumen.
+  // React's recommended pattern for "reset state on prop change" — adjust state
+  // during render via a previous-value tracker instead of an effect.
+  const [prevFumenId, setPrevFumenId] = useState(fumen?.fumen_id);
+  if (fumen?.fumen_id !== prevFumenId) {
+    setPrevFumenId(fumen?.fumen_id);
+    setMissingExternalHash(null);
+  }
 
   function thClass(align: "left" | "right" = "left") {
     return `px-3 py-2 text-label cursor-pointer select-none hover:text-primary transition-colors text-${align}`;
@@ -323,7 +460,7 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
       <main className="container mx-auto px-4 py-6 max-w-3xl">
         <Button variant="ghost" size="sm" className="-ml-2 mb-4 gap-1.5 text-muted-foreground" onClick={() => router.back()}>
           <ArrowLeft className="h-4 w-4" />
-          뒤로
+          {t("fumen.detail.back")}
         </Button>
 
         {isLoading ? (
@@ -333,14 +470,14 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
           </div>
         ) : !fumen ? (
           <div className="flex items-center justify-center h-64 text-muted-foreground">
-            차분을 찾을 수 없습니다.
+            {t("fumen.detail.notFound")}
           </div>
         ) : (
           <div className="space-y-6">
             {/* Title / Artist */}
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold">{fumen.title || "(제목 없음)"}</h1>
+                <h1 className="text-2xl font-bold">{fumen.title || t("fumen.detail.untitled")}</h1>
                 {fumen.artist && (
                   <p className="text-muted-foreground mt-0.5">{fumen.artist}</p>
                 )}
@@ -361,7 +498,7 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
             {/* Chart info */}
             <div className="rounded-lg border bg-card p-4 space-y-2">
               <InfoRow label="BPM" value={formatBpm(fumen.bpm_main, fumen.bpm_min, fumen.bpm_max)} />
-              <InfoRow label="노트 수" value={notesTotal} />
+              <InfoRow label={t("common.fields.notes")} value={notesTotal} />
               {notesDetail && (
                 <div className="flex gap-2">
                   <span className="text-body text-muted-foreground w-24 shrink-0" />
@@ -369,21 +506,46 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
                 </div>
               )}
               <InfoRow label="TOTAL" value={fumen.total !== null ? String(fumen.total) : "-"} />
-              <InfoRow label="곡 길이" value={formatLength(fumen.length)} />
+              <InfoRow label={t("common.fields.length")} value={formatLength(fumen.length)} />
+              {externalLinkGroups.map((group) => (
+                <ExternalLinksRow
+                  key={group.labelKey}
+                  label={t(group.labelKey)}
+                  links={group.links}
+                  onMissingHash={setMissingExternalHash}
+                  onOpenLink={() => setMissingExternalHash(null)}
+                />
+              ))}
+              {missingExternalHash && (
+                <div role="alert" className="flex items-start justify-between gap-3 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-label text-warning">
+                  <p>{t("fumen.detail.missingExternalHash", { hashType: missingExternalHash })}</p>
+                  <button
+                    type="button"
+                    className="-mr-1 rounded p-0.5 text-warning/80 transition-colors hover:bg-warning/15 hover:text-warning"
+                    aria-label={t("common.actions.close")}
+                    onClick={() => setMissingExternalHash(null)}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Table entries */}
             {tableEntries.length > 0 && (
               <div>
-                <h2 className="text-body font-semibold mb-2 text-muted-foreground uppercase tracking-wide">소속 난이도표</h2>
+                <h2 className="text-body font-semibold mb-2 text-muted-foreground uppercase tracking-wide">{t("fumen.detail.tables")}</h2>
                 <div className="flex flex-wrap gap-2">
                   {tableEntries.map((entry, i) => {
                     const symbol = tableSymbolMap[entry.table_id] ?? "";
                     const levelLabel = `${symbol}${entry.level.replace(symbol, "")}`;
+                    const tableHref = `/tables?t=${encodeURIComponent(entry.table_id)}&l=${encodeURIComponent(entry.level)}`;
                     return (
-                      <Badge key={i} variant="secondary" className="text-label">
-                        {levelLabel}
-                      </Badge>
+                      <Link key={i} href={tableHref}>
+                        <Badge variant="secondary" className="text-label cursor-pointer hover:bg-primary/20 transition-colors">
+                          {levelLabel}
+                        </Badge>
+                      </Link>
                     );
                   })}
                 </div>
@@ -393,7 +555,7 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
             {/* Download links */}
             {(fumen.file_url || fumen.file_url_diff) && (
               <div>
-                <h2 className="text-body font-semibold mb-2 text-muted-foreground uppercase tracking-wide">다운로드</h2>
+                <h2 className="text-body font-semibold mb-2 text-muted-foreground uppercase tracking-wide">{t("fumen.detail.download")}</h2>
                 <div className="flex gap-3">
                   {fumen.file_url && (
                     <a
@@ -403,7 +565,7 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
                       className="flex items-center gap-1.5 text-body text-muted-foreground hover:text-foreground transition-colors"
                     >
                       <Package className="h-4 w-4" />
-                      동봉
+                      {t("fumen.detail.bundled")}
                       <ExternalLink className="h-3 w-3" />
                     </a>
                   )}
@@ -415,7 +577,7 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
                       className="flex items-center gap-1.5 text-body text-muted-foreground hover:text-foreground transition-colors"
                     >
                       <FileCode className="h-4 w-4" />
-                      차분
+                      {t("fumen.detail.chart")}
                       <ExternalLink className="h-3 w-3" />
                     </a>
                   )}
@@ -426,7 +588,7 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
             {/* User tags */}
             {isLoggedIn && (
               <div>
-                <h2 className="text-body font-semibold mb-2 text-muted-foreground uppercase tracking-wide">내 태그</h2>
+                <h2 className="text-body font-semibold mb-2 text-muted-foreground uppercase tracking-wide">{t("fumen.detail.myTags")}</h2>
                 <FumenTags hash={effectiveFumenId} />
               </div>
             )}
@@ -434,10 +596,10 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
             {(targetUserId || isLoggedIn) && (
               <div className="space-y-6">
                 <ScoreHistorySection
-                  title={viewingOtherUser ? `${targetProfile?.username ?? "선택한 유저"}님의 기록` : "내 기록"}
+                  title={viewingOtherUser ? t("fumen.detail.selectedUserRecords", { username: targetProfile?.username ?? t("common.actions.back") }) : t("fumen.detail.myRecords")}
                   scores={sortedPrimaryScores}
                   isLoading={primaryScoresLoading}
-                  emptyMessage={viewingOtherUser ? "이 유저의 기록이 없습니다." : "기록이 없습니다."}
+                  emptyMessage={viewingOtherUser ? t("fumen.detail.noSelectedUserRecords") : t("fumen.detail.noMyRecords")}
                   sortKey={sortKey}
                   sortDir={sortDir}
                   onSort={handleSort}
@@ -445,10 +607,10 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
                 />
                 {viewingOtherUser && isLoggedIn && (
                   <ScoreHistorySection
-                    title="내 기록"
+                    title={t("fumen.detail.myRecords")}
                     scores={sortedMyScores}
                     isLoading={myScoresLoading}
-                    emptyMessage="내 기록이 없습니다."
+                    emptyMessage={t("fumen.detail.noMyRecords")}
                     sortKey={sortKey}
                     sortDir={sortDir}
                     onSort={handleSort}

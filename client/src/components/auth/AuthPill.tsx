@@ -1,21 +1,24 @@
 import { CircleUserRound, ShieldCheck, ShieldAlert } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { AuthStatus } from "../../types";
 
 export function AuthPill({ status }: { status: AuthStatus | null }) {
+  const { t } = useTranslation();
+
   if (!status) {
     return (
       <span className="authpill authpill-out">
         <CircleUserRound size={14} aria-hidden="true" />
-        확인 중
+        {t("client.authPill.checking")}
       </span>
     );
   }
 
   if (!status.logged_in) {
     return (
-      <span className="authpill authpill-out" title="Discord 로그인이 필요합니다">
+      <span className="authpill authpill-out" title={t("client.authPill.loginRequiredTitle")}>
         <CircleUserRound size={14} aria-hidden="true" />
-        로그인 필요
+        {t("client.authPill.loginRequired")}
       </span>
     );
   }
@@ -26,10 +29,10 @@ export function AuthPill({ status }: { status: AuthStatus | null }) {
   return (
     <span
       className={expiringSoon ? "authpill authpill-warn" : "authpill authpill-ok"}
-      title={expiringSoon ? "로그인 세션이 곧 만료됩니다" : undefined}
+      title={expiringSoon ? t("client.authPill.expiringSoonTitle") : undefined}
     >
       {expiringSoon ? <ShieldAlert size={14} aria-hidden="true" /> : <ShieldCheck size={14} aria-hidden="true" />}
-      로그인됨
+      {t("client.authPill.loggedIn")}
     </span>
   );
 }

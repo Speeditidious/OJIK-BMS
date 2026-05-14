@@ -3,6 +3,7 @@
 import { useMemo, useRef, memo, useCallback, useState, useEffect } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { useVirtualizer, defaultRangeExtractor } from "@tanstack/react-virtual";
 import {
   ExternalLink, Music, Package, FileCode, Youtube, FileSpreadsheet,
@@ -39,6 +40,7 @@ const RANK_ORDER: Record<string, number> = {
 };
 
 export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange }: TableDetailProps) {
+  const { t } = useTranslation();
   const [sortKey, setSortKey] = useState<SortKey>("level");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -149,7 +151,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
   if (tableLoading) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
-        불러오는 중...
+        {t("tables.detail.loading")}
       </div>
     );
   }
@@ -157,7 +159,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
   if (tableError) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
-        <p>난이도표를 불러오는 데 실패했습니다.</p>
+        <p>{t("tables.detail.loadFailed")}</p>
         <p className="text-label">{(tableError as Error).message}</p>
       </div>
     );
@@ -166,7 +168,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
   if (!table) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
-        난이도표를 찾을 수 없습니다.
+        {t("tables.detail.notFound")}
       </div>
     );
   }
@@ -192,17 +194,17 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
                 rel="noopener noreferrer"
                 className="flex items-center gap-1 text-label text-muted-foreground hover:text-foreground transition-colors"
               >
-                난이도표 링크 <ExternalLink className="h-3 w-3" />
+                {t("tables.detail.tableLink")} <ExternalLink className="h-3 w-3" />
               </a>
             </div>
           )}
         </div>
         <div className="shrink-0 text-right text-label text-muted-foreground space-y-0.5">
           {table.song_count != null && (
-            <div>{table.song_count.toLocaleString()} 차분</div>
+            <div>{t("tables.detail.songCount", { count: table.song_count })}</div>
           )}
           {table.updated_at && (
-            <div>최근 동기화: {new Date(table.updated_at).toLocaleDateString("ko-KR")}</div>
+            <div>{t("tables.detail.lastSynced", { date: new Date(table.updated_at).toLocaleDateString() })}</div>
           )}
         </div>
       </div>
@@ -210,7 +212,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
       {!hasData ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 text-muted-foreground">
           <Music className="h-12 w-12 opacity-30" />
-          <p className="text-body">난이도표 데이터가 아직 없습니다.</p>
+          <p className="text-body">{t("tables.detail.empty")}</p>
         </div>
       ) : (
         <div className="flex flex-1 overflow-hidden">
@@ -225,7 +227,7 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
               )}
               onClick={() => onLevelChange(null)}
             >
-              <span>전체</span>
+              <span>{t("tables.detail.allLevels")}</span>
               {songs != null && (
                 <span className="text-label opacity-60">{songs.length}</span>
               )}
@@ -258,11 +260,11 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
           <div className="flex-1 overflow-hidden">
             {songsLoading ? (
               <div className="flex items-center justify-center h-full text-muted-foreground text-body">
-                불러오는 중...
+                {t("tables.detail.loading")}
               </div>
             ) : displayedSongs.length === 0 ? (
               <div className="flex items-center justify-center h-full text-muted-foreground text-body">
-                차분이 없습니다.
+                {t("common.states.noData")}
               </div>
             ) : (
               <SongVirtualList
@@ -291,6 +293,7 @@ interface SongRowProps {
 }
 
 const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores }: SongRowProps) {
+  const { t } = useTranslation();
   const s = song.user_score;
   const href = songHref(song);
   const levelLabel = `${tableSymbol ?? ""}${song.level.replace(tableSymbol ?? "", "")}`;
@@ -315,7 +318,7 @@ const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores 
         <div className="min-w-0 overflow-hidden">
           <div className="max-w-full truncate">
             <Link href={href} className="text-label hover:text-primary transition-colors">
-              {song.title || "(제목 없음)"}
+              {song.title || t("fumen.detail.untitled")}
             </Link>
           </div>
           {song.artist && <div className="text-caption row-muted max-w-full truncate">{song.artist}</div>}
@@ -439,6 +442,7 @@ function Th({ col, label, sortKey, sortDir, onSort, className }: {
 const SongVirtualList = memo(function SongVirtualList({
   songs, table, hasUserScores, sortKey, sortDir, onSort,
 }: SongVirtualListProps) {
+  const { t } = useTranslation();
   const parentRef = useRef<HTMLDivElement>(null);
   const pinnedRangeRef = useRef<[number, number] | null>(null);
 
@@ -502,29 +506,29 @@ const SongVirtualList = memo(function SongVirtualList({
     <div className="flex flex-col h-full overflow-hidden">
       {/* Export toolbar — above table */}
       <div className="flex items-center justify-between px-4 py-1 border-b shrink-0">
-        <span className="text-label text-muted-foreground">{songs.length}곡</span>
+        <span className="text-label text-muted-foreground">{t("tables.detail.songCount", { count: songs.length })}</span>
         <button
           className="flex items-center gap-1.5 text-label text-muted-foreground hover:text-foreground transition-colors px-3 py-1 rounded-md border border-border/50 hover:border-border hover:bg-secondary/30"
-          title="엑셀 내보내기 (.xlsx)"
+          title={t("tables.detail.excelExportTitle")}
           disabled={songs.length === 0}
           onClick={() => {
             const columns = [
-              { key: "level", header: "레벨" },
-              { key: "title", header: "제목" },
-              { key: "artist", header: "아티스트" },
+              { key: "level", header: t("common.fields.level") },
+              { key: "title", header: t("common.fields.title") },
+              { key: "artist", header: t("common.fields.artist") },
               ...(hasUserScores ? [
-                { key: "lamp", header: "클리어" },
-                { key: "bp", header: "BP" },
-                { key: "rate", header: "판정" },
-                { key: "rank", header: "랭크" },
-                { key: "score", header: "점수" },
-                { key: "plays", header: "플레이" },
-                { key: "option", header: "배치" },
-                { key: "env", header: "구동기" },
+                { key: "lamp", header: t("common.fields.clear") },
+                { key: "bp", header: t("common.fields.bp") },
+                { key: "rate", header: t("common.fields.rate") },
+                { key: "rank", header: t("common.fields.rank") },
+                { key: "score", header: t("common.fields.score") },
+                { key: "plays", header: t("common.fields.plays") },
+                { key: "option", header: t("common.fields.option") },
+                { key: "env", header: t("common.fields.env") },
               ] : []),
               { key: "bpm", header: "BPM" },
-              { key: "notes", header: "노트 수" },
-              { key: "length", header: "곡 길이" },
+              { key: "notes", header: t("common.fields.notes") },
+              { key: "length", header: t("common.fields.length") },
             ];
             const data = songs.map((song) => {
               const s = song.user_score;
@@ -550,7 +554,7 @@ const SongVirtualList = memo(function SongVirtualList({
           }}
         >
           <FileSpreadsheet className="h-3.5 w-3.5" />
-          엑셀 내보내기
+          {t("tables.detail.excelExportButton")}
         </button>
       </div>
 
@@ -586,23 +590,23 @@ const SongVirtualList = memo(function SongVirtualList({
 
           <thead className="sticky top-0 z-10 bg-background text-label text-foreground font-medium">
             <tr className="border-b">
-              <Th col="level" label="레벨" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <Th col="title" label="제목 / 아티스트" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th col="level" label={t("common.fields.level")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th col="title" label={t("common.fields.titleArtist")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               {hasUserScores && (
                 <>
-                  <Th col="lamp" label="클리어" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <Th col="min_bp" label="BP" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <Th col="rate" label="판정" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <Th col="rank" label="랭크" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <Th col="score" label="점수" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <Th col="plays" label="플레이" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <Th col="option" label="배치" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  <Th col="env" label="구동기" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="lamp" label={t("common.fields.clear")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="min_bp" label={t("common.fields.bp")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="rate" label={t("common.fields.rate")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="rank" label={t("common.fields.rank")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="score" label={t("common.fields.score")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="plays" label={t("common.fields.plays")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="option" label={t("common.fields.option")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <Th col="env" label={t("common.fields.env")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 </>
               )}
               <Th col="bpm" label="BPM" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <Th col="notes" label="노트 수" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <Th col="length" label="곡 길이" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th col="notes" label={t("common.fields.notes")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th col="length" label={t("common.fields.length")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">URL1</th>
               <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">URL2</th>
               <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">Youtube</th>

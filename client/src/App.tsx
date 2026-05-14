@@ -1,5 +1,6 @@
 import { RefreshCw, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { DiagnosticsPanel } from "./components/about/DiagnosticsPanel";
 import { LogViewer } from "./components/log/LogViewer";
@@ -15,18 +16,20 @@ import { UpdateFailureDialog } from "./components/update/UpdateFailureDialog";
 import { FirstRunWizard } from "./components/wizard/FirstRunWizard";
 import { ToastStack } from "./components/primitives/Toast";
 import { subscribe } from "./lib/tauri-events";
+import { changeClientLanguage } from "./lib/i18n/client";
 import { useAuthStore } from "./hooks/use-auth";
 import { useConfigStore } from "./hooks/use-config";
 import { useSyncStore } from "./hooks/use-sync";
 import { useToastStore } from "./hooks/use-toast";
 import { useUpdateStore } from "./hooks/use-update";
 import { getDiagnosticsInfo, openDownloadPage, openExternalUrl, openSite } from "./tauri";
-import type { ClientFilter, ClientType, DiagnosticsInfo, SyncRequest } from "./types";
+import type { ClientFilter, ClientType, DiagnosticsInfo, LanguageCode, SyncRequest } from "./types";
 
 const DEFAULT_APP_VERSION = "1.0.0.beta1";
 const APP_VERSION = (import.meta.env.VITE_APP_VERSION ?? DEFAULT_APP_VERSION).replace(/^v/i, "");
 
 export default function App() {
+  const { t } = useTranslation();
   const { config, loadState, saveState, error, update } = useConfigStore();
   const { status: auth, isLoggingIn, login, logout } = useAuthStore();
   const sync = useSyncStore();
@@ -43,6 +46,7 @@ export default function App() {
   const shouldShowFirstRunWizard = useRef<boolean | null>(null);
 
   const lastTickerLog = useMemo(() => sync.logs[sync.logs.length - 1]?.message ?? null, [sync.logs]);
+  const configLanguage = config?.language;
 
   const isSyncRunning = sync.state === "running";
   if (config && shouldShowFirstRunWizard.current === null) {
@@ -56,11 +60,11 @@ export default function App() {
 
   const syncDisabledGlobal = !auth?.logged_in || !anySourceReady || isSyncRunning;
   const syncDisabledReason = !auth?.logged_in
-    ? "먼저 Discord 로그인이 필요합니다"
+    ? t("client.app.syncDisabled.loginRequired")
     : !anySourceReady
-      ? "최소 한 개의 클라이언트 경로를 설정하세요"
+      ? t("client.app.syncDisabled.pathRequired")
       : isSyncRunning
-        ? "이미 동기화 진행 중입니다"
+        ? t("client.app.syncDisabled.alreadyRunning")
         : undefined;
 
   // Auto-open update dialog when policy comes back with announcement.
@@ -95,7 +99,7 @@ export default function App() {
       setSessionExpired(true);
       toast.push({
         tone: "warn",
-        title: "다시 로그인이 필요해요",
+        title: t("client.app.toasts.reauthRequired"),
         message: payload.message,
       });
     }).then((fn) => {
@@ -109,7 +113,7 @@ export default function App() {
       active = false;
       unlisten?.();
     };
-  }, [toast]);
+  }, [toast, t]);
 
   // Auto-open failure dialog when an install error appears.
   useEffect(() => {
@@ -117,6 +121,12 @@ export default function App() {
       setUpdateFailureOpen(true);
     }
   }, [updater.installError, updateFailureOpen]);
+
+  useEffect(() => {
+    if (configLanguage) {
+      changeClientLanguage(configLanguage);
+    }
+  }, [configLanguage]);
 
   const handleStartSync = useCallback(
     async (filter: ClientFilter, fullSync: boolean) => {
@@ -130,12 +140,12 @@ export default function App() {
         setStubMessage(msg);
         toast.push({
           tone: "warn",
-          title: "동기화를 시작할 수 없어요",
+          title: t("client.app.toasts.syncUnavailableTitle"),
           message: msg,
         });
       }
     },
-    [config, sync, toast],
+    [config, sync, toast, t],
   );
 
   const handleLogin = useCallback(async () => {
@@ -143,30 +153,33 @@ export default function App() {
       const next = await login();
       if (next.logged_in) {
         setSessionExpired(false);
-        toast.push({ tone: "success", message: "로그인되었습니다." });
+        toast.push({ tone: "success", message: t("client.app.toasts.loginSuccess") });
       }
       return next;
     } catch (err) {
+      const rawMsg = err instanceof Error ? err.message : String(err);
+      // Translate stable error codes emitted by tauri.ts
+      const msg = rawMsg.startsWith("client.") ? t(rawMsg) : rawMsg;
       toast.push({
         tone: "warn",
-        title: "로그인을 진행할 수 없어요",
-        message: err instanceof Error ? err.message : String(err),
+        title: t("client.app.toasts.loginFailedTitle"),
+        message: msg,
       });
       return null;
     }
-  }, [login, toast]);
+  }, [login, toast, t]);
 
   const handleLogout = useCallback(async () => {
     try {
       await logout();
-      toast.push({ tone: "info", message: "로그아웃되었습니다." });
+      toast.push({ tone: "info", message: t("client.app.toasts.logoutSuccess") });
     } catch (err) {
       toast.push({
         tone: "warn",
         message: err instanceof Error ? err.message : String(err),
       });
     }
-  }, [logout, toast]);
+  }, [logout, toast, t]);
 
   const handleManualUpdateCheck = useCallback(async () => {
     try {
@@ -176,19 +189,18 @@ export default function App() {
         lastAutoOpenedAnnouncementId.current = policy.announcement.id;
         setUpdateDialogOpen(true);
       } else {
-        toast.push({
-          tone: "info",
-          message: policy.message ?? "사용 가능한 업데이트가 없습니다.",
-        });
+        const rawMsg = policy.message ?? "client.app.toasts.updateUnavailable";
+        const msg = rawMsg.startsWith("client.") ? t(rawMsg) : rawMsg;
+        toast.push({ tone: "info", message: msg });
       }
     } catch (err) {
       toast.push({
         tone: "warn",
-        title: "업데이트를 확인할 수 없어요",
+        title: t("client.app.toasts.updateCheckFailedTitle"),
         message: err instanceof Error ? err.message : String(err),
       });
     }
-  }, [updater, toast]);
+  }, [updater, toast, t]);
 
   const handleOpenSite = useCallback(async () => {
     try {
@@ -196,16 +208,15 @@ export default function App() {
     } catch (err) {
       toast.push({
         tone: "warn",
-        title: "사이트를 열 수 없어요",
+        title: t("client.app.toasts.openSiteFailedTitle"),
         message: err instanceof Error ? err.message : String(err),
       });
     }
-  }, [toast]);
+  }, [toast, t]);
 
   const handleOpenDownloadPage = useCallback(async () => {
     try {
-      const url = await openDownloadPage();
-      toast.push({ tone: "info", message: `다운로드 페이지를 열었습니다: ${url}` });
+      await openDownloadPage();
     } catch (err) {
       toast.push({
         tone: "warn",
@@ -221,8 +232,8 @@ export default function App() {
       dismissed_update_until: null,
       skipped_update_version: null,
     });
-    toast.push({ tone: "info", message: "숨긴 업데이트 알림을 다시 표시합니다." });
-  }, [config, update, toast]);
+    toast.push({ tone: "info", message: t("client.app.toasts.resetUpdateDismissals") });
+  }, [config, update, toast, t]);
 
   const handleClearUpdateFailure = useCallback(() => {
     if (!config) return;
@@ -238,7 +249,7 @@ export default function App() {
     return (
       <main className="app-shell app-center">
         <RefreshCw className="spin" size={28} aria-hidden="true" />
-        <p>클라이언트 설정을 불러오는 중입니다.</p>
+        <p>{t("client.app.loadingConfig")}</p>
       </main>
     );
   }
@@ -247,11 +258,16 @@ export default function App() {
     return (
       <main className="app-shell app-center">
         <ShieldAlert size={32} aria-hidden="true" />
-        <p>설정을 불러오지 못했습니다.</p>
+        <p>{t("client.app.configLoadFailed")}</p>
         {error ? <pre>{error}</pre> : null}
       </main>
     );
   }
+
+  const handleLanguageChange = (language: LanguageCode) => {
+    changeClientLanguage(language);
+    update({ language });
+  };
 
   if (showWizard) {
     return (
@@ -263,8 +279,10 @@ export default function App() {
           onLogin={handleLogin}
           onUpdateConfig={update}
           onFinish={() => setWizardDismissed(true)}
+          language={config.language}
+          onLanguageChange={handleLanguageChange}
           onPickError={(msg) =>
-            toast.push({ tone: "warn", title: "경로 선택 오류", message: msg })
+            toast.push({ tone: "warn", title: t("client.app.toasts.pathPickErrorTitle"), message: msg })
           }
         />
         <ToastStack toasts={toast.toasts} onDismiss={toast.dismiss} />
@@ -282,6 +300,8 @@ export default function App() {
           onOpenDiagnostics={() => setDiagnosticsOpen(true)}
           onOpenSite={handleOpenSite}
           isLoggingIn={isLoggingIn}
+          language={config.language}
+          onLanguageChange={handleLanguageChange}
         />
 
         <BannerStack
@@ -306,7 +326,7 @@ export default function App() {
               client={client}
               config={config}
               onUpdate={update}
-              onPickError={(msg) => toast.push({ tone: "warn", title: "경로 선택 오류", message: msg })}
+              onPickError={(msg) => toast.push({ tone: "warn", title: t("client.app.toasts.pathPickErrorTitle"), message: msg })}
             />
           ))}
         </section>
@@ -325,7 +345,7 @@ export default function App() {
         {isSyncRunning ? (
           <section className="card">
             <header className="card-hd">
-              <div className="card-title">진행 상황</div>
+              <div className="card-title">{t("client.app.progressTitle")}</div>
               <SaveStateBadge saveState={saveState} />
             </header>
             <div className="card-bd">
@@ -342,7 +362,7 @@ export default function App() {
             void openExternalUrl(url).catch((err) =>
               toast.push({
                 tone: "warn",
-                title: "사이트를 열 수 없어요",
+                title: t("client.app.toasts.openSiteFailedTitle"),
                 message: err instanceof Error ? err.message : String(err),
               }),
             );
@@ -357,8 +377,8 @@ export default function App() {
           onCopy={(text) => {
             navigator.clipboard
               ?.writeText(text)
-              .then(() => toast.push({ tone: "success", message: "로그를 클립보드에 복사했습니다." }))
-              .catch(() => toast.push({ tone: "warn", message: "클립보드 접근에 실패했습니다." }));
+              .then(() => toast.push({ tone: "success", message: t("client.app.toasts.logsCopied") }))
+              .catch(() => toast.push({ tone: "warn", message: t("client.app.toasts.clipboardFailed") }));
           }}
         />
 
@@ -423,7 +443,7 @@ export default function App() {
             void openExternalUrl(url).catch((err) =>
               toast.push({
                 tone: "warn",
-                title: "릴리스 페이지를 열 수 없어요",
+                title: t("client.app.toasts.openReleaseFailedTitle"),
                 message: err instanceof Error ? err.message : String(err),
               }),
             );
@@ -456,9 +476,14 @@ export default function App() {
 }
 
 function SaveStateBadge({ saveState }: { saveState: "idle" | "saving" | "saved" | "error" }) {
+  const { t } = useTranslation();
   if (saveState === "idle") return null;
   const text =
-    saveState === "saving" ? "자동 저장 중…" : saveState === "saved" ? "저장됨" : "저장 실패";
+    saveState === "saving"
+      ? t("client.app.saveState.saving")
+      : saveState === "saved"
+        ? t("client.app.saveState.saved")
+        : t("client.app.saveState.failed");
   const color =
     saveState === "error" ? "var(--danger)" : saveState === "saved" ? "var(--success)" : "var(--muted)";
   return <span style={{ color, fontSize: "0.78rem" }}>{text}</span>;

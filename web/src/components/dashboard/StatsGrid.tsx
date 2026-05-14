@@ -1,6 +1,8 @@
 "use client";
 
 import { Info, Music2, Clock, Hammer } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { formatDuration } from "@/lib/time";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,19 +14,10 @@ import {
 import { usePlaySummary, ClientTypeFilter } from "@/hooks/use-analysis";
 import { cn } from "@/lib/utils";
 
-function formatPlaytime(seconds: number): string {
-  if (!seconds) return "0시간";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (h >= 100) return `${h.toLocaleString()}시간`;
-  if (h > 0) return m > 0 ? `${h}시간 ${m}분` : `${h}시간`;
-  return `${m}분`;
-}
-
-const CLIENT_OPTIONS: { label: string; value: ClientTypeFilter }[] = [
-  { label: "통합", value: "all" },
-  { label: "LR2", value: "lr2" },
-  { label: "Beatoraja", value: "beatoraja" },
+const CLIENT_OPTIONS: { value: ClientTypeFilter }[] = [
+  { value: "all" },
+  { value: "lr2" },
+  { value: "beatoraja" },
 ];
 
 function StatCard({
@@ -73,11 +66,12 @@ interface StatsGridProps {
 }
 
 export function StatsGrid({ clientType, onClientTypeChange, userId }: StatsGridProps) {
+  const { t } = useTranslation();
   const { data, isLoading, isError } = usePlaySummary(clientType, userId);
 
   const lastSync = data?.last_synced_at
-    ? new Date(data.last_synced_at).toLocaleDateString("ko-KR")
-    : "없음";
+    ? new Date(data.last_synced_at).toLocaleDateString()
+    : t("dashboard.stats.noValue");
 
   return (
     <div className="mb-8">
@@ -96,7 +90,7 @@ export function StatsGrid({ clientType, onClientTypeChange, userId }: StatsGridP
             )}
             onClick={() => onClientTypeChange(opt.value)}
           >
-            {opt.label}
+            {opt.value === "all" ? t("dashboard.stats.allClients") : opt.value === "lr2" ? "LR2" : "Beatoraja"}
           </Button>
         ))}
       </div>
@@ -118,26 +112,26 @@ export function StatsGrid({ clientType, onClientTypeChange, userId }: StatsGridP
           ))
         ) : isError || !data ? (
           <div className="col-span-3 flex items-center justify-center h-24 text-body text-muted-foreground">
-            데이터를 불러오지 못했습니다
+            {t("common.states.loadFailed")}
           </div>
         ) : (
           <>
             <StatCard
-              title="총 플레이 수"
+              title={t("dashboard.stats.totalPlays")}
               value={data.total_play_count.toLocaleString()}
-              sub={`최근 동기화: ${lastSync}`}
+              sub={lastSync}
               icon={Music2}
             />
             <StatCard
-              title="총 플레이 시간"
-              value={formatPlaytime(data.total_playtime)}
-              sub="전체 플레이 누적 시간"
+              title={t("dashboard.stats.totalPlayTime")}
+              value={formatDuration(data.total_playtime, t)}
+              sub=""
               icon={Clock}
             />
             <StatCard
-              title="총 격파한 노트 수"
+              title={t("dashboard.stats.totalNotes")}
               value={data.total_notes_hit.toLocaleString()}
-              sub="누적 판정 합계"
+              sub=""
               icon={Hammer}
             />
           </>

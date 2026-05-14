@@ -1,8 +1,10 @@
 import { ArrowLeft, ArrowRight, Check, LogIn, Sparkles } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import logoUrl from "../../assets/ojikbms_logo.png";
-import type { AuthStatus, ClientConfig } from "../../types";
+import type { AuthStatus, ClientConfig, LanguageCode } from "../../types";
+import { LanguageSegmented } from "../language/LanguageSegmented";
 import { Button } from "../primitives/Button";
 import { SourceCard } from "../source/SourceCard";
 
@@ -18,6 +20,8 @@ export interface FirstRunWizardProps {
   onUpdateConfig: (patch: Partial<ClientConfig>) => void;
   onFinish: () => void;
   onPickError?: (message: string) => void;
+  language: LanguageCode;
+  onLanguageChange: (language: LanguageCode) => void;
 }
 
 export function FirstRunWizard({
@@ -28,7 +32,10 @@ export function FirstRunWizard({
   onUpdateConfig,
   onFinish,
   onPickError,
+  language,
+  onLanguageChange,
 }: FirstRunWizardProps) {
+  const { t } = useTranslation();
   const [stepIdx, setStepIdx] = useState(0);
   const step = STEPS[stepIdx];
 
@@ -57,12 +64,15 @@ export function FirstRunWizard({
           {step === "welcome" ? (
             <>
               <img src={logoUrl} alt="" style={{ width: 56, height: 56 }} />
-              <div className="wizard-card-eyebrow">OJIKBMS 클라이언트 설정 안내</div>
-              <div className="wizard-card-title">첫 동기화를 위한 설정을 안내합니다.</div>
+              <div className="wizard-card-eyebrow">{t("client.wizard.welcome.eyebrow")}</div>
+              <div className="wizard-card-title">{t("client.wizard.welcome.title")}</div>
               <p className="wizard-card-body">
-                이번 세션에서 Discord 로그인, LR2/beatoraja 로컬 DB 경로 설정, 첫 동기화까지 진행할 예정입니다.
-                언제든 “건너뛰기” 눌러서 나중에 설정해도 괜찮습니다.
+                {t("client.wizard.welcome.body")}
               </p>
+              <div className="wizard-language-section">
+                <div className="wizard-card-eyebrow">{t("client.wizard.language.eyebrow")}</div>
+                <LanguageSegmented value={language} onChange={onLanguageChange} />
+              </div>
               <div className="wizard-card-actions">
                 <span />
                 <Button
@@ -70,7 +80,7 @@ export function FirstRunWizard({
                   leadingIcon={<ArrowRight size={15} aria-hidden="true" />}
                   onClick={goNext}
                 >
-                  시작하기
+                  {t("client.wizard.welcome.start")}
                 </Button>
               </div>
             </>
@@ -78,19 +88,18 @@ export function FirstRunWizard({
 
           {step === "login" ? (
             <>
-              <div className="wizard-card-eyebrow">1단계 · 로그인</div>
-              <div className="wizard-card-title">Discord 계정으로 로그인하세요</div>
+              <div className="wizard-card-eyebrow">{t("client.wizard.login.eyebrow")}</div>
+              <div className="wizard-card-title">{t("client.wizard.login.title")}</div>
               <p className="wizard-card-body">
-                플레이 데이터는 여기서 로그인한 계정에 묶입니다.
-                동기화 후 OJIKBMS 사이트에서 동일한 계정으로 로그인하면 데이터를 보실 수 있습니다.
+                {t("client.wizard.login.body")}
               </p>
               <div className="wizard-card-content">
                 {auth?.logged_in ? (
                   <div className="banner banner-info">
                     <Check size={16} aria-hidden="true" />
                     <div>
-                      <div className="banner-title">이미 로그인되어 있어요</div>
-                      <div className="banner-body">다음 단계에서 경로를 설정해 주세요.</div>
+                      <div className="banner-title">{t("client.wizard.login.alreadyTitle")}</div>
+                      <div className="banner-body">{t("client.wizard.login.alreadyBody")}</div>
                     </div>
                   </div>
                 ) : (
@@ -101,7 +110,7 @@ export function FirstRunWizard({
                     onClick={handleLogin}
                     disabled={isLoggingIn}
                   >
-                    {isLoggingIn ? "Discord 로그인 진행 중…" : "Discord로 로그인"}
+                    {isLoggingIn ? t("client.wizard.login.buttonBusy") : t("client.wizard.login.button")}
                   </Button>
                 )}
               </div>
@@ -109,7 +118,7 @@ export function FirstRunWizard({
                 onPrev={goPrev}
                 onNext={goNext}
                 onSkip={goNext}
-                nextLabel={auth?.logged_in ? "다음" : "건너뛰기"}
+                nextLabel={auth?.logged_in ? t("common.actions.next") : t("common.actions.skip")}
                 nextVariant={auth?.logged_in ? "primary" : "default"}
               />
             </>
@@ -117,11 +126,10 @@ export function FirstRunWizard({
 
           {step === "lr2" ? (
             <>
-              <div className="wizard-card-eyebrow">2단계 · LR2 경로</div>
-              <div className="wizard-card-title">LR2를 사용하지 않으신다면 "건너뛰기"를 눌러주세요.</div>
+              <div className="wizard-card-eyebrow">{t("client.wizard.lr2.eyebrow")}</div>
+              <div className="wizard-card-title">{t("client.wizard.lr2.title")}</div>
               <p className="wizard-card-body">
-                LR2 플레이 기록 DB와 song.db 경로를 설정하세요.
-                플레이 기록 DB는 필수이며, song.db를 설정하지 않으면 서버에 없는 차분이 (알 수 없음)으로 표시될 수 있습니다.
+                {t("client.wizard.lr2.body")}
               </p>
               <div className="wizard-card-content">
                 <SourceCard
@@ -137,11 +145,10 @@ export function FirstRunWizard({
 
           {step === "beatoraja" ? (
             <>
-              <div className="wizard-card-eyebrow">3단계 · beatoraja 경로</div>
-              <div className="wizard-card-title">beatoraja를 사용하지 않으신다면 “건너뛰기”를 눌러주세요.</div>
+              <div className="wizard-card-eyebrow">{t("client.wizard.beatoraja.eyebrow")}</div>
+              <div className="wizard-card-title">{t("client.wizard.beatoraja.title")}</div>
               <p className="wizard-card-body">
-                beatoraja 플레이 기록 DB 폴더와 songdata.db, songinfo.db 경로를 설정하세요.
-                플레이 기록 DB 폴더는 필수이며, songdata.db 또는 songinfo.db를 설정하지 않으면 일부 차분 정보 보강이 제한될 수 있습니다.
+                {t("client.wizard.beatoraja.body")}
               </p>
               <div className="wizard-card-content">
                 <SourceCard
@@ -158,18 +165,17 @@ export function FirstRunWizard({
           {step === "ready" ? (
             <>
               <Sparkles size={28} style={{ color: "var(--primary)" }} aria-hidden="true" />
-              <div className="wizard-card-eyebrow">설정 완료</div>
-              <div className="wizard-card-title">대시보드로 이동해 첫 동기화를 시작하세요</div>
+              <div className="wizard-card-eyebrow">{t("client.wizard.ready.eyebrow")}</div>
+              <div className="wizard-card-title">{t("client.wizard.ready.title")}</div>
               <p className="wizard-card-body">
-                대시보드에서 “전체 동기화” 버튼을 누르면 바로 진행됩니다.
-                이후 새로운 차분이 추가되지 않았으면 플레이 데이터만 보내기 위해 “빠른 동기화” 버튼을 누르시는 것을 추천드립니다.
+                {t("client.wizard.ready.body")}
               </p>
               <div className="wizard-card-actions">
                 <Button variant="ghost" leadingIcon={<ArrowLeft size={15} aria-hidden="true" />} onClick={goPrev}>
-                  뒤로
+                  {t("common.actions.back")}
                 </Button>
                 <Button variant="primary" leadingIcon={<ArrowRight size={15} aria-hidden="true" />} onClick={onFinish}>
-                  대시보드로 이동
+                  {t("client.wizard.ready.finish")}
                 </Button>
               </div>
             </>
@@ -184,7 +190,7 @@ function WizardActions({
   onPrev,
   onNext,
   onSkip,
-  nextLabel = "다음",
+  nextLabel,
   nextVariant = "primary",
 }: {
   onPrev: () => void;
@@ -193,17 +199,19 @@ function WizardActions({
   nextLabel?: string;
   nextVariant?: "primary" | "default";
 }) {
+  const { t } = useTranslation();
+
   return (
     <div className="wizard-card-actions">
       <Button variant="ghost" leadingIcon={<ArrowLeft size={15} aria-hidden="true" />} onClick={onPrev}>
-        뒤로
+        {t("common.actions.back")}
       </Button>
       <div style={{ display: "flex", gap: 8 }}>
         <button type="button" className="btn btn-ghost btn-sm wizard-skip" onClick={onSkip}>
-          건너뛰기
+          {t("common.actions.skip")}
         </button>
         <Button variant={nextVariant} leadingIcon={<ArrowRight size={15} aria-hidden="true" />} onClick={onNext}>
-          {nextLabel}
+          {nextLabel ?? t("common.actions.next")}
         </Button>
       </div>
     </div>

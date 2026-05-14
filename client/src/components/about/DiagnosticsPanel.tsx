@@ -1,4 +1,5 @@
 import { FileText, RefreshCw, RotateCcw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import type { ClientConfig } from "../../types";
 import { Button } from "../primitives/Button";
@@ -36,27 +37,29 @@ export function DiagnosticsPanel({
   onToggleVerboseDiskLogging?: (next: boolean) => void;
   isCheckingUpdate: boolean;
 }) {
+  const { t } = useTranslation();
+
   return (
     <Dialog
       open={open}
       onClose={onClose}
-      title="정보"
+      title={t("client.diagnostics.title")}
       footer={
         <Button variant="ghost" onClick={onClose}>
-          닫기
+          {t("client.diagnostics.close")}
         </Button>
       }
     >
       <div style={{ display: "grid", gap: 14 }}>
-        <DiagSection title="앱 정보">
-          <DiagRow label="버전" value={`v${info.version}`} />
-          <DiagRow label="채널" value={info.channel} />
+        <DiagSection title={t("client.diagnostics.sectionApp")}>
+          <DiagRow label={t("client.diagnostics.version")} value={`v${info.version}`} />
+          <DiagRow label={t("client.diagnostics.channel")} value={info.channel} />
           {info.os ? <DiagRow label="OS" value={info.os} /> : null}
           {info.webview ? <DiagRow label="WebView2" value={info.webview} /> : null}
           <DiagRow label="API URL" value={info.apiUrl} />
-          {info.exePath ? <DiagRow label="설치 파일 경로" value={info.exePath} mono /> : null}
-          {info.configDir ? <DiagRow label="Config 경로" value={info.configDir} mono /> : null}
-          {info.logsDir ? <DiagRow label="Logs 경로" value={info.logsDir} mono /> : null}
+          {info.exePath ? <DiagRow label={t("client.diagnostics.exePath")} value={info.exePath} mono /> : null}
+          {info.configDir ? <DiagRow label={t("client.diagnostics.configDir")} value={info.configDir} mono /> : null}
+          {info.logsDir ? <DiagRow label={t("client.diagnostics.logsDir")} value={info.logsDir} mono /> : null}
           {config && onToggleVerboseDiskLogging ? (
             <VerboseDiskLoggingRow
               enabled={config.verbose_disk_logging}
@@ -65,7 +68,7 @@ export function DiagnosticsPanel({
           ) : null}
         </DiagSection>
 
-        <DiagSection title="업데이트">
+        <DiagSection title={t("client.diagnostics.sectionUpdate")}>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <Button
               size="sm"
@@ -75,7 +78,7 @@ export function DiagnosticsPanel({
               onClick={onCheckUpdate}
               disabled={isCheckingUpdate}
             >
-              지금 확인
+              {t("client.diagnostics.checkUpdate")}
             </Button>
             <Button
               size="sm"
@@ -84,25 +87,25 @@ export function DiagnosticsPanel({
               onClick={onResetUpdateDismissals}
               disabled={!config?.dismissed_update_id && !config?.dismissed_update_until && !config?.skipped_update_version}
             >
-              숨긴 업데이트 알림 다시 보기
+              {t("client.diagnostics.resetDismissals")}
             </Button>
           </div>
           {config?.skipped_update_version ? (
             <div style={{ color: "var(--muted)", fontSize: "0.82rem" }}>
-              건너뛴 버전: {config.skipped_update_version}
+              {t("client.diagnostics.skippedVersion")}: {config.skipped_update_version}
             </div>
           ) : null}
         </DiagSection>
 
         {onOpenLogFile ? (
-          <DiagSection title="로그">
+          <DiagSection title={t("client.diagnostics.sectionLog")}>
             <Button
               size="sm"
               variant="ghost"
               leadingIcon={<FileText size={14} aria-hidden="true" />}
               onClick={onOpenLogFile}
             >
-              로그 파일 열기
+              {t("client.diagnostics.openLogFile")}
             </Button>
           </DiagSection>
         ) : null}
@@ -129,9 +132,10 @@ function VerboseDiskLoggingRow({
   enabled: boolean;
   onToggle: (next: boolean) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, fontSize: "0.86rem" }}>
-      <span style={{ color: "var(--muted)" }}>상세 로그 기록</span>
+      <span style={{ color: "var(--muted)" }}>{t("client.diagnostics.verboseLogging")}</span>
       <label
         style={{
           display: "flex",
@@ -148,9 +152,9 @@ function VerboseDiskLoggingRow({
           style={{ marginTop: 3, accentColor: "var(--primary)" }}
         />
         <span style={{ display: "grid", gap: 2 }}>
-          <span>문제 신고용 — 디스크 로그를 DEBUG 레벨까지 기록</span>
+          <span>{t("client.diagnostics.verboseLoggingDesc")}</span>
           <span style={{ color: "var(--muted)", fontSize: "0.78rem" }}>
-            평소엔 WARN 이상만 기록됩니다. 동기화 실패 등 재현 가능한 이슈를 신고할 때 켜주세요.
+            {t("client.diagnostics.verboseLoggingHint")}
           </span>
         </span>
       </label>

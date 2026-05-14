@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+
 interface RatingExpProgressBarProps {
   progressRatio: number;
   expToNextLevel: number;
@@ -19,6 +21,7 @@ export function RatingExpProgressBar({
   isMaxLevel = false,
   maxLevel,
 }: RatingExpProgressBarProps) {
+  const { t } = useTranslation();
   const clampedProgress = isMaxLevel ? 1 : Math.max(0, Math.min(progressRatio, 1));
   const clampedPrevious = previousProgressRatio == null
     ? null
@@ -48,7 +51,7 @@ export function RatingExpProgressBar({
           </span>
         ) : (
           <p className="text-caption text-muted-foreground">
-            다음 레벨까지 {Math.max(0, Math.ceil(expToNextLevel)).toLocaleString()} 경험치
+            {Math.max(0, Math.ceil(expToNextLevel)).toLocaleString()} {t("ranking.exp")} to next level
           </p>
         )}
         {levelChanged && (

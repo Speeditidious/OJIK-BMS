@@ -1070,19 +1070,18 @@ class YoutubeUrlRequest(BaseModel):
 
 
 async def _get_fumen_by_hash(hash_value: str, db: AsyncSession) -> Fumen:
-    try:
-        fumen_uuid = _uuid.UUID(hash_value)
-    except ValueError:
-        fumen_uuid = None
-
-    if fumen_uuid is not None:
-        result = await db.execute(select(Fumen).where(Fumen.fumen_id == fumen_uuid))
-    elif len(hash_value) == 64:
+    # Check md5/sha256 first by length. uuid.UUID() accepts 32-char hex strings
+    # without dashes, so an md5 would otherwise be mis-parsed as a fumen_id.
+    if len(hash_value) == 64:
         result = await db.execute(select(Fumen).where(Fumen.sha256 == hash_value))
     elif len(hash_value) == 32:
         result = await db.execute(select(Fumen).where(Fumen.md5 == hash_value))
     else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid hash length")
+        try:
+            fumen_uuid = _uuid.UUID(hash_value)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid hash length")
+        result = await db.execute(select(Fumen).where(Fumen.fumen_id == fumen_uuid))
     fumen = result.scalar_one_or_none()
     if fumen is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fumen not found")

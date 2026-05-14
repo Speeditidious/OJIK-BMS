@@ -18,23 +18,23 @@ export function BmsforceBreakdownCard({
   return (
     <Card className="mx-auto w-full max-w-sm border-border/60 bg-secondary/10">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">BMSFORCE 기여 항목</CardTitle>
+        <CardTitle className="text-base">BMSFORCE Breakdown</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2.5 text-body">
         <div className="flex items-center justify-between gap-3">
-          <span className="text-muted-foreground">레이팅 상승 기여</span>
+          <span className="text-muted-foreground">Rating contribution</span>
           <span className="font-semibold tabular-nums">{formatSigned(breakdown.rating_component)}</span>
         </div>
         <div className="flex items-center justify-between gap-3">
-          <span className="text-muted-foreground">레벨 상승 기여</span>
+          <span className="text-muted-foreground">Level contribution</span>
           <span className="font-semibold tabular-nums">{formatSigned(breakdown.level_component)}</span>
         </div>
         <div className="flex items-center justify-between gap-3 border-t border-border/50 pt-2.5">
-          <span className="font-medium">합계</span>
+          <span className="font-medium">Total</span>
           <span className="font-semibold tabular-nums">{formatSigned(breakdown.total)}</span>
         </div>
         <p className="text-caption text-muted-foreground leading-snug">
-          소수점 넷째 자리 반올림 처리로 인해, 상단 BMSFORCE 변동값과 ±0.001 차이가 발생할 수 있습니다.
+          Due to 4th decimal place rounding, this may differ from the BMSFORCE change shown above by ±0.001.
         </p>
       </CardContent>
     </Card>

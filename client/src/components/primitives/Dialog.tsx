@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 export function Dialog({
   open,
@@ -19,6 +20,7 @@ export function Dialog({
   footer?: ReactNode;
   children: ReactNode;
 }) {
+  const { t } = useTranslation();
   const dialogRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
@@ -85,7 +87,7 @@ export function Dialog({
         <header className="dialog-hd">
           <strong>{title}</strong>
           {dismissable ? (
-            <button type="button" className="btn-ghost btn-icon btn" onClick={onClose} aria-label="닫기">
+            <button type="button" className="btn-ghost btn-icon btn" onClick={onClose} aria-label={t("client.dialog.close")}>
               <X size={16} />
             </button>
           ) : null}

@@ -8,7 +8,10 @@
     "build": "tsc && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 1420",
     "tauri": "tauri",
-    "lint": "eslint src --max-warnings=0"
+    "lint": "eslint src --max-warnings=0",
+    "test:i18n": "node src/lib/i18n/languages.test.mjs",
+    "test:i18n:boundary": "node src/lib/i18n/proper-noun-boundary.test.mjs",
+    "test:i18n:audit": "node src/lib/i18n/audit-hardcoded-korean.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.0",
@@ -17,9 +20,11 @@
     "@tauri-apps/plugin-opener": "2.5.4",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "2.10.1",
+    "i18next": "^25.5.2",
     "lucide-react": "^0.400.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-i18next": "^15.7.3"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.11.0",

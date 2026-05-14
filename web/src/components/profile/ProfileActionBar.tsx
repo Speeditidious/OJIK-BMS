@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -9,6 +10,8 @@ interface ProfileActionBarProps {
 }
 
 export function ProfileActionBar({ isOwner }: ProfileActionBarProps) {
+  const { t } = useTranslation();
+
   if (!isOwner) {
     return null;
   }
@@ -18,7 +21,7 @@ export function ProfileActionBar({ isOwner }: ProfileActionBarProps) {
       <Button asChild variant="outline" size="sm" className="gap-2">
         <Link href="/settings">
           <Settings className="h-4 w-4" />
-          설정
+          {t("profile.actions.settings")}
         </Link>
       </Button>
     </div>

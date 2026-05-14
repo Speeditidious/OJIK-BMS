@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +26,7 @@ export function SourceClientBadge({
   fallbackClientTypes,
   className,
 }: SourceClientBadgeProps) {
+  const { t } = useTranslation();
   const label = sourceClient ?? fallbackLabel(fallbackClientTypes);
   if (!label) return null;
 
@@ -50,17 +51,17 @@ export function SourceClientBadge({
           {hasDetail ? (
             <div className="space-y-0.5">
               {sourceClientDetail?.clear_type && (
-                <div>클리어: {sourceClientDetail.clear_type}</div>
+                <div>{t("fumen.sourceClient.clear", { value: sourceClientDetail.clear_type })}</div>
               )}
               {sourceClientDetail?.exscore && (
-                <div>점수: {sourceClientDetail.exscore}</div>
+                <div>{t("fumen.sourceClient.score", { value: sourceClientDetail.exscore })}</div>
               )}
               {sourceClientDetail?.min_bp && (
                 <div>BP: {sourceClientDetail.min_bp}</div>
               )}
             </div>
           ) : (
-            <div>LR2 + Beatoraja 혼합 기록</div>
+            <div>{t("fumen.sourceClient.mixedRecord")}</div>
           )}
         </TooltipContent>
       </Tooltip>

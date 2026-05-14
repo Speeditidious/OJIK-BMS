@@ -24,6 +24,8 @@ class ClientUpdateAnnouncementResponse(BaseModel):
     version: str
     title: str
     body_markdown: str
+    body_markdown_en: str | None = None
+    body_markdown_ja: str | None = None
     release_page_url: str | None
     mandatory: bool
     asset_size_bytes: int | None
@@ -136,6 +138,8 @@ def _announcement_response(row: ClientUpdateAnnouncement) -> ClientUpdateAnnounc
         version=row.version,
         title=row.title,
         body_markdown=row.body_markdown,
+        body_markdown_en=row.body_markdown_en,
+        body_markdown_ja=row.body_markdown_ja,
         release_page_url=row.release_page_url,
         mandatory=row.mandatory,
         asset_size_bytes=row.asset_size_bytes,

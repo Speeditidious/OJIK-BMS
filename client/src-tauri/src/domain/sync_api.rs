@@ -124,7 +124,11 @@ impl ApiClient {
         is_final_batch: bool,
         has_previous_score_changes: bool,
     ) -> anyhow::Result<SyncResponse> {
-        let path = if self.debug_mode { "/sync/?debug=true" } else { "/sync/" };
+        let path = if self.debug_mode {
+            "/sync/?debug=true"
+        } else {
+            "/sync/"
+        };
         self.request_json_decoded(
             Method::POST,
             path,

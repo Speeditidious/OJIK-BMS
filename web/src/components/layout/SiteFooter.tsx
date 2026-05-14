@@ -1,21 +1,24 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import { Github } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 type FooterLink = {
   href: string;
-  label: string;
+  labelKey: string;
   external?: boolean;
 };
 
 const footerLinks: FooterLink[] = [
-  { href: "/support", label: "Support" },
-  { href: "/rules", label: "Rules" },
-  { href: "/legal", label: "Legal" },
-  { href: "/contributors", label: "Contributors" },
+  { href: "/support", labelKey: "footer.links.support" },
+  { href: "/rules", labelKey: "footer.links.rules" },
+  { href: "/legal", labelKey: "footer.links.legal" },
+  { href: "/contributors", labelKey: "footer.links.contributors" },
   {
     href: "https://github.com/Speeditidious/OJIK-BMS",
-    label: "GitHub",
+    labelKey: "footer.links.github",
     external: true,
   },
 ];
@@ -23,6 +26,8 @@ const footerLinks: FooterLink[] = [
 const currentYear = new Date().getFullYear();
 
 export function SiteFooter() {
+  const { t } = useTranslation();
+
   return (
     <footer className="relative overflow-hidden border-t border-border/70 bg-card/65">
       <div
@@ -41,7 +46,7 @@ export function SiteFooter() {
               <Image src="/ojikbms_logo.png" alt="OJIK BMS" width={36} height={36} />
               <div>
                 <div className="text-lg font-semibold tracking-tight">OJIK BMS</div>
-                <div className="text-body text-muted-foreground">BMS 유저들만을 위한 성과 관리 사이트 - beta</div>
+                <div className="text-body text-muted-foreground">{t("footer.tagline")}</div>
               </div>
             </Link>
           </div>
@@ -50,22 +55,22 @@ export function SiteFooter() {
             {footerLinks.map((link) =>
               link.external ? (
                 <a
-                  key={link.label}
+                  key={link.href}
                   href={link.href}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center justify-center gap-2 rounded-full border border-border bg-background/80 px-4 py-2 text-body font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
-                  {link.label}
+                  {t(link.labelKey)}
                   <Github className="h-4 w-4" />
                 </a>
               ) : (
                 <Link
-                  key={link.label}
+                  key={link.href}
                   href={link.href}
                   className="inline-flex items-center justify-center rounded-full border border-border bg-background/80 px-4 py-2 text-body font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
-                  {link.label}
+                  {t(link.labelKey)}
                 </Link>
               )
             )}
@@ -73,7 +78,7 @@ export function SiteFooter() {
         </div>
 
         <div className="mt-8 flex flex-col items-center justify-between gap-2 border-t border-border/70 pt-5 text-label text-muted-foreground md:flex-row">
-          <span>Beta service</span>
+          <span>{t("footer.beta")}</span>
           <span>{`© ${currentYear} OJIK BMS`}</span>
         </div>
       </div>

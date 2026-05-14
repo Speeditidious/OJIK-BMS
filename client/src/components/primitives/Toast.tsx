@@ -1,5 +1,6 @@
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import type { Toast } from "../../hooks/use-toast";
 
 const TONE_ICON = {
@@ -16,8 +17,9 @@ export function ToastStack({
   toasts: Toast[];
   onDismiss: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   return (
-    <div className="toast-stack" role="region" aria-label="알림">
+    <div className="toast-stack" role="region" aria-label={t("client.toast.regionLabel")}>
       {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} onDismiss={onDismiss} />
       ))}
@@ -26,6 +28,7 @@ export function ToastStack({
 }
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
+  const { t } = useTranslation();
   const Icon = TONE_ICON[toast.tone ?? "info"];
 
   useEffect(() => {
@@ -42,7 +45,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
         {toast.title ? <div className="toast-title">{toast.title}</div> : null}
         <div className="toast-msg">{toast.message}</div>
       </div>
-      <button type="button" className="toast-close" onClick={() => onDismiss(toast.id)} aria-label="알림 닫기">
+      <button type="button" className="toast-close" onClick={() => onDismiss(toast.id)} aria-label={t("client.toast.close")}>
         <X size={14} />
       </button>
     </div>

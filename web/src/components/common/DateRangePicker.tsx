@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import {
   type DateRange,
   type RangePreset,
-  PRESET_LABELS,
   clampRange,
+  getPresetLabel,
   rangeFromPreset,
 } from "@/lib/date-range";
 
@@ -23,6 +24,7 @@ interface DateRangePickerProps {
 }
 
 const PRESETS: RangePreset[] = ["week", "month", "3month", "year", "custom"];
+const INVALID_ORDER_ERROR_KEY = "format.dateRange.invalidOrder";
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
@@ -34,13 +36,14 @@ export function DateRangePicker({
   maxDays = 730,
   className,
 }: DateRangePickerProps) {
+  const { t } = useTranslation();
   // Local draft for custom date inputs — tracks the incoming range so we can
   // reset when the parent changes the range (e.g. switching between presets)
   const [localFrom, setLocalFrom] = useState(value.range.from);
   const [localTo, setLocalTo] = useState(value.range.to);
   const [trackedFrom, setTrackedFrom] = useState(value.range.from);
   const [trackedTo, setTrackedTo] = useState(value.range.to);
-  const [error, setError] = useState<string | null>(null);
+  const [errorKey, setErrorKey] = useState<string | null>(null);
   const fromRef = useRef<HTMLInputElement>(null);
 
   // React-idiomatic way to sync derived state: compare during render and
@@ -51,7 +54,7 @@ export function DateRangePicker({
     setTrackedTo(value.range.to);
     setLocalFrom(value.range.from);
     setLocalTo(value.range.to);
-    setError(null);
+    setErrorKey(null);
   }
 
   // Focus "from" input when entering custom mode
@@ -77,12 +80,12 @@ export function DateRangePicker({
 
     if (!from || !clampedTo) return;
     if (from > clampedTo) {
-      setError("시작 날짜는 끝 날짜보다 앞이어야 합니다.");
+      setErrorKey(INVALID_ORDER_ERROR_KEY);
       return;
     }
 
     const clamped = clampRange({ from, to: clampedTo }, maxDays);
-    setError(null);
+    setErrorKey(null);
     onChange({ preset: "custom", range: clamped });
   }
 
@@ -94,7 +97,7 @@ export function DateRangePicker({
       {/* Preset buttons */}
       <div
         role="group"
-        aria-label="날짜 범위 프리셋"
+        aria-label={t("format.dateRange.presetLabel")}
         className="flex gap-1"
       >
         {PRESETS.map((preset) => (
@@ -110,7 +113,7 @@ export function DateRangePicker({
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            {PRESET_LABELS[preset]}
+            {getPresetLabel(preset, t)}
           </button>
         ))}
       </div>
@@ -119,13 +122,13 @@ export function DateRangePicker({
       {isCustom && (
         <div
           className="flex flex-wrap items-center gap-2"
-          aria-describedby={error ? errorId : undefined}
+          aria-describedby={errorKey ? errorId : undefined}
         >
           <input
             ref={fromRef}
             type="date"
-            aria-label="시작 날짜"
-            aria-invalid={!!error}
+            aria-label={t("format.dateRange.startDate")}
+            aria-invalid={!!errorKey}
             value={localFrom}
             max={todayIso()}
             onChange={(e) => setLocalFrom(e.target.value)}
@@ -138,8 +141,8 @@ export function DateRangePicker({
           <span className="text-label text-muted-foreground">~</span>
           <input
             type="date"
-            aria-label="끝 날짜"
-            aria-invalid={!!error}
+            aria-label={t("format.dateRange.endDate")}
+            aria-invalid={!!errorKey}
             value={localTo}
             max={todayIso()}
             onChange={(e) => setLocalTo(e.target.value)}
@@ -149,13 +152,13 @@ export function DateRangePicker({
             }}
             className="h-7 rounded border border-border bg-input px-2 text-label text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           />
-          {error && (
+          {errorKey && (
             <p
               id={errorId}
               role="alert"
               className="w-full text-caption text-destructive"
             >
-              {error}
+              {t(errorKey)}
             </p>
           )}
         </div>

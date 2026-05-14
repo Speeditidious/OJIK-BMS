@@ -153,10 +153,17 @@ async def get_scores_for_fumen(
 
     fumen_condition = None
     notes_condition = None
-    try:
-        fumen_uuid = uuid.UUID(hash_value)
-    except ValueError:
+    # Resolve hash type by length first; uuid.UUID() would otherwise mis-parse
+    # a 32-char md5 as a fumen_id UUID.
+    if len(hash_value) == 64:
         fumen_uuid = None
+    elif len(hash_value) == 32:
+        fumen_uuid = None
+    else:
+        try:
+            fumen_uuid = uuid.UUID(hash_value)
+        except ValueError:
+            fumen_uuid = None
 
     if fumen_uuid is not None:
         condition = (

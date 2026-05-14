@@ -1,4 +1,5 @@
 import { Download, ExternalLink, FileText } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "../primitives/Button";
 
@@ -15,20 +16,22 @@ export function AboutFooter({
   onOpenSite: () => void;
   onOpenLogFile?: () => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <footer className="about-footer">
       <div className="about-meta">
         <span>
-          <b>버전</b> v{version}
+          <b>{t("client.footer.version")}</b> v{version}
         </span>
         <span>
-          <b>채널</b> {channel}
+          <b>{t("client.footer.channel")}</b> {channel}
         </span>
       </div>
       <div className="about-actions">
         {onOpenLogFile ? (
           <Button variant="ghost" size="sm" leadingIcon={<FileText size={14} aria-hidden="true" />} onClick={onOpenLogFile}>
-            로그 파일
+            {t("client.footer.logFile")}
           </Button>
         ) : null}
         <Button
@@ -37,7 +40,7 @@ export function AboutFooter({
           leadingIcon={<ExternalLink size={14} aria-hidden="true" />}
           onClick={onOpenSite}
         >
-          사이트 바로가기
+          {t("client.footer.openSite")}
         </Button>
         <Button
           variant="ghost"
@@ -45,7 +48,7 @@ export function AboutFooter({
           leadingIcon={<Download size={14} aria-hidden="true" />}
           onClick={onOpenDownloadPage}
         >
-          다운로드 페이지
+          {t("client.footer.downloadPage")}
         </Button>
       </div>
     </footer>

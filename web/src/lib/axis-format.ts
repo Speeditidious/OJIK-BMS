@@ -2,6 +2,7 @@
  * Determine the tick resolution for an x-axis based on the number of days in the range.
  */
 export type TickResolution = "day" | "week" | "month" | "month-year";
+export type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 export function pickTickResolution(days: number): TickResolution {
   if (days <= 14) return "day";
@@ -14,13 +15,15 @@ export function pickTickResolution(days: number): TickResolution {
  * Format a date ISO string for a chart x-axis tick.
  * Resolution determines how much detail to show.
  */
-export function formatTick(dateIso: string, resolution: TickResolution): string {
+export function formatTick(dateIso: string, resolution: TickResolution, t?: Translate): string {
   const [year, month, day] = dateIso.split("-").map(Number);
   if (resolution === "day") return `${month}/${day}`;
   if (resolution === "week") return `${month}/${day}`;
-  if (resolution === "month") return `${month}월`;
+  if (resolution === "month") {
+    return t ? t("format.axis.month", { month }) : `${month}`;
+  }
   // month-year
-  return `${year} ${month}월`;
+  return t ? t("format.axis.monthYear", { year, month }) : `${year} ${month}`;
 }
 
 /**

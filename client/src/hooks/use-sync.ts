@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import i18next from "i18next";
 
 import { fromEvent, makeEntry } from "../lib/log-format";
 import { formatNumber } from "../lib/format";
@@ -19,6 +20,12 @@ interface ProgressMap {
   global?: SyncProgressEvent;
   lr2?: SyncProgressEvent;
   beatoraja?: SyncProgressEvent;
+}
+
+// Use the i18next singleton (non-hook API) for log messages in this hook.
+function t(key: string, opts?: Record<string, unknown>): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return i18next.t(key, opts as any) as string;
 }
 
 export function useSyncStore() {
@@ -62,7 +69,10 @@ export function useSyncStore() {
         pushLog(
           makeEntry({
             level: "info",
-            message: `동기화를 시작합니다 (${payload.client_filter}${payload.full_sync ? ", 전체" : ""}).`,
+            message: t("client.sync.logs.start", {
+              filter: payload.client_filter,
+              fullSuffix: payload.full_sync ? t("client.sync.logs.fullSuffix") : "",
+            }),
           }),
         );
       },
@@ -91,13 +101,13 @@ export function useSyncStore() {
       const errorCount = payload.errors.filter((entry) => entry.level !== "warn").length;
       if (errorCount > 0) {
         const firstError = payload.errors.find((entry) => entry.level !== "warn");
-        const message = firstError?.detail ?? firstError?.message ?? "동기화 중 오류가 발생했습니다.";
+        const message = firstError?.detail ?? firstError?.message ?? t("client.sync.logs.failed", { count: errorCount });
         setState("error");
         setErrorMessage(message);
         pushLog(
           makeEntry({
             level: "error",
-            message: `동기화 중단 — 오류 ${formatNumber(errorCount)}건이 발생해 서버 업로드를 완료하지 않았습니다.`,
+            message: t("client.sync.logs.failed", { count: errorCount }),
           }),
         );
         return;
@@ -106,7 +116,10 @@ export function useSyncStore() {
       pushLog(
         makeEntry({
           level: "info",
-          message: `동기화 완료 — 등록된 기록 ${formatNumber(payload.inserted)}건, 수정된 기록 ${formatNumber(payload.metadata_updated)}건`,
+          message: t("client.sync.logs.complete", {
+            inserted: formatNumber(payload.inserted),
+            updated: formatNumber(payload.metadata_updated),
+          }),
         }),
       );
     }));
@@ -119,7 +132,7 @@ export function useSyncStore() {
 
     collect(subscribe<{ sync_run_id: string }>("sync:cancelled", () => {
       setState("cancelled");
-      pushLog(makeEntry({ level: "warn", message: "동기화가 취소되었습니다." }));
+      pushLog(makeEntry({ level: "warn", message: t("client.sync.logs.cancelled") }));
     }));
 
     return () => {
@@ -153,7 +166,9 @@ export function useSyncStore() {
       pushLog(
         makeEntry({
           level: "error",
-          message: `취소 요청 실패: ${err instanceof Error ? err.message : String(err)}`,
+          message: t("client.sync.logs.cancelFailed", {
+            message: err instanceof Error ? err.message : String(err),
+          }),
         }),
       );
     }

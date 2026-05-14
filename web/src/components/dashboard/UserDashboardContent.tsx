@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import {
   Area,
   AreaChart,
@@ -66,14 +67,7 @@ import type { ScoreUpdatesViewMode } from "@/components/dashboard/ScoreUpdates";
 import { pickTickResolution, formatTick, computeTicks } from "@/lib/axis-format";
 import { niceTicks, decimalsForStep } from "@/lib/axis-ticks";
 import { useAuthStore } from "@/stores/auth";
-
-function formatPlaytime(seconds: number): string {
-  if (seconds <= 0) return "0분";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return `${h}시간 ${m}분`;
-  return `${m}분`;
-}
+import { formatDuration } from "@/lib/time";
 
 function DayStatCard({
   title,
@@ -140,6 +134,7 @@ function RatingHistoryGraph({
   loading?: boolean;
   active?: boolean;
 }) {
+  const { t } = useTranslation();
   const [chartRef, chartWidth] = useChartWidth(150, {
     active,
     remeasureKey: `${metric}:${points.length}:${points[0]?.date ?? ""}:${points[points.length - 1]?.date ?? ""}`,
@@ -156,7 +151,7 @@ function RatingHistoryGraph({
       <div className="space-y-3">
         <div className="h-4 w-28 animate-pulse rounded bg-muted" />
         <div className="h-[300px] animate-pulse rounded-lg bg-muted" />
-        <p className="text-caption text-muted-foreground">레이팅 히스토리 데이터를 불러오는 중입니다.</p>
+        <p className="text-caption text-muted-foreground">Loading rating history data...</p>
       </div>
     );
   }
@@ -164,7 +159,7 @@ function RatingHistoryGraph({
   if (points.length === 0) {
     return (
       <div className="flex h-[300px] items-center justify-center text-body text-muted-foreground">
-        이 기간에 레이팅 변동 데이터가 없습니다.
+        No rating change data for this period.
       </div>
     );
   }
@@ -177,9 +172,9 @@ function RatingHistoryGraph({
       >
         <div className="space-y-2">
           <div className="mx-auto h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
-          <p className="text-body font-medium text-foreground">레이팅 그래프 레이아웃을 준비 중입니다.</p>
+          <p className="text-body font-medium text-foreground">Preparing rating graph layout...</p>
           <p className="text-caption text-muted-foreground">
-            탭 표시가 안정되면 그래프를 바로 렌더링합니다.
+            The graph will render once the tab layout stabilizes.
           </p>
         </div>
       </div>
@@ -222,7 +217,7 @@ function RatingHistoryGraph({
         <XAxis
           dataKey="label"
           ticks={tickDates}
-          tickFormatter={(v: string) => formatTick(v, resolution)}
+          tickFormatter={(v: string) => formatTick(v, resolution, t)}
           tick={{ fontSize: "var(--text-caption)", fill: "hsl(var(--muted-foreground))" }}
           tickLine={false}
           axisLine={false}
@@ -252,7 +247,7 @@ function RatingHistoryGraph({
               <div className="rounded-lg border border-border bg-card px-3 py-2 text-label">
                 <p className="font-medium">{row.date}</p>
                 <p style={{ color }}>
-                  {metric === "exp" ? "경험치" : metric === "rating" ? "레이팅" : "BMSFORCE"}: {
+                  {metric === "exp" ? "EXP" : metric === "rating" ? "Rating" : "BMSFORCE"}: {
                     formatRatingMetric(
                       metric === "bmsforce" ? "bmsforce" : metric,
                       row[dataKey],
@@ -330,7 +325,7 @@ function CalendarDayDetail({
   date,
   clientType,
   onBack,
-  backLabel = "캘린더로 돌아가기",
+  backLabel = "Back to calendar",
   rankingTables,
   selectedRankingTable,
   onSelectRankingTable,
@@ -362,6 +357,7 @@ function CalendarDayDetail({
   ratingMetric: RatingHistoryMetric;
   onRatingMetricChange: (m: RatingHistoryMetric) => void;
 }) {
+  const { t } = useTranslation();
   const recentUpdates = useRecentUpdates(1, clientType, date, undefined, userId);
   const scoreUpdates = useScoreUpdates(clientType, date, 50, userId);
   const { data } = recentUpdates;
@@ -390,7 +386,7 @@ function CalendarDayDetail({
     autoSelectedDateRef.current = date;
   }, [date, onSelectRankingTable, selectedRankingTable, updatedTables]);
 
-  const dateLabel = `${y}년 ${m}월 ${d}일의 기록`;
+  const dateLabel = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")} Records`;
   const isDayDetailLoading =
     (recentUpdates.isLoading && !recentUpdates.data) ||
     (scoreUpdates.isLoading && !scoreUpdates.data);
@@ -419,50 +415,50 @@ function CalendarDayDetail({
         <TooltipProvider>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
             <DayStatCard
-              title="갱신 기록"
+              title="Updates"
               value={`${data.day_summary.total_updates}`}
-              sub="당일 기록 갱신 개수"
+              sub="Records updated this day"
               icon={TrendingUp}
               accentVar="var(--warning)"
             />
             <DayStatCard
-              title="신규 기록"
+              title="New Plays"
               value={`${data.day_summary.new_plays ?? 0}`}
-              sub="당일 첫 플레이 기록 개수"
+              sub="First plays this day"
               icon={Sparkles}
               accentVar="var(--primary)"
             />
             <DayStatCard
-              title="레이팅 갱신"
+              title="Rating Updates"
               value={`${data.day_summary.rating_updates ?? 0}`}
-              sub="당일 전체 난이도표 반영 개수"
+              sub="Tables updated this day"
               icon={Trophy}
               accentVar="var(--chart-rating)"
             />
             <DayStatCard
-              title="플레이 수"
+              title="Play Count"
               value={`${data.day_summary.total_play_count ?? 0}`}
-              sub="당일 플레이 횟수"
+              sub="Plays this day"
               icon={Music2}
               uncertain={data.day_summary.play_count_uncertain}
-              uncertainTooltip="첫 동기화 당일 혹은 그 이전 기록의 플레이 횟수는 집계할 수 없습니다."
+              uncertainTooltip="Play count for records on or before the first sync date cannot be determined."
               accentVar="var(--chart-play)"
             />
             <DayStatCard
-              title="플레이 시간"
-              value={formatPlaytime(data.day_summary.total_playtime)}
-              sub="당일 플레이 시간"
+              title="Play Time"
+              value={formatDuration(data.day_summary.total_playtime, t)}
+              sub="Play time this day"
               icon={Clock}
               uncertain={data.day_summary.playtime_uncertain}
-              uncertainTooltip="첫 동기화 당일 혹은 그 이전 기록의 플레이 시간은 집계할 수 없습니다."
+              uncertainTooltip="Play time for records on or before the first sync date cannot be determined."
             />
             <DayStatCard
-              title="격파 노트 수"
+              title="Notes Hit"
               value={`${data.day_summary.total_notes_hit.toLocaleString()}`}
-              sub="당일 격파 노트"
+              sub="Notes hit this day"
               icon={Hammer}
               uncertain={data.day_summary.notes_hit_uncertain}
-              uncertainTooltip="첫 동기화 당일 혹은 그 이전 기록의 격파 노트 수는 집계할 수 없습니다."
+              uncertainTooltip="Notes hit for records on or before the first sync date cannot be determined."
             />
           </div>
         </TooltipProvider>
@@ -504,6 +500,7 @@ function makeDefaultRange(days: number): DateRangeValue {
 }
 
 export function UserDashboardContent({ userId }: { userId: string }) {
+  const { t } = useTranslation();
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -707,7 +704,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
       <div className="min-h-screen bg-background">
         <Navbar />
         <main className="container mx-auto px-4 py-8">
-          <p className="text-muted-foreground">해당 유저를 찾을 수 없습니다.</p>
+          <p className="text-muted-foreground">{t("common.states.notFound")}</p>
         </main>
       </div>
     );
@@ -720,7 +717,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <LayoutDashboard className="h-7 w-7 text-primary" />
-            <h1 className="text-3xl font-bold">대시보드</h1>
+            <h1 className="text-3xl font-bold">{t("common.nav.dashboard")}</h1>
           </div>
           <ProfileActionBar isOwner={isOwner} />
         </div>
@@ -739,18 +736,18 @@ export function UserDashboardContent({ userId }: { userId: string }) {
 
         <Tabs value={currentTab} onValueChange={handleTabChange} className="space-y-4">
           <TabsList>
-            <TabsTrigger value="distribution">클리어 분포</TabsTrigger>
-            <TabsTrigger value="rating" disabled={rankingTablesLoading || rankingTables.length === 0}>레이팅 상세</TabsTrigger>
-            <TabsTrigger value="activity">활동 요약</TabsTrigger>
-            <TabsTrigger value="calendar">활동 캘린더</TabsTrigger>
+            <TabsTrigger value="distribution">Clear Distribution</TabsTrigger>
+            <TabsTrigger value="rating" disabled={rankingTablesLoading || rankingTables.length === 0}>Rating Detail</TabsTrigger>
+            <TabsTrigger value="activity">Activity Summary</TabsTrigger>
+            <TabsTrigger value="calendar">Activity Calendar</TabsTrigger>
           </TabsList>
 
           <TabsContent value="distribution">
             <Card>
               <CardHeader>
-                <CardTitle>난이도표 클리어 분포</CardTitle>
+                <CardTitle>Difficulty Table Clear Distribution</CardTitle>
                 <CardDescription>
-                  난이도표 레벨별 클리어 현황. 막대를 클릭하면 해당 레벨/클리어 타입으로 필터링됩니다.
+                  Clear status by difficulty table level. Click a bar to filter by that level and clear type.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -795,7 +792,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 date={activityDate}
                 clientType={clientType}
                 onBack={handleBackToActivity}
-                backLabel="활동 요약으로 돌아가기"
+                backLabel="Back to activity summary"
                 rankingTables={rankingTables}
                 selectedRankingTable={selectedRankingTable}
                 onSelectRankingTable={(slug) => updateParams({ ranking_table: slug })}
@@ -809,8 +806,8 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 <Card>
                   <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
-                      <CardTitle>활동 히트맵</CardTitle>
-                      <CardDescription>연도별 플레이, 갱신, 레이팅 반영 흐름을 한 눈에 확인하세요</CardDescription>
+                      <CardTitle>Activity Heatmap</CardTitle>
+                      <CardDescription>View yearly play, update, and rating activity at a glance.</CardDescription>
                     </div>
                     <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
                       <div className="flex flex-wrap gap-1 lg:justify-end">
@@ -822,7 +819,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                             className="h-7 px-2 text-label"
                             onClick={() => setActivityView(cat.key)}
                           >
-                            {cat.label}
+                            {t(cat.labelKey)}
                           </Button>
                         ))}
                       </div>
@@ -843,7 +840,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                   <CardContent>
                     {heatmapLoading ? (
                       <div className="h-24 animate-pulse rounded bg-muted">
-                        <span className="sr-only">로딩 중</span>
+                        <span className="sr-only">Loading...</span>
                       </div>
                     ) : (
                       <ActivityHeatmap
@@ -861,8 +858,8 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 <Card>
                   <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
-                      <CardTitle>활동 그래프</CardTitle>
-                      <CardDescription>활동 추이를 확인하세요</CardDescription>
+                      <CardTitle>Activity Graph</CardTitle>
+                      <CardDescription>Track your activity trends over time.</CardDescription>
                     </div>
                     <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
                       <div className="flex flex-wrap gap-1 lg:justify-end">
@@ -874,7 +871,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                             className="h-7 px-2 text-label"
                             onClick={() => toggleActivitySeries(cat.key)}
                           >
-                            {cat.label}
+                            {t(cat.labelKey)}
                           </Button>
                         ))}
                       </div>
@@ -889,7 +886,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                   <CardContent>
                     {barLoading ? (
                       <div className="h-[280px] animate-pulse rounded bg-muted">
-                        <span className="sr-only">로딩 중</span>
+                        <span className="sr-only">Loading...</span>
                       </div>
                     ) : (
                       <ActivityBarChart
@@ -908,8 +905,8 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 <Card>
                   <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
-                      <CardTitle>레이팅 그래프</CardTitle>
-                      <CardDescription>선택한 난이도표의 경험치 / 레이팅 / BMSFORCE 추이를 봅니다.</CardDescription>
+                      <CardTitle>Rating Graph</CardTitle>
+                      <CardDescription>View EXP / Rating / BMSFORCE trends for the selected difficulty table.</CardDescription>
                     </div>
                     <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
                       {rankingTables.length > 0 && (
@@ -930,7 +927,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                             className="h-7 px-2 text-label"
                             onClick={() => setRatingHistoryMetric(value)}
                           >
-                            {value === "exp" ? "경험치" : value === "rating" ? "레이팅" : "BMSFORCE"}
+                            {value === "exp" ? "EXP" : value === "rating" ? "Rating" : "BMSFORCE"}
                           </Button>
                         ))}
                       </div>
@@ -952,7 +949,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                       />
                     ) : (
                       <div className="flex h-[300px] items-center justify-center text-body text-muted-foreground">
-                        레이팅 그래프를 보려면 난이도표를 선택해주세요.
+                        Please select a difficulty table to view the rating graph.
                       </div>
                     )}
                   </CardContent>
@@ -964,7 +961,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                   ratingUpdatesByDate={heatmapRatingMap}
                   firstSyncDates={firstSyncDates}
                   onDayClick={handleActivityDayClick}
-                  emptyMessage={isOwner ? "동기화된 활동 내역이 없습니다." : "이 유저는 아직 공개된 활동 내역이 없습니다."}
+                  emptyMessage={isOwner ? t("dashboard.activity.noRecords") : t("common.states.noRecords")}
                 />
               </>
             )}
@@ -977,7 +974,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 date={calendarDate}
                 clientType={clientType}
                 onBack={handleBackToCalendar}
-                backLabel="캘린더로 돌아가기"
+                backLabel="Back to calendar"
                 rankingTables={rankingTables}
                 selectedRankingTable={selectedRankingTable}
                 onSelectRankingTable={(slug) => updateParams({ ranking_table: slug })}
@@ -989,8 +986,8 @@ export function UserDashboardContent({ userId }: { userId: string }) {
             ) : (
               <Card>
                 <CardHeader>
-                  <CardTitle>활동 캘린더</CardTitle>
-                  <CardDescription>날짜를 클릭하면 해당 날의 기록과 레이팅 변동을 확인합니다.</CardDescription>
+                  <CardTitle>Activity Calendar</CardTitle>
+                  <CardDescription>Click a date to view that day&apos;s records and rating changes.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ActivityCalendar

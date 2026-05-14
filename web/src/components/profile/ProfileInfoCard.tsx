@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { ArrowRight, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { resolveAvatarUrl } from "@/lib/avatar";
@@ -22,6 +23,8 @@ export function ProfileInfoCard({
   lastSyncedAt,
   dashboardHref,
 }: ProfileInfoCardProps) {
+  const { t } = useTranslation();
+
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-border bg-card/70 p-5 sm:flex-row sm:items-start">
       {avatarUrl ? (
@@ -43,16 +46,16 @@ export function ProfileInfoCard({
 
       <div className="min-w-0 flex-1 space-y-1">
         <h1 className="text-2xl font-bold">{username}</h1>
-        <p className="text-body text-muted-foreground">가입일: {formatJoinDate(createdAt)}</p>
+        <p className="text-body text-muted-foreground">{t("profile.info.joinedAt", { date: formatJoinDate(createdAt, t) })}</p>
         <p className="text-body text-muted-foreground">
-          플레이 데이터 동기화: {lastSyncedAt ? timeAgo(lastSyncedAt) : "아직 동기화 기록 없음"}
+          {lastSyncedAt ? t("profile.info.syncedAt", { time: timeAgo(lastSyncedAt, t) }) : t("profile.info.neverSynced")}
         </p>
       </div>
 
       <Button asChild size="lg" className="w-full gap-2 shadow-sm sm:w-auto sm:shrink-0">
         <Link href={dashboardHref}>
           <LayoutDashboard className="h-5 w-5" />
-          <span className="font-semibold">대시보드 보기</span>
+          <span className="font-semibold">{t("profile.info.viewDashboard")}</span>
           <ArrowRight className="h-4 w-4" />
         </Link>
       </Button>

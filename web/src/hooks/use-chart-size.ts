@@ -9,11 +9,11 @@ interface UseChartWidthOptions {
 }
 
 /**
- * ResponsiveContainer 대체 훅.
- * 컨테이너 div의 width를 관찰하되, resize 이벤트를 debounce한다.
+ * Drop-in replacement for ResponsiveContainer.
+ * Observes the container div's width and debounces resize events.
  *
- * @param debounceMs - resize 이벤트 debounce 시간 (기본 150ms)
- * @returns [containerRef, width] - ref를 div에 붙이고, width를 차트에 전달
+ * @param debounceMs - debounce delay for resize events (default 150ms)
+ * @returns [containerRef, width] - attach ref to the container div and pass width to the chart
  */
 export function useChartWidth(
   debounceMs = 150,

@@ -31,6 +31,7 @@ pub struct ClientConfig {
     pub last_update_failure_message: Option<String>,
     pub debug_mode: bool,
     pub verbose_disk_logging: bool,
+    pub language: String,
 }
 
 impl Default for ClientConfig {
@@ -57,6 +58,7 @@ impl Default for ClientConfig {
             last_update_failure_message: None,
             debug_mode: false,
             verbose_disk_logging: false,
+            language: "ko".to_string(),
         }
     }
 }
@@ -128,6 +130,7 @@ fn write_atomic(path: &Path, content: &str) -> anyhow::Result<()> {
 
 fn normalize(mut config: ClientConfig) -> ClientConfig {
     config.api_url = normalize_api_url(&config.api_url);
+    config.language = normalize_language(&config.language).to_string();
     config
 }
 
@@ -148,4 +151,18 @@ fn normalize_api_url(url: &str) -> String {
         return format!("http://127.0.0.1{rest}");
     }
     trimmed.to_string()
+}
+
+fn normalize_language(language: &str) -> &'static str {
+    match language
+        .trim()
+        .to_ascii_lowercase()
+        .split(['-', '_'])
+        .next()
+    {
+        Some("en") => "en",
+        Some("ja") => "ja",
+        Some("ko") => "ko",
+        _ => "ko",
+    }
 }

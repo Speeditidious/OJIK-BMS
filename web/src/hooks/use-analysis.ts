@@ -54,7 +54,7 @@ export interface RecentUpdate {
 export interface DaySummary {
   total_updates: number;
   new_plays: number;             // first-ever plays for a fumen on this day
-  total_play_count: number | null;  // null = 집계 불가 (첫 동기화 기록 포함)
+  total_play_count: number | null;  // null = cannot aggregate (includes first-sync records)
   play_count_uncertain: boolean;
   stat_only_count: number;
   total_playtime: number;        // seconds; from PlayerStats LAG delta

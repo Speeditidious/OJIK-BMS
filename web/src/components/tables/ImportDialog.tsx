@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -22,6 +23,7 @@ interface ImportDialogProps {
 }
 
 export function ImportDialog({ open, onOpenChange, onImported }: ImportDialogProps) {
+  const { t } = useTranslation();
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -53,9 +55,9 @@ export function ImportDialog({ open, onOpenChange, onImported }: ImportDialogPro
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>외부 난이도표 추가</DialogTitle>
+          <DialogTitle>{t("tables.importDialog.title")}</DialogTitle>
           <DialogDescription>
-            난이도표 HTML 페이지 또는 header.json URL을 입력하세요.
+            {t("tables.importDialog.description")}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -75,10 +77,10 @@ export function ImportDialog({ open, onOpenChange, onImported }: ImportDialogPro
               onClick={() => onOpenChange(false)}
               disabled={importMutation.isPending}
             >
-              취소
+              {t("tables.importDialog.cancel")}
             </Button>
             <Button type="submit" disabled={!url.trim() || importMutation.isPending}>
-              {importMutation.isPending ? "불러오는 중..." : "추가"}
+              {importMutation.isPending ? t("tables.importDialog.submitting") : t("tables.importDialog.submit")}
             </Button>
           </DialogFooter>
         </form>

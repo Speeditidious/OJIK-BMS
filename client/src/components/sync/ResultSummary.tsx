@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { formatNumber, formatRelativeTime } from "../../lib/format";
 import type { SyncResult } from "../../types";
@@ -12,6 +13,7 @@ export interface ResultSummaryProps {
 }
 
 export function ResultSummary({ result, onOpenResultUrl, onJumpToLog }: ResultSummaryProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   // Auto-expand once when a fresh result arrives.
@@ -25,12 +27,12 @@ export function ResultSummary({ result, onOpenResultUrl, onJumpToLog }: ResultSu
   const resultUrl = result.result_url ?? "https://www.ojikbms.kr/dashboard";
 
   return (
-    <section className="card fade-in" aria-label="동기화 결과">
+    <section className="card fade-in" aria-label={t("client.sync.result.ariaLabel")}>
       <header className="card-hd">
         <div className="card-title">
-          최근 동기화 시도 결과
+          {t("client.sync.result.title")}
           <span style={{ color: "var(--muted)", fontWeight: 400, marginLeft: 8 }}>
-            {formatRelativeTime(result.finished_at)}
+            {formatRelativeTime(result.finished_at, t)}
           </span>
         </div>
         <Button
@@ -39,7 +41,7 @@ export function ResultSummary({ result, onOpenResultUrl, onJumpToLog }: ResultSu
           leadingIcon={open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           onClick={() => setOpen((v) => !v)}
         >
-          {open ? "접기" : "펼치기"}
+          {open ? t("client.sync.result.collapse") : t("client.sync.result.expand")}
         </Button>
       </header>
 
@@ -47,19 +49,19 @@ export function ResultSummary({ result, onOpenResultUrl, onJumpToLog }: ResultSu
         <div className="card-bd">
           <div className="result-stats">
             <div className="result-stat result-stat-new">
-              <span className="result-stat-label">등록된 기록</span>
+              <span className="result-stat-label">{t("client.sync.result.inserted")}</span>
               <span className="result-stat-value">
                 <b>{formatNumber(result.inserted)}</b>
               </span>
             </div>
             <div className="result-stat result-stat-improved">
-              <span className="result-stat-label">수정된 기록</span>
+              <span className="result-stat-label">{t("client.sync.result.updated")}</span>
               <span className="result-stat-value">
                 <b>{formatNumber(result.metadata_updated)}</b>
               </span>
             </div>
             <div className="result-stat result-stat-error">
-              <span className="result-stat-label">오류</span>
+              <span className="result-stat-label">{t("client.sync.result.errors")}</span>
               <span className="result-stat-value">
                 <b>{formatNumber(errorCount)}</b>
               </span>
@@ -68,7 +70,7 @@ export function ResultSummary({ result, onOpenResultUrl, onJumpToLog }: ResultSu
 
           {errorCount > 0 ? (
             <div className="result-extra">
-              <strong style={{ color: "var(--danger)" }}>오류 {formatNumber(errorCount)}건</strong>
+              <strong style={{ color: "var(--danger)" }}>{t("client.sync.result.errors")} {formatNumber(errorCount)}</strong>
               <ul>
                 {result.errors.slice(0, 5).map((err, idx) => (
                   <li key={idx}>
@@ -78,9 +80,9 @@ export function ResultSummary({ result, onOpenResultUrl, onJumpToLog }: ResultSu
                 ))}
                 {errorCount > 5 ? (
                   <li>
-                    외 {errorCount - 5}건 더 있음 —{" "}
+                    {t("client.sync.result.moreErrors", { count: errorCount - 5 })} —{" "}
                     <button type="button" className="btn btn-ghost btn-sm" onClick={onJumpToLog}>
-                      로그에서 보기
+                      {t("client.sync.result.viewInLogs")}
                     </button>
                   </li>
                 ) : null}
@@ -90,14 +92,14 @@ export function ResultSummary({ result, onOpenResultUrl, onJumpToLog }: ResultSu
 
           <div className="result-cta">
             <span style={{ color: "var(--muted)", fontSize: "0.84rem" }}>
-              사이트에서 동기화된 플레이 데이터를 확인할 수 있습니다.
+              {t("client.sync.result.siteHint")}
             </span>
             <Button
               variant="primary"
               leadingIcon={<ExternalLink size={14} aria-hidden="true" />}
               onClick={() => onOpenResultUrl?.(resultUrl)}
             >
-              사이트에서 결과 확인
+              {t("client.sync.result.openSite")}
             </Button>
           </div>
         </div>
