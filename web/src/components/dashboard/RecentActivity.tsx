@@ -20,6 +20,8 @@ import {
 import { displayClearType } from "@/lib/clear-type-display";
 import { formatRatePercent } from "@/lib/rate-format";
 import { songHref } from "@/lib/song-href";
+import { formatRelativeDate } from "@/lib/time";
+import { localeFromLanguage } from "@/lib/i18n/locale";
 
 // CSS variable refs per internal clear_type (0=NO PLAY, 1=FAILED, 2=ASSIST, 3=EASY, 4=NORMAL, 5=HARD, 6=EXHARD, 7=FC, 8=PERFECT, 9=MAX)
 const CLEAR_BADGE_STYLE: Record<number, React.CSSProperties> = {
@@ -206,28 +208,11 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
 
 // ── Thread row helpers ─────────────────────────────────────────────────────────
 
-function formatDateLabel(dateStr: string): string {
+function formatDateLabel(dateStr: string, locale: string): string {
   const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return d.toLocaleDateString(locale, { month: "short", day: "numeric" });
 }
 
-function formatRelativeTime(dateStr: string): string {
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
-
-  if (dateStr === todayStr) return "Today";
-  if (dateStr === yesterdayStr) return "Yesterday";
-
-  const diffMs = today.getTime() - new Date(dateStr + "T00:00:00").getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays < 7) return `${diffDays} days ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`;
-  return `${Math.floor(diffDays / 365)} years ago`;
-}
 
 // ── Thread row list component ──────────────────────────────────────────────────
 
@@ -251,7 +236,8 @@ export function RecentActivity({
   emptyMessage,
   userId,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const dateLocale = localeFromLanguage(i18n.language);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const allDays = heatmapData
@@ -294,8 +280,8 @@ export function RecentActivity({
                 }}
               >
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-label font-semibold">{formatDateLabel(day.date)}</span>
-                  <span className="text-caption text-muted-foreground">{formatRelativeTime(day.date)}</span>
+                  <span className="text-label font-semibold">{formatDateLabel(day.date, dateLocale)}</span>
+                  <span className="text-caption text-muted-foreground">{formatRelativeDate(day.date + "T00:00:00", "--", t)}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   {/* Order: score updates → new plays → rating updates → play count */}

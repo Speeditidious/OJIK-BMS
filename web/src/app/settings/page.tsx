@@ -34,6 +34,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { localeFromLanguage } from "@/lib/i18n/locale";
 import { useAuth } from "@/hooks/use-auth";
 import { useAuthStore } from "@/stores/auth";
 import { api, clearTokens, apiFetch } from "@/lib/api";
@@ -492,7 +493,8 @@ function PreferencesTab() {
 type DeleteStep = "idle" | "confirming" | "verified" | "deleting";
 
 function AccountTab() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const dateLocale = localeFromLanguage(i18n.language);
   const [syncStatus, setSyncStatus] = useState<{ last_synced_at: string | null } | null>(null);
   const [oauthAccounts, setOauthAccounts] = useState<
     { provider: string; provider_username: string | null }[]
@@ -611,7 +613,7 @@ function AccountTab() {
       {/* Connected accounts */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Connected Accounts</CardTitle>
+          <CardTitle className="text-base">{t("settings.account.connectedAccounts")}</CardTitle>
         </CardHeader>
         <CardContent>
           {oauthAccounts.length > 0 ? (
@@ -628,11 +630,11 @@ function AccountTab() {
                     <span className="text-label text-muted-foreground">{acc.provider_username}</span>
                   )}
                 </div>
-                <span className="text-label text-primary">Connected</span>
+                <span className="text-label text-primary">{t("settings.account.connected")}</span>
               </div>
             ))
           ) : (
-            <p className="text-body text-muted-foreground">No connected accounts.</p>
+            <p className="text-body text-muted-foreground">{t("settings.account.noConnectedAccounts")}</p>
           )}
         </CardContent>
       </Card>
@@ -640,14 +642,14 @@ function AccountTab() {
       {/* Sync status */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Sync Status</CardTitle>
+          <CardTitle className="text-base">{t("settings.account.syncStatus")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="text-body">
-            <span className="text-muted-foreground">Last synced: </span>
+            <span className="text-muted-foreground">{t("settings.account.lastSyncedLabel")}</span>
             {syncStatus?.last_synced_at ? (
               <span className="font-medium">
-                {new Date(syncStatus.last_synced_at).toLocaleString(undefined, {
+                {new Date(syncStatus.last_synced_at).toLocaleString(dateLocale, {
                   year: "numeric",
                   month: "long",
                   day: "numeric",
@@ -675,16 +677,16 @@ function AccountTab() {
         <CardHeader>
           <CardTitle className="text-destructive flex items-center gap-2">
             <AlertTriangle className="h-4 w-4" />
-            Danger Zone
+            {t("settings.account.dangerZone")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
             <p className="text-body font-medium mb-1">{t("settings.account.deleteAccount")}</p>
             <ul className="text-label text-muted-foreground space-y-0.5 mb-3 list-disc list-inside">
-              <li>All play records will be permanently deleted</li>
-              <li>Favorites, tags, and settings will all be deleted</li>
-              <li>Deleted data cannot be recovered</li>
+              <li>{t("settings.account.deleteEffect1")}</li>
+              <li>{t("settings.account.deleteEffect2")}</li>
+              <li>{t("settings.account.deleteEffect3")}</li>
             </ul>
             <Button variant="destructive" size="sm" onClick={handleOpenDeleteModal}>
               {t("settings.account.deleteAccount")}
@@ -702,21 +704,21 @@ function AccountTab() {
               {t("settings.account.deleteAccount")}
             </DialogTitle>
             <DialogDescription>
-              This action cannot be undone. Your account and all data will be permanently deleted.
+              {t("settings.account.cannotBeUndone")}
             </DialogDescription>
           </DialogHeader>
 
           {deleteStep === "confirming" && (
             <div className="space-y-4">
               <p className="text-body">
-                To continue, please verify your identity with your Discord account.
+                {t("settings.account.verifyIdentity")}
               </p>
               {verifyError && <p className="text-label text-destructive">{verifyError}</p>}
               <Button onClick={openDeleteVerification} variant="outline" className="w-full gap-2">
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M20.317 4.492c-1.53-.69-3.17-1.2-4.885-1.49a.075.075 0 0 0-.079.036c-.21.369-.444.85-.608 1.23a18.566 18.566 0 0 0-5.487 0 12.36 12.36 0 0 0-.617-1.23A.077.077 0 0 0 8.562 3c-1.714.29-3.354.8-4.885 1.491a.07.07 0 0 0-.032.027C.533 9.093-.32 13.555.099 17.961a.08.08 0 0 0 .031.055 20.03 20.03 0 0 0 5.993 2.98.078.078 0 0 0 .084-.026c.462-.62.874-1.275 1.226-1.963.021-.04.001-.088-.041-.104a13.201 13.201 0 0 1-1.872-.878.075.075 0 0 1-.008-.125c.126-.093.252-.19.372-.287a.075.075 0 0 1 .078-.01c3.927 1.764 8.18 1.764 12.061 0a.075.075 0 0 1 .079.009c.12.098.245.195.372.288a.075.075 0 0 1-.006.125c-.598.344-1.22.635-1.873.877a.075.075 0 0 0-.041.105c.36.687.772 1.341 1.225 1.962a.077.077 0 0 0 .084.028 19.963 19.963 0 0 0 6.002-2.981.076.076 0 0 0 .032-.054c.5-5.094-.838-9.52-3.549-13.442a.06.06 0 0 0-.031-.028zM8.02 15.278c-1.182 0-2.157-1.069-2.157-2.38 0-1.312.956-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.956 2.38-2.157 2.38zm7.975 0c-1.183 0-2.157-1.069-2.157-2.38 0-1.312.955-2.38 2.157-2.38 1.21 0 2.176 1.077 2.157 2.38 0 1.312-.946 2.38-2.157 2.38z" />
                 </svg>
-                Verify with Discord
+                {t("settings.account.verifyWithDiscord")}
               </Button>
             </div>
           )}
@@ -725,10 +727,10 @@ function AccountTab() {
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-body text-green-500">
                 <Check className="h-4 w-4" />
-                Discord verification complete
+                {t("settings.account.verificationComplete")}
               </div>
               <div>
-                <p className="text-body mb-2">To delete your account, type the following phrase exactly:</p>
+                <p className="text-body mb-2">{t("settings.account.typePhraseToDelete")}</p>
                 <p className="text-label font-mono bg-muted px-3 py-2 rounded-md mb-2 break-all">
                   {EXPECTED_CONFIRMATION}
                 </p>
@@ -736,7 +738,7 @@ function AccountTab() {
                   type="text"
                   value={confirmText}
                   onChange={(e) => setConfirmText(e.target.value)}
-                  placeholder="Type the phrase above"
+                  placeholder={t("settings.account.typePhrasePlaceholder")}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-body focus:outline-none focus:ring-2 focus:ring-ring"
                   disabled={deleteStep === "deleting"}
                 />

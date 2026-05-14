@@ -695,7 +695,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
     <div className="space-y-3">
       {/* Course records */}
       {summaryCourses.length > 0 && (
-        <CourseSectionTable title="Course Records" count={summaryCourses.length}>
+        <CourseSectionTable title={t("dashboard.scoreUpdates.courseRecords")} count={summaryCourses.length}>
           {summaryCourses.map((c, i) => (
             <CourseTableRow key={i} item={c} />
           ))}
@@ -705,7 +705,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {lampAll.length > 0 && (
           <SectionTable
-            title={t("dashboard.scoreUpdates.clear") + " Updates"}
+            title={t("dashboard.scoreUpdates.updateSection", { label: t("dashboard.scoreUpdates.clear") })}
             count={lamp.length}
             showNewPlays={prefs.score_updates_lamp_include_new_plays}
             onToggleNewPlays={canPersistPrefs
@@ -717,7 +717,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
         )}
         {scoreAll.length > 0 && (
           <SectionTable
-            title={t("dashboard.scoreUpdates.score") + " Updates"}
+            title={t("dashboard.scoreUpdates.updateSection", { label: t("dashboard.scoreUpdates.score") })}
             count={score.length}
             showNewPlays={prefs.score_updates_score_include_new_plays}
             onToggleNewPlays={canPersistPrefs
@@ -729,7 +729,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
         )}
         {bpAll.length > 0 && (
           <SectionTable
-            title={t("dashboard.scoreUpdates.bp") + " Updates"}
+            title={t("dashboard.scoreUpdates.updateSection", { label: t("dashboard.scoreUpdates.bp") })}
             count={bp.length}
             showNewPlays={prefs.score_updates_bp_include_new_plays}
             onToggleNewPlays={canPersistPrefs
@@ -741,7 +741,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
         )}
         {comboAll.length > 0 && (
           <SectionTable
-            title="Max Combo Updates"
+            title={t("dashboard.scoreUpdates.maxComboUpdates")}
             count={combo.length}
             showNewPlays={prefs.score_updates_combo_include_new_plays}
             onToggleNewPlays={canPersistPrefs
@@ -1115,7 +1115,7 @@ function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: strin
   return (
     <div className="space-y-4">
       {mergedCourses.length > 0 && (
-        <CourseSectionTable title="Course Records" count={mergedCourses.length}>
+        <CourseSectionTable title={t("dashboard.scoreUpdates.courseRecords")} count={mergedCourses.length}>
           {mergedCourses.map((c, i) => (
             <CourseTableRow key={i} item={c} />
           ))}
@@ -1205,7 +1205,7 @@ export function ScoreUpdates({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle>Record Details</CardTitle>
+        <CardTitle>{t("dashboard.scoreUpdates.cardTitle")}</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading && (
@@ -1226,10 +1226,10 @@ export function ScoreUpdates({
           >
             <div className="flex justify-center mb-4">
               <TabsList>
-                <TabsTrigger value="summary">Update Summary</TabsTrigger>
+                <TabsTrigger value="summary">{t("dashboard.scoreUpdates.summaryTab")}</TabsTrigger>
                 {ratingSlot !== undefined && (
                   <TabsTrigger value="rating">
-                    Rating Changes
+                    {t("dashboard.scoreUpdates.ratingTab")}
                     {ratingBadgeCount > 0 && (
                       <span className="ml-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-primary/20 px-1.5 text-caption font-semibold text-primary">
                         {ratingBadgeCount}
@@ -1237,7 +1237,7 @@ export function ScoreUpdates({
                     )}
                   </TabsTrigger>
                 )}
-                <TabsTrigger value="all">All</TabsTrigger>
+                <TabsTrigger value="all">{t("dashboard.scoreUpdates.allTab")}</TabsTrigger>
               </TabsList>
             </div>
             <TabsContent value="summary">

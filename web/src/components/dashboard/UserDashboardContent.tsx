@@ -325,7 +325,7 @@ function CalendarDayDetail({
   date,
   clientType,
   onBack,
-  backLabel = "Back to calendar",
+  backLabel,
   rankingTables,
   selectedRankingTable,
   onSelectRankingTable,
@@ -386,13 +386,15 @@ function CalendarDayDetail({
     autoSelectedDateRef.current = date;
   }, [date, onSelectRankingTable, selectedRankingTable, updatedTables]);
 
-  const dateLabel = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")} Records`;
+  const dateText = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const dateLabel = t("dashboard.dayDetail.title", { date: dateText });
+  const resolvedBackLabel = backLabel ?? t("dashboard.calendar.back");
   const isDayDetailLoading =
     (recentUpdates.isLoading && !recentUpdates.data) ||
     (scoreUpdates.isLoading && !scoreUpdates.data);
 
   if (isDayDetailLoading) {
-    return <CalendarDayDetailSkeleton backLabel={backLabel} dateLabel={dateLabel} />;
+    return <CalendarDayDetailSkeleton backLabel={resolvedBackLabel} dateLabel={dateLabel} />;
   }
 
   return (
@@ -404,7 +406,7 @@ function CalendarDayDetail({
         onClick={onBack}
       >
         <ChevronLeft className="h-4 w-4" />
-        {backLabel}
+        {resolvedBackLabel}
       </Button>
       <div className="flex items-center gap-2">
         <CalendarDays className="h-5 w-5 text-primary" />
@@ -415,50 +417,50 @@ function CalendarDayDetail({
         <TooltipProvider>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
             <DayStatCard
-              title="Updates"
+              title={t("dashboard.dayDetail.updates")}
               value={`${data.day_summary.total_updates}`}
-              sub="Records updated this day"
+              sub={t("dashboard.dayDetail.updatesSub")}
               icon={TrendingUp}
               accentVar="var(--warning)"
             />
             <DayStatCard
-              title="New Plays"
+              title={t("dashboard.dayDetail.newPlays")}
               value={`${data.day_summary.new_plays ?? 0}`}
-              sub="First plays this day"
+              sub={t("dashboard.dayDetail.newPlaysSub")}
               icon={Sparkles}
               accentVar="var(--primary)"
             />
             <DayStatCard
-              title="Rating Updates"
+              title={t("dashboard.dayDetail.ratingUpdates")}
               value={`${data.day_summary.rating_updates ?? 0}`}
-              sub="Tables updated this day"
+              sub={t("dashboard.dayDetail.ratingUpdatesSub")}
               icon={Trophy}
               accentVar="var(--chart-rating)"
             />
             <DayStatCard
-              title="Play Count"
+              title={t("dashboard.dayDetail.playCount")}
               value={`${data.day_summary.total_play_count ?? 0}`}
-              sub="Plays this day"
+              sub={t("dashboard.dayDetail.playCountSub")}
               icon={Music2}
               uncertain={data.day_summary.play_count_uncertain}
-              uncertainTooltip="Play count for records on or before the first sync date cannot be determined."
+              uncertainTooltip={t("dashboard.dayDetail.playCountUncertain")}
               accentVar="var(--chart-play)"
             />
             <DayStatCard
-              title="Play Time"
+              title={t("dashboard.dayDetail.playTime")}
               value={formatDuration(data.day_summary.total_playtime, t)}
-              sub="Play time this day"
+              sub={t("dashboard.dayDetail.playTimeSub")}
               icon={Clock}
               uncertain={data.day_summary.playtime_uncertain}
-              uncertainTooltip="Play time for records on or before the first sync date cannot be determined."
+              uncertainTooltip={t("dashboard.dayDetail.playTimeUncertain")}
             />
             <DayStatCard
-              title="Notes Hit"
+              title={t("dashboard.dayDetail.notesHit")}
               value={`${data.day_summary.total_notes_hit.toLocaleString()}`}
-              sub="Notes hit this day"
+              sub={t("dashboard.dayDetail.notesHitSub")}
               icon={Hammer}
               uncertain={data.day_summary.notes_hit_uncertain}
-              uncertainTooltip="Notes hit for records on or before the first sync date cannot be determined."
+              uncertainTooltip={t("dashboard.dayDetail.notesHitUncertain")}
             />
           </div>
         </TooltipProvider>
@@ -736,18 +738,18 @@ export function UserDashboardContent({ userId }: { userId: string }) {
 
         <Tabs value={currentTab} onValueChange={handleTabChange} className="space-y-4">
           <TabsList>
-            <TabsTrigger value="distribution">Clear Distribution</TabsTrigger>
-            <TabsTrigger value="rating" disabled={rankingTablesLoading || rankingTables.length === 0}>Rating Detail</TabsTrigger>
-            <TabsTrigger value="activity">Activity Summary</TabsTrigger>
-            <TabsTrigger value="calendar">Activity Calendar</TabsTrigger>
+            <TabsTrigger value="distribution">{t("dashboard.tabs.distribution")}</TabsTrigger>
+            <TabsTrigger value="rating" disabled={rankingTablesLoading || rankingTables.length === 0}>{t("dashboard.tabs.rating")}</TabsTrigger>
+            <TabsTrigger value="activity">{t("dashboard.tabs.activity")}</TabsTrigger>
+            <TabsTrigger value="calendar">{t("dashboard.tabs.calendar")}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="distribution">
             <Card>
               <CardHeader>
-                <CardTitle>Difficulty Table Clear Distribution</CardTitle>
+                <CardTitle>{t("dashboard.distribution.title")}</CardTitle>
                 <CardDescription>
-                  Clear status by difficulty table level. Click a bar to filter by that level and clear type.
+                  {t("dashboard.distribution.description")}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -792,7 +794,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 date={activityDate}
                 clientType={clientType}
                 onBack={handleBackToActivity}
-                backLabel="Back to activity summary"
+                backLabel={t("dashboard.dayDetail.backToActivity")}
                 rankingTables={rankingTables}
                 selectedRankingTable={selectedRankingTable}
                 onSelectRankingTable={(slug) => updateParams({ ranking_table: slug })}
@@ -806,8 +808,8 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 <Card>
                   <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
-                      <CardTitle>Activity Heatmap</CardTitle>
-                      <CardDescription>View yearly play, update, and rating activity at a glance.</CardDescription>
+                      <CardTitle>{t("dashboard.activityOverview.heatmapTitle")}</CardTitle>
+                      <CardDescription>{t("dashboard.activityOverview.heatmapDescription")}</CardDescription>
                     </div>
                     <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
                       <div className="flex flex-wrap gap-1 lg:justify-end">
@@ -858,8 +860,8 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 <Card>
                   <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
-                      <CardTitle>Activity Graph</CardTitle>
-                      <CardDescription>Track your activity trends over time.</CardDescription>
+                      <CardTitle>{t("dashboard.activityOverview.graphTitle")}</CardTitle>
+                      <CardDescription>{t("dashboard.activityOverview.graphDescription")}</CardDescription>
                     </div>
                     <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
                       <div className="flex flex-wrap gap-1 lg:justify-end">
@@ -905,8 +907,8 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 <Card>
                   <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
-                      <CardTitle>Rating Graph</CardTitle>
-                      <CardDescription>View EXP / Rating / BMSFORCE trends for the selected difficulty table.</CardDescription>
+                      <CardTitle>{t("dashboard.activityOverview.ratingGraphTitle")}</CardTitle>
+                      <CardDescription>{t("dashboard.activityOverview.ratingGraphDescription")}</CardDescription>
                     </div>
                     <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
                       {rankingTables.length > 0 && (
@@ -949,7 +951,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                       />
                     ) : (
                       <div className="flex h-[300px] items-center justify-center text-body text-muted-foreground">
-                        Please select a difficulty table to view the rating graph.
+                        {t("dashboard.activityOverview.selectTable")}
                       </div>
                     )}
                   </CardContent>
@@ -974,7 +976,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 date={calendarDate}
                 clientType={clientType}
                 onBack={handleBackToCalendar}
-                backLabel="Back to calendar"
+                backLabel={t("dashboard.calendar.back")}
                 rankingTables={rankingTables}
                 selectedRankingTable={selectedRankingTable}
                 onSelectRankingTable={(slug) => updateParams({ ranking_table: slug })}
@@ -986,8 +988,8 @@ export function UserDashboardContent({ userId }: { userId: string }) {
             ) : (
               <Card>
                 <CardHeader>
-                  <CardTitle>Activity Calendar</CardTitle>
-                  <CardDescription>Click a date to view that day&apos;s records and rating changes.</CardDescription>
+                  <CardTitle>{t("dashboard.calendar.title")}</CardTitle>
+                  <CardDescription>{t("dashboard.calendar.description")}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ActivityCalendar

@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint src/",
     "type-check": "tsc --noEmit",
-    "test:i18n": "node src/lib/i18n/languages.test.mjs && node src/lib/i18n/client-render-safety.test.mjs",
+    "test:i18n": "node src/lib/i18n/languages.test.mjs && node src/lib/i18n/client-render-safety.test.mjs && node src/lib/i18n/dashboard-localization.test.mjs",
     "test:i18n:boundary": "node src/lib/i18n/proper-noun-boundary.test.mjs",
     "test:i18n:audit": "node src/lib/i18n/audit-hardcoded-korean.mjs"
   },

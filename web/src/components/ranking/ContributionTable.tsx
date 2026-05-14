@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { localeFromLanguage } from "@/lib/i18n/locale";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { SourceClientBadge } from "@/components/common/SourceClientBadge";
 import { clearText } from "@/components/dashboard/RecentActivity";
@@ -584,7 +585,8 @@ function ContributionRow({
   columns: TableColumn[];
   userId?: string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const dateLocale = localeFromLanguage(i18n.language);
   const songUrl = entry.sha256 || entry.md5
     ? songHref({ fumen_id: entry.fumen_id, sha256: entry.sha256, md5: entry.md5 }, userId)
     : null;
@@ -626,7 +628,7 @@ function ContributionRow({
                 </span>
               </TooltipTrigger>
               <TooltipContent side="top" className="text-label">
-                {new Date(entry.recorded_at).toLocaleDateString("ko-KR")}
+                {new Date(entry.recorded_at).toLocaleDateString(dateLocale)}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -643,7 +645,7 @@ function ContributionRow({
                 </span>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-64 text-label">
-                This record was made on or before the first sync date; the exact date is unknown.
+                {t("ranking.detail.preSyncRecordTooltip")}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>

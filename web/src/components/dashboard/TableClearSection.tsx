@@ -275,7 +275,7 @@ const SongTable = React.memo(function SongTable({
   if (songs.length === 0) {
     return (
       <div className="flex items-center justify-center h-24 text-muted-foreground text-body">
-        No songs match the current filter.
+        {t("dashboard.tableClear.noSongsFiltered")}
       </div>
     );
   }
@@ -810,10 +810,10 @@ export function TableClearSection({
       {showTargetList && (
         <FavTableList
           tables={targetFavTables ?? []}
-          title={`${targetUsername}'s favorite tables`}
+          title={t("dashboard.tableClear.userFavoriteTables", { name: targetUsername })}
           selectedId={effectiveTableId}
           onSelect={handleTableSelect}
-          emptyMessage={`${targetUsername} has no favorited tables.`}
+          emptyMessage={t("dashboard.tableClear.userEmpty", { name: targetUsername })}
         />
       )}
 
@@ -821,11 +821,11 @@ export function TableClearSection({
       {showViewerList && (
         <FavTableList
           tables={viewerFavTables ?? []}
-          title="My favorite tables"
+          title={t("dashboard.tableClear.myFavoriteTables")}
           selectedId={effectiveTableId}
           onSelect={handleTableSelect}
           headerAction={<FavoritesSettingsLinkButton />}
-          emptyMessage="You have no favorited tables."
+          emptyMessage={t("dashboard.tableClear.myEmpty")}
         />
       )}
 
@@ -833,10 +833,10 @@ export function TableClearSection({
       {showGuestList && (
         <FavTableList
           tables={targetFavTables ?? []}
-          title={`${targetUsername}'s favorite tables`}
+          title={t("dashboard.tableClear.userFavoriteTables", { name: targetUsername })}
           selectedId={effectiveTableId}
           onSelect={handleTableSelect}
-          emptyMessage={`${targetUsername} has no favorited tables.`}
+          emptyMessage={t("dashboard.tableClear.userEmpty", { name: targetUsername })}
         />
       )}
 
@@ -885,7 +885,7 @@ export function TableClearSection({
             {/* Active filters display */}
             {isFiltered && (
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-label text-muted-foreground">Filter:</span>
+                <span className="text-label text-muted-foreground">{t("dashboard.tableClear.filterLabel")}</span>
                 {[...filterLevels].map((lv) => (
                   <Badge key={lv} variant="secondary" className="text-label gap-1 h-5">
                     {formatLevel(lv, tableSymbol)}
@@ -916,16 +916,16 @@ export function TableClearSection({
                   className="h-5 text-label px-2"
                   onClick={clearFilters}
                 >
-                  Reset
+                  {t("dashboard.tableClear.reset")}
                 </Button>
               </div>
             )}
 
             {/* Song count */}
             <div className="text-label text-muted-foreground">
-              {filteredSongs.length} charts
+              {t("dashboard.tableClear.chartCount", { count: filteredSongs.length })}
               {dist.songs.length !== filteredSongs.length && (
-                <span> / {dist.songs.length} total</span>
+                <span>{t("dashboard.tableClear.chartCountTotal", { count: dist.songs.length })}</span>
               )}
             </div>
 
