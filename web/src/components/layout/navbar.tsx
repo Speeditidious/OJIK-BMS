@@ -18,6 +18,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { AvatarImage } from "@/components/common/AvatarImage";
 
 import { cn } from "@/lib/utils";
 import { resolveAvatarUrl } from "@/lib/avatar";
@@ -98,11 +99,10 @@ export function Navbar() {
                 <DropdownMenuTrigger asChild>
                   <button className="rounded-full focus:outline-none focus:ring-2 focus:ring-primary/50 cursor-pointer">
                     {user.avatar_url ? (
-                      <Image
+                      <AvatarImage
                         src={resolveAvatarUrl(user.avatar_url)}
                         alt={user.username}
-                        width={32}
-                        height={32}
+                        size={32}
                         className="rounded-full object-cover"
                       />
                     ) : (
@@ -115,11 +115,10 @@ export function Navbar() {
                 <DropdownMenuContent align="end" className="w-48">
                   <div className="px-2 py-1.5 flex items-center gap-2 border-b mb-1 pointer-events-none">
                     {user.avatar_url ? (
-                      <Image
+                      <AvatarImage
                         src={resolveAvatarUrl(user.avatar_url)}
                         alt={user.username}
-                        width={24}
-                        height={24}
+                        size={24}
                         className="rounded-full object-cover"
                       />
                     ) : (

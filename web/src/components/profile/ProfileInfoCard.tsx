@@ -1,10 +1,10 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { ArrowRight, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AvatarImage } from "@/components/common/AvatarImage";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import { formatJoinDate, timeAgo } from "@/lib/time";
 
@@ -28,11 +28,10 @@ export function ProfileInfoCard({
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-border bg-card/70 p-5 sm:flex-row sm:items-start">
       {avatarUrl ? (
-        <Image
+        <AvatarImage
           src={resolveAvatarUrl(avatarUrl)}
           alt=""
-          width={64}
-          height={64}
+          size={64}
           className="rounded-full object-cover ring-2 ring-primary/30"
         />
       ) : (

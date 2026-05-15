@@ -1,8 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import { useTranslation } from "react-i18next";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AvatarImage } from "@/components/common/AvatarImage";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import { timeAgo } from "@/lib/time";
 import type { MyRankData } from "@/lib/ranking-types";
@@ -30,11 +30,10 @@ export function RatingProfileHeader({
   }
 
   const avatar = profileUser.avatar_url ? (
-    <Image
+    <AvatarImage
       src={resolveAvatarUrl(profileUser.avatar_url)}
       alt={profileUser.username}
-      width={72}
-      height={72}
+      size={72}
       className="rounded-full object-cover"
     />
   ) : (

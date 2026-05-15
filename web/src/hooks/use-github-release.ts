@@ -8,6 +8,8 @@ export interface GitHubRelease {
   releasePageUrl: string;
 }
 
+const RELEASE_CACHE_TIME_MS = 12 * 60 * 60 * 1000;
+
 async function fetchLatestRelease(): Promise<GitHubRelease | null> {
   const res = await fetch("/api/client-release");
 
@@ -20,8 +22,8 @@ export function useGitHubRelease() {
   return useQuery<GitHubRelease | null>({
     queryKey: ["github-release"],
     queryFn: fetchLatestRelease,
-    staleTime: 10 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
+    staleTime: RELEASE_CACHE_TIME_MS,
+    gcTime: RELEASE_CACHE_TIME_MS,
     retry: 1,
   });
 }

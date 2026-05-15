@@ -3,7 +3,7 @@
 Uses mocking to avoid SQLite/JSONB incompatibility in the test engine.
 """
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -115,6 +115,24 @@ class TestClientUpdateAdmin:
             True,
             None,
         )
+
+    async def test_publish_sets_default_publish_after_delay(self):
+        row = _make_row(version="1.0.0-beta.2", is_published=False)
+        row.published_at = None
+        row.publish_after = None
+
+        before = datetime.now(UTC)
+        await ClientUpdateAnnouncementAdmin.on_model_change(
+            ClientUpdateAnnouncementAdmin,
+            {"is_published": True},
+            row,
+            False,
+            None,
+        )
+
+        assert row.published_at is not None
+        assert row.publish_after is not None
+        assert row.publish_after >= before + timedelta(minutes=9, seconds=50)
 
 
 # ---------------------------------------------------------------------------

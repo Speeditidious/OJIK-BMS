@@ -6,7 +6,7 @@ Data integrity rules applied here mirror the constraints in the API:
 """
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqladmin import ModelView, action
 from sqlalchemy import delete, func, null, text, update
@@ -34,6 +34,7 @@ from app.models.score import UserPlayerStats, UserScore
 from app.models.user import OAuthAccount, User
 
 RESETTABLE_CLIENT_TYPES = frozenset({"lr2", "beatoraja"})
+CLIENT_UPDATE_DEFAULT_PUBLISH_DELAY = timedelta(minutes=10)
 
 
 def _admin_user_id(request: Request) -> uuid.UUID | None:
@@ -692,14 +693,16 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
         is_published = data.get("is_published") if "is_published" in data else model.is_published
         if is_published and model.published_at is None:
             model.published_at = datetime.now(UTC)
+        if is_published and model.publish_after is None:
+            model.publish_after = _client_update_default_publish_after()
         if is_published:
             await _trigger_revalidate()
 
     @action(
         name="publish_updates",
-        label="업데이트 알림 보내기",
+        label="업데이트 알림 예약하기",
         confirmation_message=(
-            "선택한 업데이트를 공개합니다. 설치된 클라이언트는 다음 업데이트 확인 시 팝업을 표시합니다. "
+            "선택한 업데이트를 공개 예약합니다. 기본적으로 약 10분 뒤 설치된 클라이언트에 표시됩니다. "
             "계속하시겠습니까?"
         ),
         add_in_detail=True,
@@ -712,6 +715,7 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
         pks = _parse_uuid_pks(request.query_params.get("pks", ""))
         if pks:
             now = datetime.now(UTC)
+            visible_at = _client_update_default_publish_after(now)
             async with AsyncSessionLocal() as db:
                 await db.execute(
                     update(ClientUpdateAnnouncement)
@@ -719,6 +723,7 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
                     .values(
                         is_published=True,
                         published_at=func.coalesce(ClientUpdateAnnouncement.published_at, now),
+                        publish_after=func.coalesce(ClientUpdateAnnouncement.publish_after, visible_at),
                         updated_at=now,
                     )
                 )
@@ -751,6 +756,11 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
                 await db.commit()
 
         return RedirectResponse(request.url_for("admin:list", identity=self.identity), status_code=302)
+
+
+def _client_update_default_publish_after(now: datetime | None = None) -> datetime:
+    """Return the default visibility time for newly published client updates."""
+    return (now or datetime.now(UTC)) + CLIENT_UPDATE_DEFAULT_PUBLISH_DELAY
 
 
 async def _trigger_revalidate() -> None:

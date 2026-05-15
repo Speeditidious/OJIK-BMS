@@ -1,9 +1,9 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AvatarImage } from "@/components/common/AvatarImage";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import { cn } from "@/lib/utils";
 import { DecoratedUsername } from "./DecoratedUsername";
@@ -109,11 +109,10 @@ export function RankingTable({
               {/* Nickname + avatar */}
               <div className="flex items-center gap-3 min-w-0">
                 {entry.avatar_url ? (
-                  <Image
+                  <AvatarImage
                     src={resolveAvatarUrl(entry.avatar_url)}
                     alt={entry.username}
-                    width={44}
-                    height={44}
+                    size={44}
                     className="rounded-full object-cover flex-shrink-0"
                   />
                 ) : (

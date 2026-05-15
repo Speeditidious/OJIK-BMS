@@ -1,9 +1,9 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AvatarImage } from "@/components/common/AvatarImage";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import { timeAgo } from "@/lib/time";
 import type { AuthUser } from "@/stores/auth";
@@ -185,11 +185,10 @@ export function MyRankCard({
             className="group flex flex-col items-center gap-3.5 min-w-0 w-fit max-w-full text-center"
           >
             {user.avatar_url ? (
-              <Image
+              <AvatarImage
                 src={resolveAvatarUrl(user.avatar_url)}
                 alt={user.username}
-                width={48}
-                height={48}
+                size={48}
                 className="rounded-full object-cover flex-shrink-0"
               />
             ) : (

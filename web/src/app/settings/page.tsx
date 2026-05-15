@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, Suspense } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -34,6 +33,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { AvatarImage } from "@/components/common/AvatarImage";
 import { localeFromLanguage } from "@/lib/i18n/locale";
 import { useAuth } from "@/hooks/use-auth";
 import { useAuthStore } from "@/stores/auth";
@@ -156,11 +156,10 @@ function ProfileTab() {
         {/* Avatar */}
         <div className="flex items-center gap-4">
           {user?.avatar_url ? (
-            <Image
+            <AvatarImage
               src={resolveAvatarUrl(user.avatar_url)}
               alt={user.username}
-              width={64}
-              height={64}
+              size={64}
               className="rounded-full object-cover"
             />
           ) : (
