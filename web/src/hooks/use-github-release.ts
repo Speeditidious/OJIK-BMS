@@ -8,7 +8,7 @@ export interface GitHubRelease {
   releasePageUrl: string;
 }
 
-const RELEASE_CACHE_TIME_MS = 12 * 60 * 60 * 1000;
+const RELEASE_CACHE_TIME_MS = 5 * 60 * 1000;
 
 async function fetchLatestRelease(): Promise<GitHubRelease | null> {
   const res = await fetch("/api/client-release");

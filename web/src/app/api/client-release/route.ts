@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-export const revalidate = 43200;
+export const revalidate = 300;
 
 interface ClientLatestReleaseResponse {
   version: string;
