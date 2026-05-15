@@ -5,7 +5,7 @@ import { checkUpdatePolicy, installUpdate, openDownloadPage } from "../tauri";
 import type { InstallUpdateOptions } from "../tauri";
 import type { UpdateAnnouncement, UpdateError, UpdatePolicy } from "../types";
 
-const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000;
 
 export function useUpdateStore() {
   const [policy, setPolicy] = useState<UpdatePolicy | null>(null);
@@ -16,7 +16,8 @@ export function useUpdateStore() {
   const [isInstalling, setIsInstalling] = useState(false);
   const installStageRef = useRef<UpdateError["stage"]>("check");
 
-  // Background check on mount.
+  // Check on app start, then very occasionally for users who leave the app open.
+  // Manual checks are available from diagnostics.
   useEffect(() => {
     let cancelled = false;
     const check = () => {
