@@ -12,11 +12,13 @@ from app.core.config import settings
 from app.routers import (
     admin,
     analysis,
+    announcements,
     auth,
     client,
     custom,
     fumens,
     internal_client_updates,
+    notifications,
     rankings,
     schedules,
     scores,
@@ -150,9 +152,11 @@ app.add_middleware(
 # ── Routers ─────────────────────────────────────────────────────────────────
 
 app.include_router(admin.router)
+app.include_router(announcements.router)
 app.include_router(auth.router)
 app.include_router(client.router)
 app.include_router(internal_client_updates.router)
+app.include_router(notifications.router)
 app.include_router(users.router)
 app.include_router(tables.router)
 app.include_router(scores.router)

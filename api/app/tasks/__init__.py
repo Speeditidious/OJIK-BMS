@@ -42,6 +42,7 @@ def _build_update_schedule(schedule_config: dict):
 def build_beat_schedule(update_config: dict, table_configs: list[dict]) -> dict:
     """Build Celery beat schedule entries for table updates and ranking jobs."""
     update_interval_seconds = update_config.get("update_interval_hours", 168) * 3600
+    user_update_interval_seconds = update_config.get("user_table_update_interval_hours", 168) * 3600
     scheduled_slugs = _scheduled_update_slugs(table_configs)
     beat_schedule = {
         "update-difficulty-tables": {
@@ -57,6 +58,14 @@ def build_beat_schedule(update_config: dict, table_configs: list[dict]) -> dict:
         "recalculate-all-rankings": {
             "task": RECALCULATE_ALL_RANKINGS_TASK,
             "schedule": 86400,  # 24 hours
+        },
+        "update-user-difficulty-tables": {
+            "task": UPDATE_ALL_TABLES_TASK,
+            "schedule": user_update_interval_seconds,
+            "kwargs": {
+                "user_only": True,
+                "force": False,
+            },
         },
     }
 

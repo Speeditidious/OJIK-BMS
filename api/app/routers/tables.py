@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -18,6 +18,7 @@ from app.core.security import (
 )
 from app.models.difficulty_table import DifficultyTable, UserFavoriteDifficultyTable
 from app.models.fumen import Fumen, FumenTableEntry
+from app.models.table_import import TableImportLog, TableSourceAlias
 from app.models.user import User
 from app.schemas import MessageResponse
 from app.services.default_table_order import sort_difficulty_tables
@@ -27,6 +28,7 @@ from app.services.fumen_user_scores import (
     fetch_user_score_map,
     fetch_user_tag_map,
 )
+from app.services.level_display_preferences import resolve_visible_table_ids
 
 router = APIRouter(prefix="/tables", tags=["tables"])
 
@@ -103,6 +105,24 @@ class ImportTableRequest(BaseModel):
 
 class FavoriteReorderRequest(BaseModel):
     table_ids: list[uuid.UUID]
+
+
+class TableImportQuotaRead(BaseModel):
+    created_limit: int
+    created_used: int
+    created_remaining: int
+    failed_limit: int
+    failed_used: int
+    failed_remaining: int
+    created_reset_at: datetime
+    failed_reset_at: datetime
+
+
+class ImportTableResponse(BaseModel):
+    table: DifficultyTableRead
+    outcome: Literal["created", "duplicate"]
+    message: str
+    quota: TableImportQuotaRead | None = None
 
 
 # ── List & detail ─────────────────────────────────────────────────────────────
@@ -208,7 +228,12 @@ async def get_table_songs(
     filtered_fumens = [row[0] for row in rows]
 
     fumen_level_map: dict[uuid.UUID, str] = {row[0].fumen_id: row[1] for row in rows}
-    table_entries_map = await _table_entries_map(db, [f.fumen_id for f in filtered_fumens])
+    visible_table_ids = await resolve_visible_table_ids(db, current_user)
+    table_entries_map = await _table_entries_map(
+        db,
+        [f.fumen_id for f in filtered_fumens],
+        visible_table_ids=visible_table_ids,
+    )
 
     # Fetch per-field best scores and tags for the logged-in user
     score_map: dict[tuple[str | None, str | None], TableFumenScore] = {}
@@ -336,12 +361,21 @@ async def reorder_favorites(
 
 # ── Import & manual sync ──────────────────────────────────────────────────────
 
-@router.post("/import", response_model=DifficultyTableRead, status_code=status.HTTP_201_CREATED)
+@router.get("/import/quota", response_model=TableImportQuotaRead)
+async def get_import_quota(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TableImportQuotaRead:
+    """Return the current user's table import quota state."""
+    return await _get_import_quota(current_user.id, db)
+
+
+@router.post("/import", response_model=ImportTableResponse, status_code=status.HTTP_201_CREATED)
 async def import_table(
     body: ImportTableRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> DifficultyTableRead:
+) -> ImportTableResponse:
     """Import an external difficulty table by URL.
 
     If a table with the same source_url already exists, returns it instead of
@@ -353,24 +387,39 @@ async def import_table(
 
     source_url = canonicalize_table_url(body.url)
 
-    # Check for existing table with same URL
-    existing_result = await db.execute(
-        select(DifficultyTable).where(DifficultyTable.source_url == source_url)
-    )
-    existing = existing_result.scalar_one_or_none()
+    existing = await _find_existing_import_table(source_url, db)
     if existing is not None:
         song_count = await _count_table_fumens(existing.id, db)
-        if song_count == 0 or not existing.level_order:
-            table_data = await _fetch_import_table_data(source_url, fetch_table)
-            song_count = await _populate_imported_table(existing, table_data, db)
-
         await _ensure_favorite(current_user.id, existing.id, db)
+        _add_table_import_log(db, current_user.id, source_url, "duplicate")
         await db.commit()
         await db.refresh(existing)
-        return DifficultyTableRead.from_orm_with_count(existing, song_count)
+        return ImportTableResponse(
+            table=DifficultyTableRead.from_orm_with_count(existing, song_count),
+            outcome="duplicate",
+            message="이미 존재하는 난이도표라 즐겨찾기에 추가했습니다.",
+            quota=await _get_import_quota(current_user.id, db),
+        )
+
+    quota = await _get_import_quota(current_user.id, db)
+    if quota.failed_remaining <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="비정상적인 요청 방지를 위해 1시간 5회로 제한했습니다.",
+        )
+    if quota.created_remaining <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="해당 난이도표 사이트에 비정상적인 요청을 방지하기 위해 하루 5회로 제한했습니다.",
+        )
 
     # Fetch and parse
-    table_data = await _fetch_import_table_data(source_url, fetch_table)
+    try:
+        table_data = await _fetch_import_table_data(source_url, fetch_table)
+    except HTTPException as exc:
+        _add_table_import_log(db, current_user.id, source_url, "failed", str(exc.detail))
+        await db.commit()
+        raise
 
     header = table_data.get("header", {})
     name: str = header.get("name") or body.url
@@ -385,10 +434,16 @@ async def import_table(
 
     song_count = await _populate_imported_table(new_table, table_data, db)
     await _ensure_favorite(current_user.id, new_table.id, db)
+    _add_table_import_log(db, current_user.id, source_url, "created")
     await db.commit()
     await db.refresh(new_table)
 
-    return DifficultyTableRead.from_orm_with_count(new_table, song_count)
+    return ImportTableResponse(
+        table=DifficultyTableRead.from_orm_with_count(new_table, song_count),
+        outcome="created",
+        message="난이도표를 추가했습니다.",
+        quota=await _get_import_quota(current_user.id, db),
+    )
 
 
 @router.post("/{table_id}/sync", response_model=MessageResponse)
@@ -416,10 +471,47 @@ async def _get_table_or_404(table_id: uuid.UUID, db: AsyncSession) -> Difficulty
     return table
 
 
+async def _find_existing_import_table(source_url: str, db: AsyncSession) -> DifficultyTable | None:
+    """Find an existing table by canonical source URL or admin-registered alias."""
+    result = await db.execute(select(DifficultyTable).where(DifficultyTable.source_url == source_url))
+    table = result.scalar_one_or_none()
+    if table is not None:
+        return table
+
+    alias_result = await db.execute(
+        select(DifficultyTable)
+        .join(TableSourceAlias, TableSourceAlias.table_id == DifficultyTable.id)
+        .where(TableSourceAlias.alias_url == source_url)
+    )
+    return alias_result.scalar_one_or_none()
+
+
 async def _fetch_import_table_data(url: str, fetch_table: Any) -> dict:
     """Fetch and validate difficulty table data for user-driven imports."""
+    import httpx
+
     try:
         table_data = await fetch_table(url)
+    except ValueError as exc:
+        detail = str(exc)
+        if "No <meta name='bmstable'>" in detail or "data_url" in detail or "not a JSON array" in detail:
+            message = "난이도표 URL이 아닙니다."
+        else:
+            message = "유효하지 않은 난이도표 링크입니다."
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=message,
+        )
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"URL 접근에 실패했습니다. Error Code: {exc.response.status_code}",
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"URL 접근에 실패했습니다. Error Code: {exc}",
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -433,6 +525,63 @@ async def _fetch_import_table_data(url: str, fetch_table: Any) -> dict:
         )
 
     return table_data
+
+
+async def _get_import_quota(user_id: uuid.UUID, db: AsyncSession) -> TableImportQuotaRead:
+    """Return quota usage for created and failed user table imports."""
+    now = datetime.now(UTC)
+    created_since = now - timedelta(hours=24)
+    failed_since = now - timedelta(hours=1)
+    created_limit = 5
+    failed_limit = 5
+
+    created_result = await db.execute(
+        select(func.count())
+        .select_from(TableImportLog)
+        .where(
+            TableImportLog.user_id == user_id,
+            TableImportLog.outcome == "created",
+            TableImportLog.created_at >= created_since,
+        )
+    )
+    failed_result = await db.execute(
+        select(func.count())
+        .select_from(TableImportLog)
+        .where(
+            TableImportLog.user_id == user_id,
+            TableImportLog.outcome == "failed",
+            TableImportLog.created_at >= failed_since,
+        )
+    )
+    created_used = int(created_result.scalar() or 0)
+    failed_used = int(failed_result.scalar() or 0)
+    return TableImportQuotaRead(
+        created_limit=created_limit,
+        created_used=created_used,
+        created_remaining=max(created_limit - created_used, 0),
+        failed_limit=failed_limit,
+        failed_used=failed_used,
+        failed_remaining=max(failed_limit - failed_used, 0),
+        created_reset_at=now + timedelta(hours=24),
+        failed_reset_at=now + timedelta(hours=1),
+    )
+
+
+def _add_table_import_log(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    source_url: str,
+    outcome: Literal["created", "duplicate", "failed"],
+    error_detail: str | None = None,
+) -> None:
+    db.add(
+        TableImportLog(
+            user_id=user_id,
+            source_url=source_url,
+            outcome=outcome,
+            error_detail=error_detail,
+        )
+    )
 
 
 async def _populate_imported_table(
@@ -469,14 +618,20 @@ async def _count_table_fumens(table_id: uuid.UUID, db: AsyncSession) -> int:
 async def _table_entries_map(
     db: AsyncSession,
     fumen_ids: list[uuid.UUID],
+    visible_table_ids: set[uuid.UUID] | None = None,
 ) -> dict[uuid.UUID, list[dict[str, str]]]:
     """Return legacy-shaped table_entries lists for API compatibility."""
     if not fumen_ids:
         return {}
-    result = await db.execute(
+    if visible_table_ids is not None and not visible_table_ids:
+        return {fid: [] for fid in fumen_ids}
+    query = (
         select(FumenTableEntry.fumen_id, FumenTableEntry.table_id, FumenTableEntry.level)
         .where(FumenTableEntry.fumen_id.in_(fumen_ids))
     )
+    if visible_table_ids is not None:
+        query = query.where(FumenTableEntry.table_id.in_(visible_table_ids))
+    result = await db.execute(query)
     out: dict[uuid.UUID, list[dict[str, str]]] = {fid: [] for fid in fumen_ids}
     for fumen_id, table_id, entry_level in result.all():
         out.setdefault(fumen_id, []).append({"table_id": str(table_id), "level": entry_level})

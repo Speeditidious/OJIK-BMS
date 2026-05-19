@@ -10,6 +10,7 @@ import pytest
 from app.admin.views import DifficultyTableAdmin
 from app.models.difficulty_table import DifficultyTable, UserFavoriteDifficultyTable
 from app.routers.tables import ImportTableRequest, import_table
+from app.services.table_import import _normalize_song_rows
 
 
 class _ScalarResult:
@@ -82,6 +83,25 @@ def _table_data() -> dict[str, Any]:
     }
 
 
+def test_normalize_song_rows_decodes_html_entities_in_display_text() -> None:
+    """Difficulty table imports should store literal display text, not HTML entities."""
+
+    rows = _normalize_song_rows(
+        [
+            {
+                "md5": "c" * 32,
+                "title": "lack &quot;0&quot; clock",
+                "artist": "Alice &amp; Bob",
+                "name_diff": "obj &quot;Another&quot;",
+                "level": "1",
+            }
+        ]
+    )
+
+    assert rows[0]["title"] == 'lack "0" clock'
+    assert rows[0]["artist"] == 'Alice & Bob / obj: obj "Another"'
+
+
 @pytest.mark.asyncio
 async def test_import_table_populates_new_table_immediately(monkeypatch) -> None:
     """A new import should create the table, favorite, fumens, and courses."""
@@ -105,8 +125,13 @@ async def test_import_table_populates_new_table_immediately(monkeypatch) -> None
 
     db = _FakeDb([
         _ScalarResult(one_or_none=None),
+        _ScalarResult(one_or_none=None),
+        _ScalarResult(scalar=0),
+        _ScalarResult(scalar=0),
         _ScalarResult(scalar=1),
         _ScalarResult(one_or_none=None),
+        _ScalarResult(scalar=0),
+        _ScalarResult(scalar=1),
         _ScalarResult(scalar=0),
     ])
     user = SimpleNamespace(id=uuid.uuid4())
@@ -115,10 +140,11 @@ async def test_import_table_populates_new_table_immediately(monkeypatch) -> None
 
     table = next(obj for obj in db.added if isinstance(obj, DifficultyTable))
     favorite = next(obj for obj in db.added if isinstance(obj, UserFavoriteDifficultyTable))
-    assert response.id == table.id
-    assert response.name == "Imported Table"
-    assert response.symbol == "★"
-    assert response.song_count == 1
+    assert response.outcome == "created"
+    assert response.table.id == table.id
+    assert response.table.name == "Imported Table"
+    assert response.table.symbol == "★"
+    assert response.table.song_count == 1
     assert table.level_order == ["1"]
     assert favorite.user_id == user.id
     assert favorite.table_id == table.id
@@ -148,19 +174,22 @@ async def test_import_table_reuses_populated_existing_table_without_refetch(monk
         _ScalarResult(scalar=3),
         _ScalarResult(one_or_none=None),
         _ScalarResult(scalar=0),
+        _ScalarResult(scalar=0),
+        _ScalarResult(scalar=0),
     ])
     user = SimpleNamespace(id=uuid.uuid4())
 
     response = await import_table(ImportTableRequest(url="https://example.com/table.html"), user, db)
 
-    assert response.id == existing.id
-    assert response.song_count == 3
-    assert [type(obj) for obj in db.added] == [UserFavoriteDifficultyTable]
+    assert response.outcome == "duplicate"
+    assert response.table.id == existing.id
+    assert response.table.song_count == 3
+    assert any(isinstance(obj, UserFavoriteDifficultyTable) for obj in db.added)
 
 
 @pytest.mark.asyncio
-async def test_import_table_populates_empty_existing_table(monkeypatch) -> None:
-    """A previously registered but empty table should be filled on re-import."""
+async def test_import_table_treats_empty_existing_table_as_duplicate_without_refetch(monkeypatch) -> None:
+    """Duplicate imports should not fetch external URLs, even if the DB row is incomplete."""
     existing = DifficultyTable(
         id=uuid.uuid4(),
         name="Empty Table",
@@ -168,37 +197,28 @@ async def test_import_table_populates_empty_existing_table(monkeypatch) -> None:
         is_default=False,
         level_order=None,
     )
-    table_data = _table_data()
 
-    async def fake_fetch_table(url: str) -> dict[str, Any]:
-        return table_data
+    async def fail_fetch_table(url: str) -> dict[str, Any]:
+        raise AssertionError("duplicate import should not fetch external URLs")
 
-    async def fake_upsert_fumens(db: Any, table_id: uuid.UUID, songs: list[dict]) -> set[str]:
-        return {"md5:" + "a" * 32}
-
-    async def fake_upsert_courses(db: Any, table_id: uuid.UUID, courses: list[dict]) -> None:
-        return None
-
-    monkeypatch.setattr("app.parsers.table_fetcher.fetch_table", fake_fetch_table)
-    monkeypatch.setattr("app.services.table_import.upsert_fumens", fake_upsert_fumens)
-    monkeypatch.setattr("app.services.table_import.upsert_courses", fake_upsert_courses)
+    monkeypatch.setattr("app.parsers.table_fetcher.fetch_table", fail_fetch_table)
 
     db = _FakeDb([
         _ScalarResult(one_or_none=existing),
         _ScalarResult(scalar=0),
-        _ScalarResult(scalar=1),
         _ScalarResult(one_or_none=None),
+        _ScalarResult(scalar=0),
+        _ScalarResult(scalar=0),
         _ScalarResult(scalar=0),
     ])
     user = SimpleNamespace(id=uuid.uuid4())
 
     response = await import_table(ImportTableRequest(url="https://example.com/table.html"), user, db)
 
-    assert response.id == existing.id
-    assert response.name == "Imported Table"
-    assert response.song_count == 1
-    assert existing.level_order == ["1"]
-    assert existing.symbol == "★"
+    assert response.outcome == "duplicate"
+    assert response.table.id == existing.id
+    assert response.table.song_count == 0
+    assert existing.level_order is None
 
 
 @pytest.mark.asyncio

@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, levelSortIndex, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
+import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { formatRatePercent } from "@/lib/rate-format";
 import { songHref } from "@/lib/song-href";
 
@@ -84,11 +85,11 @@ function compareSongs(a: TableClearSong, b: TableClearSong, key: SortKey, dir: S
       const diff = levelSortIndex(a.level, levelOrder) - levelSortIndex(b.level, levelOrder);
       if (diff !== 0) { result = diff; break; }
       const levCmp = a.level.localeCompare(b.level);
-      result = levCmp !== 0 ? levCmp : compareTitles(a.title ?? "", b.title ?? "");
+      result = levCmp !== 0 ? levCmp : compareTitles(fumenTitleText(a.title, ""), fumenTitleText(b.title, ""));
       break;
     }
     case "title":
-      result = compareTitles(a.title ?? "", b.title ?? "");
+      result = compareTitles(fumenTitleText(a.title, ""), fumenTitleText(b.title, ""));
       break;
     case "ex_score":
       result = (a.ex_score ?? -1) - (b.ex_score ?? -1);
@@ -148,6 +149,8 @@ const SongRow = React.memo(function SongRow({
   const arrangementKanji = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? null) : null;
   const displayClearType = getDisplayClearType ? getDisplayClearType(song.clear_type) : song.clear_type;
   const rowClass = CLEAR_ROW_CLASS[displayClearType] ?? "";
+  const displayTitle = fumenTitleText(song.title);
+  const displayArtist = fumenArtistText(song.artist);
   return (
     <tr
       data-index={index}
@@ -155,18 +158,18 @@ const SongRow = React.memo(function SongRow({
       className={cn("border-b border-border/30", rowClass || "hover:bg-secondary/50")}
     >
       <td className="px-2 text-label">{song.level}</td>
-      <td className="px-2" data-title={song.title ?? ""} data-artist={song.artist ?? ""}>
+      <td className="px-2" data-title={displayTitle} data-artist={displayArtist}>
         <div className="min-w-0 overflow-hidden">
           <div className="max-w-full truncate">
             {song.sha256 ? (
               <Link href={songHref(song, userId)} className="text-label leading-tight hover:text-primary transition-colors">
-                {song.title || "(Untitled)"}
+                {displayTitle}
               </Link>
             ) : (
-              <span className="text-label leading-tight">{song.title || "(Untitled)"}</span>
+              <span className="text-label leading-tight">{displayTitle}</span>
             )}
           </div>
-          {song.artist && <div className="text-caption text-muted-foreground row-muted max-w-full truncate">{song.artist}</div>}
+          {displayArtist && <div className="text-caption text-muted-foreground row-muted max-w-full truncate">{displayArtist}</div>}
         </div>
       </td>
       <td className="px-2"><span className="text-label">{getClearLabel(song.client_type, displayClearType)}</span></td>
@@ -325,8 +328,8 @@ const SongTable = React.memo(function SongTable({
               const arrangementName = parseArrangement(song.options, song.client_type);
               return {
                 level: song.level,
-                title: song.title ?? "",
-                artist: song.artist ?? "",
+                title: fumenTitleText(song.title, ""),
+                artist: fumenArtistText(song.artist),
                 lamp: getClearLabel(song.client_type, getDisplayClearType ? getDisplayClearType(song.clear_type) : song.clear_type),
                 bp: song.min_bp ?? "",
                 rate: song.rate != null ? formatRatePercent(song.rate) : "",
@@ -735,7 +738,11 @@ export function TableClearSection({
     return dist.songs.filter((s) => {
       if (filterLevels.size > 0 && !filterLevels.has(s.level)) return false;
       if (filterClearTypes.size > 0 && !filterClearTypes.has(getDisplayClearType(s.clear_type))) return false;
-      if (titleLower && !s.title?.toLowerCase().includes(titleLower) && !s.artist?.toLowerCase().includes(titleLower)) return false;
+      if (
+        titleLower
+        && !fumenTitleText(s.title, "").toLowerCase().includes(titleLower)
+        && !fumenArtistText(s.artist).toLowerCase().includes(titleLower)
+      ) return false;
       return true;
     });
   }, [dist, filterLevels, filterClearTypes, deferredTitle, getDisplayClearType]);

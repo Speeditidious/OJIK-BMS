@@ -14,11 +14,13 @@ import {
   LogOut,
   UserCircle,
   Trophy,
+  Megaphone,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AvatarImage } from "@/components/common/AvatarImage";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 
 import { cn } from "@/lib/utils";
 import { resolveAvatarUrl } from "@/lib/avatar";
@@ -37,6 +39,7 @@ const navItems = [
   { href: "/songs", labelKey: "common.nav.songs", icon: Music2 },
   { href: "/custom", labelKey: "common.nav.custom", icon: ListMusic },
   { href: "/download", labelKey: "common.nav.download", icon: Download },
+  { href: "/announcements", labelKey: "common.nav.announcements", icon: Megaphone },
 ];
 
 export function Navbar() {
@@ -90,6 +93,8 @@ export function Navbar() {
 
           {/* Dark/Light mode toggle */}
           <ThemeToggle className="text-white hover:bg-white/10 dark:text-foreground dark:hover:bg-secondary" />
+
+          <NotificationBell enabled={isInitialized && !!user} userId={user?.id ?? null} />
 
           <div className="w-5" />
 

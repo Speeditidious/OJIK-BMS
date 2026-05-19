@@ -14,6 +14,7 @@ import {
   SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { SongListTable } from "@/components/songs/SongListTable";
+import { Pagination } from "@/components/common/Pagination";
 import { useFumensList } from "@/hooks/use-fumens-list";
 import { useAuthStore } from "@/stores/auth";
 import { api } from "@/lib/api";
@@ -204,24 +205,14 @@ function SongsPageContent() {
         </div>
 
         {/* Pagination */}
-        <div className="flex items-center justify-center gap-3 mt-3 shrink-0">
-          <Button
-            variant="outline" size="sm"
-            disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-          >
-            Prev
-          </Button>
-          <span className="text-label text-muted-foreground">
-            {t("songs.pagination", { page, totalPages })}
-          </span>
-          <Button
-            variant="outline" size="sm"
-            disabled={page >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-          >
-            Next
-          </Button>
+        <div className="mt-3 shrink-0">
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            label={t("songs.pagination", { page, totalPages })}
+            placeholder={t("pagination.placeholder")}
+          />
         </div>
       </main>
     </div>

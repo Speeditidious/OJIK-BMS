@@ -52,9 +52,12 @@ async def list_table_sync_targets(
     slugs: list[str] | None = None,
     exclude_slugs: list[str] | None = None,
     default_only: bool = False,
+    user_only: bool = False,
     respect_auto_update: bool = False,
 ) -> list[TableSyncTarget]:
     """Return DB difficulty tables with source URLs selected for sync."""
+    if default_only and user_only:
+        raise ValueError("default_only and user_only cannot both be true")
     requested_slugs = set(slugs) if slugs is not None else None
     excluded_slugs = set(exclude_slugs or [])
     default_configs = get_default_table_configs()
@@ -67,10 +70,19 @@ async def list_table_sync_targets(
         )
 
     async with AsyncSessionLocal() as db:
+        query = select(DifficultyTable.id, DifficultyTable.slug, DifficultyTable.name).where(
+            DifficultyTable.source_url.isnot(None)
+        )
+        if requested_slugs is not None:
+            query = query.where(DifficultyTable.slug.in_(requested_slugs))
+        if excluded_slugs:
+            query = query.where(DifficultyTable.slug.not_in(excluded_slugs))
+        if default_only:
+            query = query.where(DifficultyTable.is_default.is_(True))
+        if user_only:
+            query = query.where(DifficultyTable.is_default.is_(False))
         result = await db.execute(
-            select(DifficultyTable.id, DifficultyTable.slug, DifficultyTable.name)
-            .where(DifficultyTable.source_url.isnot(None))
-            .order_by(
+            query.order_by(
                 DifficultyTable.is_default.desc(),
                 DifficultyTable.default_order,
                 DifficultyTable.name,
@@ -81,9 +93,7 @@ async def list_table_sync_targets(
     return [
         TableSyncTarget(id=row[0], slug=row[1], name=row[2])
         for row in rows
-        if row[1] not in excluded_slugs
-        and (requested_slugs is None or row[1] in requested_slugs)
-        and (not default_only or row[1] in default_slugs)
+        if (not default_only or row[1] in default_slugs or row[1] is None)
     ]
 
 

@@ -13,6 +13,7 @@ import { FumenTags } from "@/components/fumen/FumenTags";
 import { api } from "@/lib/api";
 import { songHref, parseSongRouteSegment } from "@/lib/song-href";
 import { useUserProfile } from "@/hooks/use-user-profile";
+import { useLevelDisplayPrefs } from "@/hooks/use-preferences";
 import { useAuthStore } from "@/stores/auth";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
 import { clearText } from "@/components/dashboard/RecentActivity";
@@ -22,6 +23,7 @@ import { formatRelativeDate } from "@/lib/time";
 import { displayClearType } from "@/lib/clear-type-display";
 import { cn } from "@/lib/utils";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement } from "@/lib/fumen-table-utils";
+import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { buildFumenExternalLinkGroups, type ExternalHashType, type FumenExternalLink } from "@/lib/fumen-external-links";
 import type { DifficultyTable, FumenDetail, UserScore } from "@/types";
 
@@ -347,6 +349,7 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
   const searchParams = useSearchParams();
   const { user } = useAuthStore();
   const isLoggedIn = !!user;
+  const levelDisplayPrefs = useLevelDisplayPrefs();
   const targetUserId = searchParams.get("user_id");
   const viewingOtherUser = !!targetUserId && targetUserId !== user?.id;
 
@@ -355,7 +358,15 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
   const [missingExternalHash, setMissingExternalHash] = useState<ExternalHashType | null>(null);
 
   const { data: fumen, isLoading } = useQuery<FumenDetail>({
-    queryKey: ["fumen", routeFumenId],
+    queryKey: [
+      "fumen",
+      routeFumenId,
+      user?.id ?? null,
+      levelDisplayPrefs.favorite,
+      levelDisplayPrefs.server_default,
+      levelDisplayPrefs.user_added,
+      levelDisplayPrefs.ojik_custom,
+    ],
     queryFn: () => api.get(`/fumens/${routeFumenId}`),
     staleTime: 10 * 60 * 1000,
   });
@@ -454,6 +465,9 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
     return `px-3 py-2 text-label cursor-pointer select-none hover:text-primary transition-colors text-${align}`;
   }
 
+  const displayFumenTitle = fumen ? fumenTitleText(fumen.title, t("fumen.detail.untitled")) : "";
+  const displayFumenArtist = fumen ? fumenArtistText(fumen.artist) : "";
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -477,9 +491,9 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
             {/* Title / Artist */}
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h1 className="text-2xl font-bold">{fumen.title || t("fumen.detail.untitled")}</h1>
-                {fumen.artist && (
-                  <p className="text-muted-foreground mt-0.5">{fumen.artist}</p>
+                <h1 className="text-2xl font-bold">{displayFumenTitle}</h1>
+                {displayFumenArtist && (
+                  <p className="text-muted-foreground mt-0.5">{displayFumenArtist}</p>
                 )}
               </div>
               {fumen.youtube_url && (

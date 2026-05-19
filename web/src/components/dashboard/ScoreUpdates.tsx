@@ -24,6 +24,7 @@ import { clearText } from "@/components/dashboard/RecentActivity";
 import type { ClientTypeFilter } from "@/hooks/use-analysis";
 import { useScoreUpdates } from "@/hooks/use-analysis";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, makeTableCopyHandler } from "@/lib/fumen-table-utils";
+import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { compareTitles } from "@/lib/bms-sort";
 import { formatRateDelta, formatRatePercent } from "@/lib/rate-format";
 import { useScoreUpdatesPrefs, useUpdateScoreUpdatesPrefs } from "@/hooks/use-preferences";
@@ -77,6 +78,48 @@ function buildSongHref(
   const md5 = fumen.fumen_md5 ?? fumen.md5 ?? null;
   if (!sha256 && !md5) return "#";
   return songHref({ fumen_id: fumen.fumen_id, sha256, md5 }, userId);
+}
+
+function FumenTitleCell({
+  item,
+  userId,
+  className,
+  artistClassName = "text-caption max-w-full truncate opacity-70",
+}: {
+  item: {
+    title?: string | null;
+    artist?: string | null;
+    fumen_id?: string | null;
+    fumen_sha256?: string | null;
+    fumen_md5?: string | null;
+    sha256?: string | null;
+    md5?: string | null;
+  };
+  userId?: string;
+  className?: string;
+  artistClassName?: string;
+}) {
+  const displayTitle = fumenTitleText(item.title, "(Unknown)");
+  const displayArtist = fumenArtistText(item.artist);
+  const hasHash = Boolean(item.fumen_sha256 || item.fumen_md5 || item.sha256 || item.md5);
+
+  return (
+    <td className={className} data-title={displayTitle} data-artist={displayArtist}>
+      <div className="max-w-full truncate">
+        {hasHash ? (
+          <Link
+            href={buildSongHref(item, userId)}
+            className="text-label hover:text-primary transition-colors"
+          >
+            {displayTitle}
+          </Link>
+        ) : (
+          <span className="text-label">{displayTitle}</span>
+        )}
+      </div>
+      {displayArtist && <div className={artistClassName}>{displayArtist}</div>}
+    </td>
+  );
 }
 
 // ── Merged course update (clear + score in one row) ────────────────────────────
@@ -444,21 +487,7 @@ function LampUpgradeRow({ item, userId }: { item: ClearTypeUpdateItem; userId?: 
       <td className={cn("px-2 py-2", newCls)}>
         <TableLevelBadges levels={item.table_levels} />
       </td>
-      <td className={cn("px-2 py-2", newCls)} data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
-        <div className="max-w-full truncate">
-          {(item.fumen_sha256 || item.fumen_md5) ? (
-            <Link
-              href={buildSongHref(item, userId)}
-              className="text-label hover:text-primary transition-colors"
-            >
-              {item.title ?? "(Unknown)"}
-            </Link>
-          ) : (
-            <span className="text-label">{item.title ?? "(Unknown)"}</span>
-          )}
-        </div>
-        {item.artist && <div className="text-caption max-w-full truncate opacity-70">{item.artist}</div>}
-      </td>
+      <FumenTitleCell item={item} userId={userId} className={cn("px-2 py-2", newCls)} />
     </tr>
   );
 }
@@ -497,21 +526,7 @@ function ScoreUpgradeRow({ item, userId }: { item: ExscoreUpdateItem; userId?: s
       <td className={cn("px-2 py-2", newCls)}>
         <TableLevelBadges levels={item.table_levels} />
       </td>
-      <td className={cn("px-2 py-2", newCls)} data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
-        <div className="max-w-full truncate">
-          {(item.fumen_sha256 || item.fumen_md5) ? (
-            <Link
-              href={buildSongHref(item, userId)}
-              className="text-label hover:text-primary transition-colors"
-            >
-              {item.title ?? "(Unknown)"}
-            </Link>
-          ) : (
-            <span className="text-label">{item.title ?? "(Unknown)"}</span>
-          )}
-        </div>
-        {item.artist && <div className="text-caption max-w-full truncate opacity-70">{item.artist}</div>}
-      </td>
+      <FumenTitleCell item={item} userId={userId} className={cn("px-2 py-2", newCls)} />
     </tr>
   );
 }
@@ -541,21 +556,12 @@ function BPUpgradeRow({ item, userId }: { item: MinBPUpdateItem; userId?: string
       <td className="px-2 py-2">
         <TableLevelBadges levels={item.table_levels} />
       </td>
-      <td className="px-2 py-2" data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
-        <div className="max-w-full truncate">
-          {(item.fumen_sha256 || item.fumen_md5) ? (
-            <Link
-              href={buildSongHref(item, userId)}
-              className="text-label hover:text-primary transition-colors"
-            >
-              {item.title ?? "(Unknown)"}
-            </Link>
-          ) : (
-            <span className="text-label">{item.title ?? "(Unknown)"}</span>
-          )}
-        </div>
-        {item.artist && <div className="text-caption text-muted-foreground max-w-full truncate opacity-70">{item.artist}</div>}
-      </td>
+      <FumenTitleCell
+        item={item}
+        userId={userId}
+        className="px-2 py-2"
+        artistClassName="text-caption text-muted-foreground max-w-full truncate opacity-70"
+      />
     </tr>
   );
 }
@@ -585,21 +591,12 @@ function ComboUpgradeRow({ item, userId }: { item: MaxComboUpdateItem; userId?: 
       <td className="px-2 py-2">
         <TableLevelBadges levels={item.table_levels} />
       </td>
-      <td className="px-2 py-2" data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
-        <div className="max-w-full truncate">
-          {(item.fumen_sha256 || item.fumen_md5) ? (
-            <Link
-              href={buildSongHref(item, userId)}
-              className="text-label hover:text-primary transition-colors"
-            >
-              {item.title ?? "(Unknown)"}
-            </Link>
-          ) : (
-            <span className="text-label">{item.title ?? "(Unknown)"}</span>
-          )}
-        </div>
-        {item.artist && <div className="text-caption text-muted-foreground max-w-full truncate opacity-70">{item.artist}</div>}
-      </td>
+      <FumenTitleCell
+        item={item}
+        userId={userId}
+        className="px-2 py-2"
+        artistClassName="text-caption text-muted-foreground max-w-full truncate opacity-70"
+      />
     </tr>
   );
 }
@@ -884,19 +881,12 @@ function FumenRow({ fumen, userId }: { fumen: MergedFumenUpdate; userId?: string
       </td>
 
       {/* Title + Artist */}
-      <td className="px-2 py-2 align-top max-w-[220px]" data-title={fumen.title ?? ""} data-artist={fumen.artist ?? ""}>
-        {(fumen.sha256 || fumen.md5) ? (
-          <Link
-            href={buildSongHref(fumen, userId)}
-            className="text-label inline-block max-w-full truncate hover:text-primary transition-colors"
-          >
-            {fumen.title ?? "(Unknown)"}
-          </Link>
-        ) : (
-          <span className="text-label inline-block max-w-full truncate">{fumen.title ?? "(Unknown)"}</span>
-        )}
-        {fumen.artist && <><br /><span className="text-caption row-muted inline-block max-w-full truncate">{fumen.artist}</span></>}
-      </td>
+      <FumenTitleCell
+        item={fumen}
+        userId={userId}
+        className="px-2 py-2 align-top max-w-[220px]"
+        artistClassName="text-caption row-muted max-w-full truncate"
+      />
 
       {/* Lamp */}
       <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
@@ -1047,7 +1037,7 @@ function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: strin
           cmp = compareByTableLevels(a.table_levels, b.table_levels);
           break;
         case "title":
-          cmp = compareTitles(a.title ?? "", b.title ?? "");
+          cmp = compareTitles(fumenTitleText(a.title, ""), fumenTitleText(b.title, ""));
           break;
         case "lamp":
           cmp = ((a.clear?.new ?? a.currentState?.clear_type ?? -1)) - ((b.clear?.new ?? b.currentState?.clear_type ?? -1));

@@ -69,10 +69,6 @@ export function StatsGrid({ clientType, onClientTypeChange, userId }: StatsGridP
   const { t } = useTranslation();
   const { data, isLoading, isError } = usePlaySummary(clientType, userId);
 
-  const lastSync = data?.last_synced_at
-    ? new Date(data.last_synced_at).toLocaleDateString()
-    : t("dashboard.stats.noValue");
-
   return (
     <div className="mb-8">
       {/* Client type selector */}
@@ -119,7 +115,7 @@ export function StatsGrid({ clientType, onClientTypeChange, userId }: StatsGridP
             <StatCard
               title={t("dashboard.stats.totalPlays")}
               value={data.total_play_count.toLocaleString()}
-              sub={lastSync}
+              sub=""
               icon={Music2}
             />
             <StatCard

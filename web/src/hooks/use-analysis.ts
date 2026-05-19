@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useLevelDisplayPrefs } from "@/hooks/use-preferences";
 import type { RatingBreakdownResponse } from "@/lib/ranking-types";
 import type { ScoreUpdatesResponse } from "@/types";
 
@@ -442,8 +443,21 @@ export function useScoreUpdates(
   limit: number = 50,
   userId?: string,
 ) {
+  const levelDisplayPrefs = useLevelDisplayPrefs();
+
   return useQuery({
-    queryKey: ["analysis", "score-updates", clientType ?? "all", date ?? null, limit, userId ?? null],
+    queryKey: [
+      "analysis",
+      "score-updates",
+      clientType ?? "all",
+      date ?? null,
+      limit,
+      userId ?? null,
+      levelDisplayPrefs.favorite,
+      levelDisplayPrefs.server_default,
+      levelDisplayPrefs.user_added,
+      levelDisplayPrefs.ojik_custom,
+    ],
     queryFn: () => {
       const params = new URLSearchParams({ limit: String(limit) });
       if (clientType && clientType !== "all") params.set("client_type", clientType);

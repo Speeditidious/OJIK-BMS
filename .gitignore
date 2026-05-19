@@ -218,8 +218,6 @@ CLAUDE.md
 .claude/
 AGENTS.md
 .codex
-.orchestry/
-orch_scripts/
 requirements.md
 
 # Next.js build output & dependencies

@@ -45,8 +45,11 @@ import {
   useUpdateScoreUpdatesPrefs,
   useClearTypeVisibility,
   useUpdateClearTypeVisibility,
+  useLevelDisplayPrefs,
+  useUpdateLevelDisplayPrefs,
   HIDEABLE_CLEAR_TYPES,
   LR2_MISSING_CLEAR_TYPES,
+  type LevelDisplayPrefs,
   type ClearTypeVisibilityPrefs,
   type ClearTypeVisibilityMode,
   type ClientVisibilityKey,
@@ -400,6 +403,43 @@ function ClearVisibilityCard() {
   );
 }
 
+const LEVEL_DISPLAY_LABELS: { key: keyof LevelDisplayPrefs; labelKey: string }[] = [
+  { key: "favorite", labelKey: "settings.preferences.levelDisplayFavorite" },
+  { key: "server_default", labelKey: "settings.preferences.levelDisplayServerDefault" },
+  { key: "user_added", labelKey: "settings.preferences.levelDisplayUserAdded" },
+  { key: "ojik_custom", labelKey: "settings.preferences.levelDisplayOjikCustom" },
+];
+
+function LevelDisplayCard() {
+  const { t } = useTranslation();
+  const levelDisplayPrefs = useLevelDisplayPrefs();
+  const { mutate: updateLevelDisplayPrefs } = useUpdateLevelDisplayPrefs();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{t("settings.preferences.levelDisplayTitle")}</CardTitle>
+        <CardDescription>{t("settings.preferences.levelDisplayDescription")}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {LEVEL_DISPLAY_LABELS.map(({ key, labelKey }) => (
+          <label key={key} className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={levelDisplayPrefs[key]}
+              onChange={(e) =>
+                updateLevelDisplayPrefs({ ...levelDisplayPrefs, [key]: e.target.checked })
+              }
+              className="h-4 w-4 rounded border-input accent-primary cursor-pointer"
+            />
+            <span className="text-body">{t(labelKey)}</span>
+          </label>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 function PreferencesTab() {
   const { t } = useTranslation();
   const { data: favTables } = useFavoriteTables();
@@ -445,6 +485,11 @@ function PreferencesTab() {
           </div>
         </CardContent>
       </Card>
+
+      <Separator />
+
+      {/* Level display settings */}
+      <LevelDisplayCard />
 
       <Separator />
 

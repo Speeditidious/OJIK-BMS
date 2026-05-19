@@ -226,6 +226,59 @@ export interface Pagination<T> {
   pages: number;
 }
 
+export interface AnnouncementTag {
+  id: string;
+  name: string;
+  name_en: string | null;
+  name_ja: string | null;
+  color: string | null;
+  send_notification: boolean;
+  display_order: number;
+}
+
+export interface Announcement {
+  id: string;
+  tag: AnnouncementTag;
+  title: string;
+  title_en: string | null;
+  title_ja: string | null;
+  body: string;
+  body_en: string | null;
+  body_ja: string | null;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NotificationItem {
+  id: string;
+  type: "client_update" | "announcement" | string;
+  title: string;
+  body: string | null;
+  link_url: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  is_read: boolean;
+}
+
+export interface TableImportQuota {
+  created_limit: number;
+  created_used: number;
+  created_remaining: number;
+  failed_limit: number;
+  failed_used: number;
+  failed_remaining: number;
+  created_reset_at: string;
+  failed_reset_at: string;
+}
+
+export interface ImportTableResponse {
+  table: DifficultyTable;
+  outcome: "created" | "duplicate";
+  message: string;
+  quota: TableImportQuota | null;
+}
+
 export interface MessageResponse {
   message: string;
 }

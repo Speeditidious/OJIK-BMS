@@ -25,6 +25,8 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from app.utils.text_normalization import normalize_display_text
+
 logger = logging.getLogger(__name__)
 
 # Base directory for local table cache
@@ -140,11 +142,11 @@ def _normalize(header: dict, raw_songs: list[dict]) -> dict:
             "level": str(song.get("level", "")).strip(),
             "md5": (song.get("md5") or song.get("md5hash") or "").lower(),
             "sha256": (song.get("sha256") or song.get("sha256hash") or "").lower(),
-            "title": song.get("title") or song.get("title_yomigana") or "",
-            "artist": song.get("artist") or "",
+            "title": normalize_display_text(song.get("title") or song.get("title_yomigana") or ""),
+            "artist": normalize_display_text(song.get("artist") or ""),
             "url": song.get("url") or "",
             "url_diff": song.get("url_diff") or "",
-            "name_diff": song.get("name_diff") or "",
+            "name_diff": normalize_display_text(song.get("name_diff") or ""),
         }
         # Pass through any extra fields
         for k, v in song.items():
@@ -304,6 +306,7 @@ def get_update_config() -> dict:
     config = _load_config()
     return {
         "update_interval_hours": config.get("update_interval_hours", 24),
+        "user_table_update_interval_hours": config.get("user_table_update_interval_hours", 168),
         "update_timezone": config.get("update_timezone", "Asia/Seoul"),
         "backup_count": config.get("backup_count", 3),
         "min_request_interval_hours": config.get("min_request_interval_hours", 6),

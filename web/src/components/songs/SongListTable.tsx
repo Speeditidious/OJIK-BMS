@@ -11,6 +11,7 @@ import { TableLevelBadges } from "@/components/common/TableLevelBadges";
 import { cn } from "@/lib/utils";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
 import { CLEAR_ROW_CLASS, parseArrangement, ARRANGEMENT_KANJI } from "@/lib/fumen-table-utils";
+import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { formatRatePercent } from "@/lib/rate-format";
 import { displayClearType } from "@/lib/clear-type-display";
 import { clearText } from "@/components/dashboard/RecentActivity";
@@ -83,6 +84,8 @@ const SongRow = memo(function SongRow({ item, index, tableSymbolMap, isLoggedIn 
   const rowClass = CLEAR_ROW_CLASS[displayType ?? 0] ?? "";
   const arrangement = s ? parseArrangement(s.options, s.client_type) : null;
   const arrangementLabel = arrangement ? (ARRANGEMENT_KANJI[arrangement] ?? arrangement) : null;
+  const displayTitle = fumenTitleText(item.title);
+  const displayArtist = fumenArtistText(item.artist);
 
   return (
     <tr
@@ -98,14 +101,14 @@ const SongRow = memo(function SongRow({ item, index, tableSymbolMap, isLoggedIn 
       </td>
 
       {/* Title / Artist */}
-      <td className="px-2 align-middle" data-title={item.title ?? ""} data-artist={item.artist ?? ""}>
+      <td className="px-2 align-middle" data-title={displayTitle} data-artist={displayArtist}>
         <div className="min-w-0 overflow-hidden">
           <div className="max-w-full truncate">
             <Link href={href} className="text-label hover:text-primary transition-colors">
-              {item.title || "(Untitled)"}
+              {displayTitle}
             </Link>
           </div>
-          {item.artist && <div className="text-caption row-muted max-w-full truncate">{item.artist}</div>}
+          {displayArtist && <div className="text-caption row-muted max-w-full truncate">{displayArtist}</div>}
           {item.user_tags.length > 0 && (
             <div className="flex gap-1 flex-wrap">
               {item.user_tags.map((t) => (

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { Music2, BarChart3, CalendarClock, Bot, Download } from "lucide-react";
+import { Music2, BarChart3, CalendarClock, Bot, Download, Megaphone } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,8 @@ import { GuideSection } from "@/components/home/GuideSection";
 import { Navbar } from "@/components/layout/navbar";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { LoginButton } from "@/components/home/LoginButton";
+import { AnnouncementCard } from "@/components/announcements/AnnouncementCard";
+import { useAnnouncements } from "@/hooks/use-announcements";
 
 const featureIcons = [BarChart3, CalendarClock, Music2, Bot] as const;
 
@@ -21,6 +23,8 @@ type FeatureCopy = {
 export default function HomePage() {
   const { t } = useTranslation();
   const featureCopies = t("home.features.cards", { returnObjects: true }) as FeatureCopy[];
+  const { data: latestAnnouncements } = useAnnouncements({ page: 1, size: 1 });
+  const latestAnnouncement = latestAnnouncements?.items[0] ?? null;
   const features = featureCopies.map((feature, index) => ({
     ...feature,
     icon: featureIcons[index] ?? Music2,
@@ -76,6 +80,26 @@ export default function HomePage() {
             </div>
           </div>
         </section>
+
+        {latestAnnouncement && (
+          <section className="container mx-auto px-4 pb-4 pt-10">
+            <div className="rounded-xl border border-border/60 bg-card/60 p-5 shadow-sm backdrop-blur-sm">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                    <Megaphone className="h-4 w-4" />
+                  </div>
+                  <h2 className="text-xl font-semibold">{t("announcements.previewTitle")}</h2>
+                </div>
+                <Link href="/announcements" className="group flex items-center gap-1 text-label text-muted-foreground transition-colors hover:text-primary">
+                  {t("announcements.viewAll")}
+                  <span className="transition-transform group-hover:translate-x-0.5">→</span>
+                </Link>
+              </div>
+              <AnnouncementCard announcement={latestAnnouncement} preview />
+            </div>
+          </section>
+        )}
 
         <section className="container mx-auto px-4 py-20">
           <div className="mx-auto max-w-3xl text-center">

@@ -23,6 +23,7 @@ from app.services.client_aggregation import (
     aggregate_source_client,
 )
 from app.services.initial_sync import initial_sync_cutoff, is_initial_sync_timestamp
+from app.services.level_display_preferences import resolve_visible_table_ids
 from app.services.ranking_config import get_ranking_config
 from app.services.ranking_dashboard import (
     compute_rating_breakdown,
@@ -1958,16 +1959,24 @@ async def get_score_updates(
             if r.md5 and r.sha256:
                 md5_to_sha256[r.md5] = r.sha256
     if fumen_id_to_keys:
-        entries_result = await db.execute(
+        entries_query = (
             select(FumenTableEntry.fumen_id, FumenTableEntry.table_id, FumenTableEntry.level)
             .where(FumenTableEntry.fumen_id.in_(list(fumen_id_to_keys)))
         )
-        for entry in entries_result.all():
-            entry_dict = {"table_id": str(entry.table_id), "level": entry.level}
-            for key in fumen_id_to_keys.get(entry.fumen_id, []):
-                fumen_meta[key]["table_entries"].append(entry_dict)
+        visible_table_ids = await resolve_visible_table_ids(db, target_user)
+        if visible_table_ids is not None:
+            if not visible_table_ids:
+                pass  # skip query — entries_query will never be executed
+            else:
+                entries_query = entries_query.where(FumenTableEntry.table_id.in_(visible_table_ids))
+        if visible_table_ids is None or visible_table_ids:
+            entries_result = await db.execute(entries_query)
+            for entry in entries_result.all():
+                entry_dict = {"table_id": str(entry.table_id), "level": entry.level}
+                for key in fumen_id_to_keys.get(entry.fumen_id, []):
+                    fumen_meta[key]["table_entries"].append(entry_dict)
 
-    # ── 5. Build table_levels from favorite tables ────────────────────────────
+    # ── 5. Build table_levels from preference-visible tables ──────────────────
     fav_result = await db.execute(
         select(UserFavoriteDifficultyTable.table_id, UserFavoriteDifficultyTable.display_order)
         .where(UserFavoriteDifficultyTable.user_id == target_user.id)
@@ -1976,11 +1985,17 @@ async def get_score_updates(
     fav_table_ids_str: set[str] = {str(r[0]) for r in fav_rows}
     fav_table_order: dict[str, int] = {str(r[0]): r[1] for r in fav_rows}
 
+    # Collect visible table IDs from accumulated table_entries
+    visible_tid_strs: set[str] = set()
+    for meta in fumen_meta.values():
+        for entry in meta.get("table_entries", []):
+            visible_tid_strs.add(str(entry.get("table_id", "")))
+
     table_info: dict[str, dict[str, str]] = {}
-    if fav_table_ids_str:
+    if visible_tid_strs:
         tsym_result = await db.execute(
             select(DifficultyTable.id, DifficultyTable.symbol, DifficultyTable.slug)
-            .where(DifficultyTable.id.in_([uuid.UUID(tid) for tid in fav_table_ids_str]))
+            .where(DifficultyTable.id.in_([uuid.UUID(tid) for tid in visible_tid_strs if tid]))
         )
         table_info = {str(r.id): {"symbol": r.symbol or "", "slug": r.slug or ""} for r in tsym_result.all()}
 
@@ -1991,8 +2006,6 @@ async def get_score_updates(
         seen: set[tuple] = set()
         for entry in fumen_meta[hash_key].get("table_entries", []):
             tid = str(entry.get("table_id", ""))
-            if tid not in fav_table_ids_str:
-                continue
             info = table_info.get(tid, {"symbol": "", "slug": ""})
             sym = info["symbol"]
             slug = info["slug"]
@@ -2001,7 +2014,14 @@ async def get_score_updates(
             if key not in seen:
                 seen.add(key)
                 levels.append({"symbol": sym, "slug": slug, "level": lv, "_tid": tid})
-        levels.sort(key=lambda x: fav_table_order.get(x["_tid"], 999))
+        levels.sort(
+            key=lambda x: (
+                0 if x["_tid"] in fav_table_ids_str else 1,
+                fav_table_order.get(x["_tid"], 999999),
+                x["symbol"],
+                x["level"],
+            )
+        )
         return [{"symbol": lv["symbol"], "slug": lv["slug"], "level": lv["level"]} for lv in levels]
 
     # ── 6. Bulk fetch previous rows for fumen records ─────────────────────────

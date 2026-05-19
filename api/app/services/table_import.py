@@ -5,14 +5,16 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from app.utils.text_normalization import normalize_display_text
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def _build_artist(item: dict) -> str:
     """Build artist string, appending obj name_diff if present and not a URL."""
-    artist = item.get("artist") or ""
-    name_diff = item.get("name_diff") or ""
+    artist = normalize_display_text(item.get("artist") or "") or ""
+    name_diff = normalize_display_text(item.get("name_diff") or "") or ""
     if name_diff and " / obj: " not in artist and not name_diff.startswith(("http:/", "https:/")):
         artist = f"{artist} / obj: {name_diff}"
     return artist
@@ -221,7 +223,7 @@ def _normalize_song_rows(songs: list[dict]) -> list[dict[str, Any]]:
 
         row.update(
             {
-                "title": item.get("title") or None,
+                "title": normalize_display_text(item.get("title")) or None,
                 "artist": _build_artist(item) or None,
                 "file_url": item.get("url") or None,
                 "file_url_diff": item.get("url_diff") or None,

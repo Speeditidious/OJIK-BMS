@@ -255,3 +255,68 @@ export function useUpdateClearTypeVisibility() {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Level display preferences
+// ---------------------------------------------------------------------------
+
+export interface LevelDisplayPrefs {
+  favorite: boolean;
+  server_default: boolean;
+  user_added: boolean;
+  ojik_custom: boolean;
+}
+
+export const DEFAULT_LEVEL_DISPLAY_PREFS: LevelDisplayPrefs = {
+  favorite: true,
+  server_default: true,
+  user_added: true,
+  ojik_custom: true,
+};
+
+export function normalizeLevelDisplayPrefs(raw: unknown): LevelDisplayPrefs {
+  const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    favorite: typeof obj.favorite === "boolean" ? obj.favorite : true,
+    server_default: typeof obj.server_default === "boolean" ? obj.server_default : true,
+    user_added: typeof obj.user_added === "boolean" ? obj.user_added : true,
+    ojik_custom: typeof obj.ojik_custom === "boolean" ? obj.ojik_custom : true,
+  };
+}
+
+export function useLevelDisplayPrefs(): LevelDisplayPrefs {
+  const { isInitialized, user } = useAuthStore();
+  const { data } = useQuery({
+    queryKey: prefsQueryKey(user?.id),
+    queryFn: () => api.get<{ preferences: Record<string, unknown> }>("/users/me/preferences"),
+    staleTime: 10 * 60 * 1000,
+    enabled: isInitialized && !!user,
+  });
+  return normalizeLevelDisplayPrefs(data?.preferences?.level_display);
+}
+
+export function useUpdateLevelDisplayPrefs() {
+  const queryClient = useQueryClient();
+  const { user } = useAuthStore();
+  const key = prefsQueryKey(user?.id);
+  return useMutation({
+    mutationFn: (nextPrefs: LevelDisplayPrefs) =>
+      api.patch<{ preferences: Record<string, unknown> }>("/users/me/preferences", {
+        preferences: { level_display: nextPrefs },
+      }),
+    onMutate: async (nextPrefs) => {
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<{ preferences: Record<string, unknown> }>(key);
+      queryClient.setQueryData(key, (old: { preferences: Record<string, unknown> } | undefined) => ({
+        preferences: { ...(old?.preferences ?? {}), level_display: nextPrefs },
+      }));
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous !== undefined) queryClient.setQueryData(key, context.previous);
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(key, data);
+    },
+  });
+}

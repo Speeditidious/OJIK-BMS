@@ -9,11 +9,13 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from sqladmin import ModelView, action
-from sqlalchemy import delete, func, null, text, update
+from sqlalchemy import delete, func, null, select, text, update
+from sqlalchemy.orm import selectinload
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
 from app.models.admin_action_log import AdminActionLog, AdminActionLogLine
+from app.models.announcement import Announcement, AnnouncementTag
 from app.models.client_update import ClientUpdateAnnouncement
 from app.models.course import Course
 from app.models.difficulty_table import (
@@ -23,6 +25,11 @@ from app.models.difficulty_table import (
     UserFavoriteDifficultyTable,
 )
 from app.models.fumen import Fumen, FumenTableEntry, UserFumenTag
+from app.models.notification import (
+    Notification,
+    NotificationRead,
+    NotificationUserState,
+)
 from app.models.ranking import (
     UserRanking,
     UserRatingUpdateDaily,
@@ -31,6 +38,7 @@ from app.models.ranking import (
 )
 from app.models.schedule import Schedule
 from app.models.score import UserPlayerStats, UserScore
+from app.models.table_import import TableImportLog, TableSourceAlias
 from app.models.user import OAuthAccount, User
 
 RESETTABLE_CLIENT_TYPES = frozenset({"lr2", "beatoraja"})
@@ -309,6 +317,165 @@ class AdminActionLogLineAdmin(ModelView, model=AdminActionLogLine):
     can_create = False
     can_edit = False
     can_delete = True
+
+
+class AnnouncementTagAdmin(ModelView, model=AnnouncementTag):
+    name = "Announcement Tag"
+    name_plural = "Announcement Tags"
+    icon = "fa-solid fa-tags"
+    column_list = [
+        AnnouncementTag.id,
+        AnnouncementTag.name,
+        AnnouncementTag.name_en,
+        AnnouncementTag.name_ja,
+        AnnouncementTag.color,
+        AnnouncementTag.send_notification,
+        AnnouncementTag.display_order,
+    ]
+    column_searchable_list = [AnnouncementTag.name]
+    column_sortable_list = [AnnouncementTag.display_order, AnnouncementTag.name]
+    form_excluded_columns = [AnnouncementTag.created_at, AnnouncementTag.updated_at]
+
+
+class AnnouncementAdmin(ModelView, model=Announcement):
+    name = "Announcement"
+    name_plural = "Announcements"
+    icon = "fa-solid fa-bullhorn"
+    column_default_sort = [(Announcement.published_at, True)]
+    column_list = [
+        Announcement.id,
+        Announcement.tag,
+        Announcement.title,
+        Announcement.is_published,
+        Announcement.published_at,
+        Announcement.updated_at,
+    ]
+    column_searchable_list = [Announcement.title, Announcement.title_en, Announcement.title_ja, Announcement.body, Announcement.body_en, Announcement.body_ja]
+    column_sortable_list = [Announcement.published_at, Announcement.updated_at, Announcement.is_published]
+    form_columns = [
+        Announcement.tag,
+        Announcement.title,
+        Announcement.title_en,
+        Announcement.title_ja,
+        Announcement.body,
+        Announcement.body_en,
+        Announcement.body_ja,
+        Announcement.is_published,
+        Announcement.published_at,
+    ]
+
+    async def on_model_change(self, data, model, is_created, request) -> None:
+        """Stamp published_at when an announcement is published."""
+        is_published = data.get("is_published") if "is_published" in data else model.is_published
+        published_at = data.get("published_at") if "published_at" in data else model.published_at
+        if is_published and published_at is None:
+            now = datetime.now(UTC)
+            data["published_at"] = now
+            model.published_at = now
+
+    async def after_model_change(self, data, model, is_created, request) -> None:
+        """Create a deduplicated notification after publish."""
+        if not model.is_published:
+            return
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        from app.core.database import AsyncSessionLocal
+        from app.services.notifications import create_announcement_notification
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(Announcement)
+                .options(selectinload(Announcement.tag))
+                .where(Announcement.id == model.id)
+            )
+            announcement = result.scalar_one_or_none()
+            if announcement is not None:
+                await create_announcement_notification(db, announcement)
+                await db.commit()
+
+    @action(
+        name="publish_announcements",
+        label="공지 공개하기",
+        confirmation_message="선택한 공지를 공개하고 공개 시간을 현재 시각으로 채웁니다. 계속하시겠습니까?",
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def publish_announcements(self, request: Request) -> RedirectResponse:
+        """Publish selected announcements and stamp published_at if needed."""
+        from app.core.database import AsyncSessionLocal
+        from app.services.notifications import create_announcement_notification
+
+        pks = _parse_uuid_pks(request.query_params.get("pks", ""))
+        if pks:
+            now = datetime.now(UTC)
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    update(Announcement)
+                    .where(Announcement.id.in_(pks))
+                    .values(
+                        is_published=True,
+                        published_at=func.coalesce(Announcement.published_at, now),
+                        updated_at=now,
+                    )
+                )
+                result = await db.execute(
+                    select(Announcement)
+                    .options(selectinload(Announcement.tag))
+                    .where(Announcement.id.in_(pks))
+                )
+                for announcement in result.scalars().all():
+                    await create_announcement_notification(db, announcement)
+                await db.commit()
+
+        return RedirectResponse(request.url_for("admin:list", identity=self.identity), status_code=302)
+
+
+class NotificationAdmin(ModelView, model=Notification):
+    name = "Notification"
+    name_plural = "Notifications"
+    icon = "fa-solid fa-bell"
+    column_list = [
+        Notification.id,
+        Notification.type,
+        Notification.target_user_id,
+        Notification.title,
+        Notification.is_published,
+        Notification.created_at,
+    ]
+    column_searchable_list = [Notification.type, Notification.title, Notification.body, Notification.dedupe_key]
+    column_sortable_list = [Notification.type, Notification.created_at, Notification.is_published]
+    can_create = False
+    can_edit = False
+
+
+class NotificationReadAdmin(ModelView, model=NotificationRead):
+    name = "Notification Read"
+    name_plural = "Notification Reads"
+    icon = "fa-solid fa-envelope-open"
+    column_list = [
+        NotificationRead.user_id,
+        NotificationRead.notification_id,
+        NotificationRead.read_at,
+        NotificationRead.deleted_at,
+    ]
+    column_sortable_list = [NotificationRead.read_at, NotificationRead.deleted_at]
+    can_create = False
+    can_edit = False
+
+
+class NotificationUserStateAdmin(ModelView, model=NotificationUserState):
+    name = "Notification User State"
+    name_plural = "Notification User States"
+    icon = "fa-solid fa-clock"
+    column_list = [
+        NotificationUserState.user_id,
+        NotificationUserState.read_cutoff_at,
+        NotificationUserState.updated_at,
+    ]
+    column_sortable_list = [NotificationUserState.read_cutoff_at, NotificationUserState.updated_at]
+    can_create = False
+    can_edit = False
 
 
 class DifficultyTableAdmin(ModelView, model=DifficultyTable):
@@ -698,6 +865,24 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
         if is_published:
             await _trigger_revalidate()
 
+    async def after_model_change(self, data, model, is_created, request) -> None:
+        """Create a deduplicated notification after publish."""
+        if not model.is_published:
+            return
+        from sqlalchemy import select
+
+        from app.core.database import AsyncSessionLocal
+        from app.services.notifications import create_client_update_notification
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(ClientUpdateAnnouncement).where(ClientUpdateAnnouncement.id == model.id)
+            )
+            update_row = result.scalar_one_or_none()
+            if update_row is not None:
+                await create_client_update_notification(db, update_row)
+                await db.commit()
+
     @action(
         name="publish_updates",
         label="업데이트 알림 예약하기",
@@ -727,6 +912,11 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
                         updated_at=now,
                     )
                 )
+                result = await db.execute(select(ClientUpdateAnnouncement).where(ClientUpdateAnnouncement.id.in_(pks)))
+                from app.services.notifications import create_client_update_notification
+
+                for update_row in result.scalars().all():
+                    await create_client_update_notification(db, update_row)
                 await db.commit()
 
         if pks:
@@ -802,6 +992,45 @@ class UserFavoriteDifficultyTableAdmin(ModelView, model=UserFavoriteDifficultyTa
         UserFavoriteDifficultyTable.display_order,
     ]
     column_sortable_list = [UserFavoriteDifficultyTable.display_order]
+
+
+class TableImportLogAdmin(ModelView, model=TableImportLog):
+    name = "Table Import Log"
+    name_plural = "Table Import Logs"
+    icon = "fa-solid fa-file-import"
+    column_list = [
+        TableImportLog.id,
+        TableImportLog.user_id,
+        TableImportLog.source_url,
+        TableImportLog.outcome,
+        TableImportLog.created_at,
+    ]
+    column_searchable_list = [TableImportLog.source_url, TableImportLog.outcome]
+    column_sortable_list = [TableImportLog.created_at, TableImportLog.outcome]
+    can_create = False
+    can_edit = False
+
+
+class TableSourceAliasAdmin(ModelView, model=TableSourceAlias):
+    name = "Table Source Alias"
+    name_plural = "Table Source Aliases"
+    icon = "fa-solid fa-link"
+    column_list = [
+        TableSourceAlias.id,
+        TableSourceAlias.alias_url,
+        TableSourceAlias.table_id,
+        TableSourceAlias.created_at,
+    ]
+    column_searchable_list = [TableSourceAlias.alias_url]
+    column_sortable_list = [TableSourceAlias.created_at]
+
+    async def on_model_change(self, data, model, is_created, request) -> None:
+        """Store aliases in the same canonical URL form used by imports."""
+        from app.services.table_sync import canonicalize_table_url
+
+        alias_url = data.get("alias_url") if "alias_url" in data else model.alias_url
+        if alias_url:
+            model.alias_url = canonicalize_table_url(alias_url)
 
 
 class UserFumenTagAdmin(ModelView, model=UserFumenTag):

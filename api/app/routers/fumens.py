@@ -28,6 +28,7 @@ from app.services.fumen_user_scores import (
     fetch_user_score_map,
     fetch_user_tag_map,
 )
+from app.services.level_display_preferences import resolve_visible_table_ids
 from app.utils.numeric_filter import numeric_clause, parse_length_to_ms
 from app.utils.score_enums import (
     ARRANGEMENT_KANJI_REV,
@@ -36,6 +37,7 @@ from app.utils.score_enums import (
     LR2_ARRANGEMENT_NAMES,
     RANK_VALUES,
 )
+from app.utils.text_normalization import normalize_display_text
 
 logger = logging.getLogger(__name__)
 
@@ -89,25 +91,40 @@ class FumenListResponse(BaseModel):
     limit: int
 
 
+def _entry_visible(table_id: _uuid.UUID, visible_table_ids: set[_uuid.UUID] | None) -> bool:
+    """Return whether a table entry should be included for the current viewer."""
+    return visible_table_ids is None or table_id in visible_table_ids
+
+
 async def _table_entries_map(
     db: AsyncSession,
     fumen_ids: list[_uuid.UUID],
+    visible_table_ids: set[_uuid.UUID] | None = None,
 ) -> dict[_uuid.UUID, list[dict[str, str]]]:
     """Return legacy-shaped table_entries arrays for API compatibility."""
     if not fumen_ids:
         return {}
-    result = await db.execute(
+    if visible_table_ids is not None and not visible_table_ids:
+        return {fid: [] for fid in fumen_ids}
+    query = (
         select(FumenTableEntry.fumen_id, FumenTableEntry.table_id, FumenTableEntry.level)
         .where(FumenTableEntry.fumen_id.in_(fumen_ids))
     )
+    if visible_table_ids is not None:
+        query = query.where(FumenTableEntry.table_id.in_(visible_table_ids))
+    result = await db.execute(query)
     out: dict[_uuid.UUID, list[dict[str, str]]] = {fid: [] for fid in fumen_ids}
     for fumen_id, table_id, level in result.all():
         out.setdefault(fumen_id, []).append({"table_id": str(table_id), "level": level})
     return out
 
 
-async def _fumen_read(db: AsyncSession, fumen: Fumen) -> FumenRead:
-    entries = await _table_entries_map(db, [fumen.fumen_id])
+async def _fumen_read(
+    db: AsyncSession,
+    fumen: Fumen,
+    visible_table_ids: set[_uuid.UUID] | None = None,
+) -> FumenRead:
+    entries = await _table_entries_map(db, [fumen.fumen_id], visible_table_ids)
     return FumenRead(
         fumen_id=fumen.fumen_id,
         md5=fumen.md5,
@@ -413,7 +430,8 @@ async def list_fumens(
         score_map = await fetch_user_score_map(db, current_user.id, fumens)
         tag_map = await fetch_user_tag_map(db, current_user.id, fumens)
 
-    entries_map = await _table_entries_map(db, [f.fumen_id for f in fumens])
+    visible_table_ids = await resolve_visible_table_ids(db, current_user)
+    entries_map = await _table_entries_map(db, [f.fumen_id for f in fumens], visible_table_ids)
     items = []
     for f in fumens:
         item = FumenListItem(
@@ -474,23 +492,27 @@ async def get_my_tags(
 @router.get("/by-hash/{hash_value}", response_model=FumenRead)
 async def get_fumen_by_legacy_hash(
     hash_value: str,
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> FumenRead:
     """Resolve a legacy SHA256/MD5 hash URL to the registered fumen."""
     if len(hash_value) not in {32, 64}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid hash length")
     fumen = await _get_fumen_by_hash(hash_value, db)
-    return await _fumen_read(db, fumen)
+    visible_table_ids = await resolve_visible_table_ids(db, current_user)
+    return await _fumen_read(db, fumen, visible_table_ids)
 
 
 @router.get("/{hash_value}", response_model=FumenRead)
 async def get_fumen_by_hash(
     hash_value: str,
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> FumenRead:
     """Get a fumen by fumen_id UUID, SHA256, or MD5."""
     fumen = await _get_fumen_by_hash(hash_value, db)
-    return await _fumen_read(db, fumen)
+    visible_table_ids = await resolve_visible_table_ids(db, current_user)
+    return await _fumen_read(db, fumen, visible_table_ids)
 
 
 class SupplementItem(BaseModel):
@@ -946,6 +968,8 @@ async def sync_fumen_details(
             for col in _FILLABLE_COL_NAMES:
                 current_val = getattr(existing, col)
                 new_val = getattr(item, col)
+                if col in {"title", "artist"}:
+                    new_val = normalize_display_text(new_val)
                 if current_val is None and new_val is not None:
                     update_vals[col] = new_val
 
@@ -983,8 +1007,8 @@ async def sync_fumen_details(
             row: dict = {
                 "sha256": sha256,
                 "md5": md5,
-                "title": item.title,
-                "artist": item.artist,
+                "title": normalize_display_text(item.title),
+                "artist": normalize_display_text(item.artist),
                 "bpm_min": item.bpm_min,
                 "bpm_max": item.bpm_max,
                 "bpm_main": item.bpm_main,

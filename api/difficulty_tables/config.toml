@@ -1,5 +1,7 @@
 # Auto-update interval in hours
 update_interval_hours = 168
+# Auto-update interval in hours for user-added external tables
+user_table_update_interval_hours = 168
 # Timezone for fixed-time update schedules
 update_timezone = "Asia/Seoul"
 # Number of backups to retain per table

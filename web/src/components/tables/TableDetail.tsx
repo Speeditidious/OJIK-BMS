@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { compareTitles } from "@/lib/bms-sort";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
 import { CLEAR_ROW_CLASS, parseArrangement, levelSortIndex, ARRANGEMENT_KANJI, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
+import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { formatRatePercent } from "@/lib/rate-format";
 import { displayClearType } from "@/lib/clear-type-display";
 import { songHref } from "@/lib/song-href";
@@ -83,11 +84,11 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
           const ai = levelSortIndex(a.level, levelOrder);
           const bi = levelSortIndex(b.level, levelOrder);
           cmp = ai - bi;
-          if (cmp === 0) cmp = compareTitles(a.title ?? "", b.title ?? "");
+          if (cmp === 0) cmp = compareTitles(fumenTitleText(a.title, ""), fumenTitleText(b.title, ""));
           break;
         }
         case "title":
-          cmp = compareTitles(a.title ?? "", b.title ?? "");
+          cmp = compareTitles(fumenTitleText(a.title, ""), fumenTitleText(b.title, ""));
           break;
         case "lamp":
           cmp = (a.user_score?.best_clear_type ?? -1) - (b.user_score?.best_clear_type ?? -1);
@@ -304,6 +305,8 @@ const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores 
   const rowClass = CLEAR_ROW_CLASS[displayType ?? 0] ?? "";
   const arrangement = s ? parseArrangement(s.options, s.client_type) : null;
   const arrangementLabel = arrangement ? (ARRANGEMENT_KANJI[arrangement] ?? arrangement) : null;
+  const displayTitle = fumenTitleText(song.title, t("fumen.detail.untitled"));
+  const displayArtist = fumenArtistText(song.artist);
 
   return (
     <tr
@@ -314,14 +317,14 @@ const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores 
       <td className="px-2">
         <span className="text-label">{levelLabel}</span>
       </td>
-      <td className="px-2" data-title={song.title ?? ""} data-artist={song.artist ?? ""}>
+      <td className="px-2" data-title={displayTitle} data-artist={displayArtist}>
         <div className="min-w-0 overflow-hidden">
           <div className="max-w-full truncate">
             <Link href={href} className="text-label hover:text-primary transition-colors">
-              {song.title || t("fumen.detail.untitled")}
+              {displayTitle}
             </Link>
           </div>
-          {song.artist && <div className="text-caption row-muted max-w-full truncate">{song.artist}</div>}
+          {displayArtist && <div className="text-caption row-muted max-w-full truncate">{displayArtist}</div>}
           {song.user_tags.length > 0 && (
             <div className="flex gap-1 flex-wrap">
               {song.user_tags.map((t) => (
@@ -535,8 +538,8 @@ const SongVirtualList = memo(function SongVirtualList({
               const arrangement = s ? parseArrangement(s.options, s.client_type) : null;
               return {
                 level: `${table.symbol ?? ""}${song.level.replace(table.symbol ?? "", "")}`,
-                title: song.title ?? "",
-                artist: song.artist ?? "",
+                title: fumenTitleText(song.title, ""),
+                artist: fumenArtistText(song.artist),
                 lamp: s ? (CLEAR_TYPE_LABELS[s.best_clear_type ?? 0] ?? "") : "",
                 bp: s?.best_min_bp ?? "",
                 rate: s?.rate != null ? formatRatePercent(s.rate) : "",

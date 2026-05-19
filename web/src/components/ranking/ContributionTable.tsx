@@ -10,6 +10,7 @@ import { SourceClientBadge } from "@/components/common/SourceClientBadge";
 import { clearText } from "@/components/dashboard/RecentActivity";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { CLEAR_ROW_CLASS } from "@/lib/fumen-table-utils";
+import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import type {
   RankingContributionEntry,
   RatingContributionMetric,
@@ -222,7 +223,7 @@ function compareEntries(
   } else if (sortBy === "level") {
     result = compareSortNumber(levelSortValue(left), levelSortValue(right), sortDir);
   } else if (sortBy === "title") {
-    result = compareSortString(left.title, right.title, sortDir);
+    result = compareSortString(fumenTitleText(left.title, ""), fumenTitleText(right.title, ""), sortDir);
   } else if (sortBy === "clear_type") {
     result = compareSortNumber(left.clear_type, right.clear_type, sortDir);
   } else if (sortBy === "min_bp") {
@@ -595,6 +596,8 @@ function ContributionRow({
     : null;
   const rowClass = CLEAR_ROW_CLASS[entry.clear_type] ?? "";
   const clearClient = entry.client_types[0] ?? "beatoraja";
+  const displayTitle = fumenTitleText(entry.title, "");
+  const displayArtist = fumenArtistText(entry.artist);
 
   function renderCell(column: TableColumn): ReactNode {
     if (column.key === "rank") {
@@ -608,13 +611,13 @@ function ContributionRow({
         <div className="min-w-0 overflow-hidden">
           {songUrl ? (
             <Link href={songUrl} className="block max-w-full truncate text-label leading-tight transition-colors hover:text-primary">
-              {entry.title}
+              {displayTitle}
             </Link>
           ) : (
-            <span className="block max-w-full truncate text-label leading-tight">{entry.title}</span>
+            <span className="block max-w-full truncate text-label leading-tight">{displayTitle}</span>
           )}
-          {entry.artist && (
-            <div className="max-w-full truncate text-caption text-muted-foreground/80 row-muted">{entry.artist}</div>
+          {displayArtist && (
+            <div className="max-w-full truncate text-caption text-muted-foreground/80 row-muted">{displayArtist}</div>
           )}
         </div>
       );

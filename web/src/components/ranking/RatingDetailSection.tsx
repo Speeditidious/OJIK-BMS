@@ -11,6 +11,7 @@ import type {
   RatingContributionScope,
   RatingContributionSortBy,
 } from "@/lib/ranking-types";
+import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { cn } from "@/lib/utils";
 import { RankingTableSelector } from "./RankingTableSelector";
 import { RatingProfileHeader } from "./RatingProfileHeader";
@@ -71,8 +72,8 @@ export function RatingDetailSection({
 
     const normalizedQuery = deferredSearch.toLocaleLowerCase();
     return entries.filter((entry) => {
-      const title = entry.title.toLocaleLowerCase();
-      const artist = entry.artist?.toLocaleLowerCase() ?? "";
+      const title = fumenTitleText(entry.title, "").toLocaleLowerCase();
+      const artist = fumenArtistText(entry.artist).toLocaleLowerCase();
       return title.includes(normalizedQuery) || artist.includes(normalizedQuery);
     });
   }, [contributionQuery.data?.entries, deferredSearch, scope]);

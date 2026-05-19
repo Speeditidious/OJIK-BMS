@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user, verify_delete_token
 from app.models.user import OAuthAccount, User
+from app.services.level_display_preferences import normalize_preferences_payload
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -259,7 +260,8 @@ async def update_my_preferences(
 ) -> dict[str, Any]:
     """Partially update current user's preferences (shallow merge with existing)."""
     existing = current_user.preferences or {}
-    current_user.preferences = {**existing, **request.preferences}
+    incoming = normalize_preferences_payload(request.preferences)
+    current_user.preferences = {**existing, **incoming}
     db.add(current_user)
     await db.commit()
     return {"preferences": current_user.preferences}

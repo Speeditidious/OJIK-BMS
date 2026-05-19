@@ -104,6 +104,7 @@ def update_all_difficulty_tables(
     exclude_slugs: list[str] | None = None,
     log_id: str | None = None,
     default_only: bool = False,
+    user_only: bool = False,
     force: bool = True,
     respect_auto_update: bool = False,
 ) -> dict:
@@ -119,6 +120,7 @@ def update_all_difficulty_tables(
                 exclude_slugs=exclude_slugs,
                 log_id=uuid.UUID(log_id) if log_id else None,
                 default_only=default_only,
+                user_only=user_only,
                 force=force,
                 respect_auto_update=respect_auto_update,
             )
@@ -133,6 +135,7 @@ async def _async_update_all_tables(
     exclude_slugs: list[str] | None = None,
     log_id: uuid.UUID | None = None,
     default_only: bool = False,
+    user_only: bool = False,
     force: bool = True,
     respect_auto_update: bool = False,
 ) -> dict:
@@ -149,6 +152,7 @@ async def _async_update_all_tables(
         slugs=slugs,
         exclude_slugs=exclude_slugs,
         default_only=default_only,
+        user_only=user_only,
         respect_auto_update=respect_auto_update,
     )
 
@@ -157,8 +161,8 @@ async def _async_update_all_tables(
         await append_line(log_id, f"Queueing {len(target_rows)} table sync jobs")
 
     table_ids: list[str] = []
-    action_name = "sync_default_tables" if default_only else "sync_all_tables"
-    for row in target_rows:
+    action_name = "sync_user_tables" if user_only else ("sync_default_tables" if default_only else "sync_all_tables")
+    for index, row in enumerate(target_rows):
         table_id = str(row.id)
         table_ids.append(table_id)
         child_log_id = None
@@ -170,11 +174,15 @@ async def _async_update_all_tables(
                 target_label=row.name,
                 parent_log_id=log_id,
             )
-        task_result = update_difficulty_table.delay(
-            table_id,
-            log_id=str(child_log_id) if child_log_id else None,
-            force=force,
-        )
+        task_kwargs = {"log_id": str(child_log_id) if child_log_id else None, "force": force}
+        if user_only and not force:
+            task_result = update_difficulty_table.apply_async(
+                args=[table_id],
+                kwargs=task_kwargs,
+                countdown=index * 30,
+            )
+        else:
+            task_result = update_difficulty_table.delay(table_id, **task_kwargs)
         if child_log_id and getattr(task_result, "id", None):
             await mark_task_id(child_log_id, task_result.id)
 

@@ -216,6 +216,27 @@ export function TableSidebar({
   };
 
   const otherTables = allTables.filter((t) => !favoriteIds.has(t.id));
+  const defaultTables = otherTables.filter((t) => t.is_default);
+  const userTables = otherTables.filter((t) => !t.is_default);
+
+  const renderStaticSection = (title: string, tables: DifficultyTable[]) => {
+    if (tables.length === 0) return null;
+    return (
+      <>
+        <p className="px-2 pb-1 text-label text-muted-foreground font-medium">{title}</p>
+        {tables.map((t) => (
+          <StaticTableRow
+            key={t.id}
+            table={t}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            onToggleFavorite={toggleFavorite}
+            isLoggedIn={isLoggedIn}
+          />
+        ))}
+      </>
+    );
+  };
 
   return (
     <div className="flex flex-col h-full border-r">
@@ -254,22 +275,12 @@ export function TableSidebar({
           </>
         )}
 
-        {/* All tables section */}
+        {/* Default/user table sections */}
         {otherTables.length > 0 && (
           <>
-            {isLoggedIn && displayedFavorites.length > 0 && (
-              <p className="px-2 pb-1 text-label text-muted-foreground font-medium">{t("tables.sidebar.all")}</p>
-            )}
-            {otherTables.map((t) => (
-              <StaticTableRow
-                key={t.id}
-                table={t}
-                selectedId={selectedId}
-                onSelect={onSelect}
-                onToggleFavorite={toggleFavorite}
-                isLoggedIn={isLoggedIn}
-              />
-            ))}
+            {renderStaticSection(t("tables.sidebar.defaultTables"), defaultTables)}
+            {defaultTables.length > 0 && userTables.length > 0 && <Separator className="my-2" />}
+            {renderStaticSection(t("tables.sidebar.userTables"), userTables)}
           </>
         )}
 
