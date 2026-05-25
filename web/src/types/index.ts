@@ -253,11 +253,21 @@ export interface Announcement {
 export interface AnnouncementWrite {
   tag_id: string;
   title: string;
-  title_en?: string | null;
-  title_ja?: string | null;
+  title_en: string | null;
+  title_ja: string | null;
   body: string;
-  body_en?: string | null;
-  body_ja?: string | null;
+  body_en: string | null;
+  body_ja: string | null;
+}
+
+export interface AnnouncementTemplateWrite {
+  tag_id?: string | null;
+  title_template?: string;
+  title_en_template?: string | null;
+  title_ja_template?: string | null;
+  body_template?: string;
+  body_en_template?: string | null;
+  body_ja_template?: string | null;
 }
 
 export interface AnnouncementTemplate {

@@ -4,6 +4,7 @@ import type {
   Announcement,
   AnnouncementTag,
   AnnouncementWrite,
+  AnnouncementTemplateWrite,
   RenderedAnnouncementTemplate,
   Pagination,
 } from "@/types";
@@ -82,7 +83,7 @@ export function useCreateAnnouncement() {
 
 export function useUpdateAnnouncement() {
   const queryClient = useQueryClient();
-  return useMutation<Announcement, Error, { id: string; data: Partial<AnnouncementWrite> }>({
+  return useMutation<Announcement, Error, { id: string; data: AnnouncementWrite }>({
     mutationFn: ({ id, data }) => api.patch(`/announcements/admin/${id}`, data),
     onSuccess: (_result, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["announcements"] });
@@ -112,10 +113,10 @@ export function useRenderedAnnouncementTemplate(tagId: string | null | undefined
   return useQuery<RenderedAnnouncementTemplate>({
     queryKey: ["announcements", "templates", tagId ?? "__global__"],
     queryFn: () => {
-      if (tagId === null) {
-        return api.get("/announcements/admin/templates");
+      if (tagId === null || tagId === undefined) {
+        return api.get<RenderedAnnouncementTemplate>("/announcements/admin/templates");
       }
-      return api.get(`/announcements/admin/templates?tag_id=${encodeURIComponent(tagId!)}`);
+      return api.get<RenderedAnnouncementTemplate>(`/announcements/admin/templates?tag_id=${encodeURIComponent(tagId)}`);
     },
     enabled: tagId !== undefined,
   });
@@ -123,7 +124,7 @@ export function useRenderedAnnouncementTemplate(tagId: string | null | undefined
 
 export function useUpsertAnnouncementTemplate() {
   const queryClient = useQueryClient();
-  return useMutation<RenderedAnnouncementTemplate, Error, Record<string, unknown>>({
+  return useMutation<RenderedAnnouncementTemplate, Error, AnnouncementTemplateWrite>({
     mutationFn: (data) => api.put("/announcements/admin/templates", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["announcements"] });
