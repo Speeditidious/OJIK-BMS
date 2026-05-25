@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 from app.core.database import get_db
 from app.core.security import get_current_admin, get_current_user
 from app.main import app
+from app.services.announcements import render_announcement_template, validate_template_placeholders
 
 
 # ---------------------------------------------------------------------------
@@ -457,5 +458,328 @@ async def test_public_list_excludes_unpublished_drafts() -> None:
         data = response.json()
         assert data["total"] == 0
         assert data["items"] == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# Template helper unit tests (no HTTP, pure logic)
+# ---------------------------------------------------------------------------
+
+
+def _make_template(
+    *,
+    tag_id: uuid.UUID | None = None,
+    title_template: str = "",
+    title_en_template: str | None = None,
+    title_ja_template: str | None = None,
+    body_template: str = "",
+    body_en_template: str | None = None,
+    body_ja_template: str | None = None,
+) -> SimpleNamespace:
+    now = datetime.now(UTC)
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        tag_id=tag_id,
+        title_template=title_template,
+        title_en_template=title_en_template,
+        title_ja_template=title_ja_template,
+        body_template=body_template,
+        body_en_template=body_en_template,
+        body_ja_template=body_ja_template,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def test_render_announcement_template_date_placeholders() -> None:
+    """All four date placeholders expand correctly with a fixed date."""
+    ref = date(2026, 5, 25)
+    tmpl = _make_template(
+        title_template="Title {date}",
+        title_en_template="Year {yyyy} Month {mm} Day {dd}",
+        body_template="Body on {yyyy}-{mm}-{dd}",
+    )
+    rendered = render_announcement_template(tmpl, ref_date=ref)
+
+    assert rendered["title"] == "Title 2026-05-25"
+    assert rendered["title_en"] == "Year 2026 Month 05 Day 25"
+    assert rendered["body"] == "Body on 2026-05-25"
+
+
+def test_render_announcement_template_none_returns_empty_strings() -> None:
+    """render_announcement_template(None) returns empty strings, not errors."""
+    rendered = render_announcement_template(None)
+
+    assert rendered["title"] == ""
+    assert rendered["body"] == ""
+    assert rendered["title_en"] is None
+    assert rendered["title_ja"] is None
+    assert rendered["body_en"] is None
+    assert rendered["body_ja"] is None
+    assert rendered["tag_id"] is None
+
+
+def test_validate_template_placeholders_allows_supported() -> None:
+    """No exception for templates using only supported placeholders."""
+    validate_template_placeholders("Hello {date}, year {yyyy}, {mm}/{dd}!")
+
+
+def test_validate_template_placeholders_rejects_unknown() -> None:
+    """HTTP 422 is raised for any unsupported placeholder."""
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc_info:
+        validate_template_placeholders("Hello {name}!")
+
+    assert exc_info.value.status_code == 422
+    assert "name" in exc_info.value.detail
+
+
+# ---------------------------------------------------------------------------
+# Template API: GET /announcements/admin/templates
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_template_global_fallback_when_no_tag_specific() -> None:
+    """GET /announcements/admin/templates?tag_id=X falls back to global template."""
+    admin_user = _make_admin_user()
+    tag_id = uuid.uuid4()
+
+    global_tmpl = _make_template(
+        tag_id=None,
+        title_template="Global Title {date}",
+        body_template="Global body.",
+    )
+
+    # First execute: per-tag lookup → None; second: global lookup → global_tmpl
+    call_count = 0
+
+    async def _execute(stmt, *args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None if call_count == 1 else global_tmpl
+        return result
+
+    db = MagicMock()
+    db.execute = AsyncMock(side_effect=_execute)
+
+    app.dependency_overrides[get_current_admin] = lambda: admin_user
+    app.dependency_overrides[get_db] = lambda: db
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.get(f"/announcements/admin/templates?tag_id={tag_id}")
+        assert response.status_code == 200, response.text
+        data = response.json()
+        # tag_id echoed back, body/title from global template (placeholders expanded)
+        assert "Global Title" in data["title"]
+        assert data["body"] == "Global body."
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_get_template_tag_specific_overrides_global() -> None:
+    """GET /announcements/admin/templates?tag_id=X returns tag-specific template."""
+    admin_user = _make_admin_user()
+    tag_id = uuid.uuid4()
+
+    tag_tmpl = _make_template(
+        tag_id=tag_id,
+        title_template="Tag Title",
+        body_template="Tag body.",
+    )
+
+    result_mock = MagicMock()
+    result_mock.scalar_one_or_none.return_value = tag_tmpl
+
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=result_mock)
+
+    app.dependency_overrides[get_current_admin] = lambda: admin_user
+    app.dependency_overrides[get_db] = lambda: db
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.get(f"/announcements/admin/templates?tag_id={tag_id}")
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["title"] == "Tag Title"
+        assert data["body"] == "Tag body."
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_get_template_no_tag_returns_global_or_empty() -> None:
+    """GET /announcements/admin/templates (no tag_id) returns global template or empty."""
+    admin_user = _make_admin_user()
+
+    # No global template exists
+    result_mock = MagicMock()
+    result_mock.scalar_one_or_none.return_value = None
+
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=result_mock)
+
+    app.dependency_overrides[get_current_admin] = lambda: admin_user
+    app.dependency_overrides[get_db] = lambda: db
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.get("/announcements/admin/templates")
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["title"] == ""
+        assert data["body"] == ""
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# Template API: PUT /announcements/admin/templates
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_put_template_rejects_unknown_placeholder() -> None:
+    """PUT /announcements/admin/templates returns 422 for unknown placeholders."""
+    admin_user = _make_admin_user()
+
+    db = MagicMock()
+
+    app.dependency_overrides[get_current_admin] = lambda: admin_user
+    app.dependency_overrides[get_db] = lambda: db
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.put(
+                "/announcements/admin/templates",
+                json={
+                    "tag_id": None,
+                    "title_template": "Hello {username}!",
+                    "body_template": "Welcome.",
+                },
+            )
+        assert response.status_code == 422, response.text
+        assert "username" in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_put_template_creates_global_template() -> None:
+    """PUT /announcements/admin/templates upserts a global template (tag_id=None)."""
+    admin_user = _make_admin_user()
+
+    saved_tmpl = _make_template(
+        tag_id=None,
+        title_template="Release {date}",
+        body_template="New release on {yyyy}-{mm}-{dd}.",
+    )
+
+    # No existing template found
+    find_result = MagicMock()
+    find_result.scalar_one_or_none.return_value = None
+
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=find_result)
+    db.add = MagicMock()
+    db.commit = AsyncMock()
+
+    async def _refresh(obj, *args, **kwargs):
+        obj.tag_id = saved_tmpl.tag_id
+        obj.title_template = saved_tmpl.title_template
+        obj.body_template = saved_tmpl.body_template
+        obj.title_en_template = None
+        obj.title_ja_template = None
+        obj.body_en_template = None
+        obj.body_ja_template = None
+
+    db.refresh = AsyncMock(side_effect=_refresh)
+
+    app.dependency_overrides[get_current_admin] = lambda: admin_user
+    app.dependency_overrides[get_db] = lambda: db
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.put(
+                "/announcements/admin/templates",
+                json={
+                    "tag_id": None,
+                    "title_template": "Release {date}",
+                    "body_template": "New release on {yyyy}-{mm}-{dd}.",
+                },
+            )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        # Rendered output: {date} etc. should be expanded
+        assert data["tag_id"] is None
+        assert "Release" in data["title"]
+        db.add.assert_called_once()
+        db.commit.assert_awaited_once()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_put_template_updates_existing_template() -> None:
+    """PUT /announcements/admin/templates updates an existing template in place."""
+    admin_user = _make_admin_user()
+    tag_id = uuid.uuid4()
+    tag = _make_tag()
+    tag.id = tag_id
+
+    existing_tmpl = _make_template(
+        tag_id=tag_id,
+        title_template="Old title",
+        body_template="Old body.",
+    )
+
+    call_count = 0
+
+    async def _execute(stmt, *args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        result = MagicMock()
+        # First call: tag validation; second call: existing template lookup
+        if call_count == 1:
+            result.scalar_one_or_none.return_value = tag
+        else:
+            result.scalar_one_or_none.return_value = existing_tmpl
+        return result
+
+    db = MagicMock()
+    db.execute = AsyncMock(side_effect=_execute)
+    db.add = MagicMock()
+    db.commit = AsyncMock()
+
+    async def _refresh(obj, *args, **kwargs):
+        pass  # existing_tmpl already mutated in-place by handler
+
+    db.refresh = AsyncMock(side_effect=_refresh)
+
+    app.dependency_overrides[get_current_admin] = lambda: admin_user
+    app.dependency_overrides[get_db] = lambda: db
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.put(
+                "/announcements/admin/templates",
+                json={
+                    "tag_id": str(tag_id),
+                    "title_template": "New title {date}",
+                    "body_template": "New body.",
+                },
+            )
+        assert response.status_code == 200, response.text
+        # Existing object mutated
+        assert existing_tmpl.title_template == "New title {date}"
+        assert existing_tmpl.body_template == "New body."
+        db.add.assert_not_called()  # update path, not create
+        db.commit.assert_awaited_once()
     finally:
         app.dependency_overrides.clear()

@@ -12,10 +12,14 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import get_current_admin
-from app.models.announcement import Announcement, AnnouncementTag
+from app.models.announcement import Announcement, AnnouncementTag, AnnouncementTemplate
 from app.routers.announcements import AnnouncementRead
 from app.schemas import Pagination
-from app.services.announcements import publish_announcement
+from app.services.announcements import (
+    publish_announcement,
+    render_announcement_template,
+    validate_template_placeholders,
+)
 
 router = APIRouter(prefix="/announcements/admin", tags=["announcements-admin"])
 
@@ -32,6 +36,30 @@ class AnnouncementWrite(BaseModel):
     body_ja: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AnnouncementTemplateWrite(BaseModel):
+    """Schema for creating or updating an announcement template."""
+
+    tag_id: uuid.UUID | None = None
+    title_template: str = Field(default="", max_length=200)
+    title_en_template: str | None = Field(default=None, max_length=200)
+    title_ja_template: str | None = Field(default=None, max_length=200)
+    body_template: str = ""
+    body_en_template: str | None = None
+    body_ja_template: str | None = None
+
+
+class RenderedAnnouncementTemplate(BaseModel):
+    """Rendered template with placeholders expanded."""
+
+    tag_id: uuid.UUID | None = None
+    title: str
+    title_en: str | None = None
+    title_ja: str | None = None
+    body: str
+    body_en: str | None = None
+    body_ja: str | None = None
 
 
 @router.get("/", response_model=Pagination[AnnouncementRead])
@@ -80,6 +108,110 @@ async def admin_list_announcements(
         size=size,
         pages=(total + size - 1) // size,
     )
+
+
+@router.get("/templates", response_model=RenderedAnnouncementTemplate)
+async def admin_get_template(
+    tag_id: uuid.UUID | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(get_current_admin),
+) -> RenderedAnnouncementTemplate:
+    """Return the rendered template for a given tag (or the global fallback).
+
+    Fallback order: per-tag template → global template → empty strings.
+    All ``{date}``/``{yyyy}``/``{mm}``/``{dd}`` placeholders are expanded
+    using today's UTC date.
+    """
+    tmpl: AnnouncementTemplate | None = None
+
+    if tag_id is not None:
+        result = await db.execute(
+            select(AnnouncementTemplate).where(AnnouncementTemplate.tag_id == tag_id)
+        )
+        tmpl = result.scalar_one_or_none()
+
+    if tmpl is None:
+        # Fall back to global template (tag_id IS NULL)
+        result = await db.execute(
+            select(AnnouncementTemplate).where(AnnouncementTemplate.tag_id.is_(None))
+        )
+        tmpl = result.scalar_one_or_none()
+
+    rendered = render_announcement_template(tmpl)
+    if tag_id is not None and rendered["tag_id"] is None:
+        rendered["tag_id"] = tag_id
+    return RenderedAnnouncementTemplate(**rendered)
+
+
+@router.put("/templates", response_model=RenderedAnnouncementTemplate)
+async def admin_upsert_template(
+    payload: AnnouncementTemplateWrite,
+    db: AsyncSession = Depends(get_db),
+    _admin=Depends(get_current_admin),
+) -> RenderedAnnouncementTemplate:
+    """Create or update a global or per-tag announcement template.
+
+    Validates that all template fields use only supported placeholders:
+    ``{date}``, ``{yyyy}``, ``{mm}``, ``{dd}``. Unknown placeholders raise 422.
+    """
+    # Validate all template fields
+    template_fields = [
+        payload.title_template,
+        payload.title_en_template,
+        payload.title_ja_template,
+        payload.body_template,
+        payload.body_en_template,
+        payload.body_ja_template,
+    ]
+    for field_value in template_fields:
+        if field_value is not None:
+            validate_template_placeholders(field_value)
+
+    # Validate tag exists if provided
+    if payload.tag_id is not None:
+        tag_result = await db.execute(
+            select(AnnouncementTag).where(AnnouncementTag.id == payload.tag_id)
+        )
+        if tag_result.scalar_one_or_none() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
+
+    # Upsert: find existing template
+    if payload.tag_id is None:
+        result = await db.execute(
+            select(AnnouncementTemplate).where(AnnouncementTemplate.tag_id.is_(None))
+        )
+    else:
+        result = await db.execute(
+            select(AnnouncementTemplate).where(AnnouncementTemplate.tag_id == payload.tag_id)
+        )
+    tmpl = result.scalar_one_or_none()
+
+    if tmpl is None:
+        now = datetime.now(UTC)
+        tmpl = AnnouncementTemplate(
+            tag_id=payload.tag_id,
+            title_template=payload.title_template,
+            title_en_template=payload.title_en_template,
+            title_ja_template=payload.title_ja_template,
+            body_template=payload.body_template,
+            body_en_template=payload.body_en_template,
+            body_ja_template=payload.body_ja_template,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(tmpl)
+    else:
+        tmpl.title_template = payload.title_template
+        tmpl.title_en_template = payload.title_en_template
+        tmpl.title_ja_template = payload.title_ja_template
+        tmpl.body_template = payload.body_template
+        tmpl.body_en_template = payload.body_en_template
+        tmpl.body_ja_template = payload.body_ja_template
+        tmpl.updated_at = datetime.now(UTC)
+
+    await db.commit()
+    await db.refresh(tmpl)
+    return RenderedAnnouncementTemplate(**render_announcement_template(tmpl))
 
 
 @router.get("/{announcement_id}", response_model=AnnouncementRead)
