@@ -9,13 +9,13 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from sqladmin import ModelView, action
-from sqlalchemy import delete, func, null, select, text, update
+from sqlalchemy import delete, func, null, select, text, tuple_, update
 from sqlalchemy.orm import selectinload
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
 from app.models.admin_action_log import AdminActionLog, AdminActionLogLine
-from app.models.announcement import Announcement, AnnouncementTag
+from app.models.announcement import Announcement, AnnouncementTag, AnnouncementTemplate
 from app.models.client_update import ClientUpdateAnnouncement
 from app.models.course import Course
 from app.models.difficulty_table import (
@@ -337,6 +337,19 @@ class AnnouncementTagAdmin(ModelView, model=AnnouncementTag):
     form_excluded_columns = [AnnouncementTag.created_at, AnnouncementTag.updated_at]
 
 
+class AnnouncementTemplateAdmin(ModelView, model=AnnouncementTemplate):
+    name = "Announcement Template"
+    name_plural = "Announcement Templates"
+    icon = "fa-solid fa-file-lines"
+    column_list = [
+        AnnouncementTemplate.id,
+        AnnouncementTemplate.tag,
+        AnnouncementTemplate.title_template,
+        AnnouncementTemplate.updated_at,
+    ]
+    form_excluded_columns = [AnnouncementTemplate.created_at, AnnouncementTemplate.updated_at]
+
+
 class AnnouncementAdmin(ModelView, model=Announcement):
     name = "Announcement"
     name_plural = "Announcements"
@@ -404,28 +417,12 @@ class AnnouncementAdmin(ModelView, model=Announcement):
     async def publish_announcements(self, request: Request) -> RedirectResponse:
         """Publish selected announcements and stamp published_at if needed."""
         from app.core.database import AsyncSessionLocal
-        from app.services.notifications import create_announcement_notification
+        from app.services.announcements import publish_announcements as _publish_announcements
 
         pks = _parse_uuid_pks(request.query_params.get("pks", ""))
         if pks:
-            now = datetime.now(UTC)
             async with AsyncSessionLocal() as db:
-                await db.execute(
-                    update(Announcement)
-                    .where(Announcement.id.in_(pks))
-                    .values(
-                        is_published=True,
-                        published_at=func.coalesce(Announcement.published_at, now),
-                        updated_at=now,
-                    )
-                )
-                result = await db.execute(
-                    select(Announcement)
-                    .options(selectinload(Announcement.tag))
-                    .where(Announcement.id.in_(pks))
-                )
-                for announcement in result.scalars().all():
-                    await create_announcement_notification(db, announcement)
+                await _publish_announcements(db, pks)
                 await db.commit()
 
         return RedirectResponse(request.url_for("admin:list", identity=self.identity), status_code=302)
@@ -918,6 +915,76 @@ class ClientUpdateAnnouncementAdmin(ModelView, model=ClientUpdateAnnouncement):
                 for update_row in result.scalars().all():
                     await create_client_update_notification(db, update_row)
                 await db.commit()
+
+        if pks:
+            await _trigger_revalidate()
+
+        return RedirectResponse(request.url_for("admin:list", identity=self.identity), status_code=302)
+
+    @action(
+        name="publish_same_version_updates",
+        label="같은 버전 전체 업데이트 알림 예약하기",
+        confirmation_message=(
+            "선택한 업데이트와 같은 version/channel의 모든 target_os/arch/installer_kind row를 공개 예약합니다. "
+            "기본적으로 약 10분 뒤 설치된 클라이언트에 표시됩니다. 계속하시겠습니까?"
+        ),
+        add_in_detail=True,
+        add_in_list=True,
+    )
+    async def publish_same_version_updates(self, request: Request) -> RedirectResponse:
+        """Publish every target row sharing the selected rows' version/channel."""
+        from app.core.database import AsyncSessionLocal
+        from app.services.notifications import create_client_update_notification
+
+        pks = _parse_uuid_pks(request.query_params.get("pks", ""))
+        if pks:
+            now = datetime.now(UTC)
+            visible_at = _client_update_default_publish_after(now)
+            async with AsyncSessionLocal() as db:
+                selected_result = await db.execute(
+                    select(ClientUpdateAnnouncement).where(ClientUpdateAnnouncement.id.in_(pks))
+                )
+                selected_pairs = {
+                    (row.version, row.channel) for row in selected_result.scalars().all()
+                }
+
+                if selected_pairs:
+                    target_rows_result = await db.execute(
+                        select(ClientUpdateAnnouncement).where(
+                            tuple_(
+                                ClientUpdateAnnouncement.version,
+                                ClientUpdateAnnouncement.channel,
+                            ).in_(selected_pairs)
+                        )
+                    )
+                    target_rows = target_rows_result.scalars().all()
+                    target_ids = [row.id for row in target_rows]
+                    if not target_ids:
+                        await db.commit()
+                        return RedirectResponse(
+                            request.url_for("admin:list", identity=self.identity),
+                            status_code=302,
+                        )
+
+                    await db.execute(
+                        update(ClientUpdateAnnouncement)
+                        .where(ClientUpdateAnnouncement.id.in_(target_ids))
+                        .values(
+                            is_published=True,
+                            published_at=func.coalesce(ClientUpdateAnnouncement.published_at, now),
+                            publish_after=func.coalesce(
+                                ClientUpdateAnnouncement.publish_after, visible_at
+                            ),
+                            updated_at=now,
+                        )
+                    )
+
+                    for update_row in target_rows:
+                        update_row.is_published = True
+                        update_row.published_at = update_row.published_at or now
+                        update_row.publish_after = update_row.publish_after or visible_at
+                        await create_client_update_notification(db, update_row)
+                    await db.commit()
 
         if pks:
             await _trigger_revalidate()
