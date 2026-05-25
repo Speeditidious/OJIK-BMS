@@ -27,6 +27,7 @@ class UserRead(BaseModel):
     username: str
     bio: str | None = None
     is_active: bool
+    is_admin: bool
     avatar_url: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
@@ -132,6 +133,7 @@ async def get_my_profile(
         username=current_user.username,
         bio=current_user.bio,
         is_active=current_user.is_active,
+        is_admin=current_user.is_admin,
         avatar_url=await _resolve_avatar(current_user, db),
     )
 
@@ -165,6 +167,7 @@ async def update_my_profile(
         username=current_user.username,
         bio=current_user.bio,
         is_active=current_user.is_active,
+        is_admin=current_user.is_admin,
         avatar_url=await _resolve_avatar(current_user, db),
     )
 
@@ -236,6 +239,7 @@ async def upload_avatar(
         username=current_user.username,
         bio=current_user.bio,
         is_active=current_user.is_active,
+        is_admin=current_user.is_admin,
         avatar_url=current_user.avatar_url,
     )
 

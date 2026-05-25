@@ -6,6 +6,7 @@ export interface AuthUser {
   username: string;
   bio: string | null;
   is_active: boolean;
+  is_admin: boolean;
   avatar_url: string | null;
 }
 
