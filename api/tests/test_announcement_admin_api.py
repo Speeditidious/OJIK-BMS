@@ -152,6 +152,20 @@ async def test_non_admin_cannot_list_admin_announcements() -> None:
         app.dependency_overrides.clear()
 
 
+@pytest.mark.asyncio
+async def test_non_admin_cannot_read_single_announcement() -> None:
+    """GET /announcements/admin/{id} returns 403 for regular users."""
+    regular_user = _make_regular_user()
+    app.dependency_overrides[get_current_user] = lambda: regular_user
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.get(f"/announcements/admin/{uuid.uuid4()}")
+        assert response.status_code == 403
+    finally:
+        app.dependency_overrides.clear()
+
+
 # ---------------------------------------------------------------------------
 # Create draft
 # ---------------------------------------------------------------------------
