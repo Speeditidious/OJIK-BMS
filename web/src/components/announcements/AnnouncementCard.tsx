@@ -1,6 +1,8 @@
 "use client";
 
+import { Pencil } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
 import { MarkdownContent } from "@/components/common/MarkdownContent";
 import type { Announcement } from "@/types";
 
@@ -8,6 +10,10 @@ interface AnnouncementCardProps {
   announcement: Announcement;
   /** When true, truncates body preview to 3 lines (for home page preview) */
   preview?: boolean;
+  /** When true, shows the admin edit button */
+  canEdit?: boolean;
+  /** Called when the edit button is clicked */
+  onEdit?: (announcement: Announcement) => void;
 }
 
 /**
@@ -46,7 +52,12 @@ function resolveTagColor(color: string | null): {
   return map[token] ?? map.primary;
 }
 
-export function AnnouncementCard({ announcement, preview = false }: AnnouncementCardProps) {
+export function AnnouncementCard({
+  announcement,
+  preview = false,
+  canEdit = false,
+  onEdit,
+}: AnnouncementCardProps) {
   const { i18n } = useTranslation();
 
   const lang = i18n.language;
@@ -80,9 +91,22 @@ export function AnnouncementCard({ announcement, preview = false }: Announcement
 
   return (
     <article
-      className="flex overflow-hidden rounded-lg border bg-card shadow-sm transition-colors hover:border-border/80"
+      className="relative flex overflow-hidden rounded-lg border bg-card shadow-sm transition-colors hover:border-border/80"
       style={{ borderLeftColor: borderVar, borderLeftWidth: "4px" }}
     >
+      {/* Admin edit button */}
+      {canEdit && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-2 top-2 h-7 w-7 text-muted-foreground opacity-60 hover:opacity-100"
+          onClick={() => onEdit?.(announcement)}
+          aria-label="Edit announcement"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </Button>
+      )}
+
       <div className="flex-1 p-5">
         {/* Tag badge + date */}
         <div className="mb-3 flex flex-wrap items-center gap-2">

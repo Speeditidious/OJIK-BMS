@@ -1,11 +1,13 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { Megaphone } from "lucide-react";
+import { Megaphone, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { AnnouncementCard } from "@/components/announcements/AnnouncementCard";
+import { AnnouncementEditorDialog } from "@/components/announcements/AnnouncementEditorDialog";
 import { Pagination } from "@/components/common/Pagination";
 import { Navbar } from "@/components/layout/navbar";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -14,6 +16,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAnnouncements, useAnnouncementTags } from "@/hooks/use-announcements";
+import { useAuthStore } from "@/stores/auth";
+import type { Announcement } from "@/types";
 
 function AnnouncementsContent() {
   const { t, i18n } = useTranslation();
@@ -22,6 +26,26 @@ function AnnouncementsContent() {
   const [tag, setTag] = useState("all");
   const { data } = useAnnouncements({ page, size: 10, tag: tag === "all" ? undefined : tag });
   const { data: tags = [] } = useAnnouncementTags();
+  const user = useAuthStore((state) => state.user);
+  const isAdmin = user?.is_admin === true;
+
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingAnnouncement, setEditingAnnouncement] = useState<Announcement | undefined>(undefined);
+
+  const handleNewAnnouncement = () => {
+    setEditingAnnouncement(undefined);
+    setEditorOpen(true);
+  };
+
+  const handleEditAnnouncement = (announcement: Announcement) => {
+    setEditingAnnouncement(announcement);
+    setEditorOpen(true);
+  };
+
+  const handleEditorClose = () => {
+    setEditorOpen(false);
+    setEditingAnnouncement(undefined);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -35,37 +59,50 @@ function AnnouncementsContent() {
             </div>
             <p className="mt-2 text-body text-muted-foreground">{t("announcements.description")}</p>
           </div>
-          <Select
-            value={tag}
-            onValueChange={(value) => {
-              setTag(value);
-              setPage(1);
-            }}
-          >
-            <SelectTrigger className="w-full sm:w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("announcements.allTags")}</SelectItem>
-              {tags.map((item) => {
-                const tagName = lang.startsWith("en")
-                  ? (item.name_en ?? item.name)
-                  : lang.startsWith("ja")
-                    ? (item.name_ja ?? item.name)
-                    : item.name;
-                return (
-                  <SelectItem key={item.id} value={item.id}>
-                    {tagName}
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <Button size="sm" onClick={handleNewAnnouncement} className="gap-1.5">
+                <Plus className="h-4 w-4" />
+                {t("announcements.editor.newAnnouncement")}
+              </Button>
+            )}
+            <Select
+              value={tag}
+              onValueChange={(value) => {
+                setTag(value);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("announcements.allTags")}</SelectItem>
+                {tags.map((item) => {
+                  const tagName = lang.startsWith("en")
+                    ? (item.name_en ?? item.name)
+                    : lang.startsWith("ja")
+                      ? (item.name_ja ?? item.name)
+                      : item.name;
+                  return (
+                    <SelectItem key={item.id} value={item.id}>
+                      {tagName}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         <div className="space-y-4">
           {data?.items.map((announcement) => (
-            <AnnouncementCard key={announcement.id} announcement={announcement} />
+            <AnnouncementCard
+              key={announcement.id}
+              announcement={announcement}
+              canEdit={isAdmin}
+              onEdit={handleEditAnnouncement}
+            />
           ))}
           {data && data.items.length === 0 && (
             <p className="rounded-lg border py-12 text-center text-body text-muted-foreground">
@@ -86,6 +123,14 @@ function AnnouncementsContent() {
           </div>
         )}
       </main>
+
+      {isAdmin && (
+        <AnnouncementEditorDialog
+          open={editorOpen}
+          onClose={handleEditorClose}
+          announcement={editingAnnouncement}
+        />
+      )}
     </div>
   );
 }
