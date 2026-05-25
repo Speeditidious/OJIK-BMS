@@ -146,6 +146,8 @@ export function AnnouncementEditorDialog({
 
   // When a new rendered template arrives and we triggered it
   const [waitingForTemplate, setWaitingForTemplate] = useState(false);
+  // `applyTemplate` only calls setState and captures nothing external,
+  // so omitting it from deps is intentional — its identity is stable.
   useEffect(() => {
     if (waitingForTemplate && renderedTemplate) {
       applyTemplate(renderedTemplate);
@@ -229,7 +231,7 @@ export function AnnouncementEditorDialog({
       }
       await publishAnnouncement.mutateAsync(id);
       showFeedback(t("announcements.editor.published"));
-      setTimeout(() => onClose(), 1200);
+      onClose();
     } finally {
       setPublishing(false);
     }
@@ -245,7 +247,7 @@ export function AnnouncementEditorDialog({
       body_en_template: bodyEn || null,
       body_ja_template: bodyJa || null,
     });
-    showFeedback(t("announcements.editor.savedDraft"));
+    showFeedback(t("announcements.editor.savedTemplate"));
   };
 
   // Preview values with fallback
