@@ -280,7 +280,7 @@ export function AnnouncementEditorDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden bg-surface p-0">
+      <DialogContent className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden bg-card p-0">
         <DialogHeader className="border-b border-border px-6 py-4">
           <DialogTitle className="text-lg font-semibold">
             {isEditMode
@@ -292,7 +292,7 @@ export function AnnouncementEditorDialog({
         {/* Confirm overwrite dialog */}
         {pendingTemplateConfirm && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-            <div className="mx-4 rounded-lg border border-border bg-surface p-6 shadow-xl">
+            <div className="mx-4 rounded-lg border border-border bg-card p-6 shadow-xl">
               <p className="mb-4 text-body text-foreground">
                 {t("announcements.editor.templateAppliedConfirm")}
               </p>
