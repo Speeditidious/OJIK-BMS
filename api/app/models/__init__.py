@@ -1,5 +1,5 @@
 from app.models.admin_action_log import AdminActionLog, AdminActionLogLine
-from app.models.announcement import Announcement, AnnouncementTag
+from app.models.announcement import Announcement, AnnouncementTag, AnnouncementTemplate
 from app.models.base import Base, TimestampMixin
 from app.models.client_update import ClientUpdateAnnouncement
 from app.models.course import Course
@@ -33,6 +33,7 @@ __all__ = [
     "AdminActionLogLine",
     "Announcement",
     "AnnouncementTag",
+    "AnnouncementTemplate",
     "ClientUpdateAnnouncement",
     "Notification",
     "NotificationRead",

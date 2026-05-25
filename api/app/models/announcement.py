@@ -57,3 +57,28 @@ class Announcement(Base, TimestampMixin):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     tag: Mapped[AnnouncementTag] = relationship("AnnouncementTag")
+
+
+class AnnouncementTemplate(Base, TimestampMixin):
+    """Per-tag (or global) announcement body/title template."""
+
+    __tablename__ = "announcement_templates"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    tag_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("announcement_tags.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    title_template: Mapped[str] = mapped_column(String(200), nullable=False)
+    title_en_template: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    title_ja_template: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    body_template: Mapped[str] = mapped_column(Text, nullable=False)
+    body_en_template: Mapped[str | None] = mapped_column(Text, nullable=True)
+    body_ja_template: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    tag: Mapped[AnnouncementTag | None] = relationship("AnnouncementTag")
