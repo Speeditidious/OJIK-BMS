@@ -112,6 +112,7 @@ function ProfileTab() {
         username: string;
         bio: string | null;
         is_active: boolean;
+        is_admin: boolean;
         avatar_url: string | null;
       }>("/users/me", patch);
       setUser({ ...updated });
@@ -138,6 +139,7 @@ function ProfileTab() {
         username: string;
         bio: string | null;
         is_active: boolean;
+        is_admin: boolean;
         avatar_url: string | null;
       }>("/users/me/avatar", form);
       setUser({ ...updated });
