@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.routers import (
     admin,
     analysis,
+    announcement_admin,
     announcements,
     auth,
     client,
@@ -152,6 +153,7 @@ app.add_middleware(
 # ── Routers ─────────────────────────────────────────────────────────────────
 
 app.include_router(admin.router)
+app.include_router(announcement_admin.router)
 app.include_router(announcements.router)
 app.include_router(auth.router)
 app.include_router(client.router)

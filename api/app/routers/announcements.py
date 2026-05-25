@@ -38,6 +38,7 @@ class AnnouncementRead(BaseModel):
     body: str
     body_en: str | None = None
     body_ja: str | None = None
+    is_published: bool = False
     published_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
