@@ -49,18 +49,18 @@ async def admin_list_announcements(
     if published is not None:
         filters.append(Announcement.is_published.is_(published))
 
+    needs_tag_join = False
     if tag:
         try:
             tag_id = uuid.UUID(tag)
             filters.append(Announcement.tag_id == tag_id)
         except ValueError:
             filters.append(AnnouncementTag.name == tag)
+            needs_tag_join = True
 
-    query = (
-        select(Announcement)
-        .join(AnnouncementTag)
-        .options(selectinload(Announcement.tag))
-    )
+    query = select(Announcement).options(selectinload(Announcement.tag))
+    if needs_tag_join:
+        query = query.join(AnnouncementTag)
     if filters:
         query = query.where(*filters)
 
@@ -112,7 +112,7 @@ async def admin_create_announcement(
     )
     tag = tag_result.scalar_one_or_none()
     if tag is None:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Tag not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
 
     now = datetime.now(UTC)
     announcement = Announcement(
@@ -158,7 +158,7 @@ async def admin_update_announcement(
         select(AnnouncementTag).where(AnnouncementTag.id == payload.tag_id)
     )
     if tag_result.scalar_one_or_none() is None:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Tag not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
 
     announcement.tag_id = payload.tag_id
     announcement.title = payload.title
