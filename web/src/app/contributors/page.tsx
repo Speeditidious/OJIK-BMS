@@ -7,7 +7,7 @@ const keyContributors = [
   { roleKey: "contributors.roles.ratingSystem", name: "모과맛" },
 ] as const;
 
-const betaTesters = ["모과맛", "서준", "laigus", "Beatnoob", "Kaiden", "Rv", "Artharnal", "민트초코파인트", "scale.out", "칸쥬", "파이알제곱", "모이", "3cchobo", "Siesphere", "RED231", "neonsign", "qodtjr", "Mouse Bul Al", "egosa", "knit700", "bmsnomomdadgame", "dirty_ssamjang", "sadang", "MAID.S", "cr1sp4761", '여긴언더시티팬텀', 'bmslover3shu', 'Hipsta', 'fyjtnbmv', 'nau_0303', 'P02', 'honey2jam', 'relolo', 'arctell', 'paprika_pizza', 'rb_drache', 'farewe11', 'Aesthetica_228', 'lambard', '후아즈', 'kurrsive2000', 'arming_soda', 'buuf5838', 'ggsnipes', 'ys6244', 'sujak663', 'coffeemix', 'hostsamurai_', 'sneoddl1222', 'start_end', 'dibitify_'] as const;
+const betaTesters = ["모과맛", "서준", "laigus", "Beatnoob", "Kaiden", "Rv", "Artharnal", "민트초코파인트", "scale.out", "칸쥬", "파이알제곱", "모이", "3cchobo", "Siesphere", "RED231", "neonsign", "qodtjr", "Mouse Bul Al", "egosa", "knit700", "bmsnomomdadgame", "dirty_ssamjang", "sadang", "MAID.S", "cr1sp4761", '여긴언더시티팬텀', 'bmslover3shu', 'Hipsta', 'fyjtnbmv', 'nau_0303', 'P02', 'honey2jam', 'relolo', 'arctell', 'paprika_pizza', 'rb_drache', 'farewe11', 'Aesthetica_228', 'lambard', '후아즈', 'kurrsive2000', 'arming_soda', 'buuf5838', 'ggsnipes', 'ys6244', 'sujak663', 'coffeemix', 'hostsamurai_', 'sneoddl1222', 'start_end', 'dibitify_', 'leporidae_rabbit', 'kh', 'kawachiboy14', '2aja', 'danddo_', 'wise_lamb_74674', 'Tokakitake', 'void_7sn', 'question_03', 'pomin06', 'cloudsz._.', 'stko3o'] as const;
 
 export default function ContributorsPage() {
   const { t } = useTranslation();

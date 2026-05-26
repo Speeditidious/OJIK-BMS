@@ -196,8 +196,8 @@ def upgrade() -> None:
         sa.column("content_hint", sa.Text),
         sa.column("display_order", sa.Integer),
         sa.column("is_active", sa.Boolean),
-        sa.column("created_at", sa.DateTime),
-        sa.column("updated_at", sa.DateTime),
+        sa.column("created_at", sa.DateTime(timezone=True)),
+        sa.column("updated_at", sa.DateTime(timezone=True)),
     )
     op.bulk_insert(
         issue_tags_table,
