@@ -245,6 +245,7 @@ export interface Announcement {
   body: string;
   body_en: string | null;
   body_ja: string | null;
+  is_published: boolean;
   published_at: string | null;
   created_at: string;
   updated_at: string;
@@ -418,4 +419,92 @@ export interface ScoreUpdatesResponse {
   max_combo_updates: MaxComboUpdateItem[];
   min_bp_updates: MinBPUpdateItem[];
   play_count_updates: PlayCountUpdateItem[];
+}
+
+// ── Issue types ───────────────────────────────────────────────────────────────
+
+export type IssueStatus = "open" | "work_in_progress" | "completed" | "not_planned";
+export type IssueSearchField = "all" | "title" | "body";
+export type IssueSortKey = "last_activity" | "created";
+export type IssueCommentEventType = "status_change";
+
+export interface IssueStatusChangeEventPayload {
+  from: IssueStatus;
+  to: IssueStatus;
+}
+
+export interface IssueStatusCounts {
+  open: number;
+  work_in_progress: number;
+  completed: number;
+  not_planned: number;
+}
+
+export interface IssueTag {
+  id: string;
+  slug: string;
+  name: string;
+  name_en: string | null;
+  name_ja: string | null;
+  color: string | null;
+  content_hint: string | null;
+  display_order: number;
+  is_active: boolean;
+}
+
+export interface IssueAuthor {
+  id: string;
+  username: string;
+  avatar_url: string | null;
+}
+
+export interface IssueMention {
+  source_text: string;
+  user: IssueAuthor;
+}
+
+export interface Issue {
+  id: number;
+  tag: IssueTag;
+  status: IssueStatus;
+  title: string;
+  body: string;
+  author: IssueAuthor;
+  comment_count: number;
+  last_activity_at: string;
+  closed_at: string | null;
+  closed_by: IssueAuthor | null;
+  mentions: IssueMention[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IssueCreate {
+  tag_id: string;
+  title: string;
+  body: string;
+}
+
+export interface IssueComment {
+  id: string;
+  issue_id: number;
+  author: IssueAuthor;
+  body: string | null;
+  created_at: string;
+  updated_at: string;
+  event_type: IssueCommentEventType | null;
+  event_payload: IssueStatusChangeEventPayload | null;
+  mentions: IssueMention[];
+}
+
+export interface IssueUserSearchResult {
+  id: string;
+  username: string;
+  avatar_url: string | null;
+}
+
+export interface IssueIssueSearchResult {
+  id: number;
+  title: string;
+  status: IssueStatus;
 }

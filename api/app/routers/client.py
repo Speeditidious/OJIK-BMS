@@ -13,6 +13,7 @@ from app.services.client_update import (
     ReleaseTarget,
     get_latest_visible_release,
     get_latest_visible_update,
+    get_visible_release_by_version,
     published_at_for,
 )
 
@@ -29,6 +30,7 @@ class ClientUpdateAnnouncementResponse(BaseModel):
     release_page_url: str | None
     mandatory: bool
     asset_size_bytes: int | None
+    current_asset_size_bytes: int | None = None
     published_at: datetime
     supports_auto_install: bool
 
@@ -74,9 +76,17 @@ async def get_update_policy(
     )
     if announcement is None:
         return ClientUpdatePolicyResponse(update_available=False)
+    current_release = await get_visible_release_by_version(
+        db,
+        version,
+        ReleaseTarget(target, arch, channel, installer_kind),
+    )
     return ClientUpdatePolicyResponse(
         update_available=True,
-        announcement=_announcement_response(announcement),
+        announcement=_announcement_response(
+            announcement,
+            current_asset_size_bytes=current_release.asset_size_bytes if current_release else None,
+        ),
     )
 
 
@@ -132,7 +142,10 @@ async def get_tauri_update(
     )
 
 
-def _announcement_response(row: ClientUpdateAnnouncement) -> ClientUpdateAnnouncementResponse:
+def _announcement_response(
+    row: ClientUpdateAnnouncement,
+    current_asset_size_bytes: int | None = None,
+) -> ClientUpdateAnnouncementResponse:
     return ClientUpdateAnnouncementResponse(
         id=row.id,
         version=row.version,
@@ -143,6 +156,7 @@ def _announcement_response(row: ClientUpdateAnnouncement) -> ClientUpdateAnnounc
         release_page_url=row.release_page_url,
         mandatory=row.mandatory,
         asset_size_bytes=row.asset_size_bytes,
+        current_asset_size_bytes=current_asset_size_bytes,
         published_at=published_at_for(row),
         supports_auto_install=bool(row.tauri_signature),
     )

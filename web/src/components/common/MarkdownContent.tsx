@@ -6,20 +6,67 @@ import remarkBreaks from "remark-breaks";
 import rehypeSanitize from "rehype-sanitize";
 import { cn } from "@/lib/utils";
 
+interface MarkdownMention {
+  source_text: string;
+  user: {
+    id: string;
+    username: string;
+  };
+}
+
 interface MarkdownContentProps {
   children: string;
   className?: string;
+  mentions?: MarkdownMention[];
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function escapeMarkdownLabel(value: string): string {
+  return value.replace(/([\\\[\]])/g, "\\$1");
+}
+
+/**
+ * Preprocess markdown to turn @username and #123 tokens into markdown links,
+ * skipping content inside code spans and fenced code blocks.
+ */
+function preprocessMentions(text: string, mentions: MarkdownMention[] = []): string {
+  // Split on fenced code blocks and inline code spans to leave them untouched
+  const parts = text.split(/(```[\s\S]*?```|`[^`\n]*`)/g);
+  const placeholders: string[] = [];
+
+  return parts
+    .map((part, i) => {
+      if (i % 2 === 1) return part; // inside a code block
+
+      const withResolvedMentions = mentions.reduce((current, mention) => {
+        if (!mention.source_text || !mention.user.id || !mention.user.username) return current;
+        const pattern = new RegExp(`(?<![.\\w@])${escapeRegExp(mention.source_text)}(?![A-Za-z0-9_.-])`, "gi");
+        return current.replace(pattern, () => {
+          const placeholder = `\u0000OJIK_MENTION_${placeholders.length}\u0000`;
+          placeholders.push(`[@${escapeMarkdownLabel(mention.user.username)}](/users/${mention.user.id}/dashboard)`);
+          return placeholder;
+        });
+      }, part);
+
+      return withResolvedMentions
+        .replace(/(?<![.\w@])@([A-Za-z0-9_]+(?:[._-][A-Za-z0-9_]+)*)/g, "[@$1](/u/$1)")
+        .replace(/(?<![.\w#])#([1-9][0-9]{0,9})(?!\w)/g, "[#$1](/issues/$1)");
+    })
+    .join("")
+    .replace(/\u0000OJIK_MENTION_(\d+)\u0000/g, (_, index: string) => placeholders[Number(index)] ?? "");
 }
 
 /**
  * Renders markdown content with GFM support and HTML sanitization.
- * Styled to match the OJIK BMS design system (body text, muted links, etc.).
+ * Resolved @mentions link to user dashboards; unresolved @mentions use username redirects.
  */
-export function MarkdownContent({ children, className }: MarkdownContentProps) {
+export function MarkdownContent({ children, className, mentions }: MarkdownContentProps) {
   return (
     <div
       className={cn(
-        // Base prose-like styling using design system tokens only
         "text-body leading-relaxed text-muted-foreground",
         "[&_h1]:text-xl [&_h1]:font-bold [&_h1]:text-foreground [&_h1]:mb-3 [&_h1]:mt-5",
         "[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:text-foreground [&_h2]:mb-2 [&_h2]:mt-4",
@@ -43,7 +90,7 @@ export function MarkdownContent({ children, className }: MarkdownContentProps) {
       )}
     >
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} rehypePlugins={[rehypeSanitize]}>
-        {children}
+        {preprocessMentions(children, mentions)}
       </ReactMarkdown>
     </div>
   );

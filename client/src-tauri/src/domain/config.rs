@@ -57,7 +57,7 @@ impl Default for ClientConfig {
             last_update_failure_stage: None,
             last_update_failure_message: None,
             debug_mode: false,
-            verbose_disk_logging: false,
+            verbose_disk_logging: true,
             language: "ko".to_string(),
         }
     }
@@ -164,5 +164,15 @@ fn normalize_language(language: &str) -> &'static str {
         Some("ja") => "ja",
         Some("ko") => "ko",
         _ => "ko",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_enables_verbose_disk_logging() {
+        assert!(ClientConfig::default().verbose_disk_logging);
     }
 }

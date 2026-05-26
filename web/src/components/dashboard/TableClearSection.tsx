@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { X, Search, FileSpreadsheet, Settings2 } from "lucide-react";
 import { useUserFavoriteTables, type DifficultyTableItem } from "@/hooks/use-tables";
-import { useTableClearDistribution, TableClearSong } from "@/hooks/use-analysis";
+import { useTableClearDistribution, TableClearSong, type TableClearLevel } from "@/hooks/use-analysis";
 import { type ClientVisibilityKey } from "@/hooks/use-preferences";
 import { useDashboardClearVisibility, type ClearVisibilitySource } from "@/hooks/use-dashboard-clear-visibility";
 import {
@@ -634,6 +634,7 @@ const P_TBL = "d_tbl";
 const P_LV  = "d_lv";
 const P_CT  = "d_ct";
 const P_Q   = "d_q";
+const HISTOGRAM_SPACER_LEVEL = "__table_clear_spacer__non_regular";
 
 export function TableClearSection({
   clientType,
@@ -717,19 +718,35 @@ export function TableClearSection({
 
   const { data: dist, isLoading: distLoading } = useTableClearDistribution(effectiveTableId, clientType, userId);
 
-  // Ordered levels list (respects level_order if available)
+  // Ordered levels list (backend applies display_level_order/non_regular_level_order).
   const orderedLevels = useMemo(() => {
     if (!dist) return [];
-    const levelStrings = dist.levels.map((l) => l.level);
-    if (dist.level_order?.length) {
-      const order = dist.level_order;
-      return levelStrings.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-    }
-    return levelStrings.sort((a, b) => {
-      const na = parseFloat(a), nb = parseFloat(b);
-      if (!isNaN(na) && !isNaN(nb)) return na - nb;
-      return a.localeCompare(b);
-    });
+    return dist.levels.map((l) => l.level);
+  }, [dist]);
+
+  const histogramLevels = useMemo(() => {
+    if (!dist || !dist.non_regular_level_order?.length) return dist?.levels ?? [];
+    const byLevel = new Map(dist.levels.map((level) => [level.level, level]));
+    const regular = (dist.regular_level_order ?? [])
+      .map((level) => byLevel.get(level))
+      .filter((level): level is TableClearLevel => !!level);
+    const nonRegularSet = new Set(dist.non_regular_level_order);
+    const orderedSet = new Set([
+      ...(dist.regular_level_order ?? []),
+      ...dist.non_regular_level_order,
+    ]);
+    const unknown = dist.levels.filter((level) => !orderedSet.has(level.level));
+    const nonRegular = dist.non_regular_level_order
+      .map((level) => byLevel.get(level))
+      .filter((level): level is TableClearLevel => !!level);
+
+    if (nonRegular.length === 0) return dist.levels;
+    return [
+      ...regular,
+      ...unknown.filter((level) => !nonRegularSet.has(level.level)),
+      { level: HISTOGRAM_SPACER_LEVEL, counts: {}, is_spacer: true },
+      ...nonRegular,
+    ];
   }, [dist]);
 
   const filteredSongs = useMemo(() => {
@@ -865,7 +882,7 @@ export function TableClearSection({
           <>
             {/* Stacked histogram */}
             <TableClearHistogram
-              levels={dist.levels}
+              levels={histogramLevels}
               clientType={clientType}
               tableSymbol={tableSymbol}
               onSelect={handleHistogramSelect}

@@ -27,8 +27,8 @@ from app.services.ranking_dashboard import (
     _apply_history_row,
     _canonical_key,
     _canonical_key_maps,
-    _display_top_n_contribution_value,
     _query_table_score_history,
+    _rating_update_countable_top_keys,
     _top_keys_from_values,
 )
 
@@ -142,18 +142,12 @@ async def _build_user_table_rating_derived_rows(
 
         current_top_keys = _top_keys_from_values(current_values, targets_by_key, table_cfg.top_n)
         current_rating = sum(current_values.get(key, 0.0) for key in current_top_keys)
-        updated_top_keys = {
-            key
-            for key in (previous_top_keys | current_top_keys)
-            if _display_top_n_contribution_value(
-                previous_values_snapshot.get(key, 0.0),
-                key in previous_top_keys,
-            )
-            != _display_top_n_contribution_value(
-                current_values.get(key, 0.0),
-                key in current_top_keys,
-            )
-        }
+        updated_top_keys = _rating_update_countable_top_keys(
+            previous_values_snapshot,
+            current_values,
+            previous_top_keys,
+            current_top_keys,
+        )
 
         if abs(current_exp - previous_exp) > 1e-9 or abs(current_rating - previous_rating) > 1e-9:
             checkpoints.append(

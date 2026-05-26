@@ -5,7 +5,13 @@ from app.services.level_display_preferences import (
 )
 
 
-def test_normalize_level_display_defaults_to_all_enabled() -> None:
+def test_normalize_level_display_defaults_to_favorites_only() -> None:
+    assert DEFAULT_LEVEL_DISPLAY_PREFERENCES == {
+        "favorite": True,
+        "server_default": False,
+        "user_added": False,
+        "ojik_custom": False,
+    }
     assert normalize_level_display_preferences(None) == DEFAULT_LEVEL_DISPLAY_PREFERENCES
 
 
@@ -19,7 +25,7 @@ def test_normalize_level_display_ignores_unknown_keys_and_non_bool_values() -> N
     }
     assert normalize_level_display_preferences(raw) == {
         "favorite": False,
-        "server_default": True,
+        "server_default": False,
         "user_added": True,
         "ojik_custom": False,
     }
@@ -35,8 +41,8 @@ def test_normalize_preferences_payload_normalizes_level_display_only() -> None:
         "level_display": {
             "favorite": False,
             "server_default": False,
-            "user_added": True,
-            "ojik_custom": True,
+            "user_added": False,
+            "ojik_custom": False,
         },
     }
 

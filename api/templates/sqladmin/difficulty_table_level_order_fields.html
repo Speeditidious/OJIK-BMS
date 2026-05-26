@@ -1,0 +1,156 @@
+<style>
+  .level-order-help {
+    display: block;
+    margin-top: 0.35rem;
+  }
+
+  .select2-selection__choice[draggable="true"] {
+    cursor: grab;
+  }
+
+  .select2-selection__choice.level-order-drag-over {
+    outline: 2px solid var(--tblr-primary);
+    outline-offset: 2px;
+  }
+</style>
+
+<script>
+(function () {
+  const ENHANCED_FIELDS = ["display_level_order", "non_regular_level_order"];
+
+  function parseLevelOrder() {
+    const field = document.querySelector('[name="level_order"]');
+    if (!field) return [];
+    try {
+      const parsed = JSON.parse(field.value || "[]");
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map((value) => String(value).trim()).filter(Boolean);
+    } catch (_err) {
+      return [];
+    }
+  }
+
+  function uniqueExistingValues(values, allowed) {
+    const seen = new Set();
+    const result = [];
+    for (const raw of values || []) {
+      const value = String(raw).trim();
+      if (!value || seen.has(value) || !allowed.has(value)) continue;
+      seen.add(value);
+      result.push(value);
+    }
+    return result;
+  }
+
+  function addOptions(select, levelOrder, selected) {
+    const selectedSet = new Set(selected);
+    select.innerHTML = "";
+    for (const level of levelOrder) {
+      const option = new Option(level, level, selectedSet.has(level), selectedSet.has(level));
+      select.append(option);
+    }
+  }
+
+  function currentValues(select) {
+    const value = window.jQuery(select).val();
+    return Array.isArray(value) ? value.map(String) : [];
+  }
+
+  function applyOrderedValues(select, values) {
+    const selected = new Set(values);
+    for (const value of values) {
+      const option = Array.from(select.options).find((item) => item.value === value);
+      if (option) {
+        option.selected = true;
+        select.append(option);
+      }
+    }
+    for (const option of Array.from(select.options)) {
+      if (!selected.has(option.value)) option.selected = false;
+    }
+    window.jQuery(select).val(values).trigger("change.select2");
+    window.jQuery(select).trigger("change");
+  }
+
+  function attachDrag(select) {
+    const container = window.jQuery(select).next(".select2-container")[0];
+    if (!container) return;
+    const choices = Array.from(container.querySelectorAll(".select2-selection__choice"));
+    choices.forEach((choice, index) => {
+      choice.setAttribute("draggable", "true");
+      choice.dataset.levelOrderIndex = String(index);
+      choice.addEventListener("dragstart", (event) => {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", String(index));
+      });
+      choice.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        choice.classList.add("level-order-drag-over");
+      });
+      choice.addEventListener("dragleave", () => {
+        choice.classList.remove("level-order-drag-over");
+      });
+      choice.addEventListener("drop", (event) => {
+        event.preventDefault();
+        choice.classList.remove("level-order-drag-over");
+        const from = Number(event.dataTransfer.getData("text/plain"));
+        const to = Number(choice.dataset.levelOrderIndex);
+        if (!Number.isInteger(from) || !Number.isInteger(to) || from === to) return;
+        const values = currentValues(select);
+        const [moved] = values.splice(from, 1);
+        values.splice(to, 0, moved);
+        applyOrderedValues(select, values);
+        window.setTimeout(() => attachDrag(select), 0);
+      });
+    });
+  }
+
+  function enhanceField(fieldName, levelOrder) {
+    const select = document.querySelector(`select[name="${fieldName}"]`);
+    if (!select || !window.jQuery || !window.jQuery.fn.select2) return;
+
+    const allowed = new Set(levelOrder);
+    const initialValues = uniqueExistingValues(
+      window.jQuery(select).data("json") || currentValues(select),
+      allowed,
+    );
+
+    if (window.jQuery(select).data("select2")) {
+      window.jQuery(select).select2("destroy");
+    }
+
+    addOptions(select, levelOrder, initialValues);
+    window.jQuery(select).select2({
+      tags: false,
+      multiple: true,
+      width: "100%",
+      closeOnSelect: false,
+      placeholder: "Select levels from level_order",
+    });
+    applyOrderedValues(select, initialValues);
+
+    const helper = document.createElement("small");
+    helper.className = "text-muted level-order-help";
+    helper.textContent = "Select levels from level_order. Drag selected chips to change order.";
+    window.jQuery(select).next(".select2-container").after(helper);
+
+    window.jQuery(select).on("change", () => {
+      window.setTimeout(() => attachDrag(select), 0);
+    });
+    attachDrag(select);
+  }
+
+  function enhanceAll() {
+    const levelOrder = parseLevelOrder();
+    for (const fieldName of ENHANCED_FIELDS) {
+      enhanceField(fieldName, levelOrder);
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", enhanceAll);
+  } else {
+    enhanceAll();
+  }
+})();
+</script>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { BmsforceBreakdown } from "@/lib/ranking-types";
 
@@ -15,26 +16,28 @@ interface BmsforceBreakdownCardProps {
 export function BmsforceBreakdownCard({
   breakdown,
 }: BmsforceBreakdownCardProps) {
+  const { t } = useTranslation();
+
   return (
     <Card className="mx-auto w-full max-w-sm border-border/60 bg-secondary/10">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">BMSFORCE Breakdown</CardTitle>
+        <CardTitle className="text-base">{t("ranking.bmsforceBreakdown.title")}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2.5 text-body">
         <div className="flex items-center justify-between gap-3">
-          <span className="text-muted-foreground">Rating contribution</span>
+          <span className="text-muted-foreground">{t("ranking.bmsforceBreakdown.ratingContribution")}</span>
           <span className="font-semibold tabular-nums">{formatSigned(breakdown.rating_component)}</span>
         </div>
         <div className="flex items-center justify-between gap-3">
-          <span className="text-muted-foreground">Level contribution</span>
+          <span className="text-muted-foreground">{t("ranking.bmsforceBreakdown.levelContribution")}</span>
           <span className="font-semibold tabular-nums">{formatSigned(breakdown.level_component)}</span>
         </div>
         <div className="flex items-center justify-between gap-3 border-t border-border/50 pt-2.5">
-          <span className="font-medium">Total</span>
+          <span className="font-medium">{t("ranking.bmsforceBreakdown.total")}</span>
           <span className="font-semibold tabular-nums">{formatSigned(breakdown.total)}</span>
         </div>
         <p className="text-caption text-muted-foreground leading-snug">
-          Due to 4th decimal place rounding, this may differ from the BMSFORCE change shown above by ±0.001.
+          {t("ranking.bmsforceBreakdown.roundingNote")}
         </p>
       </CardContent>
     </Card>

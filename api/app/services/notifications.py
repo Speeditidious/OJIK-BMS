@@ -26,6 +26,34 @@ async def create_announcement_notification(db: AsyncSession, announcement: Annou
     )
 
 
+async def create_issue_mention_notification(
+    db: AsyncSession,
+    *,
+    issue_id: int,
+    issue_title: str,
+    mentioned_user_id: uuid.UUID,
+    actor_username: str,
+    comment_id: uuid.UUID | None = None,
+) -> Notification | None:
+    """Create one deduplicated targeted notification for an issue/comment mention."""
+    if comment_id is None:
+        dedupe_key = f"issue_mention:issue:{issue_id}:user:{mentioned_user_id}"
+        body = f"{actor_username} mentioned you in issue #{issue_id}."
+    else:
+        dedupe_key = f"issue_mention:comment:{comment_id}:user:{mentioned_user_id}"
+        body = f"{actor_username} mentioned you in a comment on issue #{issue_id}."
+    return await _create_notification(
+        db,
+        type_="issue_mention",
+        dedupe_key=dedupe_key,
+        title=f"#{issue_id} {issue_title}",
+        body=body,
+        link_url=f"/issues/{issue_id}",
+        target_user_id=mentioned_user_id,
+        metadata={"issue_id": issue_id, "comment_id": str(comment_id) if comment_id else None},
+    )
+
+
 async def create_client_update_notification(
     db: AsyncSession,
     update: ClientUpdateAnnouncement,

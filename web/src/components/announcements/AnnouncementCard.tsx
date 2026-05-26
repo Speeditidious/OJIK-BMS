@@ -4,6 +4,7 @@ import { Pencil } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { MarkdownContent } from "@/components/common/MarkdownContent";
+import { resolveTagBadgeStyle } from "@/lib/tag-color";
 import type { Announcement } from "@/types";
 
 interface AnnouncementCardProps {
@@ -14,42 +15,6 @@ interface AnnouncementCardProps {
   canEdit?: boolean;
   /** Called when the edit button is clicked */
   onEdit?: (announcement: Announcement) => void;
-}
-
-/**
- * Maps a tag color token to a CSS variable pair: [border color, badge background, badge text].
- * The `color` field from the server is a design system token name (e.g. "primary", "accent").
- * Falls back to primary when null or unrecognized.
- */
-function resolveTagColor(color: string | null): {
-  borderVar: string;
-  badgeBg: string;
-  badgeText: string;
-} {
-  const token = color ?? "primary";
-  const map: Record<string, { borderVar: string; badgeBg: string; badgeText: string }> = {
-    primary: {
-      borderVar: "hsl(var(--primary))",
-      badgeBg: "hsl(var(--primary) / 0.15)",
-      badgeText: "hsl(var(--primary))",
-    },
-    accent: {
-      borderVar: "hsl(var(--accent))",
-      badgeBg: "hsl(var(--accent) / 0.15)",
-      badgeText: "hsl(var(--accent))",
-    },
-    warning: {
-      borderVar: "hsl(var(--warning))",
-      badgeBg: "hsl(var(--warning) / 0.15)",
-      badgeText: "hsl(var(--warning))",
-    },
-    destructive: {
-      borderVar: "hsl(var(--destructive))",
-      badgeBg: "hsl(var(--destructive) / 0.15)",
-      badgeText: "hsl(var(--destructive))",
-    },
-  };
-  return map[token] ?? map.primary;
 }
 
 export function AnnouncementCard({
@@ -78,7 +43,8 @@ export function AnnouncementCard({
         ? (announcement.body_ja ?? announcement.body)
         : announcement.body;
 
-  const { borderVar, badgeBg, badgeText } = resolveTagColor(announcement.tag.color);
+  const { background: badgeBg, text: badgeText } = resolveTagBadgeStyle(announcement.tag.color);
+  const borderVar = badgeText;
 
   const formatDate = (iso: string) =>
     new Date(iso).toLocaleDateString(lang, { year: "numeric", month: "numeric", day: "numeric" });

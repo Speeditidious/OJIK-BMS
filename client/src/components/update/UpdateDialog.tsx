@@ -37,6 +37,10 @@ export function UpdateDialog({
   const dismissable = !mandatory;
   const language = (i18n.language?.split("-")[0] ?? "ko") as LanguageCode;
   const bodyMarkdown = selectAnnouncementBody(announcement, language);
+  const sizeSummary = formatUpdateSizeSummary(
+    announcement.current_asset_size_bytes,
+    announcement.asset_size_bytes,
+  );
 
   return (
     <Dialog
@@ -94,8 +98,8 @@ export function UpdateDialog({
         <h2 style={{ fontSize: "1.05rem" }}>{announcement.title}</h2>
 
         <div style={{ display: "flex", gap: 14, color: "var(--muted)", fontSize: "0.84rem", flexWrap: "wrap" }}>
-          {announcement.asset_size_bytes ? (
-            <span>{t("client.updates.downloadSize")}: <b style={{ color: "var(--text)" }}>{formatBytes(announcement.asset_size_bytes)}</b></span>
+          {sizeSummary ? (
+            <span>{t("client.updates.appSize")}: <b style={{ color: "var(--text)" }}>{sizeSummary}</b></span>
           ) : null}
           {announcement.published_at ? (
             <span>{t("client.updates.publishedAt")}: <b style={{ color: "var(--text)" }}>{new Date(announcement.published_at).toLocaleDateString()}</b></span>
@@ -147,6 +151,19 @@ export function UpdateDialog({
       </div>
     </Dialog>
   );
+}
+
+function formatUpdateSizeSummary(
+  currentSizeBytes: number | null | undefined,
+  updateSizeBytes: number | null | undefined,
+): string | null {
+  if (!updateSizeBytes) return null;
+  if (!currentSizeBytes) return formatBytes(updateSizeBytes);
+
+  const delta = updateSizeBytes - currentSizeBytes;
+  const sign = delta > 0 ? "+" : "";
+  const deltaText = delta === 0 ? formatBytes(0) : `${sign}${delta < 0 ? "-" : ""}${formatBytes(Math.abs(delta))}`;
+  return `${formatBytes(currentSizeBytes)} -> ${formatBytes(updateSizeBytes)} (${deltaText})`;
 }
 
 function DownloadProgress({ downloaded, total }: { downloaded: number; total: number | null }) {

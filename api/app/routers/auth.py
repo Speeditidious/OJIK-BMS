@@ -11,6 +11,7 @@ from starlette.requests import Request
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_access_token, create_refresh_token, verify_token
+from app.models.user import OAuthAccount, User
 from app.schemas import MessageResponse, TokenResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -18,6 +19,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 DISCORD_AUTH_URL = "https://discord.com/api/oauth2/authorize"
 DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
 DISCORD_USER_URL = "https://discord.com/api/users/@me"
+USERNAME_MAX_LENGTH = 64
 
 
 def _resolve_redirect_base(state: str | None, frontend_url: str) -> str:
@@ -31,6 +33,26 @@ def _resolve_redirect_base(state: str | None, frontend_url: str) -> str:
         if port.isdigit():
             return f"http://localhost:{port}/callback"
     return f"{frontend_url}/auth/callback"
+
+
+async def _generate_unique_username(db: AsyncSession, preferred_username: str) -> str:
+    """Return an available username based on the OAuth provider username."""
+    base = (preferred_username or "user").strip() or "user"
+    base = base[:USERNAME_MAX_LENGTH]
+
+    suffix = 1
+    while True:
+        if suffix == 1:
+            candidate = base
+        else:
+            suffix_text = str(suffix)
+            candidate = f"{base[:USERNAME_MAX_LENGTH - len(suffix_text)]}{suffix_text}"
+
+        result = await db.execute(select(User).where(User.username == candidate))
+        if result.scalar_one_or_none() is None:
+            return candidate
+
+        suffix += 1
 
 
 @router.get("/discord/login")
@@ -57,8 +79,6 @@ async def discord_callback(
 ) -> RedirectResponse:
     """Handle Discord OAuth2 callback and redirect to frontend with JWT tokens."""
     import httpx
-
-    from app.models.user import OAuthAccount, User
 
     async with httpx.AsyncClient() as client:
         # Exchange code for token
@@ -121,7 +141,8 @@ async def discord_callback(
 
     if oauth_account is None:
         # Create new user
-        user = User(username=discord_username, is_active=True)
+        username = await _generate_unique_username(db, discord_username)
+        user = User(username=username, is_active=True)
         db.add(user)
         await db.flush()
 

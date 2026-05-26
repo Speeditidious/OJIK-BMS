@@ -26,7 +26,7 @@ export function MetricInfoIcon({ metric }: { metric: RatingMetricKey }) {
         <div className="space-y-2">
           <p>{t("ranking.metricInfo.bmsforceContent")}</p>
           <p className="text-caption text-muted-foreground">
-            Level multiplier: {t("ranking.metricInfo.levelMultContent")}
+            {t("ranking.metricInfo.levelMultLabel")}: {t("ranking.metricInfo.levelMultContent")}
           </p>
         </div>
       );

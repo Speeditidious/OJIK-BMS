@@ -44,18 +44,21 @@ export function useAdminAnnouncements(params: {
   size: number;
   tag?: string;
   published?: boolean;
+  enabled?: boolean;
 }) {
+  const { enabled = true, ...queryParams } = params;
   return useQuery<Pagination<Announcement>>({
-    queryKey: ["announcements", "admin", params],
+    queryKey: ["announcements", "admin", queryParams],
     queryFn: () => {
       const search = new URLSearchParams({
-        page: String(params.page),
-        size: String(params.size),
+        page: String(queryParams.page),
+        size: String(queryParams.size),
       });
-      if (params.tag) search.set("tag", params.tag);
-      if (params.published !== undefined) search.set("published", String(params.published));
+      if (queryParams.tag) search.set("tag", queryParams.tag);
+      if (queryParams.published !== undefined) search.set("published", String(queryParams.published));
       return api.get(`/announcements/admin/?${search.toString()}`);
     },
+    enabled,
   });
 }
 

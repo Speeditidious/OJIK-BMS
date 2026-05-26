@@ -12,11 +12,10 @@ interface ClientLatestReleaseResponse {
   published_at?: string;
 }
 
-export async function GET() {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+async function fetchRelease(apiUrl: string, query: string): Promise<ClientLatestReleaseResponse | null> {
   let res: Response;
   try {
-    res = await fetch(`${apiUrl}/client/latest-release?target=windows&arch=x86_64`, {
+    res = await fetch(`${apiUrl}/client/latest-release?${query}`, {
       headers: {
         Accept: "application/json",
         "User-Agent": "OJIK-BMS",
@@ -24,21 +23,48 @@ export async function GET() {
       next: { revalidate },
     });
   } catch {
-    return NextResponse.json(null, { status: 200 });
+    return null;
   }
 
-  if (!res.ok) {
-    return NextResponse.json(null, { status: 200 });
-  }
+  if (!res.ok) return null;
+  return (await res.json()) as ClientLatestReleaseResponse | null;
+}
 
-  const release = (await res.json()) as ClientLatestReleaseResponse | null;
+export async function GET() {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  const [windowsRelease, linuxRelease] = await Promise.all([
+    fetchRelease(apiUrl, "target=windows&arch=x86_64&installer_kind=nsis"),
+    fetchRelease(apiUrl, "target=linux&arch=x86_64&installer_kind=appimage"),
+  ]);
+
+  const release = windowsRelease ?? linuxRelease;
   if (!release) {
     return NextResponse.json(null, { status: 200 });
   }
 
+  const downloads = [
+    windowsRelease
+      ? {
+          targetOs: "windows",
+          label: "Windows",
+          downloadUrl: windowsRelease.installer_url,
+          version: windowsRelease.version,
+        }
+      : null,
+    linuxRelease
+      ? {
+          targetOs: "linux",
+          label: "Linux AppImage",
+          downloadUrl: linuxRelease.installer_url,
+          version: linuxRelease.version,
+        }
+      : null,
+  ].filter(Boolean);
+
   return NextResponse.json({
     version: release.version,
-    exeDownloadUrl: release.installer_url,
+    exeDownloadUrl: windowsRelease?.installer_url ?? null,
+    downloads,
     publishedAt: release.published_at ?? "",
     releaseNotes: release.release_notes,
     releasePageUrl: release.release_page_url ?? "",

@@ -44,6 +44,7 @@ export interface UpdateAnnouncement {
   release_page_url?: string | null;
   mandatory: boolean;
   asset_size_bytes?: number | null;
+  current_asset_size_bytes?: number | null;
   published_at?: string | null;
   supports_auto_install: boolean;
 }

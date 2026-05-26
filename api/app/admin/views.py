@@ -9,6 +9,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from sqladmin import ModelView, action
+from sqladmin.forms import Select2TagsField
 from sqlalchemy import delete, func, null, select, text, tuple_, update
 from sqlalchemy.orm import selectinload
 from starlette.requests import Request
@@ -25,6 +26,7 @@ from app.models.difficulty_table import (
     UserFavoriteDifficultyTable,
 )
 from app.models.fumen import Fumen, FumenTableEntry, UserFumenTag
+from app.models.issue import Issue, IssueComment, IssueTag
 from app.models.notification import (
     Notification,
     NotificationRead,
@@ -71,6 +73,21 @@ def _parse_admin_user_ids(raw_pks: str) -> list[uuid.UUID]:
         except ValueError:
             continue
     return user_ids
+
+
+def _clean_level_subset(value: object, level_order: object) -> list[str] | None:
+    """Keep unique configured levels that exist in the table level_order."""
+    allowed = {str(level).strip() for level in (level_order or []) if str(level).strip()}
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    raw_values = value if isinstance(value, list) else []
+    for raw in raw_values:
+        level = str(raw).strip()
+        if not level or level in seen or level not in allowed:
+            continue
+        cleaned.append(level)
+        seen.add(level)
+    return cleaned or None
 
 
 async def _reset_user_play_data(db, uid: uuid.UUID, client_type: str | None = None) -> None:
@@ -391,7 +408,6 @@ class AnnouncementAdmin(ModelView, model=Announcement):
         if not model.is_published:
             return
         from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
 
         from app.core.database import AsyncSessionLocal
         from app.services.notifications import create_announcement_notification
@@ -417,7 +433,9 @@ class AnnouncementAdmin(ModelView, model=Announcement):
     async def publish_announcements(self, request: Request) -> RedirectResponse:
         """Publish selected announcements and stamp published_at if needed."""
         from app.core.database import AsyncSessionLocal
-        from app.services.announcements import publish_announcements as _publish_announcements
+        from app.services.announcements import (
+            publish_announcements as _publish_announcements,
+        )
 
         pks = _parse_uuid_pks(request.query_params.get("pks", ""))
         if pks:
@@ -479,16 +497,65 @@ class DifficultyTableAdmin(ModelView, model=DifficultyTable):
     name = "Difficulty Table"
     name_plural = "Difficulty Tables"
     icon = "fa-solid fa-table"
+    create_template = "sqladmin/difficulty_table_create.html"
+    edit_template = "sqladmin/difficulty_table_edit.html"
     column_list = [
         DifficultyTable.id,
         DifficultyTable.name,
         DifficultyTable.symbol,
         DifficultyTable.slug,
         DifficultyTable.is_default,
+        DifficultyTable.display_level_order,
+        DifficultyTable.non_regular_level_order,
         DifficultyTable.updated_at,
     ]
     column_searchable_list = [DifficultyTable.name, DifficultyTable.slug]
     column_sortable_list = [DifficultyTable.id, DifficultyTable.name, DifficultyTable.updated_at]
+    form_columns = [
+        DifficultyTable.name,
+        DifficultyTable.symbol,
+        DifficultyTable.slug,
+        DifficultyTable.source_url,
+        DifficultyTable.is_default,
+        DifficultyTable.default_order,
+        DifficultyTable.level_order,
+        DifficultyTable.display_level_order,
+        DifficultyTable.non_regular_level_order,
+    ]
+    form_overrides = {
+        "display_level_order": Select2TagsField,
+        "non_regular_level_order": Select2TagsField,
+    }
+    form_args = {
+        "display_level_order": {
+            "label": "Display Level Order",
+            "description": "Optional level display order. Leave empty to use level_order.",
+            "choices": [],
+        },
+        "non_regular_level_order": {
+            "label": "Non-Regular Level Order",
+            "description": "Levels shown after the main level group. Values missing from level_order are ignored.",
+            "choices": [],
+        },
+    }
+
+    async def on_model_change(
+        self,
+        data: dict,
+        model: DifficultyTable,
+        is_created: bool,
+        request: Request,
+    ) -> None:
+        """Normalize admin-managed level order lists before saving."""
+        level_order = data.get("level_order") or model.level_order
+        data["display_level_order"] = _clean_level_subset(
+            data.get("display_level_order"),
+            level_order,
+        )
+        data["non_regular_level_order"] = _clean_level_subset(
+            data.get("non_regular_level_order"),
+            level_order,
+        )
 
     @action(
         name="add_by_url",
@@ -1260,4 +1327,40 @@ class UserRatingUpdateDailyAdmin(ModelView, model=UserRatingUpdateDaily):
     column_default_sort = [(UserRatingUpdateDaily.effective_date, True)]
     can_create = False
     can_edit = False
+    can_delete = False
+
+
+# ── Issue domain ───────────────────────────────────────────────────────────────
+
+class IssueTagAdmin(ModelView, model=IssueTag):
+    name = "Issue Tag"
+    name_plural = "Issue Tags"
+    icon = "fa-solid fa-tags"
+    column_list = [IssueTag.slug, IssueTag.name, IssueTag.is_active, IssueTag.display_order, IssueTag.updated_at]
+    column_searchable_list = [IssueTag.slug, IssueTag.name, IssueTag.content_hint]
+    column_sortable_list = [IssueTag.display_order, IssueTag.name, IssueTag.is_active]
+    form_excluded_columns = [IssueTag.created_at, IssueTag.updated_at]
+    can_delete = False
+
+
+class IssueAdmin(ModelView, model=Issue):
+    name = "Issue"
+    name_plural = "Issues"
+    icon = "fa-solid fa-circle-exclamation"
+    column_list = [Issue.id, Issue.title, Issue.tag, Issue.status, Issue.author, Issue.comment_count, Issue.last_activity_at]
+    column_searchable_list = [Issue.title, Issue.body]
+    column_sortable_list = [Issue.id, Issue.status, Issue.comment_count, Issue.last_activity_at, Issue.created_at]
+    form_excluded_columns = [Issue.created_at, Issue.updated_at, Issue.comment_count, Issue.last_activity_at]
+    can_create = False
+    can_delete = False
+
+
+class IssueCommentAdmin(ModelView, model=IssueComment):
+    name = "Issue Comment"
+    name_plural = "Issue Comments"
+    icon = "fa-solid fa-comments"
+    column_list = [IssueComment.id, IssueComment.issue_id, IssueComment.author, IssueComment.created_at]
+    column_searchable_list = [IssueComment.body]
+    column_sortable_list = [IssueComment.created_at]
+    can_create = False
     can_delete = False

@@ -128,6 +128,7 @@ export interface GradeDistributionItem {
 export interface TableClearLevel {
   level: string;
   counts: Record<string, number>; // "0" → count, "1" → count, ...
+  is_spacer?: boolean;
 }
 
 export interface TableClearSong {
@@ -156,6 +157,10 @@ export interface TableClearDistribution {
   levels: TableClearLevel[];
   songs: TableClearSong[];
   level_order: string[];
+  source_level_order?: string[];
+  display_level_order?: string[];
+  regular_level_order?: string[];
+  non_regular_level_order?: string[];
 }
 
 export type ClientTypeFilter = "all" | "lr2" | "beatoraja";

@@ -47,6 +47,51 @@ _RATING_BREAKDOWN_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _CUSTOM_RANGE_MAX_DAYS = 730
 
 
+def _normalize_level_order(value: list[Any] | None) -> list[str]:
+    """Return non-empty level labels as strings while preserving order."""
+    levels: list[str] = []
+    seen: set[str] = set()
+    for raw in value or []:
+        level = str(raw).strip()
+        if not level or level in seen:
+            continue
+        levels.append(level)
+        seen.add(level)
+    return levels
+
+
+def _split_table_level_order(
+    level_order: list[Any] | None,
+    display_level_order: list[Any] | None,
+    non_regular_level_order: list[Any] | None,
+) -> tuple[list[str], list[str]]:
+    """Split display levels into regular and non-regular ordered groups.
+
+    Stale admin-configured values are ignored so table syncs can change
+    ``level_order`` without breaking dashboard rendering.
+    """
+    base_order = _normalize_level_order(level_order)
+    available = set(base_order)
+
+    non_regular: list[str] = []
+    for level in _normalize_level_order(non_regular_level_order):
+        if level in available:
+            non_regular.append(level)
+    non_regular_set = set(non_regular)
+
+    regular: list[str] = []
+    for level in _normalize_level_order(display_level_order):
+        if level in available and level not in non_regular_set:
+            regular.append(level)
+
+    regular_seen = set(regular)
+    for level in base_order:
+        if level not in non_regular_set and level not in regular_seen:
+            regular.append(level)
+
+    return regular, non_regular
+
+
 def _non_no_play_score_filter():
     """Return a filter that excludes persisted NO PLAY rows while preserving score-only rows."""
     return or_(UserScore.clear_type.is_(None), UserScore.clear_type != 0)
@@ -1664,7 +1709,13 @@ async def get_table_clear_distribution(
     if table is None:
         raise HTTPException(status_code=404, detail="Table not found")
 
-    level_order: list[str] = table.level_order or []
+    source_level_order = _normalize_level_order(table.level_order)
+    regular_level_order, non_regular_level_order = _split_table_level_order(
+        table.level_order,
+        table.display_level_order,
+        table.non_regular_level_order,
+    )
+    level_order: list[str] = [*regular_level_order, *non_regular_level_order]
     table_id_str = str(table_id)
 
     # Get fumens for this table via normalized table entries.
@@ -1685,6 +1736,10 @@ async def get_table_clear_distribution(
             "levels": [],
             "songs": [],
             "level_order": level_order,
+            "source_level_order": source_level_order,
+            "display_level_order": _normalize_level_order(table.display_level_order),
+            "regular_level_order": regular_level_order,
+            "non_regular_level_order": non_regular_level_order,
         }
 
     # Build song list from fumens with their levels
@@ -1721,6 +1776,10 @@ async def get_table_clear_distribution(
             "levels": [],
             "songs": [],
             "level_order": level_order,
+            "source_level_order": source_level_order,
+            "display_level_order": _normalize_level_order(table.display_level_order),
+            "regular_level_order": regular_level_order,
+            "non_regular_level_order": non_regular_level_order,
         }
 
     score_filter = [
@@ -1798,10 +1857,14 @@ async def get_table_clear_distribution(
             "options": score_data["options"] if score_data else None,
         })
 
-    # Sort levels by level_order, then alphabetically for unknowns
-    if level_order:
-        sorted_levels = [lv for lv in level_order if lv in level_counts]
-        sorted_levels += sorted(lv for lv in level_counts if lv not in level_order)
+    # Sort levels by admin display order, then unknowns, then non-regular levels.
+    if source_level_order:
+        ordered_regular = [lv for lv in regular_level_order if lv in level_counts]
+        ordered_non_regular = [lv for lv in non_regular_level_order if lv in level_counts]
+        known = set(ordered_regular) | set(ordered_non_regular)
+        sorted_levels = ordered_regular
+        sorted_levels += sorted(lv for lv in level_counts if lv not in known)
+        sorted_levels += ordered_non_regular
     else:
         sorted_levels = sorted(level_counts.keys())
 
@@ -1818,6 +1881,10 @@ async def get_table_clear_distribution(
         "levels": levels_out,
         "songs": songs_out,
         "level_order": level_order,
+        "source_level_order": source_level_order,
+        "display_level_order": _normalize_level_order(table.display_level_order),
+        "regular_level_order": regular_level_order,
+        "non_regular_level_order": non_regular_level_order,
     }
 
 

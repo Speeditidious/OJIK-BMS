@@ -21,7 +21,7 @@ pub async fn check_update_policy(app: AppHandle, manual: bool) -> Result<UpdateP
             ("target", std::env::consts::OS),
             ("arch", std::env::consts::ARCH),
             ("channel", cfg.update_channel.as_str()),
-            ("installer_kind", "nsis"),
+            ("installer_kind", current_installer_kind()),
         ])
         .send()
         .await
@@ -47,7 +47,7 @@ pub async fn check_update_policy(app: AppHandle, manual: bool) -> Result<UpdateP
         .json::<UpdatePolicy>()
         .await
         .map_err(|error| error.to_string())?;
-    Ok(apply_local_dismissals(policy, &cfg))
+    Ok(attach_current_app_size(apply_local_dismissals(policy, &cfg)))
 }
 
 #[tauri::command]
@@ -85,6 +85,23 @@ fn apply_local_dismissals(mut policy: UpdatePolicy, cfg: &config::ClientConfig) 
     policy
 }
 
+fn attach_current_app_size(mut policy: UpdatePolicy) -> UpdatePolicy {
+    let Some(announcement) = policy.announcement.as_mut() else {
+        return policy;
+    };
+    if announcement.current_asset_size_bytes.is_none() {
+        announcement.current_asset_size_bytes = current_exe_size_bytes();
+    }
+    policy
+}
+
+fn current_exe_size_bytes() -> Option<u64> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| std::fs::metadata(path).ok())
+        .map(|metadata| metadata.len())
+}
+
 fn current_utc_marker() -> String {
     use time::format_description::well_known::Rfc3339;
     time::OffsetDateTime::now_utc()
@@ -94,4 +111,24 @@ fn current_utc_marker() -> String {
 
 fn is_local_url(url: &str) -> bool {
     url.contains("://localhost") || url.contains("://127.0.0.1")
+}
+
+fn current_installer_kind() -> &'static str {
+    if cfg!(target_os = "linux") {
+        "appimage"
+    } else {
+        "nsis"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn linux_update_policy_uses_appimage_installer_kind() {
+        if cfg!(target_os = "linux") {
+            assert_eq!(current_installer_kind(), "appimage");
+        }
+    }
 }

@@ -15,6 +15,7 @@ import {
   UserCircle,
   Trophy,
   Megaphone,
+  CircleDot,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -39,6 +40,7 @@ const navItems = [
   { href: "/songs", labelKey: "common.nav.songs", icon: Music2 },
   { href: "/custom", labelKey: "common.nav.custom", icon: ListMusic },
   { href: "/download", labelKey: "common.nav.download", icon: Download },
+  { href: "/issues", labelKey: "common.nav.issues", icon: CircleDot },
   { href: "/announcements", labelKey: "common.nav.announcements", icon: Megaphone },
 ];
 

@@ -7,10 +7,8 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from app.core.database import get_db
 from app.admin.views import ClientUpdateAnnouncementAdmin
 from app.main import app
 from app.models.client_update import ClientUpdateAnnouncement
@@ -122,13 +120,14 @@ class TestClientUpdateAdmin:
         row.publish_after = None
 
         before = datetime.now(UTC)
-        await ClientUpdateAnnouncementAdmin.on_model_change(
-            ClientUpdateAnnouncementAdmin,
-            {"is_published": True},
-            row,
-            False,
-            None,
-        )
+        with patch("app.admin.views._trigger_revalidate", AsyncMock()):
+            await ClientUpdateAnnouncementAdmin.on_model_change(
+                ClientUpdateAnnouncementAdmin,
+                {"is_published": True},
+                row,
+                False,
+                None,
+            )
 
         assert row.published_at is not None
         assert row.publish_after is not None
@@ -145,7 +144,10 @@ class TestUpdatePolicySupportsAutoInstall:
         row.body_markdown_en = "English notes"
         row.body_markdown_ja = "Japanese notes"
 
-        with patch("app.routers.client.get_latest_visible_update", AsyncMock(return_value=row)):
+        with (
+            patch("app.routers.client.get_latest_visible_update", AsyncMock(return_value=row)),
+            patch("app.routers.client.get_visible_release_by_version", AsyncMock(return_value=None)),
+        ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get("/client/update-policy", params={
                     "version": "1.0.0", "target": "windows", "arch": "x86_64",
@@ -161,7 +163,10 @@ class TestUpdatePolicySupportsAutoInstall:
     async def test_supports_auto_install_false_when_no_signature(self):
         unsigned_row = _make_row(version="2.0.0", tauri_signature=None)
 
-        with patch("app.routers.client.get_latest_visible_update", AsyncMock(return_value=unsigned_row)):
+        with (
+            patch("app.routers.client.get_latest_visible_update", AsyncMock(return_value=unsigned_row)),
+            patch("app.routers.client.get_visible_release_by_version", AsyncMock(return_value=None)),
+        ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get("/client/update-policy", params={
                     "version": "1.0.0", "target": "windows", "arch": "x86_64",
@@ -176,7 +181,10 @@ class TestUpdatePolicySupportsAutoInstall:
     async def test_supports_auto_install_true_when_signature_present(self):
         signed_row = _make_row(version="2.0.0", tauri_signature="real-sig")
 
-        with patch("app.routers.client.get_latest_visible_update", AsyncMock(return_value=signed_row)):
+        with (
+            patch("app.routers.client.get_latest_visible_update", AsyncMock(return_value=signed_row)),
+            patch("app.routers.client.get_visible_release_by_version", AsyncMock(return_value=None)),
+        ):
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get("/client/update-policy", params={
                     "version": "1.0.0", "target": "windows", "arch": "x86_64",
@@ -187,6 +195,27 @@ class TestUpdatePolicySupportsAutoInstall:
         data = resp.json()
         assert data["update_available"] is True
         assert data["announcement"]["supports_auto_install"] is True
+
+    async def test_returns_current_version_size_for_delta_display(self):
+        update_row = _make_row(version="2.0.0", tauri_signature="real-sig")
+        update_row.asset_size_bytes = 7_000_000
+        current_row = _make_row(version="1.0.0", tauri_signature="real-sig")
+        current_row.asset_size_bytes = 6_900_000
+
+        with (
+            patch("app.routers.client.get_latest_visible_update", AsyncMock(return_value=update_row)),
+            patch("app.routers.client.get_visible_release_by_version", AsyncMock(return_value=current_row)),
+        ):
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                resp = await ac.get("/client/update-policy", params={
+                    "version": "1.0.0", "target": "windows", "arch": "x86_64",
+                    "channel": "stable", "installer_kind": "nsis",
+                })
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["announcement"]["asset_size_bytes"] == 7_000_000
+        assert data["announcement"]["current_asset_size_bytes"] == 6_900_000
 
 
 # ---------------------------------------------------------------------------

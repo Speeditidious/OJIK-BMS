@@ -20,6 +20,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { MarkdownContent } from "@/components/common/MarkdownContent";
 import {
+  useAdminAnnouncements,
   useAnnouncementTags,
   useCreateAnnouncement,
   useUpdateAnnouncement,
@@ -27,6 +28,7 @@ import {
   useRenderedAnnouncementTemplate,
   useUpsertAnnouncementTemplate,
 } from "@/hooks/use-announcements";
+import { getAnnouncementEditorState } from "@/lib/announcement-editor-state.mjs";
 import type { Announcement } from "@/types";
 
 type Lang = "ko" | "en" | "ja";
@@ -65,6 +67,7 @@ export function AnnouncementEditorDialog({
   const lang = i18n.language;
 
   const isEditMode = Boolean(announcement);
+  const editorState = getAnnouncementEditorState({ isEditMode });
 
   // Form state
   const [tagId, setTagId] = useState<string>("");
@@ -90,6 +93,12 @@ export function AnnouncementEditorDialog({
 
   // Queries & mutations
   const { data: tags = [] } = useAnnouncementTags();
+  const { data: draftAnnouncements } = useAdminAnnouncements({
+    page: 1,
+    size: 100,
+    published: false,
+    enabled: open && editorState.showDraftLoader,
+  });
   const createAnnouncement = useCreateAnnouncement();
   const updateAnnouncement = useUpdateAnnouncement();
   const publishAnnouncement = usePublishAnnouncement();
@@ -215,6 +224,18 @@ export function AnnouncementEditorDialog({
     }
   };
 
+  const handleUpdate = async () => {
+    if (!draftId || !tagId || !title.trim() || !body.trim()) return;
+    setSaving(true);
+    try {
+      await updateAnnouncement.mutateAsync({ id: draftId, data: buildPayload() });
+      showFeedback(t("announcements.editor.updated"));
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handlePublish = async () => {
     if (!tagId || !title.trim() || !body.trim()) return;
     setPublishing(true);
@@ -250,6 +271,22 @@ export function AnnouncementEditorDialog({
     showFeedback(t("announcements.editor.savedTemplate"));
   };
 
+  const handleLoadDraft = (id: string) => {
+    const draft = draftAnnouncements?.items.find((item) => item.id === id);
+    if (!draft) return;
+
+    setTagId(draft.tag.id);
+    setTitle(draft.title);
+    setTitleEn(draft.title_en ?? "");
+    setTitleJa(draft.title_ja ?? "");
+    setBody(draft.body);
+    setBodyEn(draft.body_en ?? "");
+    setBodyJa(draft.body_ja ?? "");
+    setDraftId(draft.id);
+    setActiveLang("ko");
+    setActiveMode("edit");
+  };
+
   // Preview values with fallback
   const previewTitle =
     activeLang === "en"
@@ -277,6 +314,7 @@ export function AnnouncementEditorDialog({
         : item.name;
 
   const canSave = Boolean(tagId && title.trim() && body.trim());
+  const draftOptions = draftAnnouncements?.items ?? [];
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -313,6 +351,26 @@ export function AnnouncementEditorDialog({
         )}
 
         <div className="flex-1 overflow-y-auto px-6 py-4">
+          {editorState.showDraftLoader && (
+            <div className="mb-5">
+              <label className="mb-1.5 block text-caption text-muted-foreground">
+                {t("announcements.editor.loadDraft")}
+              </label>
+              <Select value={draftId ?? ""} onValueChange={handleLoadDraft}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={t("announcements.editor.loadDraftPlaceholder")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {draftOptions.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {/* Tag select */}
           <div className="mb-5">
             <label className="mb-1.5 block text-caption text-muted-foreground">
@@ -455,22 +513,36 @@ export function AnnouncementEditorDialog({
 
             {/* Save / Publish */}
             <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleSaveDraft}
-                disabled={!canSave || saving}
-              >
-                {t("announcements.editor.saveDraft")}
-              </Button>
-              <Button
-                size="sm"
-                onClick={handlePublish}
-                disabled={!canSave || publishing}
-                className="bg-primary text-primary-foreground hover:bg-primary/90"
-              >
-                {t("announcements.editor.publish")}
-              </Button>
+              {editorState.actions.includes("saveDraft") && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleSaveDraft}
+                  disabled={!canSave || saving}
+                >
+                  {t("announcements.editor.saveDraft")}
+                </Button>
+              )}
+              {editorState.actions.includes("publish") && (
+                <Button
+                  size="sm"
+                  onClick={handlePublish}
+                  disabled={!canSave || publishing}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  {t("announcements.editor.publish")}
+                </Button>
+              )}
+              {editorState.actions.includes("update") && (
+                <Button
+                  size="sm"
+                  onClick={handleUpdate}
+                  disabled={!canSave || saving}
+                  className="bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  {t("announcements.editor.update")}
+                </Button>
+              )}
             </div>
           </div>
         </div>

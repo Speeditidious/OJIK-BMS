@@ -269,18 +269,18 @@ export interface LevelDisplayPrefs {
 
 export const DEFAULT_LEVEL_DISPLAY_PREFS: LevelDisplayPrefs = {
   favorite: true,
-  server_default: true,
-  user_added: true,
-  ojik_custom: true,
+  server_default: false,
+  user_added: false,
+  ojik_custom: false,
 };
 
 export function normalizeLevelDisplayPrefs(raw: unknown): LevelDisplayPrefs {
   const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   return {
     favorite: typeof obj.favorite === "boolean" ? obj.favorite : true,
-    server_default: typeof obj.server_default === "boolean" ? obj.server_default : true,
-    user_added: typeof obj.user_added === "boolean" ? obj.user_added : true,
-    ojik_custom: typeof obj.ojik_custom === "boolean" ? obj.ojik_custom : true,
+    server_default: typeof obj.server_default === "boolean" ? obj.server_default : false,
+    user_added: typeof obj.user_added === "boolean" ? obj.user_added : false,
+    ojik_custom: typeof obj.ojik_custom === "boolean" ? obj.ojik_custom : false,
   };
 }
 

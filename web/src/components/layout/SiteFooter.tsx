@@ -77,8 +77,7 @@ export function SiteFooter() {
           </nav>
         </div>
 
-        <div className="mt-8 flex flex-col items-center justify-between gap-2 border-t border-border/70 pt-5 text-label text-muted-foreground md:flex-row">
-          <span>{t("footer.beta")}</span>
+        <div className="mt-8 flex flex-col items-center justify-center gap-2 border-t border-border/70 pt-5 text-label text-muted-foreground md:flex-row md:justify-end">
           <span>{`© ${currentYear} OJIK BMS`}</span>
         </div>
       </div>

@@ -11,6 +11,8 @@ pub struct UpdateAnnouncement {
     pub release_page_url: Option<String>,
     pub mandatory: bool,
     pub asset_size_bytes: Option<u64>,
+    #[serde(default)]
+    pub current_asset_size_bytes: Option<u64>,
     pub published_at: Option<String>,
     #[serde(default)]
     pub supports_auto_install: bool,
@@ -52,6 +54,7 @@ mod tests {
                 "release_page_url": "https://github.com/Speeditidious/OJIK-BMS/releases/tag/v1.0.0-beta.16",
                 "mandatory": false,
                 "asset_size_bytes": 2939648,
+                "current_asset_size_bytes": 2831155,
                 "published_at": "2026-05-07T13:52:28.676132Z",
                 "supports_auto_install": true
             }
@@ -60,12 +63,9 @@ mod tests {
         let policy: UpdatePolicy = serde_json::from_str(raw).expect("update policy should parse");
 
         assert!(policy.update_available);
-        assert!(
-            policy
-                .announcement
-                .expect("announcement should be present")
-                .supports_auto_install
-        );
+        let announcement = policy.announcement.expect("announcement should be present");
+        assert!(announcement.supports_auto_install);
+        assert_eq!(announcement.current_asset_size_bytes, Some(2831155));
     }
 
     #[test]

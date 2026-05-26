@@ -39,6 +39,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useAuthStore } from "@/stores/auth";
 import { api, clearTokens, apiFetch } from "@/lib/api";
 import { resolveAvatarUrl } from "@/lib/avatar";
+import { getProfileSaveErrorMessage } from "@/lib/profile-errors.mjs";
 import { useFavoriteTables } from "@/hooks/use-tables";
 import {
   useScoreUpdatesPrefs,
@@ -120,7 +121,7 @@ function ProfileTab() {
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : t("settings.profile.saveFailed"));
+      setSaveError(getProfileSaveErrorMessage(err, t));
     } finally {
       setIsSaving(false);
     }

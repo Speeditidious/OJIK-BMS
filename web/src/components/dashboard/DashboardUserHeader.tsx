@@ -56,7 +56,7 @@ export function DashboardUserHeader({
       <Button asChild size="lg" className="w-full gap-2 shadow-sm sm:w-auto sm:shrink-0">
         <Link href={`/users/${userId}`}>
           <UserCircle className="h-5 w-5" />
-          <span className="font-semibold">{t("profile.info.viewDashboard")}</span>
+          <span className="font-semibold">{t("profile.info.viewProfile")}</span>
           <ArrowRight className="h-4 w-4" />
         </Link>
       </Button>

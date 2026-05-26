@@ -14,9 +14,9 @@ LEVEL_DISPLAY_KEY = "level_display"
 LEVEL_DISPLAY_SCOPES = ("favorite", "server_default", "user_added", "ojik_custom")
 DEFAULT_LEVEL_DISPLAY_PREFERENCES: dict[str, bool] = {
     "favorite": True,
-    "server_default": True,
-    "user_added": True,
-    "ojik_custom": True,
+    "server_default": False,
+    "user_added": False,
+    "ojik_custom": False,
 }
 
 

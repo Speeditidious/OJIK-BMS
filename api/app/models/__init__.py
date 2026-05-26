@@ -10,6 +10,13 @@ from app.models.difficulty_table import (
     UserFavoriteDifficultyTable,
 )
 from app.models.fumen import Fumen, FumenTableEntry, UserFumenTag
+from app.models.issue import (
+    Issue,
+    IssueComment,
+    IssueIssueReference,
+    IssueTag,
+    IssueUserMention,
+)
 from app.models.notification import (
     Notification,
     NotificationRead,
@@ -34,6 +41,11 @@ __all__ = [
     "Announcement",
     "AnnouncementTag",
     "AnnouncementTemplate",
+    "Issue",
+    "IssueComment",
+    "IssueIssueReference",
+    "IssueTag",
+    "IssueUserMention",
     "ClientUpdateAnnouncement",
     "Notification",
     "NotificationRead",

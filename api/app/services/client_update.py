@@ -52,6 +52,22 @@ async def get_latest_visible_release(
     return max(rows, key=lambda row: _parse_version(row.version))
 
 
+async def get_visible_release_by_version(
+    db: AsyncSession,
+    version: str | None,
+    target: ReleaseTarget,
+) -> ClientUpdateAnnouncement | None:
+    """Return the visible release row matching *version* for the same target."""
+    if not version:
+        return None
+    rows = await list_visible_updates(db, target)
+    normalized = _parse_version(version)
+    for row in rows:
+        if _parse_version(row.version) == normalized:
+            return row
+    return None
+
+
 async def list_visible_updates(
     db: AsyncSession,
     target: ReleaseTarget,

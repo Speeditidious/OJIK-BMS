@@ -66,6 +66,7 @@ import { ACTIVITY_CATEGORIES } from "@/lib/activity-categories";
 import type { ScoreUpdatesViewMode } from "@/components/dashboard/ScoreUpdates";
 import { pickTickResolution, formatTick, computeTicks } from "@/lib/axis-format";
 import { niceTicks, decimalsForStep } from "@/lib/axis-ticks";
+import { getDashboardRankingTable, mergeDashboardParams } from "@/lib/dashboard-url-state.mjs";
 import { useAuthStore } from "@/stores/auth";
 import { formatDuration } from "@/lib/time";
 
@@ -530,7 +531,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
   // Separated per-tab date params
   const activityDate = searchParams.get("activity_date");
   const calendarDate = searchParams.get("calendar_date");
-  const selectedRankingTable = searchParams.get("ranking_table") ?? rankingTables[0]?.slug ?? null;
+  const selectedRankingTable = getDashboardRankingTable(searchParams, rankingTables[0]?.slug);
   const ratingScope = ((searchParams.get("rating_scope") as RatingContributionScope | null) ?? "top");
   const ratingSort = ((searchParams.get("rating_sort") as RatingContributionSortBy | null) ?? "value");
   const ratingDir = ((searchParams.get("rating_dir") as "asc" | "desc" | null) ?? "desc");
@@ -620,14 +621,6 @@ export function UserDashboardContent({ userId }: { userId: string }) {
     rankingTablesLoading ||
     (showActivityOverview && (ratingHistory.isLoading || (ratingHistory.isFetching && !ratingHistory.data)));
 
-  useEffect(() => {
-    if (!searchParams.get("ranking_table") && rankingTables.length > 0) {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("ranking_table", rankingTables[0].slug);
-      router.replace(`/users/${userId}/dashboard?${params.toString()}`, { scroll: false });
-    }
-  }, [rankingTables, router, searchParams, userId]);
-
   const firstSyncDates = useMemo(() => {
     const map = summaryData?.first_synced_by_client;
     if (!map) return undefined;
@@ -643,20 +636,12 @@ export function UserDashboardContent({ userId }: { userId: string }) {
   );
 
   const replaceParams = useCallback((updates: Record<string, string | null>) => {
-    const params = new URLSearchParams(searchParams.toString());
-    for (const [key, value] of Object.entries(updates)) {
-      if (value === null || value === "") params.delete(key);
-      else params.set(key, value);
-    }
+    const params = mergeDashboardParams(searchParams, updates);
     router.replace(`/users/${userId}/dashboard?${params.toString()}`, { scroll: false });
   }, [router, searchParams, userId]);
 
   const updateParams = useCallback((updates: Record<string, string | null>) => {
-    const params = new URLSearchParams(searchParams.toString());
-    for (const [key, value] of Object.entries(updates)) {
-      if (value === null || value === "") params.delete(key);
-      else params.set(key, value);
-    }
+    const params = mergeDashboardParams(searchParams, updates);
     router.push(`/users/${userId}/dashboard?${params.toString()}`, { scroll: false });
   }, [router, searchParams, userId]);
 

@@ -3,6 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 export interface GitHubRelease {
   version: string;
   exeDownloadUrl: string | null;
+  downloads?: Array<{
+    targetOs: "windows" | "linux" | string;
+    label: string;
+    downloadUrl: string;
+    version: string;
+  }>;
   publishedAt: string;
   releaseNotes: string;
   releasePageUrl: string;

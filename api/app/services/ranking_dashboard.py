@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.score import UserScore
 from app.services.clear_type_display import display_clear_type
 from app.services.client_aggregation import PerClientBest, aggregate_source_client
+from app.services.initial_sync import INITIAL_SYNC_SQL_INTERVAL
 from app.services.ranking_calculator import (
     BestScore,
     _lamp_name,
@@ -186,6 +187,26 @@ def _display_top_n_contribution_value(value: float | None, is_in_top_n: bool) ->
     return _display_whole_metric_value(value)
 
 
+def _rating_update_countable_top_keys(
+    previous_values: dict[tuple[str | None, str | None], float],
+    current_values: dict[tuple[str | None, str | None], float],
+    previous_top_keys: set[tuple[str | None, str | None]],
+    current_top_keys: set[tuple[str | None, str | None]],
+) -> set[tuple[str | None, str | None]]:
+    """Return top-N entries with changed displayed contribution, excluding pure drops."""
+    return {
+        key
+        for key in current_top_keys
+        if _display_top_n_contribution_value(
+            previous_values.get(key, 0.0),
+            key in previous_top_keys,
+        ) != _display_top_n_contribution_value(
+            current_values.get(key, 0.0),
+            True,
+        )
+    }
+
+
 def _compare_nullable(a: Any, b: Any) -> int:
     if a is None and b is None:
         return 0
@@ -201,6 +222,84 @@ def _compare_sort_values(a: Any, b: Any, sort_dir: str) -> int:
     if result == 0 or a is None or b is None:
         return result
     return -result if sort_dir == "desc" else result
+
+
+def _score_field_equal(left: Any, right: Any) -> bool:
+    if left is None or right is None:
+        return left is right
+    if isinstance(left, (float, int)) or isinstance(right, (float, int)):
+        try:
+            return abs(float(left) - float(right)) < 1e-9
+        except (TypeError, ValueError):
+            return left == right
+    return left == right
+
+
+def _best_state_criteria(
+    best_score: BestScore,
+) -> dict[str, Any]:
+    criteria = {
+        "clear_type": best_score.clear_type,
+        "min_bp": best_score.min_bp,
+        "exscore": best_score.exscore,
+        "rate": best_score.rate,
+        "rank": best_score.rank,
+    }
+    return {field: value for field, value in criteria.items() if value is not None}
+
+
+def _resolve_best_state_timestamps(
+    history_rows: list[dict[str, Any]],
+    best_score: BestScore,
+) -> tuple[datetime | None, datetime | None]:
+    """Return when the current displayed BEST state first appeared.
+
+    Rating detail shows the current BEST state, not necessarily the most recent
+    play. For append-only score snapshots, a later play can repeat the same
+    clear/BP/rate/rank values, so the display timestamp should stay anchored to
+    the first snapshot that already had those values.
+    """
+    sorted_rows = sorted(
+        history_rows,
+        key=lambda row: (
+            row.get("effective_ts") is None,
+            row.get("effective_ts") or datetime.max.replace(tzinfo=UTC),
+        ),
+    )
+
+    criteria = _best_state_criteria(best_score)
+
+    def matches_all(row: dict[str, Any]) -> bool:
+        return all(
+            field in row and _score_field_equal(row.get(field), expected)
+            for field, expected in criteria.items()
+        )
+
+    for row in sorted_rows:
+        if matches_all(row):
+            return row.get("display_recorded_at"), row.get("effective_ts")
+
+    component_rows: list[dict[str, Any]] = []
+    predicates = [
+        (lambda field, expected: lambda row: field in row and _score_field_equal(row.get(field), expected))(
+            field,
+            expected,
+        )
+        for field, expected in criteria.items()
+    ]
+    for predicate in predicates:
+        match = next((row for row in sorted_rows if predicate(row)), None)
+        if match is not None:
+            component_rows.append(match)
+
+    if not component_rows:
+        return best_score.recorded_at, best_score.sort_recorded_at
+
+    latest_component = max(
+        component_rows,
+        key=lambda row: row.get("effective_ts") or datetime.min.replace(tzinfo=UTC),
+    )
+    return latest_component.get("display_recorded_at"), latest_component.get("effective_ts")
 
 
 def _env_rank(client_types: Iterable[str]) -> int:
@@ -326,6 +425,70 @@ async def _query_per_client_bests(
     return per_client
 
 
+async def _query_best_state_times(
+    table_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: AsyncSession,
+    targets: Iterable[dict[str, Any]],
+    score_by_key: dict[tuple[str | None, str | None], BestScore],
+) -> dict[tuple[str | None, str | None], tuple[datetime | None, datetime | None]]:
+    """Return contribution display timestamps keyed by canonical fumen hash pair."""
+    if not score_by_key:
+        return {}
+
+    sha256_to_md5, md5_to_sha256 = _canonical_key_maps(targets)
+    result = await db.execute(
+        text(f"""
+            WITH target_fumens AS (
+                SELECT f.fumen_id, f.sha256, f.md5
+                FROM fumen_table_entries fte
+                JOIN fumens f ON f.fumen_id = fte.fumen_id
+                WHERE fte.table_id = :table_id
+            )
+            SELECT
+                tf.sha256 AS tf_sha256,
+                tf.md5 AS tf_md5,
+                us.fumen_sha256,
+                us.fumen_md5,
+                us.clear_type,
+                us.exscore,
+                us.rate,
+                us.rank,
+                us.min_bp,
+                CASE
+                    WHEN us.recorded_at IS NOT NULL THEN us.recorded_at
+                    WHEN us.synced_at IS NULL THEN NULL
+                    WHEN u.first_synced_at IS NULL THEN us.synced_at
+                    WHEN u.first_synced_at->>us.client_type IS NULL THEN us.synced_at
+                    WHEN us.synced_at <= ((u.first_synced_at->>us.client_type)::timestamptz + {INITIAL_SYNC_SQL_INTERVAL}) THEN NULL
+                    ELSE us.synced_at
+                END AS display_recorded_at,
+                COALESCE(us.recorded_at, us.synced_at) AS effective_ts
+            FROM user_scores us
+            JOIN users u ON u.id = us.user_id
+            JOIN target_fumens tf ON us.fumen_id = tf.fumen_id
+            WHERE us.user_id = :user_id
+              AND us.fumen_hash_others IS NULL
+            ORDER BY effective_ts ASC NULLS LAST
+        """),
+        {"table_id": str(table_id), "user_id": str(user_id)},
+    )
+
+    history_by_key: dict[tuple[str | None, str | None], list[dict[str, Any]]] = {}
+    for row in result.mappings().all():
+        key = _canonical_key(row["fumen_sha256"], row["fumen_md5"], sha256_to_md5, md5_to_sha256)
+        if key not in score_by_key:
+            key = (row["tf_sha256"], row["tf_md5"])
+        if key in score_by_key:
+            history_by_key.setdefault(key, []).append(dict(row))
+
+    return {
+        key: _resolve_best_state_timestamps(rows, score_by_key[key])
+        for key, rows in history_by_key.items()
+        if key in score_by_key
+    }
+
+
 async def build_user_contribution_rows(
     user_id: uuid.UUID,
     table_cfg: TableRankingConfig,
@@ -343,6 +506,7 @@ async def build_user_contribution_rows(
     target_fumens = await query_target_fumen_details(table_cfg.table_id, db)
     score_map = (await bulk_query_best_scores(table_cfg.table_id, db, user_id=user_id)).get(user_id, [])
     score_by_key = {(score.sha256, score.md5): score for score in score_map}
+    best_state_times = await _query_best_state_times(table_cfg.table_id, user_id, db, target_fumens, score_by_key)
 
     per_client_map = await _query_per_client_bests(table_cfg.table_id, user_id, db)
 
@@ -354,6 +518,11 @@ async def build_user_contribution_rows(
         raw_value, _resolved_level = _contribution_value(score, target["level"], table_cfg, sha256, md5)
         per_client_list = per_client_map.get((sha256, md5), [])
         source_client, source_client_detail = aggregate_source_client(per_client_list) if per_client_list else (None, None)
+        recorded_at, sort_recorded_at = (
+            best_state_times.get((sha256, md5), (score.recorded_at, score.sort_recorded_at))
+            if score is not None
+            else (None, None)
+        )
         rows.append(
             {
                 "sha256": sha256,
@@ -373,8 +542,8 @@ async def build_user_contribution_rows(
                 "rank_grade": score.rank if score is not None else None,
                 "exscore": score.exscore if score is not None else None,
                 "raw_value": raw_value,
-                "recorded_at": score.recorded_at if score is not None else None,
-                "sort_recorded_at": score.sort_recorded_at if score is not None else None,
+                "recorded_at": recorded_at,
+                "sort_recorded_at": sort_recorded_at,
                 "source_client": source_client,
                 "source_client_detail": source_client_detail,
             }
@@ -871,17 +1040,12 @@ async def _compute_rating_update_sweep(
 
         assert previous_values_snapshot is not None
         current_top_keys = _top_keys_from_values(current_values, targets_by_key, table_cfg.top_n)
-        updated_top_keys = {
-            key
-            for key in (previous_top_keys_snapshot | current_top_keys)
-            if _display_top_n_contribution_value(
-                previous_values_snapshot.get(key, 0.0),
-                key in previous_top_keys_snapshot,
-            ) != _display_top_n_contribution_value(
-                current_values.get(key, 0.0),
-                key in current_top_keys,
-            )
-        }
+        updated_top_keys = _rating_update_countable_top_keys(
+            previous_values_snapshot,
+            current_values,
+            previous_top_keys_snapshot,
+            current_top_keys,
+        )
         date_key = current_date.isoformat()
         counts_by_date[date_key] = len(updated_top_keys)
 

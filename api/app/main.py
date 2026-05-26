@@ -19,6 +19,7 @@ from app.routers import (
     custom,
     fumens,
     internal_client_updates,
+    issues,
     notifications,
     rankings,
     schedules,
@@ -155,6 +156,7 @@ app.add_middleware(
 app.include_router(admin.router)
 app.include_router(announcement_admin.router)
 app.include_router(announcements.router)
+app.include_router(issues.router)
 app.include_router(auth.router)
 app.include_router(client.router)
 app.include_router(internal_client_updates.router)

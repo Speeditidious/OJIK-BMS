@@ -152,7 +152,7 @@ async def update_my_profile(
         if result.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username already taken",
+                detail="USERNAME_ALREADY_EXISTS",
             )
         current_user.username = update_data.username
 

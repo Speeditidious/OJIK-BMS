@@ -116,8 +116,8 @@ services:
       context: ./api
       target: development
     command: celery -A app.tasks flower --port=5555
-    ports:
-      - "127.0.0.1:5555:5555"   # localhost only — not exposed externally
+    expose:
+      - "5555"
     environment:
       REDIS_URL: redis://redis:6379/0
     depends_on:

@@ -19,6 +19,7 @@ from app.routers.analysis import (
     _build_activity_subquery,
     _initial_sync_exclusion_filters,
     _initial_sync_exclusion_for_subq,
+    _split_table_level_order,
     _resolve_activity_window,
     _resolve_rating_update_window,
     get_score_updates,
@@ -36,12 +37,14 @@ from app.services.ranking_config import (
 )
 from app.services.ranking_dashboard import (
     _compare_entries,
+    _resolve_best_state_timestamps,
     _resolve_date_window,
     build_user_contribution_rows,
     compute_rating_breakdown,
     compute_rating_updates,
     compute_rating_updates_aggregated,
 )
+from app.services.rating_derived_data import _build_user_table_rating_derived_rows
 
 
 def _make_rating_table(top_n: int = 2) -> SimpleNamespace:
@@ -120,6 +123,18 @@ def test_activity_subquery_excludes_no_play_rows_from_counts():
     )
 
     assert "user_scores.clear_type IS NULL OR user_scores.clear_type != 0" in compiled
+
+
+def test_split_table_level_order_uses_custom_and_non_regular_order():
+    """Dashboard table levels should use admin custom orders and ignore stale values."""
+    regular, non_regular = _split_table_level_order(
+        ["1", "2", "3", "EX", "INSANE"],
+        ["3", "MISSING", "1", "2"],
+        ["INSANE", "MISSING", "EX"],
+    )
+
+    assert regular == ["3", "1", "2"]
+    assert non_regular == ["INSANE", "EX"]
 
 
 def _build_fake_ranking(scores, top_n: int):
@@ -229,6 +244,9 @@ async def test_contribution_rows_display_original_level_with_level_override(monk
     async def fake_query_per_client_bests(_table_id, _user_id, _db):
         return {}
 
+    async def fake_query_best_state_times(_table_id, _user_id, _db, _targets, _score_by_key):
+        return {}
+
     monkeypatch.setattr(
         "app.services.ranking_dashboard.query_target_fumen_details",
         fake_query_target_fumen_details,
@@ -240,6 +258,10 @@ async def test_contribution_rows_display_original_level_with_level_override(monk
     monkeypatch.setattr(
         "app.services.ranking_dashboard._query_per_client_bests",
         fake_query_per_client_bests,
+    )
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard._query_best_state_times",
+        fake_query_best_state_times,
     )
 
     result = await build_user_contribution_rows(
@@ -572,6 +594,97 @@ def test_contribution_entry_sort_supports_rank_and_recorded_at_with_nulls_last()
     assert _compare_entries(missing, newer, "recorded_at", "desc", {"12": 0}) > 0
     assert _compare_entries(first_sync, older, "recorded_at", "asc", {"12": 0}) > 0
     assert _compare_entries(older, newer, "rank", "asc", {"12": 0}) < 0
+
+
+def test_best_state_timestamp_requires_exscore_when_available():
+    best = BestScore(
+        sha256="a" * 64,
+        md5=None,
+        level="12",
+        clear_type=5,
+        exscore=1040,
+        rate=86.67,
+        rank="AA",
+        min_bp=12,
+    )
+    first_best_at = datetime(2026, 4, 20, 11, 0, tzinfo=UTC)
+    repeat_best_at = datetime(2026, 4, 21, 12, 0, tzinfo=UTC)
+
+    display_ts, sort_ts = _resolve_best_state_timestamps(
+        [
+            {
+                "clear_type": 5,
+                "min_bp": 14,
+                "exscore": 1040,
+                "rate": 86.67,
+                "rank": "AA",
+                "display_recorded_at": datetime(2026, 4, 20, 10, 0, tzinfo=UTC),
+                "effective_ts": datetime(2026, 4, 20, 10, 0, tzinfo=UTC),
+            },
+            {
+                "clear_type": 5,
+                "min_bp": 12,
+                "exscore": 1030,
+                "rate": 86.67,
+                "rank": "AA",
+                "display_recorded_at": datetime(2026, 4, 20, 10, 30, tzinfo=UTC),
+                "effective_ts": datetime(2026, 4, 20, 10, 30, tzinfo=UTC),
+            },
+            {
+                "clear_type": 5,
+                "min_bp": 12,
+                "exscore": 1040,
+                "rate": 86.67,
+                "rank": "AA",
+                "display_recorded_at": first_best_at,
+                "effective_ts": first_best_at,
+            },
+            {
+                "clear_type": 5,
+                "min_bp": 12,
+                "exscore": 1040,
+                "rate": 86.67,
+                "rank": "AA",
+                "display_recorded_at": repeat_best_at,
+                "effective_ts": repeat_best_at,
+            },
+        ],
+        best,
+    )
+
+    assert display_ts == first_best_at
+    assert sort_ts == first_best_at
+
+
+def test_best_state_timestamp_ignores_missing_optional_best_fields():
+    best = BestScore(
+        sha256="b" * 64,
+        md5=None,
+        level="12",
+        clear_type=5,
+        exscore=None,
+        rate=86.67,
+        rank="AA",
+        min_bp=12,
+    )
+    first_best_at = datetime(2026, 4, 20, 11, 0, tzinfo=UTC)
+
+    display_ts, sort_ts = _resolve_best_state_timestamps(
+        [
+            {
+                "clear_type": 5,
+                "min_bp": 12,
+                "rate": 86.67,
+                "rank": "AA",
+                "display_recorded_at": first_best_at,
+                "effective_ts": first_best_at,
+            }
+        ],
+        best,
+    )
+
+    assert display_ts == first_best_at
+    assert sort_ts == first_best_at
 
 
 def test_resolve_activity_window_supports_custom_range():
@@ -1299,6 +1412,175 @@ async def test_rating_updates_ignore_best_score_changes_without_display_delta(mo
 
     assert result["count"] == 0
     assert result["entries"] == []
+
+
+@pytest.mark.asyncio
+async def test_rating_updates_do_not_count_top_n_drops(monkeypatch):
+    table_cfg = _make_rating_table(top_n=2)
+    target_date = date(2026, 4, 22)
+    song_a = "a" * 64
+    song_b = "b" * 64
+    song_c = "c" * 64
+
+    targets = [
+        {"sha256": song_a, "md5": None, "title": "Alpha", "artist": "Artist", "level": "12"},
+        {"sha256": song_b, "md5": None, "title": "Beta", "artist": "Artist", "level": "12"},
+        {"sha256": song_c, "md5": None, "title": "Gamma", "artist": "Artist", "level": "12"},
+    ]
+    history_rows = [
+        {
+            "fumen_sha256": song_a,
+            "fumen_md5": None,
+            "clear_type": 5,
+            "exscore": 1200,
+            "rate": 90.0,
+            "rank": "AA",
+            "min_bp": 10,
+            "client_type": "lr2",
+            "effective_ts": datetime(2026, 4, 21, 10, 0, tzinfo=UTC),
+        },
+        {
+            "fumen_sha256": song_b,
+            "fumen_md5": None,
+            "clear_type": 5,
+            "exscore": 1138,
+            "rate": 89.444,
+            "rank": "AA",
+            "min_bp": 12,
+            "client_type": "lr2",
+            "effective_ts": datetime(2026, 4, 21, 10, 5, tzinfo=UTC),
+        },
+        {
+            "fumen_sha256": song_c,
+            "fumen_md5": None,
+            "clear_type": 5,
+            "exscore": 1150,
+            "rate": 89.5,
+            "rank": "AA",
+            "min_bp": 11,
+            "client_type": "lr2",
+            "effective_ts": datetime(2026, 4, 21, 10, 10, tzinfo=UTC),
+        },
+        {
+            "fumen_sha256": song_b,
+            "fumen_md5": None,
+            "clear_type": 5,
+            "exscore": 1187,
+            "rate": 91.126,
+            "rank": "AAA",
+            "min_bp": 8,
+            "client_type": "beatoraja",
+            "effective_ts": datetime(2026, 4, 22, 9, 0, tzinfo=UTC),
+        },
+    ]
+
+    async def fake_query(_user_id, _table_cfg, _db, _until_date):
+        return targets, history_rows
+
+    monkeypatch.setattr("app.services.ranking_dashboard._query_table_score_history", fake_query)
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard._contribution_value",
+        lambda score, target_level, _table_cfg, _sha256, _md5: (
+            float(score.exscore or 0) if score is not None else 0.0,
+            target_level,
+        ),
+    )
+
+    result = await compute_rating_updates(
+        user_id=uuid.uuid4(),
+        table_cfg=table_cfg,
+        db=object(),
+        table_symbol="ST",
+        target_date=target_date,
+    )
+
+    assert result["count"] == 1
+    assert [entry["sha256"] for entry in result["entries"]] == [song_b]
+
+
+@pytest.mark.asyncio
+async def test_rating_derived_daily_rows_do_not_count_top_n_drops(monkeypatch):
+    table_cfg = _make_rating_table(top_n=2)
+    user_id = uuid.uuid4()
+    target_date = date(2026, 4, 22)
+    song_a = "a" * 64
+    song_b = "b" * 64
+    song_c = "c" * 64
+
+    targets = [
+        {"sha256": song_a, "md5": None, "title": "Alpha", "artist": "Artist", "level": "12"},
+        {"sha256": song_b, "md5": None, "title": "Beta", "artist": "Artist", "level": "12"},
+        {"sha256": song_c, "md5": None, "title": "Gamma", "artist": "Artist", "level": "12"},
+    ]
+    history_rows = [
+        {
+            "fumen_sha256": song_a,
+            "fumen_md5": None,
+            "clear_type": 5,
+            "exscore": 1200,
+            "rate": 90.0,
+            "rank": "AA",
+            "min_bp": 10,
+            "client_type": "lr2",
+            "effective_ts": datetime(2026, 4, 21, 10, 0, tzinfo=UTC),
+        },
+        {
+            "fumen_sha256": song_b,
+            "fumen_md5": None,
+            "clear_type": 5,
+            "exscore": 1138,
+            "rate": 89.444,
+            "rank": "AA",
+            "min_bp": 12,
+            "client_type": "lr2",
+            "effective_ts": datetime(2026, 4, 21, 10, 5, tzinfo=UTC),
+        },
+        {
+            "fumen_sha256": song_c,
+            "fumen_md5": None,
+            "clear_type": 5,
+            "exscore": 1150,
+            "rate": 89.5,
+            "rank": "AA",
+            "min_bp": 11,
+            "client_type": "lr2",
+            "effective_ts": datetime(2026, 4, 21, 10, 10, tzinfo=UTC),
+        },
+        {
+            "fumen_sha256": song_b,
+            "fumen_md5": None,
+            "clear_type": 5,
+            "exscore": 1187,
+            "rate": 91.126,
+            "rank": "AAA",
+            "min_bp": 8,
+            "client_type": "beatoraja",
+            "effective_ts": datetime(2026, 4, 22, 9, 0, tzinfo=UTC),
+        },
+    ]
+
+    async def fake_query(**_kwargs):
+        return targets, history_rows
+
+    monkeypatch.setattr("app.services.rating_derived_data._query_table_score_history", fake_query)
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard._contribution_value",
+        lambda score, target_level, _table_cfg, _sha256, _md5: (
+            float(score.exscore or 0) if score is not None else 0.0,
+            target_level,
+        ),
+    )
+
+    _checkpoints, daily_rows, updated_keys_by_date = await _build_user_table_rating_derived_rows(
+        user_id=user_id,
+        table_cfg=table_cfg,
+        db=object(),
+        excluded_dates=set(),
+    )
+
+    target_row = next(row for row in daily_rows if row["effective_date"] == target_date)
+    assert target_row["update_count"] == 1
+    assert updated_keys_by_date[target_date] == {(song_b, None)}
 
 
 @pytest.mark.asyncio

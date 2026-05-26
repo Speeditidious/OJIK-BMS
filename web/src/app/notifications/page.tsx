@@ -167,6 +167,7 @@ function NotificationsContent() {
               <SelectItem value="all">{t("notifications.filters.all")}</SelectItem>
               <SelectItem value="announcement">{t("notifications.filters.announcement")}</SelectItem>
               <SelectItem value="client_update">{t("notifications.filters.clientUpdate")}</SelectItem>
+              <SelectItem value="issue_mention">{t("notifications.filters.issueMention")}</SelectItem>
             </SelectContent>
           </Select>
 

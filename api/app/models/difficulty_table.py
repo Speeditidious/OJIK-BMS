@@ -33,6 +33,8 @@ class DifficultyTable(Base, TimestampMixin):
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     default_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
     level_order: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    display_level_order: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    non_regular_level_order: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     def __repr__(self) -> str:
         return f"<DifficultyTable id={self.id} name={self.name}>"

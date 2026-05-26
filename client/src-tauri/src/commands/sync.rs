@@ -15,6 +15,7 @@ use crate::logging::{EnvironmentSnapshot, PathChecks};
 
 const SCORE_BATCH_SIZE: usize = 500;
 const REFRESH_TOKEN_PROACTIVE_RENEW_DAYS: u32 = 3;
+const DEDUP_ACTIVITY_LOG_GROUP_LIMIT: usize = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SyncLanguage {
@@ -193,6 +194,21 @@ impl SyncText {
             }
             SyncLanguage::En => {
                 format!("[DEBUG]   {label}: clear={clear}, exscore={exscore}, recorded_at={recorded_at}")
+            }
+        }
+    }
+
+    fn dedup_detail_file_only_notice(&self, omitted_groups: usize) -> String {
+        let omitted = format_count_usize(omitted_groups);
+        match self.language {
+            SyncLanguage::Ko => {
+                format!("[DEBUG] 나머지 통합 그룹 {omitted}개 상세는 상세 로그 파일에 기록했습니다.")
+            }
+            SyncLanguage::En => format!(
+                "[DEBUG] Wrote details for the remaining {omitted} merge groups to the detailed log file."
+            ),
+            SyncLanguage::Ja => {
+                format!("[DEBUG] 残り{omitted}件の統合グループ詳細は詳細ログファイルに記録しました。")
             }
         }
     }
@@ -1105,6 +1121,7 @@ async fn run_sync(
         );
         let group_count = dedup_groups.len();
         for (i, group) in dedup_groups.iter().enumerate() {
+            let emit_to_activity_log = should_emit_dedup_group_to_activity_log(i);
             let hash = group
                 .kept
                 .fumen_sha256
@@ -1112,16 +1129,16 @@ async fn run_sync(
                 .or(group.kept.fumen_md5.as_deref())
                 .or(group.kept.fumen_hash_others.as_deref())
                 .unwrap_or("unknown");
-            log(
+            log_dedup_debug_detail(
                 &app,
                 &sync_run_id,
-                "debug",
+                emit_to_activity_log,
                 &text.debug_group(i + 1, group_count, hash, &group.kept.client_type),
             );
-            log(
+            log_dedup_debug_detail(
                 &app,
                 &sync_run_id,
-                "debug",
+                emit_to_activity_log,
                 &text.debug_record(
                     DebugRecordKind::Kept,
                     group
@@ -1136,10 +1153,10 @@ async fn run_sync(
                 ),
             );
             for dropped in &group.dropped {
-                log(
+                log_dedup_debug_detail(
                     &app,
                     &sync_run_id,
-                    "debug",
+                    emit_to_activity_log,
                     &text.debug_record(
                         DebugRecordKind::Dropped,
                         dropped
@@ -1150,6 +1167,16 @@ async fn run_sync(
                     ),
                 );
             }
+        }
+        if group_count > DEDUP_ACTIVITY_LOG_GROUP_LIMIT {
+            log(
+                &app,
+                &sync_run_id,
+                "debug",
+                &text.dedup_detail_file_only_notice(
+                    group_count.saturating_sub(DEDUP_ACTIVITY_LOG_GROUP_LIMIT),
+                ),
+            );
         }
     }
 
@@ -1720,10 +1747,30 @@ fn log(app: &AppHandle, sync_run_id: &str, level: &str, message: &str) {
         },
     );
 
+    mirror_log_to_disk(sync_run_id, level, message);
+}
+
+fn log_dedup_debug_detail(
+    app: &AppHandle,
+    sync_run_id: &str,
+    emit_to_activity_log: bool,
+    message: &str,
+) {
+    if emit_to_activity_log {
+        log(app, sync_run_id, "debug", message);
+    } else {
+        mirror_log_to_disk(sync_run_id, "debug", message);
+    }
+}
+
+fn should_emit_dedup_group_to_activity_log(group_index_zero_based: usize) -> bool {
+    group_index_zero_based < DEDUP_ACTIVITY_LOG_GROUP_LIMIT
+}
+
+fn mirror_log_to_disk(sync_run_id: &str, level: &str, message: &str) {
     // Mirror the line into the `log` crate so the disk target captures it.
-    // The disk target's filter (in `crate::logging`) drops INFO/DEBUG by
-    // default and lets WARN/ERROR through, which is exactly the signal we
-    // want preserved for after-the-fact troubleshooting.
+    // The disk target's filter (in `crate::logging`) drops INFO/DEBUG unless
+    // verbose disk logging is enabled, while WARN/ERROR remain preserved.
     let short_id = &sync_run_id[..8.min(sync_run_id.len())];
     match level {
         "error" => log::error!(target: "sync", "[{short_id}] {message}"),
@@ -2313,6 +2360,30 @@ mod tests {
         assert_eq!(
             text.reauth_required(),
             "Your login session has expired. Please log in again."
+        );
+    }
+
+    #[test]
+    fn dedup_detail_logs_show_only_first_ten_groups_in_activity_log() {
+        assert!(should_emit_dedup_group_to_activity_log(0));
+        assert!(should_emit_dedup_group_to_activity_log(9));
+        assert!(!should_emit_dedup_group_to_activity_log(10));
+        assert!(!should_emit_dedup_group_to_activity_log(42));
+    }
+
+    #[test]
+    fn sync_text_renders_dedup_detail_file_only_notice_for_all_languages() {
+        assert_eq!(
+            SyncText::new("ko").dedup_detail_file_only_notice(3),
+            "[DEBUG] 나머지 통합 그룹 3개 상세는 상세 로그 파일에 기록했습니다."
+        );
+        assert_eq!(
+            SyncText::new("en").dedup_detail_file_only_notice(3),
+            "[DEBUG] Wrote details for the remaining 3 merge groups to the detailed log file."
+        );
+        assert_eq!(
+            SyncText::new("ja").dedup_detail_file_only_notice(3),
+            "[DEBUG] 残り3件の統合グループ詳細は詳細ログファイルに記録しました。"
         );
     }
 }

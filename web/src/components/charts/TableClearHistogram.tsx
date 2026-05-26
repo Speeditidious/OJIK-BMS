@@ -8,6 +8,7 @@ import type { ClearVisibilitySource } from "@/hooks/use-dashboard-clear-visibili
 import {
   Bar,
   BarChart,
+  Customized,
   ReferenceLine,
   Tooltip,
   XAxis,
@@ -52,6 +53,46 @@ const cardStyles: React.CSSProperties = {
   width: "max-content",
 };
 
+const SPACER_LEVEL_PREFIX = "__table_clear_spacer__";
+
+function SpacerLineMask(props: any) {
+  const { formattedGraphicalItems, offset, yAxisMap } = props;
+  const yAxis = yAxisMap?.[0];
+  const scale = yAxis?.scale;
+  if (!scale || !offset) return null;
+
+  const chartData = formattedGraphicalItems?.[0]?.props?.data ?? [];
+  const spacerLevels = chartData
+    .filter((row: Record<string, unknown>) => row._isSpacer)
+    .map((row: Record<string, unknown>) => String(row.level));
+
+  if (spacerLevels.length === 0) return null;
+
+  const bandHeight =
+    typeof scale.bandwidth === "function"
+      ? scale.bandwidth()
+      : Math.max(18, offset.height / Math.max(1, chartData.length));
+
+  return (
+    <g aria-hidden="true">
+      {spacerLevels.map((level: string) => {
+        const y = scale(level);
+        if (typeof y !== "number") return null;
+        return (
+          <rect
+            key={level}
+            x={offset.left}
+            y={y}
+            width={offset.width}
+            height={bandHeight}
+            fill="hsl(var(--card))"
+          />
+        );
+      })}
+    </g>
+  );
+}
+
 interface CustomTooltipProps {
   active?: boolean;
   payload?: any[];
@@ -66,6 +107,7 @@ interface CustomTooltipProps {
 const CustomTooltip = memo(function CustomTooltip({ active, payload, label, tableSymbol, clientType, activeEntry, labelMap, getDisplayClearType }: CustomTooltipProps) {
   if (!active || !payload?.length) return null;
   const rowData = payload[0]?.payload as Record<string, number>;
+  if (rowData?._isSpacer) return null;
   const total = rowData?._total ?? 0;
 
   return (
@@ -159,6 +201,7 @@ const YAxisTick = memo(function YAxisTick({
   onLevelSelect?: (level: string) => void;
 }) {
   const val = String(payload?.value ?? "");
+  if (val.startsWith(SPACER_LEVEL_PREFIX)) return <g />;
   const label = val.startsWith("LEVEL ") ? val.slice(6) : val;
   const displayLabel = tableSymbol ? `${tableSymbol}${label}` : label;
   const isClickable = !!onLevelSelect;
@@ -201,6 +244,18 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
   const chartData = useMemo(
     () =>
       levels.map((l) => {
+        if (l.is_spacer) {
+          const row: Record<string, string | number> = {
+            level: l.level,
+            _total: 0,
+            _isSpacer: 1,
+          };
+          for (const ct of ALL_CLEAR_TYPES) {
+            row[`ct_${ct}`] = 0;
+            row[`raw_ct_${ct}`] = 0;
+          }
+          return row;
+        }
         // Apply display remapping: hidden clear types count toward the next visible lower type
         const rawCounts: Record<string, number> = {};
         let total = 0;
@@ -270,6 +325,7 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
         const { x, y, width, height } = barProps;
         if (!height || height <= 0) return <rect width={0} height={0} />;
         const level = barProps.payload?.level ?? "";
+        if (barProps.payload?._isSpacer) return <rect width={0} height={0} />;
         return (
           <rect
             x={x}
@@ -355,6 +411,7 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
             strokeDasharray="3 3"
           />
         ))}
+        <Customized component={SpacerLineMask} />
         {ALL_CLEAR_TYPES.map((ct) => (
           <Bar
             key={ct}
@@ -362,8 +419,12 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
             stackId="stack"
             maxBarSize={barHeight}
             shape={barShapes[ct]}
-            onClick={(data) => onSelect?.(data.level as string, ct)}
+            onClick={(data) => {
+              if (data._isSpacer) return;
+              onSelect?.(data.level as string, ct);
+            }}
             onMouseEnter={(data) => {
+              if (data._isSpacer) return;
               const entry = { level: data.level as string, ct };
               setActiveEntry(entry);        // for tooltip (React state)
               updateBarHighlight(entry);    // bar highlight (direct DOM manipulation)
