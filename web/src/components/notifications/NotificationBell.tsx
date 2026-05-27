@@ -141,6 +141,7 @@ export function NotificationBell({ enabled, userId }: NotificationBellProps) {
   };
 
   return (
+    <>
     <DropdownMenu onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger asChild>
         <button
@@ -198,5 +199,6 @@ export function NotificationBell({ enabled, userId }: NotificationBellProps) {
       </DropdownMenuContent>
     </DropdownMenu>
     <ClientUpdateDialog item={dialogItem} onClose={() => setDialogItem(null)} />
+    </>
   );
 }
