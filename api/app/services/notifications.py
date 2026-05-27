@@ -62,6 +62,12 @@ async def create_client_update_notification(
     if not update.is_published:
         return None
     channel = update.channel or "stable"
+    created_at = update.publish_after or datetime.now(UTC)
+    metadata: dict = {"version": update.version, "channel": channel}
+    if update.body_markdown_en:
+        metadata["body_en"] = update.body_markdown_en[:300]
+    if update.body_markdown_ja:
+        metadata["body_ja"] = update.body_markdown_ja[:300]
     return await _create_notification(
         db,
         type_="client_update",
@@ -69,7 +75,8 @@ async def create_client_update_notification(
         title=update.title,
         body=update.body_markdown[:300] if update.body_markdown else None,
         link_url="/download",
-        metadata={"version": update.version, "channel": channel},
+        metadata=metadata,
+        created_at=created_at,
     )
 
 
@@ -84,6 +91,7 @@ async def _create_notification(
     announcement_id: uuid.UUID | None = None,
     target_user_id: uuid.UUID | None = None,
     metadata: dict | None = None,
+    created_at: datetime | None = None,
 ) -> Notification | None:
     existing_result = await db.execute(select(Notification).where(Notification.dedupe_key == dedupe_key))
     existing = existing_result.scalar_one_or_none()
@@ -100,7 +108,7 @@ async def _create_notification(
         link_url=link_url,
         metadata_=metadata,
         is_published=True,
-        created_at=datetime.now(UTC),
+        created_at=created_at or datetime.now(UTC),
     )
     db.add(notification)
     return notification
