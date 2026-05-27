@@ -30,9 +30,11 @@ export function ClientUpdateDialog({ item, onClose }: ClientUpdateDialogProps) {
     return item.body;
   };
 
+  const body = getBody();
+
   const handleGoToDownload = () => {
-    onClose();
     router.push("/download");
+    onClose();
   };
 
   return (
@@ -49,10 +51,10 @@ export function ClientUpdateDialog({ item, onClose }: ClientUpdateDialogProps) {
           </div>
         </DialogHeader>
 
-        {getBody() && (
+        {body && (
           <div className="max-h-72 overflow-y-auto py-1">
             <MarkdownContent className="text-label text-muted-foreground">
-              {getBody()!}
+              {body}
             </MarkdownContent>
           </div>
         )}
