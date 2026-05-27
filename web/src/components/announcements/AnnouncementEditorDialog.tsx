@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,7 +28,9 @@ import {
   useRenderedAnnouncementTemplate,
   useUpsertAnnouncementTemplate,
 } from "@/hooks/use-announcements";
+import { useSearchIssues } from "@/hooks/use-issues";
 import { getAnnouncementEditorState } from "@/lib/announcement-editor-state.mjs";
+import { getMentionAutocompleteTrigger } from "@/lib/mention-autocomplete-core.mjs";
 import type { Announcement } from "@/types";
 
 type Lang = "ko" | "en" | "ja";
@@ -86,6 +88,7 @@ export function AnnouncementEditorDialog({
   const [publishing, setPublishing] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [pendingTemplateConfirm, setPendingTemplateConfirm] = useState(false);
+  const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Template fetch — only enabled when tagId is set
   const [templateTagId, setTemplateTagId] = useState<string | undefined>(undefined);
@@ -305,6 +308,28 @@ export function AnnouncementEditorDialog({
   const currentBody = activeLang === "ko" ? body : activeLang === "en" ? bodyEn : bodyJa;
   const setCurrentTitle = activeLang === "ko" ? setTitle : activeLang === "en" ? setTitleEn : setTitleJa;
   const setCurrentBody = activeLang === "ko" ? setBody : activeLang === "en" ? setBodyEn : setBodyJa;
+  const bodyMentionTrigger = getMentionAutocompleteTrigger(currentBody);
+  const issueMentionQuery = bodyMentionTrigger?.type === "issue" ? bodyMentionTrigger.query : "";
+  const { data: issueMentionSuggestions = [] } = useSearchIssues(
+    issueMentionQuery,
+    bodyMentionTrigger?.type === "issue" && issueMentionQuery.length > 0,
+  );
+
+  const insertIssueMention = (issueId: number) => {
+    const el = bodyTextareaRef.current;
+    if (!el) return;
+
+    const cursor = el.selectionStart;
+    const before = currentBody.slice(0, cursor);
+    const after = currentBody.slice(cursor);
+    const nextBody = `${before.replace(/#[0-9]*$/, `#${issueId} `)}${after}`;
+    setCurrentBody(nextBody);
+    requestAnimationFrame(() => {
+      el.focus();
+      const nextCursor = nextBody.length - after.length;
+      el.setSelectionRange(nextCursor, nextCursor);
+    });
+  };
 
   const getTagDisplayName = (item: (typeof tags)[0]) =>
     lang.startsWith("en")
@@ -456,12 +481,30 @@ export function AnnouncementEditorDialog({
                 <label className="mb-1.5 block text-caption text-muted-foreground">
                   {t("announcements.editor.bodyLabel")}
                 </label>
-                <textarea
-                  value={currentBody}
-                  onChange={(e) => setCurrentBody(e.target.value)}
-                  className="min-h-[200px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                  placeholder={activeLang !== "ko" ? body : undefined}
-                />
+                <div className="relative">
+                  <textarea
+                    ref={bodyTextareaRef}
+                    value={currentBody}
+                    onChange={(e) => setCurrentBody(e.target.value)}
+                    className="min-h-[200px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 font-mono text-label text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    placeholder={activeLang !== "ko" ? body : undefined}
+                  />
+                  {bodyMentionTrigger?.type === "issue" && issueMentionSuggestions.length > 0 && (
+                    <div className="absolute bottom-full left-0 z-50 mb-1 max-h-56 w-full max-w-md overflow-y-auto rounded-md border border-border bg-popover shadow-lg">
+                      {issueMentionSuggestions.map((issue) => (
+                        <button
+                          key={issue.id}
+                          type="button"
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-label transition-colors hover:bg-muted"
+                          onClick={() => insertIssueMention(issue.id)}
+                        >
+                          <span className="shrink-0 text-muted-foreground">#{issue.id}</span>
+                          <span className="min-w-0 truncate text-foreground">{issue.title}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           ) : (

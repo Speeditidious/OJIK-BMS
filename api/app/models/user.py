@@ -44,6 +44,7 @@ class OAuthAccount(Base):
     provider: Mapped[str] = mapped_column(String(32), primary_key=True, nullable=False)
     provider_account_id: Mapped[str] = mapped_column(String(128), nullable=False)
     provider_username: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    discord_avatar_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     discord_avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     # Relationships

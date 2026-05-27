@@ -219,6 +219,8 @@ CLAUDE.md
 AGENTS.md
 .codex
 requirements.md
+.superpowers
+docs/
 
 # Next.js build output & dependencies
 web/node_modules/

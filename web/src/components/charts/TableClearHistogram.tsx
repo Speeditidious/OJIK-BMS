@@ -177,7 +177,7 @@ const CustomTooltip = memo(function CustomTooltip({ active, payload, label, tabl
                 ({ownPct.toFixed(1)}%)
               </span>
               <span style={{ width: 80, fontSize: 'var(--text-caption)', color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--muted-foreground))" }}>
-                {t("dashboard.tableClearHistogram.cumulative")} {cumPct.toFixed(1)}%
+                {t("charts.tableClearHistogram.cumulative")} {cumPct.toFixed(1)}%
               </span>
             </div>
           );

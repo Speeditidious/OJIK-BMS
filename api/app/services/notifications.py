@@ -80,6 +80,53 @@ async def create_client_update_notification(
     )
 
 
+def build_issue_activity_dedupe_key(
+    activity_type: str,
+    issue_id: int,
+    source_id: str,
+    target_user_id: str,
+) -> str:
+    """Build a stable dedupe key for one issue activity notification target."""
+    return f"issue_activity:{activity_type}:{issue_id}:{source_id}:user:{target_user_id}"
+
+
+async def create_issue_activity_notification(
+    db: AsyncSession,
+    *,
+    issue_id: int,
+    issue_title: str,
+    target_user_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+    actor_username: str,
+    activity_type: str,
+    source_id: str,
+    metadata: dict | None = None,
+) -> Notification | None:
+    """Notify an issue author about activity by another user.
+
+    Skips notification when actor and target are the same user.
+    """
+    if target_user_id == actor_user_id:
+        return None
+
+    body_by_type = {
+        "comment": f"{actor_username} commented on your issue #{issue_id}.",
+        "status_change": f"{actor_username} changed the status of your issue #{issue_id}.",
+        "pin_change": f"{actor_username} updated the discussion pin for your issue #{issue_id}.",
+    }
+    body = body_by_type.get(activity_type, f"{actor_username} updated your issue #{issue_id}.")
+    return await _create_notification(
+        db,
+        type_="issue_activity",
+        dedupe_key=build_issue_activity_dedupe_key(activity_type, issue_id, source_id, str(target_user_id)),
+        title=f"#{issue_id} {issue_title}",
+        body=body,
+        link_url=f"/issues/{issue_id}",
+        target_user_id=target_user_id,
+        metadata={"issue_id": issue_id, "activity_type": activity_type, **(metadata or {})},
+    )
+
+
 async def _create_notification(
     db: AsyncSession,
     *,

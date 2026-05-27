@@ -592,7 +592,16 @@ async def get_rankings(
                 ur.user_id, ur.exp, ur.exp_level, ur.rating, ur.rating_norm,
                 ur.dan_title,
                 u.username,
-                COALESCE(u.avatar_url, oa.discord_avatar_url) AS avatar_url,
+                COALESCE(
+                    u.avatar_url,
+                    CASE
+                        WHEN oa.discord_avatar_hash IS NULL THEN oa.discord_avatar_url
+                        WHEN LEFT(oa.discord_avatar_hash, 2) = 'a_' THEN
+                            'https://cdn.discordapp.com/avatars/' || oa.provider_account_id || '/' || oa.discord_avatar_hash || '.gif'
+                        ELSE
+                            'https://cdn.discordapp.com/avatars/' || oa.provider_account_id || '/' || oa.discord_avatar_hash || '.png'
+                    END
+                ) AS avatar_url,
                 COUNT(*) OVER () AS total_count
             FROM user_rankings ur
             JOIN users u ON u.id = ur.user_id

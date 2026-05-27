@@ -4,7 +4,7 @@ import { useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
-import { MessageSquare, ChevronDown, GitBranch, ArrowLeft } from "lucide-react";
+import { MessageSquare, ChevronDown, GitBranch, ArrowLeft, Pin, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { resolveTagBadgeStyle } from "@/lib/tag-color";
 import { Navbar } from "@/components/layout/navbar";
@@ -19,20 +19,37 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ISSUE_STATUS_META, IssueStatusBadge } from "@/components/issues/IssueStatusBadge";
 import { MarkdownContent } from "@/components/common/MarkdownContent";
+import { AvatarImage } from "@/components/common/AvatarImage";
 import {
   useIssue,
   useIssueComments,
   useCreateIssueComment,
   useUpdateIssueStatus,
+  useUpdateIssuePinned,
   useSearchIssueUsers,
   useSearchIssues,
 } from "@/hooks/use-issues";
 import { useAuthStore } from "@/stores/auth";
+import { resolveAvatarUrl } from "@/lib/avatar";
 import { timeAgo } from "@/lib/time";
-import type { IssueComment as IssueCommentType, IssueStatus, IssueTag } from "@/types";
+import type { IssueComment as IssueCommentType, IssuePinChangeEventPayload, IssueStatus, IssueTag } from "@/types";
 
 // Statuses where any authenticated user can still leave comments.
 const COMMENTABLE_STATUSES = new Set(["open", "work_in_progress"]);
+
+// ── Admin badge ───────────────────────────────────────────────────────────────
+
+function AdminBadge({ label }: { label: string }) {
+  return (
+    <span
+      title={label}
+      className="inline-flex items-center justify-center"
+      aria-label={label}
+    >
+      <ShieldCheck className="h-3.5 w-3.5 text-primary shrink-0" />
+    </span>
+  );
+}
 
 // ── Tag badge ─────────────────────────────────────────────────────────────────
 
@@ -71,8 +88,13 @@ function Avatar({
   userId?: string;
 }) {
   const inner = avatarUrl ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={avatarUrl} alt={username} className="w-full h-full object-cover" />
+    <AvatarImage
+      src={resolveAvatarUrl(avatarUrl)}
+      alt={username}
+      size={36}
+      fallbackText={username}
+      className="rounded-full object-cover"
+    />
   ) : (
     username.charAt(0).toUpperCase()
   );
@@ -99,12 +121,14 @@ function Avatar({
 
 function StatusChangeEntry({ comment }: { comment: IssueCommentType }) {
   const { t } = useTranslation();
-  const toStatus = (comment.event_payload?.to ?? "open") as IssueStatus;
+  const payload = comment.event_payload as { to?: string } | null;
+  const toStatus = (payload?.to ?? "open") as IssueStatus;
   const meta = ISSUE_STATUS_META[toStatus];
   const Icon = meta.icon;
   return (
     <div className="flex items-center gap-2 px-3 py-1 text-label text-muted-foreground">
       <Icon className={cn("h-4 w-4 shrink-0", meta.textClass)} />
+      {comment.author.is_admin && <AdminBadge label={t("issues.admin")} />}
       <span>
         {t("issues.event.statusChanged", {
           username: comment.author.username,
@@ -116,10 +140,31 @@ function StatusChangeEntry({ comment }: { comment: IssueCommentType }) {
   );
 }
 
+function PinChangeEntry({ comment }: { comment: IssueCommentType }) {
+  const { t } = useTranslation();
+  const payload = comment.event_payload as IssuePinChangeEventPayload | null;
+  const isPinned = payload?.is_pinned ?? false;
+  return (
+    <div className="flex items-center gap-2 px-3 py-1 text-label text-muted-foreground">
+      <Pin className={cn("h-4 w-4 shrink-0 rotate-45", isPinned ? "text-primary" : "text-muted-foreground")} />
+      {comment.author.is_admin && <AdminBadge label={t("issues.admin")} />}
+      <span>
+        {isPinned
+          ? t("issues.event.pinned", { username: comment.author.username })
+          : t("issues.event.unpinned", { username: comment.author.username })}
+      </span>
+      <span className="text-muted-foreground/70">· {timeAgo(comment.created_at, t)}</span>
+    </div>
+  );
+}
+
 function TimelineEntry({ comment }: { comment: IssueCommentType }) {
   const { t } = useTranslation();
   if (comment.event_type === "status_change") {
     return <StatusChangeEntry comment={comment} />;
+  }
+  if (comment.event_type === "pin_change") {
+    return <PinChangeEntry comment={comment} />;
   }
   return (
     <div className="flex gap-3">
@@ -130,7 +175,10 @@ function TimelineEntry({ comment }: { comment: IssueCommentType }) {
       />
       <div className="flex-1 rounded-lg border overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border-b">
-          <span className="text-label font-medium text-foreground">{comment.author.username}</span>
+          <span className="text-label font-medium text-foreground flex items-center gap-1">
+            {comment.author.is_admin && <AdminBadge label={t("issues.admin")} />}
+            {comment.author.username}
+          </span>
           <span className="text-label text-muted-foreground">{timeAgo(comment.created_at, t)}</span>
         </div>
         <div className="p-4">
@@ -296,6 +344,7 @@ export default function IssueDetailPage() {
   const { data: issue, isLoading } = useIssue(id);
   const { data: commentsData } = useIssueComments(id, 1, 100);
   const updateStatus = useUpdateIssueStatus(id);
+  const updatePin = useUpdateIssuePinned(id);
 
   if (isLoading) {
     return (
@@ -344,6 +393,19 @@ export default function IssueDetailPage() {
             </div>
             {/* Admin controls */}
             {user?.is_admin && (
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Pin button */}
+                <Button
+                  variant={issue.is_pinned ? "default" : "outline"}
+                  size="sm"
+                  disabled={updatePin.isPending}
+                  onClick={() => updatePin.mutate({ is_pinned: !issue.is_pinned })}
+                  className={cn(issue.is_pinned && "bg-primary/90 hover:bg-primary/80")}
+                  title={issue.is_pinned ? t("issues.unpin") : t("issues.pin")}
+                >
+                  <Pin className="h-3.5 w-3.5 mr-1 rotate-45" />
+                  {issue.is_pinned ? t("issues.unpin") : t("issues.pin")}
+                </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="shrink-0">
@@ -382,6 +444,7 @@ export default function IssueDetailPage() {
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
+              </div>
             )}
           </div>
 
@@ -391,14 +454,16 @@ export default function IssueDetailPage() {
               <IssueStatusBadge status={issue.status} withTooltip />
             </TooltipProvider>
             <TagBadge tag={issue.tag} locale={i18n.language} />
-            <span className="text-label text-muted-foreground">
+            <span className="text-label text-muted-foreground flex items-center gap-1 flex-wrap">
+              {issue.author.is_admin && <AdminBadge label={t("issues.admin")} />}
               {t("issues.detail.openedBy", { username: issue.author.username })}
               {" · "}{t("issues.list.created")} {timeAgo(issue.created_at, t)}
               {" · "}{t("issues.list.updated")} {timeAgo(issue.last_activity_at, t)}
             </span>
             {isClosed && issue.closed_by && (
-              <span className="text-label text-muted-foreground">
-                · {t("issues.detail.closedBy", { username: issue.closed_by.username })}
+              <span className="text-label text-muted-foreground flex items-center gap-1">
+                ·{" "}{issue.closed_by.is_admin && <AdminBadge label={t("issues.admin")} />}
+                {t("issues.detail.closedBy", { username: issue.closed_by.username })}
               </span>
             )}
             <span className="text-label text-muted-foreground flex items-center gap-1">
@@ -417,7 +482,8 @@ export default function IssueDetailPage() {
           />
           <div className="flex-1 rounded-lg border overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border-b">
-              <span className="text-label font-medium text-foreground">
+              <span className="text-label font-medium text-foreground flex items-center gap-1">
+                {issue.author.is_admin && <AdminBadge label={t("issues.admin")} />}
                 {issue.author.username}
               </span>
               <span className="text-label text-muted-foreground">

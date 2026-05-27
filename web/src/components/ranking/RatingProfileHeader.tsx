@@ -34,6 +34,7 @@ export function RatingProfileHeader({
       src={resolveAvatarUrl(profileUser.avatar_url)}
       alt={profileUser.username}
       size={72}
+      fallbackText={profileUser.username}
       className="rounded-full object-cover"
     />
   ) : (

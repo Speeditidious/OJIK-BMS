@@ -130,3 +130,23 @@ export function useSearchIssues(q: string, enabled: boolean) {
     staleTime: 10_000,
   });
 }
+
+export function usePinnedIssues(size = 5) {
+  return useQuery<Issue[]>({
+    queryKey: ["issues", "pinned", size],
+    queryFn: () => api.get(`/issues/pinned?size=${size}`),
+  });
+}
+
+export function useUpdateIssuePinned(issueId: number) {
+  const queryClient = useQueryClient();
+  return useMutation<Issue, Error, { is_pinned: boolean }>({
+    mutationFn: (data) => api.patch(`/issues/${issueId}/pin`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["issues", "list"] });
+      queryClient.invalidateQueries({ queryKey: ["issues", "pinned"] });
+      queryClient.invalidateQueries({ queryKey: ["issues", issueId] });
+      queryClient.invalidateQueries({ queryKey: ["issues", issueId, "comments"] });
+    },
+  });
+}

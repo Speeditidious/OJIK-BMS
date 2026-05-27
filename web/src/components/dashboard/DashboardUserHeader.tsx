@@ -32,6 +32,7 @@ export function DashboardUserHeader({
           src={resolveAvatarUrl(avatarUrl)}
           alt=""
           size={64}
+          fallbackText={username}
           className="rounded-full object-cover ring-2 ring-primary/30"
         />
       ) : (

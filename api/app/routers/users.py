@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user, verify_delete_token
 from app.models.user import OAuthAccount, User
+from app.routers.auth import build_discord_avatar_url
 from app.services.level_display_preferences import normalize_preferences_payload
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -72,7 +73,13 @@ async def _resolve_avatar(user: User, db: AsyncSession) -> str | None:
         )
     )
     oauth = result.scalar_one_or_none()
-    return oauth.discord_avatar_url if oauth else None
+    if not oauth:
+        return None
+    avatar_hash = getattr(oauth, "discord_avatar_hash", None)
+    return (
+        build_discord_avatar_url(getattr(oauth, "provider_account_id", ""), avatar_hash)
+        or oauth.discord_avatar_url
+    )
 
 
 async def _resolve_last_synced_at(user_id: uuid.UUID, db: AsyncSession) -> datetime | None:

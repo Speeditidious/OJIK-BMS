@@ -169,6 +169,80 @@ def test_migration_0035_declares_revision_metadata() -> None:
     assert "ix_issues_status_updated_at" in content
 
 
+def test_migration_0040_adds_issue_pinning_columns_and_indexes() -> None:
+    """Migration 0040 must add issue pinning metadata and list indexes."""
+    migration = Path(__file__).parents[1] / "alembic" / "versions" / "0040_add_issue_pinning.py"
+    content = migration.read_text()
+
+    assert 'revision = "0040"' in content
+    assert 'down_revision = "0039"' in content
+    assert "is_pinned" in content
+    assert "pinned_at" in content
+    assert "pinned_by_id" in content
+    assert "ix_issues_pinned_activity" in content
+    assert "ix_issues_status_pinned_activity" in content
+
+
+def test_issue_author_read_includes_admin_flag() -> None:
+    from app.routers.issues import IssueAuthorRead
+
+    assert "is_admin" in IssueAuthorRead.model_fields
+
+
+def test_issue_read_includes_pinning_fields() -> None:
+    from app.routers.issues import IssueRead
+
+    for field in ("is_pinned", "pinned_at", "pinned_by"):
+        assert field in IssueRead.model_fields
+
+
+def test_issue_order_by_prioritizes_pinned_before_selected_sort() -> None:
+    from app.routers.issues import _issue_order_by, IssueSortKey
+
+    order_columns = [str(expr) for expr in _issue_order_by(IssueSortKey.created)]
+
+    assert "issues.is_pinned" in order_columns[0]
+    assert "issues.created_at" in order_columns[1]
+    assert "issues.id" in order_columns[2]
+
+
+def test_issue_pin_update_schema_exists() -> None:
+    from app.routers.issues import IssuePinUpdate
+
+    assert "is_pinned" in IssuePinUpdate.model_fields
+
+
+def test_issue_search_keyword_normalization_removes_whitespace() -> None:
+    from app.routers.issues import _normalize_issue_search_keyword
+
+    assert _normalize_issue_search_keyword(" 질 문 ") == "질문"
+    assert _normalize_issue_search_keyword("bug report") == "bugreport"
+
+
+def test_issue_search_condition_includes_whitespace_insensitive_substring_match() -> None:
+    from sqlalchemy.dialects import postgresql
+
+    from app.routers.issues import IssueSearchField, _build_search_condition
+
+    compiled = _build_search_condition("질 문", IssueSearchField.title).compile(
+        dialect=postgresql.dialect()
+    )
+    sql = str(compiled)
+
+    assert "to_tsvector" in sql
+    assert "plainto_tsquery" in sql
+    assert "regexp_replace" in sql
+    assert "LIKE" in sql
+    assert "%질문%" in compiled.params.values()
+
+
+def test_issue_activity_notification_dedupe_key_shapes() -> None:
+    from app.services.notifications import build_issue_activity_dedupe_key
+
+    assert build_issue_activity_dedupe_key("comment", 12, "abc", "user-1") == "issue_activity:comment:12:abc:user:user-1"
+    assert build_issue_activity_dedupe_key("status_change", 12, "evt-1", "user-1") == "issue_activity:status_change:12:evt-1:user:user-1"
+
+
 def test_migration_0038_adds_issue_mention_source_index() -> None:
     """Mention rendering loads rows by source issue/comment, so that lookup must be indexed."""
     migration = Path(__file__).parents[1] / "alembic" / "versions" / "0038_add_issue_mentions_source_index.py"

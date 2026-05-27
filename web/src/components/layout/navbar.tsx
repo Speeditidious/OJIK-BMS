@@ -110,6 +110,7 @@ export function Navbar() {
                         src={resolveAvatarUrl(user.avatar_url)}
                         alt={user.username}
                         size={32}
+                        fallbackText={user.username}
                         className="rounded-full object-cover"
                       />
                     ) : (
@@ -126,6 +127,7 @@ export function Navbar() {
                         src={resolveAvatarUrl(user.avatar_url)}
                         alt={user.username}
                         size={24}
+                        fallbackText={user.username}
                         className="rounded-full object-cover"
                       />
                     ) : (

@@ -113,6 +113,7 @@ export function RankingTable({
                     src={resolveAvatarUrl(entry.avatar_url)}
                     alt={entry.username}
                     size={44}
+                    fallbackText={entry.username}
                     className="rounded-full object-cover flex-shrink-0"
                   />
                 ) : (

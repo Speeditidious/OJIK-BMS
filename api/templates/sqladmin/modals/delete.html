@@ -40,6 +40,19 @@ document.addEventListener("DOMContentLoaded", function () {
     return typeof value === "string" && value.length > 0 && value !== "undefined";
   }
 
+  function hasDeletePkParam(value) {
+    return isUsableDeleteUrl(value) && /[?&]pks=[^&]+/.test(value);
+  }
+
+  function setDeleteButtonUrl(url) {
+    var button = window.jQuery("#modal-delete-button");
+    if (hasDeletePkParam(url)) {
+      button.attr("data-url", url).prop("disabled", false);
+      return;
+    }
+    button.attr("data-url", "").prop("disabled", true);
+  }
+
   function selectedCount(pk) {
     if (Array.isArray(pk)) {
       return pk.length;
@@ -58,11 +71,57 @@ document.addEventListener("DOMContentLoaded", function () {
     return "This will permanently delete " + name + " " + (pk || "") + " ?";
   }
 
+  function selectedPrimaryKeys() {
+    var pks = [];
+    window.jQuery(".select-box").each(function () {
+      if (window.jQuery(this).is(":checked")) {
+        var value = window.jQuery(this).siblings().get(0).value;
+        if (value) {
+          pks.push(value);
+        }
+      }
+    });
+    return pks;
+  }
+
+  function safeBulkDeleteUrl(baseUrl, pks) {
+    if (!isUsableDeleteUrl(baseUrl) || !pks.length) {
+      return "";
+    }
+    return baseUrl + "?pks=" + pks.map(encodeURIComponent).join(",");
+  }
+
+  var $bulkDelete = window.jQuery("#action-delete");
+  if ($bulkDelete.length) {
+    var bulkDeleteBaseUrl = $bulkDelete.attr("data-url") || $bulkDelete.data("url");
+    $bulkDelete
+      .attr("data-delete-base-url", bulkDeleteBaseUrl || "")
+      .removeAttr("data-bs-toggle data-bs-target")
+      .off("click")
+      .on("click", function (event) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        var trigger = window.jQuery(this);
+        var pks = selectedPrimaryKeys();
+        var name = trigger.data("name") || "item";
+        var url = safeBulkDeleteUrl(trigger.attr("data-delete-base-url"), pks);
+
+        trigger.data("pk", pks).attr("data-pk", pks.join(","));
+        window.jQuery("#modal-delete-text").text(confirmationText(name, pks));
+        setDeleteButtonUrl(url);
+        window.jQuery("#modal-delete").modal("show");
+      });
+  }
+
   $document.off("shown.bs.modal", "#modal-delete");
   $document.on("shown.bs.modal", "#modal-delete", function (event) {
     var trigger = window.jQuery(event.relatedTarget || []);
-    if (!trigger.length) {
+    if (!trigger.length && hasDeletePkParam($bulkDelete.attr("data-url"))) {
       trigger = window.jQuery("#action-delete");
+    }
+    if (!trigger.length) {
+      return;
     }
 
     var name = trigger.data("name") || "item";
@@ -70,9 +129,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var url = trigger.data("url");
 
     window.jQuery("#modal-delete-text").text(confirmationText(name, pk));
-    if (isUsableDeleteUrl(url)) {
-      window.jQuery("#modal-delete-button").attr("data-url", url);
-    }
+    setDeleteButtonUrl(url);
   });
 });
 </script>

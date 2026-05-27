@@ -269,6 +269,7 @@ class OAuthAccountAdmin(ModelView, model=OAuthAccount):
         OAuthAccount.provider,
         OAuthAccount.provider_account_id,
         OAuthAccount.provider_username,
+        OAuthAccount.discord_avatar_hash,
     ]
     column_searchable_list = [OAuthAccount.provider_username, OAuthAccount.provider_account_id]
     column_sortable_list = [OAuthAccount.provider, OAuthAccount.provider_username]
@@ -1347,10 +1348,10 @@ class IssueAdmin(ModelView, model=Issue):
     name = "Issue"
     name_plural = "Issues"
     icon = "fa-solid fa-circle-exclamation"
-    column_list = [Issue.id, Issue.title, Issue.tag, Issue.status, Issue.author, Issue.comment_count, Issue.last_activity_at]
+    column_list = [Issue.id, Issue.title, Issue.tag, Issue.status, Issue.is_pinned, Issue.author, Issue.comment_count, Issue.last_activity_at]
     column_searchable_list = [Issue.title, Issue.body]
-    column_sortable_list = [Issue.id, Issue.status, Issue.comment_count, Issue.last_activity_at, Issue.created_at]
-    form_excluded_columns = [Issue.created_at, Issue.updated_at, Issue.comment_count, Issue.last_activity_at]
+    column_sortable_list = [Issue.id, Issue.status, Issue.is_pinned, Issue.pinned_at, Issue.comment_count, Issue.last_activity_at, Issue.created_at]
+    form_excluded_columns = [Issue.created_at, Issue.updated_at, Issue.comment_count, Issue.last_activity_at, Issue.pinned_at]
     can_create = False
     can_delete = False
 

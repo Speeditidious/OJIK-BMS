@@ -135,6 +135,29 @@ class TestClientUpdateAdmin:
 
 
 # ---------------------------------------------------------------------------
+# client update notifications
+# ---------------------------------------------------------------------------
+
+class TestClientUpdateNotifications:
+    async def test_notification_created_at_uses_publish_after_when_scheduled(self):
+        row = _make_row(version="1.0.0-beta.2", is_published=True)
+        row.publish_after = datetime(2026, 5, 27, 12, 30, tzinfo=UTC)
+
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        db.execute.return_value = result
+        db.add = MagicMock()
+
+        from app.services.notifications import create_client_update_notification
+
+        await create_client_update_notification(db, row)
+
+        notification = db.add.call_args.args[0]
+        assert notification.created_at == row.publish_after
+
+
+# ---------------------------------------------------------------------------
 # /client/update-policy: supports_auto_install field
 # ---------------------------------------------------------------------------
 

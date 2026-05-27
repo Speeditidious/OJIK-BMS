@@ -2,7 +2,7 @@
 
 import { Suspense, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, CheckCheck, Download, Megaphone, Trash2 } from "lucide-react";
+import { Bell, CheckCheck, CircleDot, Download, Megaphone, Trash2 } from "lucide-react";
 import { MarkdownContent } from "@/components/common/MarkdownContent";
 import { useTranslation } from "react-i18next";
 import { Pagination } from "@/components/common/Pagination";
@@ -34,6 +34,13 @@ function NotificationTypeIcon({ type }: { type: string }) {
     return (
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15">
         <Download className="h-4 w-4 text-primary" />
+      </div>
+    );
+  }
+  if (type === "issue_mention" || type === "issue_activity") {
+    return (
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/15">
+        <CircleDot className="h-4 w-4 text-accent" />
       </div>
     );
   }
@@ -174,6 +181,7 @@ function NotificationsContent() {
               <SelectItem value="announcement">{t("notifications.filters.announcement")}</SelectItem>
               <SelectItem value="client_update">{t("notifications.filters.clientUpdate")}</SelectItem>
               <SelectItem value="issue_mention">{t("notifications.filters.issueMention")}</SelectItem>
+              <SelectItem value="issue_activity">{t("notifications.filters.issueActivity")}</SelectItem>
             </SelectContent>
           </Select>
 

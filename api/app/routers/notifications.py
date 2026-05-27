@@ -57,6 +57,7 @@ async def list_notifications(
     db: AsyncSession = Depends(get_db),
 ) -> Pagination[NotificationReadItem]:
     """List notifications visible to the current user."""
+    now = datetime.now(UTC)
     state = await _get_user_notification_state(current_user.id, db)
     read_cutoff_at = state.read_cutoff_at if state else None
     is_read_expr = _is_read_expression(current_user, read_cutoff_at)
@@ -72,6 +73,7 @@ async def list_notifications(
         )
         .where(
             Notification.is_published.is_(True),
+            Notification.created_at <= now,
             or_(Notification.target_user_id.is_(None), Notification.target_user_id == current_user.id),
             or_(NotificationRead.deleted_at.is_(None), NotificationRead.user_id.is_(None)),
         )
@@ -105,6 +107,7 @@ async def unread_count(
     db: AsyncSession = Depends(get_db),
 ) -> UnreadCountRead:
     """Return unread notification count for navbar polling."""
+    now = datetime.now(UTC)
     state = await _get_user_notification_state(current_user.id, db)
     read_cutoff_at = state.read_cutoff_at if state else None
     is_read_expr = _is_read_expression(current_user, read_cutoff_at)
@@ -120,6 +123,7 @@ async def unread_count(
         )
         .where(
             Notification.is_published.is_(True),
+            Notification.created_at <= now,
             Notification.created_at >= current_user.created_at,
             or_(Notification.target_user_id.is_(None), Notification.target_user_id == current_user.id),
             or_(NotificationRead.deleted_at.is_(None), NotificationRead.user_id.is_(None)),

@@ -189,6 +189,7 @@ export function MyRankCard({
                 src={resolveAvatarUrl(user.avatar_url)}
                 alt={user.username}
                 size={48}
+                fallbackText={user.username}
                 className="rounded-full object-cover flex-shrink-0"
               />
             ) : (

@@ -17,18 +17,17 @@ import {
 } from "@/components/ui/select";
 import { MarkdownContent } from "@/components/common/MarkdownContent";
 import { useIssueTags, useCreateIssue, useSearchIssueUsers, useSearchIssues } from "@/hooks/use-issues";
+import { getMentionAutocompleteTrigger } from "@/lib/mention-autocomplete-core.mjs";
 import { useAuthStore } from "@/stores/auth";
 import type { IssueTag } from "@/types";
 
 // ── Mention autocomplete ───────────────────────────────────────────────────────
 
 function useMentionAutocomplete(body: string) {
-  const atMatch = body.match(/(?:^|[\s\n])@([A-Za-z0-9_]*)$/);
-  const hashMatch = body.match(/(?:^|[\s\n])#([0-9]*)$/);
-
-  const type: "user" | "issue" | null = atMatch ? "user" : hashMatch ? "issue" : null;
-  const userQuery = atMatch ? atMatch[1] : "";
-  const issueQuery = hashMatch ? hashMatch[1] : "";
+  const trigger = getMentionAutocompleteTrigger(body);
+  const type = trigger?.type ?? null;
+  const userQuery = trigger?.type === "user" ? trigger.query : "";
+  const issueQuery = trigger?.type === "issue" ? trigger.query : "";
 
   const { data: users } = useSearchIssueUsers(userQuery, type === "user");
   const { data: issues } = useSearchIssues(issueQuery, type === "issue");

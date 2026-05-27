@@ -99,7 +99,7 @@ def test_difficulty_table_level_order_template_enhances_select_and_drag_order() 
     assert 'tags: false' in content
     assert 'new Option(level, level' in content
     assert 'choice.setAttribute("draggable", "true")' in content
-    assert 'values.splice(to, 0, moved)' in content
+    assert 'toChip.after(fromChip)' in content
 
 
 def test_clean_level_subset_keeps_unique_current_levels() -> None:
@@ -125,6 +125,12 @@ def test_sqladmin_delete_modal_override_guards_missing_related_target() -> None:
     assert "isUsableDeleteUrl" in content
     assert 'value !== "undefined"' in content
     assert "selectedCount(pk)" in content
+    assert 'removeAttr("data-bs-toggle data-bs-target")' in content
+    assert 'safeBulkDeleteUrl' in content
+    assert "stopImmediatePropagation" in content
+    assert "hasDeletePkParam" in content
+    assert "setDeleteButtonUrl" in content
+    assert 'prop("disabled", true)' in content
 
 
 @pytest.mark.asyncio

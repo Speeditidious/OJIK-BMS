@@ -22,6 +22,14 @@ DISCORD_USER_URL = "https://discord.com/api/users/@me"
 USERNAME_MAX_LENGTH = 64
 
 
+def build_discord_avatar_url(discord_id: str, avatar_hash: str | None) -> str | None:
+    """Return the Discord CDN URL for the current avatar hash."""
+    if not avatar_hash:
+        return None
+    ext = "gif" if avatar_hash.startswith("a_") else "png"
+    return f"https://cdn.discordapp.com/avatars/{discord_id}/{avatar_hash}.{ext}"
+
+
 def _resolve_redirect_base(state: str | None, frontend_url: str) -> str:
     """Resolve the OAuth redirect base URL.
 
@@ -124,11 +132,7 @@ async def discord_callback(
     discord_id = discord_user["id"]
     discord_username = discord_user.get("username", "")
     discord_avatar_hash = discord_user.get("avatar")
-    discord_avatar_url = (
-        f"https://cdn.discordapp.com/avatars/{discord_id}/{discord_avatar_hash}.png"
-        if discord_avatar_hash
-        else None
-    )
+    discord_avatar_url = build_discord_avatar_url(discord_id, discord_avatar_hash)
 
     # Find or create user
     result = await db.execute(
@@ -151,6 +155,7 @@ async def discord_callback(
             provider="discord",
             provider_account_id=discord_id,
             provider_username=discord_username,
+            discord_avatar_hash=discord_avatar_hash,
             discord_avatar_url=discord_avatar_url,
         )
         db.add(oauth_account)
@@ -182,8 +187,8 @@ async def discord_callback(
     else:
         # Update provider username and avatar if changed
         oauth_account.provider_username = discord_username
-        if discord_avatar_url:
-            oauth_account.discord_avatar_url = discord_avatar_url
+        oauth_account.discord_avatar_hash = discord_avatar_hash
+        oauth_account.discord_avatar_url = discord_avatar_url
         # Load user separately to avoid async lazy-load
         user_result = await db.execute(select(User).where(User.id == oauth_account.user_id))
         user = user_result.scalar_one()

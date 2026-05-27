@@ -65,9 +65,13 @@ class Issue(Base, TimestampMixin):
     last_activity_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default=text("false"))
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    pinned_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     author = relationship("User", foreign_keys=[author_id])
     closed_by = relationship("User", foreign_keys=[closed_by_id])
+    pinned_by = relationship("User", foreign_keys=[pinned_by_id])
     tag: Mapped[IssueTag] = relationship("IssueTag")
     comments: Mapped[list["IssueComment"]] = relationship("IssueComment", cascade="all, delete-orphan", back_populates="issue")
 

@@ -489,6 +489,12 @@ export const resources = {
       },
       issues: {
         title: "이슈",
+        pinned: "고정됨",
+        pin: "고정시키기",
+        unpin: "고정 해제",
+        discussionIssues: "논의 중인 이슈",
+        viewAll: "모든 이슈 보기",
+        admin: "관리자",
         notice: "버그 제보, 기능 제안 등 OJIK BMS와 관련된 토픽이면 무엇이든지 게시해주세요. 이슈 게시 및 댓글 전부 모든 유저가 참여 가능합니다. 다른 유저에게 공개되고 싶지 않은 내용의 경우 개발자 디스코드 DM으로 직접 연락주세요 (RedBall#9777).",
         noticeManners: "이슈 작성 혹은 DM 문의 시 기본적인 매너는 지켜주시길 바랍니다. 다른 이용자 및 운영에 피해를 주는 경우, 관리자 판단하에 사이트 이용에 제한이 발생할 수 있습니다.",
         writingTip: "내용 작성 시 유저와 이슈를 멘션할 수 있습니다 (@사용자, #이슈번호). 멘션된 유저에게는 알림이 발송되므로 필요시에만 멘션 부탁드립니다.",
@@ -520,6 +526,8 @@ export const resources = {
         },
         event: {
           statusChanged: "{{username}}님이 상태를 {{status}}(으)로 변경했습니다",
+          pinned: "{{username}}님이 이슈를 논의 중으로 고정했습니다",
+          unpinned: "{{username}}님이 이슈 고정을 해제했습니다",
         },
         list: {
           empty: "이슈가 없습니다.",
@@ -583,6 +591,7 @@ export const resources = {
           announcement: "공지사항",
           clientUpdate: "클라이언트 업데이트",
           issueMention: "이슈 멘션",
+          issueActivity: "이슈 활동",
           keyword: "검색어",
         },
         actions: {
@@ -1382,6 +1391,12 @@ export const resources = {
       },
       issues: {
         title: "Issues",
+        pinned: "Pinned",
+        pin: "Pin",
+        unpin: "Unpin",
+        discussionIssues: "Pinned Discussions",
+        viewAll: "View all issues",
+        admin: "Admin",
         notice: "Feel free to post anything related to OJIK BMS — bug reports, feature requests, and more. All users can create issues and leave comments. For private matters, please contact the developer directly via Discord DM (RedBall#9777).",
         noticeManners: "Please maintain basic etiquette when writing issues or sending DMs. Users who cause harm to other users or site operations may face restrictions at the admin's discretion.",
         writingTip: "You can mention users and issues when writing (@username, #issue-number). Mentioned users will receive a notification, so please mention only when necessary.",
@@ -1413,6 +1428,8 @@ export const resources = {
         },
         event: {
           statusChanged: "{{username}} changed the status to {{status}}",
+          pinned: "{{username}} pinned this issue as a discussion",
+          unpinned: "{{username}} unpinned this issue",
         },
         list: {
           empty: "No issues found.",
@@ -1476,6 +1493,7 @@ export const resources = {
           announcement: "Announcements",
           clientUpdate: "Client updates",
           issueMention: "Issue mentions",
+          issueActivity: "Issue activity",
           keyword: "Keyword",
         },
         actions: {
@@ -2275,6 +2293,12 @@ export const resources = {
       },
       issues: {
         title: "イシュー",
+        pinned: "固定済み",
+        pin: "固定する",
+        unpin: "固定解除",
+        discussionIssues: "議論中のイシュー",
+        viewAll: "すべてのイシューを見る",
+        admin: "管理者",
         notice: "バグ報告、機能提案など、OJIK BMSに関連するトピックであれば何でも投稿してください。イシューの投稿とコメントはすべてのユーザーが参加できます。公開したくない内容は、開発者のDiscord DM（RedBall#9777）までご連絡ください。",
         noticeManners: "イシューの投稿やDM問い合わせの際は、基本的なマナーを守ってください。他のユーザーや運営に迷惑をかける場合、管理者の判断によりサイト利用が制限される場合があります。",
         writingTip: "本文でユーザーとイシューをメンションできます（@ユーザー名、#イシュー番号）。メンションされたユーザーには通知が送られますので、必要な場合のみメンションしてください。",
@@ -2306,6 +2330,8 @@ export const resources = {
         },
         event: {
           statusChanged: "{{username}}さんがステータスを{{status}}に変更しました",
+          pinned: "{{username}}さんがこのイシューを議論中として固定しました",
+          unpinned: "{{username}}さんがイシューの固定を解除しました",
         },
         list: {
           empty: "イシューがありません。",
@@ -2369,6 +2395,7 @@ export const resources = {
           announcement: "お知らせ",
           clientUpdate: "クライアント更新",
           issueMention: "イシューメンション",
+          issueActivity: "イシュー活動",
           keyword: "検索語",
         },
         actions: {

@@ -49,6 +49,7 @@ async def test_create_client_update_notification_includes_localized_bodies() -> 
     existing_result.scalar_one_or_none.return_value = None
     db = AsyncMock()
     db.execute.return_value = existing_result
+    db.add = MagicMock()
 
     notification = await create_client_update_notification(db, update)
 

@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
-import { CircleDot, MessageSquare, Search, Plus } from "lucide-react";
+import { CircleDot, MessageSquare, Pin, Search, Plus, ShieldCheck } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -67,15 +67,32 @@ function TagBadge({ tag, locale, className }: { tag: IssueTag; locale: string; c
   );
 }
 
+function AdminBadge() {
+  const { t } = useTranslation();
+  return (
+    <span
+      title={t("issues.admin")}
+      className="inline-flex items-center justify-center"
+      aria-label={t("issues.admin")}
+    >
+      <ShieldCheck className="h-3.5 w-3.5 text-primary shrink-0" />
+    </span>
+  );
+}
+
 function IssueRow({ issue, locale }: { issue: Issue; locale: string }) {
   const { t } = useTranslation();
 
   return (
     <Link
       href={`/issues/${issue.id}`}
-      className="flex items-start gap-3 p-4 hover:bg-muted/50 transition-colors group"
+      className={cn(
+        "flex items-start gap-3 p-4 hover:bg-muted/50 transition-colors group",
+        issue.is_pinned && "bg-primary/5 hover:bg-primary/10",
+      )}
     >
-      <div className="mt-0.5 shrink-0">
+      <div className="mt-0.5 shrink-0 flex items-center gap-1.5">
+        {issue.is_pinned && <Pin className="h-3.5 w-3.5 text-primary rotate-45" />}
         <IssueStatusBadge status={issue.status} />
       </div>
       <div className="flex-1 min-w-0">
@@ -85,10 +102,13 @@ function IssueRow({ issue, locale }: { issue: Issue; locale: string }) {
             {issue.title}
           </span>
         </div>
-        <p className="text-label text-muted-foreground mt-0.5">
+        <p className="text-label text-muted-foreground mt-0.5 flex items-center gap-1 flex-wrap">
           #{issue.id}
           {" · "}
-          {t("issues.list.openedBy", { username: issue.author.username })}
+          <span className="inline-flex items-center gap-1">
+            {issue.author.is_admin && <AdminBadge />}
+            {t("issues.list.openedBy", { username: issue.author.username })}
+          </span>
           {" · "}
           {t("issues.list.created")} {timeAgo(issue.created_at, t)}
           {" · "}

@@ -426,7 +426,7 @@ export interface ScoreUpdatesResponse {
 export type IssueStatus = "open" | "work_in_progress" | "completed" | "not_planned";
 export type IssueSearchField = "all" | "title" | "body";
 export type IssueSortKey = "last_activity" | "created";
-export type IssueCommentEventType = "status_change";
+export type IssueCommentEventType = "status_change" | "pin_change";
 
 export interface IssueStatusChangeEventPayload {
   from: IssueStatus;
@@ -456,6 +456,7 @@ export interface IssueAuthor {
   id: string;
   username: string;
   avatar_url: string | null;
+  is_admin: boolean;
 }
 
 export interface IssueMention {
@@ -474,9 +475,16 @@ export interface Issue {
   last_activity_at: string;
   closed_at: string | null;
   closed_by: IssueAuthor | null;
+  is_pinned: boolean;
+  pinned_at: string | null;
+  pinned_by: IssueAuthor | null;
   mentions: IssueMention[];
   created_at: string;
   updated_at: string;
+}
+
+export interface IssuePinChangeEventPayload {
+  is_pinned: boolean;
 }
 
 export interface IssueCreate {
@@ -493,7 +501,7 @@ export interface IssueComment {
   created_at: string;
   updated_at: string;
   event_type: IssueCommentEventType | null;
-  event_payload: IssueStatusChangeEventPayload | null;
+  event_payload: IssueStatusChangeEventPayload | IssuePinChangeEventPayload | null;
   mentions: IssueMention[];
 }
 

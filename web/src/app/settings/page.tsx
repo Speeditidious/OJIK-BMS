@@ -166,6 +166,7 @@ function ProfileTab() {
               src={resolveAvatarUrl(user.avatar_url)}
               alt={user.username}
               size={64}
+              fallbackText={user.username}
               className="rounded-full object-cover"
             />
           ) : (

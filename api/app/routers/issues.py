@@ -16,6 +16,7 @@ from app.core.database import get_db
 from app.core.security import get_current_admin, get_current_user
 from app.models.issue import Issue, IssueComment, IssueTag, IssueUserMention
 from app.models.user import User
+from app.routers.auth import build_discord_avatar_url
 from app.schemas import Pagination
 
 router = APIRouter(prefix="/issues", tags=["issues"])
@@ -65,6 +66,7 @@ class IssueAuthorRead(BaseModel):
     id: str
     username: str
     avatar_url: str | None = None
+    is_admin: bool = False
 
 
 class IssueMentionRead(BaseModel):
@@ -83,6 +85,9 @@ class IssueRead(BaseModel):
     last_activity_at: datetime
     closed_at: datetime | None = None
     closed_by: IssueAuthorRead | None = None
+    is_pinned: bool = False
+    pinned_at: datetime | None = None
+    pinned_by: IssueAuthorRead | None = None
     mentions: list[IssueMentionRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
@@ -118,6 +123,10 @@ class IssueStatusUpdate(BaseModel):
     status: IssueStatus
 
 
+class IssuePinUpdate(BaseModel):
+    is_pinned: bool
+
+
 class UserSearchResult(BaseModel):
     id: str
     username: str
@@ -138,6 +147,7 @@ def _issue_load_options():
         selectinload(Issue.author).selectinload(User.oauth_accounts),
         selectinload(Issue.tag),
         selectinload(Issue.closed_by).selectinload(User.oauth_accounts),
+        selectinload(Issue.pinned_by).selectinload(User.oauth_accounts),
     )
 
 
@@ -158,8 +168,12 @@ def _resolve_user_avatar(user: User) -> str | None:
     if user.avatar_url:
         return user.avatar_url
     for oauth in user.oauth_accounts:
-        if oauth.provider == "discord" and oauth.discord_avatar_url:
-            return oauth.discord_avatar_url
+        avatar_hash = getattr(oauth, "discord_avatar_hash", None)
+        if oauth.provider == "discord" and (avatar_hash or oauth.discord_avatar_url):
+            return (
+                build_discord_avatar_url(getattr(oauth, "provider_account_id", ""), avatar_hash)
+                or oauth.discord_avatar_url
+            )
     return None
 
 
@@ -168,6 +182,7 @@ def _user_to_author(user: User) -> IssueAuthorRead:
         id=str(user.id),
         username=user.username,
         avatar_url=_resolve_user_avatar(user),
+        is_admin=bool(user.is_admin),
     )
 
 
@@ -227,6 +242,9 @@ def _issue_to_read(issue: Issue, mentions: list[IssueMentionRead] | None = None)
         last_activity_at=issue.last_activity_at,
         closed_at=issue.closed_at,
         closed_by=_user_to_author(issue.closed_by) if issue.closed_by else None,
+        is_pinned=issue.is_pinned,
+        pinned_at=issue.pinned_at,
+        pinned_by=_user_to_author(issue.pinned_by) if issue.pinned_by else None,
         mentions=mentions or [],
         created_at=issue.created_at,
         updated_at=issue.updated_at,
@@ -257,18 +275,32 @@ async def _resolve_tag_filter(db: AsyncSession, tag: str) -> uuid.UUID | None:
         return tag_obj.id if tag_obj else None
 
 
-def _build_search_condition(q: str, search_field: IssueSearchField):
-    """Build PostgreSQL full-text search condition."""
+def _normalize_issue_search_keyword(q: str) -> str:
+    """Normalize a search keyword for whitespace-insensitive substring matching."""
+    return "".join(q.lower().split())
+
+
+def _issue_search_text_expression(search_field: IssueSearchField):
+    """Return the issue text expression searched by the selected field."""
     if search_field == IssueSearchField.title:
-        vector = func.to_tsvector("simple", func.coalesce(Issue.title, ""))
-    elif search_field == IssueSearchField.body:
-        vector = func.to_tsvector("simple", func.coalesce(Issue.body, ""))
-    else:
-        vector = func.to_tsvector(
-            "simple",
-            func.coalesce(Issue.title, "") + text("' '") + func.coalesce(Issue.body, ""),
-        )
-    return vector.op("@@")(func.plainto_tsquery("simple", q))
+        return func.coalesce(Issue.title, "")
+    if search_field == IssueSearchField.body:
+        return func.coalesce(Issue.body, "")
+    return func.coalesce(Issue.title, "") + text("' '") + func.coalesce(Issue.body, "")
+
+
+def _build_search_condition(q: str, search_field: IssueSearchField):
+    """Build PostgreSQL search condition with FTS plus whitespace-insensitive substring fallback."""
+    search_text = _issue_search_text_expression(search_field)
+    fts_condition = func.to_tsvector("simple", search_text).op("@@")(
+        func.plainto_tsquery("simple", q)
+    )
+    normalized_keyword = _normalize_issue_search_keyword(q)
+    if not normalized_keyword:
+        return fts_condition
+
+    normalized_text = func.regexp_replace(func.lower(search_text), r"\s+", "", "g")
+    return or_(fts_condition, normalized_text.like(f"%{normalized_keyword}%"))
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
@@ -317,10 +349,12 @@ async def search_issues(
         result = await db.execute(select(Issue).where(Issue.id == int(q_stripped)).limit(10))
         issues = result.scalars().all()
     else:
-        fts_cond = func.to_tsvector("simple", func.coalesce(Issue.title, "")).op("@@")(
-            func.plainto_tsquery("simple", q)
+        result = await db.execute(
+            select(Issue)
+            .where(_build_search_condition(q, IssueSearchField.title))
+            .order_by(Issue.id.desc())
+            .limit(10)
         )
-        result = await db.execute(select(Issue).where(fts_cond).order_by(Issue.id.desc()).limit(10))
         issues = result.scalars().all()
 
     return [IssueSearchResult(id=i.id, title=i.title, status=IssueStatus(i.status)) for i in issues]
@@ -333,6 +367,20 @@ _SORT_COLUMNS = {
     IssueSortKey.last_activity: Issue.last_activity_at,
     IssueSortKey.created: Issue.created_at,
 }
+
+
+def _issue_order_by(sort: IssueSortKey):
+    """Return stable issue ordering with pinned rows first.
+
+    Pinned issues sort among themselves by the same selected key so the chosen
+    sort order remains consistent within each group.
+    """
+    sort_column = _SORT_COLUMNS[sort]
+    return (
+        Issue.is_pinned.desc(),
+        sort_column.desc(),
+        Issue.id.desc(),
+    )
 
 
 @router.get("/", response_model=Pagination[IssueRead])
@@ -367,11 +415,10 @@ async def list_issues(
     count_result = await db.execute(select(func.count()).select_from(base_query.subquery()))
     total = count_result.scalar_one()
 
-    sort_column = _SORT_COLUMNS[sort]
     result = await db.execute(
         base_query
         .options(*_issue_load_options())
-        .order_by(sort_column.desc(), Issue.id.desc())
+        .order_by(*_issue_order_by(sort))
         .offset((page - 1) * size)
         .limit(size)
     )
@@ -428,6 +475,28 @@ async def get_issue_counts(
         if row_status in _VALID_STATUS_VALUES:
             setattr(counts, row_status, row_count)
     return counts
+
+
+@router.get("/pinned", response_model=list[IssueRead])
+async def list_pinned_issues(
+    size: int = Query(default=5, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+) -> list[IssueRead]:
+    """List pinned issues for the home page discussion section."""
+    result = await db.execute(
+        select(Issue)
+        .options(*_issue_load_options())
+        .where(Issue.is_pinned.is_(True))
+        .order_by(Issue.pinned_at.desc().nullslast(), Issue.last_activity_at.desc(), Issue.id.desc())
+        .limit(size)
+    )
+    issues = result.scalars().all()
+    mentions_by_source = await _load_issue_mentions(
+        db,
+        issue_ids=[i.id for i in issues],
+        include_issue_body=True,
+    )
+    return [_issue_to_read(i, mentions_by_source.get((i.id, None), [])) for i in issues]
 
 
 @router.get("/{issue_id}", response_model=IssueRead)
@@ -590,6 +659,20 @@ async def create_comment(
         actor_user_id=current_user.id,
         actor_username=current_user.username,
     )
+
+    from app.services.notifications import create_issue_activity_notification
+
+    await create_issue_activity_notification(
+        db,
+        issue_id=issue_id,
+        issue_title=issue.title,
+        target_user_id=issue.author_id,
+        actor_user_id=current_user.id,
+        actor_username=current_user.username,
+        activity_type="comment",
+        source_id=str(comment.id),
+        metadata={"comment_id": str(comment.id)},
+    )
     await db.commit()
     await db.refresh(comment)
 
@@ -646,18 +729,98 @@ async def update_issue_status(
 
     # System event row appears in the comment timeline but does not count toward
     # comment_count and carries no body.
-    db.add(
-        IssueComment(
-            issue_id=issue_id,
-            author_id=current_admin.id,
-            body=None,
-            event_type="status_change",
-            event_payload={"from": previous_status, "to": new_status},
-        )
+    status_event = IssueComment(
+        issue_id=issue_id,
+        author_id=current_admin.id,
+        body=None,
+        event_type="status_change",
+        event_payload={"from": previous_status, "to": new_status},
+    )
+    db.add(status_event)
+    await db.flush()
+
+    from app.services.notifications import create_issue_activity_notification
+
+    await create_issue_activity_notification(
+        db,
+        issue_id=issue_id,
+        issue_title=issue.title,
+        target_user_id=issue.author_id,
+        actor_user_id=current_admin.id,
+        actor_username=current_admin.username,
+        activity_type="status_change",
+        source_id=str(status_event.id),
+        metadata={"from": previous_status, "to": new_status, "event_id": str(status_event.id)},
     )
 
     await db.commit()
     await db.refresh(issue)
+
+    result = await db.execute(
+        select(Issue)
+        .options(*_issue_load_options())
+        .where(Issue.id == issue_id)
+    )
+    issue = result.scalar_one()
+    mentions_by_source = await _load_issue_mentions(
+        db,
+        issue_ids=[issue.id],
+        include_issue_body=True,
+    )
+    return _issue_to_read(issue, mentions_by_source.get((issue.id, None), []))
+
+
+@router.patch("/{issue_id}/pin", response_model=IssueRead)
+async def update_issue_pin(
+    issue_id: int,
+    data: IssuePinUpdate,
+    current_admin: Any = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> IssueRead:
+    """Pin or unpin an issue as an admin-only discussion highlight."""
+    result = await db.execute(
+        select(Issue)
+        .options(*_issue_load_options())
+        .where(Issue.id == issue_id)
+    )
+    issue = result.scalar_one_or_none()
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Issue not found.")
+
+    if issue.is_pinned == data.is_pinned:
+        return _issue_to_read(issue)
+
+    now = datetime.now(UTC)
+    issue.is_pinned = data.is_pinned
+    issue.pinned_at = now if data.is_pinned else None
+    issue.pinned_by_id = current_admin.id if data.is_pinned else None
+    issue.last_activity_at = now
+
+    pin_event = IssueComment(
+        issue_id=issue_id,
+        author_id=current_admin.id,
+        body=None,
+        event_type="pin_change",
+        event_payload={"is_pinned": data.is_pinned},
+    )
+    db.add(pin_event)
+    await db.flush()
+
+    from app.services.notifications import create_issue_activity_notification
+
+    await create_issue_activity_notification(
+        db,
+        issue_id=issue_id,
+        issue_title=issue.title,
+        target_user_id=issue.author_id,
+        actor_user_id=current_admin.id,
+        actor_username=current_admin.username,
+        activity_type="pin_change",
+        source_id=str(pin_event.id),
+        metadata={"is_pinned": data.is_pinned, "event_id": str(pin_event.id)},
+    )
+
+    await db.commit()
 
     result = await db.execute(
         select(Issue)

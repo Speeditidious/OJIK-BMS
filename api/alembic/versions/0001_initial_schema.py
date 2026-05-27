@@ -62,6 +62,7 @@ def upgrade() -> None:
         sa.Column("provider", sa.String(32), nullable=False),
         sa.Column("provider_account_id", sa.String(128), nullable=False),
         sa.Column("provider_username", sa.String(128), nullable=True),
+        sa.Column("discord_avatar_hash", sa.String(128), nullable=True),
         sa.Column("discord_avatar_url", sa.String(512), nullable=True),
         sa.ForeignKeyConstraint(
             ["user_id"],
