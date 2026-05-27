@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ClientUpdateDialog } from "@/components/notifications/ClientUpdateDialog";
 import { useDeleteNotifications, useMarkAllRead, useMarkRead, useNotifications } from "@/hooks/use-notifications";
 import { formatRelativeTime } from "@/lib/relative-time";
 import { cn } from "@/lib/utils";
@@ -120,6 +121,7 @@ function NotificationsContent() {
   const [type, setType] = useState("all");
   const [keyword, setKeyword] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
+  const [dialogItem, setDialogItem] = useState<NotificationItem | null>(null);
   const { data } = useNotifications({
     page,
     size: 20,
@@ -140,9 +142,13 @@ function NotificationsContent() {
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
 
-  const openNotification = (id: string, linkUrl: string | null) => {
-    markRead.mutate([id]);
-    if (linkUrl) router.push(linkUrl);
+  const openNotification = (item: NotificationItem) => {
+    markRead.mutate([item.id]);
+    if (item.type === "client_update") {
+      setDialogItem(item);
+    } else if (item.link_url) {
+      router.push(item.link_url);
+    }
   };
 
   return (
@@ -243,7 +249,7 @@ function NotificationsContent() {
               isSelected={selectedSet.has(item.id)}
               locale={i18n.language}
               onToggle={() => toggleItem(item.id)}
-              onOpen={() => openNotification(item.id, item.link_url)}
+              onOpen={() => openNotification(item)}
             />
           ))}
 
@@ -269,6 +275,7 @@ function NotificationsContent() {
           </div>
         )}
       </main>
+      <ClientUpdateDialog item={dialogItem} onClose={() => setDialogItem(null)} />
     </div>
   );
 }
