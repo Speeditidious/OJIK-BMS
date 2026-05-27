@@ -105,6 +105,7 @@ interface CustomTooltipProps {
 }
 
 const CustomTooltip = memo(function CustomTooltip({ active, payload, label, tableSymbol, clientType, activeEntry, labelMap, getDisplayClearType }: CustomTooltipProps) {
+  const { t } = useTranslation();
   if (!active || !payload?.length) return null;
   const rowData = payload[0]?.payload as Record<string, number>;
   if (rowData?._isSpacer) return null;
@@ -176,7 +177,7 @@ const CustomTooltip = memo(function CustomTooltip({ active, payload, label, tabl
                 ({ownPct.toFixed(1)}%)
               </span>
               <span style={{ width: 80, fontSize: 'var(--text-caption)', color: isActive ? CLEAR_TYPE_COLORS[ct] : "hsl(var(--muted-foreground))" }}>
-                cum. {cumPct.toFixed(1)}%
+                {t("dashboard.tableClearHistogram.cumulative")} {cumPct.toFixed(1)}%
               </span>
             </div>
           );
@@ -294,6 +295,19 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
     () => levels.length * (barHeight + 6) + 52,
     [levels.length, barHeight]
   );
+
+  const clearTypeTotals = useMemo(() => {
+    const totals: Record<number, number> = {};
+    for (const l of levels) {
+      if (l.is_spacer) continue;
+      for (const [ctStr, count] of Object.entries(l.counts)) {
+        const raw = Number(ctStr);
+        const display = getDisplayClearType ? getDisplayClearType(raw) : raw;
+        totals[display] = (totals[display] ?? 0) + count;
+      }
+    }
+    return totals;
+  }, [levels, getDisplayClearType]);
 
   // Step 5: Direct DOM manipulation for bar highlight — zero React re-renders
   const updateBarHighlight = useCallback((entry: { level: string; ct: number } | null) => {
@@ -436,7 +450,7 @@ export function TableClearHistogram({ levels, clientType, tableSymbol, onSelect,
           />
         ))}
       </BarChart>
-      <ClearTypeLegend clientType={clientType} className="mb-8" hiddenClearTypes={hiddenClearTypes} legendAction={legendAction} />
+      <ClearTypeLegend clientType={clientType} className="mb-8" hiddenClearTypes={hiddenClearTypes} legendAction={legendAction} clearTypeTotals={clearTypeTotals} />
     </div>
   );
 }
@@ -451,9 +465,10 @@ interface ClearTypeLegendProps {
   className?: string;
   hiddenClearTypes?: Set<number>;
   legendAction?: LegendAction;
+  clearTypeTotals?: Record<number, number>;
 }
 
-export function ClearTypeLegend({ clientType, className, hiddenClearTypes, legendAction = { kind: "settings_link" } }: ClearTypeLegendProps) {
+export function ClearTypeLegend({ clientType, className, hiddenClearTypes, legendAction = { kind: "settings_link" }, clearTypeTotals }: ClearTypeLegendProps) {
   const { t } = useTranslation();
   const labelMap =
     clientType === "lr2"
@@ -526,6 +541,14 @@ export function ClearTypeLegend({ clientType, className, hiddenClearTypes, legen
             style={{ background: CLEAR_TYPE_COLORS[ct] }}
           />
           <span className="text-caption text-muted-foreground">{labelMap[ct] ?? String(ct)}</span>
+          {clearTypeTotals !== undefined && (
+            <span
+              className="text-caption"
+              style={{ color: "hsl(var(--muted-foreground) / 0.6)", fontSize: "10px" }}
+            >
+              {(clearTypeTotals[ct] ?? 0).toLocaleString()}
+            </span>
+          )}
         </div>
       ))}
       {actionNode && (
