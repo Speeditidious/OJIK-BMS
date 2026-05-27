@@ -2,8 +2,9 @@
 
 import { Bell, Megaphone, Download } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ClientUpdateDialog } from "@/components/notifications/ClientUpdateDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -99,6 +100,7 @@ export function NotificationBell({ enabled, userId }: NotificationBellProps) {
   const { data: unread } = useUnreadCount(enabled);
   const { data } = useNotifications({ page: 1, size: 10, unreadOnly: true });
   const markRead = useMarkRead();
+  const [dialogItem, setDialogItem] = useState<NotificationItem | null>(null);
   const unreadCount = unread?.count ?? 0;
   const storageKey = userId ? `${DISMISSED_STORAGE_PREFIX}:${userId}` : null;
   const dismissedAt = useSyncExternalStore(
@@ -129,9 +131,13 @@ export function NotificationBell({ enabled, userId }: NotificationBellProps) {
     }
   };
 
-  const openNotification = (id: string, linkUrl: string | null) => {
-    markRead.mutate([id]);
-    router.push(linkUrl ?? "/notifications");
+  const openNotification = (item: NotificationItem) => {
+    markRead.mutate([item.id]);
+    if (item.type === "client_update") {
+      setDialogItem(item);
+    } else {
+      router.push(item.link_url ?? "/notifications");
+    }
   };
 
   return (
@@ -171,7 +177,7 @@ export function NotificationBell({ enabled, userId }: NotificationBellProps) {
                 key={item.id}
                 item={item}
                 locale={i18n.language}
-                onClick={() => openNotification(item.id, item.link_url)}
+                onClick={() => openNotification(item)}
               />
             ))}
           </div>
@@ -191,5 +197,6 @@ export function NotificationBell({ enabled, userId }: NotificationBellProps) {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    <ClientUpdateDialog item={dialogItem} onClose={() => setDialogItem(null)} />
   );
 }
