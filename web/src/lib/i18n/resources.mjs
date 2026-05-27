@@ -133,7 +133,7 @@ export const resources = {
           eyebrow: "BMS 유저들만을 위한 성과 관리 사이트",
           title: "OJIK BMS",
           description:
-            "여러 BMS 구동기의 플레이 데이터를 통합 관리하고, 즐겨찾기한 난이도표에 대한 성과를 한눈에 확인하세요. 즐거운 리딸 되시길 바랍니다.",
+            "여러 BMS 구동기의 플레이 데이터를 통합 관리하고,\n즐겨찾기한 난이도표에 대한 성과를 한눈에 확인하세요. 즐거운 리딸 되시길 바랍니다.",
           primaryAction: "Discord로 시작하기",
           secondaryAction: "클라이언트 다운로드",
         },
@@ -234,9 +234,9 @@ export const resources = {
         description: "로컬에 있는 BMS 데이터베이스들을 스캔하고 서버에 동기화하는 도구입니다.",
         latestVersion: "최신 버전",
         download: "다운로드",
-        windowsDownload: "Windows 다운로드 ({{version}})",
+        windowsDownload: "Windows 다운로드 (v{{version}})",
         windowsPreparing: "Windows 설치 파일 (준비 중)",
-        linuxDownload: "Linux 다운로드 ({{version}})",
+        linuxDownload: "Linux 다운로드 (v{{version}})",
         githubRelease: "GitHub 릴리즈 페이지",
         loadFailed: "릴리즈 정보를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요.",
         directDownload: "GitHub에서 직접 다운로드",
@@ -590,6 +590,10 @@ export const resources = {
           markAllRead: "전체 읽음",
           delete: "삭제",
         },
+        clientUpdateDialog: {
+          goToDownload: "클라이언트 다운로드 페이지로",
+          confirm: "확인",
+        },
       },
       fumen: {
         detail: {
@@ -810,6 +814,7 @@ export const resources = {
         },
         tableClearHistogram: {
           noData: "스코어 데이터가 없습니다",
+          cumulative: "누적",
         },
       },
       settings: {
@@ -1020,7 +1025,7 @@ export const resources = {
           eyebrow: "A performance hub built for BMS users",
           title: "OJIK BMS",
           description:
-            "Manage play data from multiple BMS clients in one place and review your progress on favorite difficulty tables at a glance. Enjoy.",
+            "Manage play data from multiple BMS clients in one place,\nand review your progress on favorite difficulty tables at a glance. Enjoy.",
           primaryAction: "Start with Discord",
           secondaryAction: "Download Client",
         },
@@ -1122,9 +1127,9 @@ export const resources = {
         description: "A tool that scans local BMS databases and syncs them to the server.",
         latestVersion: "Latest version",
         download: "Download",
-        windowsDownload: "Windows download ({{version}})",
+        windowsDownload: "Windows download (v{{version}})",
         windowsPreparing: "Windows installer (preparing)",
-        linuxDownload: "Linux download ({{version}})",
+        linuxDownload: "Linux download (v{{version}})",
         githubRelease: "GitHub release page",
         loadFailed: "Could not load release information. Please try again later.",
         directDownload: "Download directly from GitHub",
@@ -1478,6 +1483,10 @@ export const resources = {
           markAllRead: "Mark all read",
           delete: "Delete",
         },
+        clientUpdateDialog: {
+          goToDownload: "Go to download page",
+          confirm: "Confirm",
+        },
       },
       fumen: {
         detail: {
@@ -1698,6 +1707,7 @@ export const resources = {
         },
         tableClearHistogram: {
           noData: "No score data",
+          cumulative: "cum.",
         },
       },
       settings: {
@@ -1908,7 +1918,7 @@ export const resources = {
           eyebrow: "BMSユーザーのための成績管理サイト",
           title: "OJIK BMS",
           description:
-            "複数のBMSクライアントのプレイデータをまとめて管理し、お気に入りの難易度表の成果をひと目で確認できます。楽しいリザルト更新を。",
+            "複数のBMSクライアントのプレイデータをまとめて管理し、\nお気に入りの難易度表の成果をひと目で確認できます。楽しいリザルト更新を。",
           primaryAction: "Discordで始める",
           secondaryAction: "クライアントをダウンロード",
         },
@@ -2010,9 +2020,9 @@ export const resources = {
         description: "ローカルのBMSデータベースをスキャンし、サーバーに同期するツールです。",
         latestVersion: "最新バージョン",
         download: "ダウンロード",
-        windowsDownload: "Windowsダウンロード ({{version}})",
+        windowsDownload: "Windowsダウンロード (v{{version}})",
         windowsPreparing: "Windowsインストーラー（準備中）",
-        linuxDownload: "Linuxダウンロード ({{version}})",
+        linuxDownload: "Linuxダウンロード (v{{version}})",
         githubRelease: "GitHubリリースページ",
         loadFailed: "リリース情報を読み込めません。しばらくしてからもう一度お試しください。",
         directDownload: "GitHubから直接ダウンロード",
@@ -2366,6 +2376,10 @@ export const resources = {
           markAllRead: "すべて既読",
           delete: "削除",
         },
+        clientUpdateDialog: {
+          goToDownload: "クライアントDLページへ",
+          confirm: "確認",
+        },
       },
       fumen: {
         detail: {
@@ -2586,6 +2600,7 @@ export const resources = {
         },
         tableClearHistogram: {
           noData: "スコアデータがありません",
+          cumulative: "累積",
         },
       },
       settings: {
