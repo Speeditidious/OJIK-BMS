@@ -544,7 +544,7 @@ export function ClearTypeLegend({ clientType, className, hiddenClearTypes, legen
           {clearTypeTotals !== undefined && (
             <span
               className="text-caption"
-              style={{ color: "hsl(var(--muted-foreground) / 0.6)", fontSize: "10px" }}
+              style={{ color: "hsl(var(--muted-foreground) / 0.6)" }}
             >
               {(clearTypeTotals[ct] ?? 0).toLocaleString()}
             </span>
