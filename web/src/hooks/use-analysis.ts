@@ -161,6 +161,9 @@ export interface TableClearDistribution {
   display_level_order?: string[];
   regular_level_order?: string[];
   non_regular_level_order?: string[];
+  snapshot_date?: string | null;
+  snapshot_mode?: "current" | "historical";
+  is_current_snapshot?: boolean;
 }
 
 export type ClientTypeFilter = "all" | "lr2" | "beatoraja";
@@ -425,13 +428,19 @@ export function useGradeDistribution(clientType?: string, userId?: string) {
   });
 }
 
-export function useTableClearDistribution(tableId: string | null, clientType?: string, userId?: string) {
+export function useTableClearDistribution(
+  tableId: string | null,
+  clientType?: string,
+  userId?: string,
+  asOf?: string | null,
+) {
   return useQuery({
-    queryKey: ["analysis", "table-clear-distribution", tableId, clientType, userId ?? null],
+    queryKey: ["analysis", "table-clear-distribution", tableId, clientType, userId ?? null, asOf ?? null],
     queryFn: () => {
       const params = new URLSearchParams();
       if (clientType) params.set("client_type", clientType);
       if (userId) params.set("user_id", userId);
+      if (asOf) params.set("as_of", asOf);
       const suffix = params.size > 0 ? `?${params.toString()}` : "";
       return api.get<TableClearDistribution>(
         `/analysis/table/${tableId}/clear-distribution${suffix}`
@@ -439,6 +448,7 @@ export function useTableClearDistribution(tableId: string | null, clientType?: s
     },
     enabled: tableId !== null,
     staleTime: 10 * 60 * 1000, // 10 min
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -471,5 +481,20 @@ export function useScoreUpdates(
       return api.get<ScoreUpdatesResponse>(`/analysis/score-updates?${params}`);
     },
     staleTime: 2 * 60 * 1000, // 2 min
+  });
+}
+
+export function useCalendarActivityDots(
+  from: string | null,
+  to: string | null,
+  clientType?: ClientTypeFilter,
+  userId?: string,
+  enabled: boolean = true,
+) {
+  return useActivityBar({
+    mode: from && to ? { kind: "range", from, to } : { kind: "range", from: "", to: "" },
+    clientType,
+    userId,
+    enabled: enabled && !!from && !!to,
   });
 }

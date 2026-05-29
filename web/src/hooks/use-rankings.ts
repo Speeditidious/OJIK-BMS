@@ -102,6 +102,7 @@ interface RankingContributionParams {
   limit?: number;
   query?: string;
   userId?: string | null;
+  asOf?: string | null;
   enabled?: boolean;
 }
 
@@ -115,6 +116,7 @@ export function useRankingContributionRows({
   limit = 100,
   query = "",
   userId,
+  asOf,
   enabled = true,
 }: RankingContributionParams) {
   return useQuery<RankingContributionResponse>({
@@ -129,6 +131,7 @@ export function useRankingContributionRows({
       limit,
       query,
       userId ?? null,
+      asOf ?? null,
     ],
     queryFn: () => {
       const params = new URLSearchParams({
@@ -144,6 +147,9 @@ export function useRankingContributionRows({
       }
       if (userId) {
         params.set("user_id", userId);
+      }
+      if (asOf) {
+        params.set("as_of", asOf);
       }
       return api.get<RankingContributionResponse>(
         `/rankings/${tableSlug}/me/contributions?${params.toString()}`,

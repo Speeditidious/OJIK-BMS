@@ -136,6 +136,15 @@ export interface RankingContributionResponse {
   limit: number;
   calculated_at: string | null;
   entries: RankingContributionEntry[];
+  snapshot_date?: string | null;
+  snapshot_mode?: "current" | "historical";
+  is_current_snapshot?: boolean;
+  summary?: {
+    exp: number;
+    rating: number;
+    rating_norm: number;
+    top_n: number;
+  };
 }
 
 export interface RankingHistoryPoint {
