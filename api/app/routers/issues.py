@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, or_, select, text, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -125,6 +125,14 @@ class IssueStatusUpdate(BaseModel):
 
 class IssuePinUpdate(BaseModel):
     is_pinned: bool
+
+
+class IssueBodyUpdate(BaseModel):
+    body: str = Field(min_length=1, max_length=20000)
+
+
+class IssueCommentBodyUpdate(BaseModel):
+    body: str = Field(min_length=1, max_length=20000)
 
 
 class UserSearchResult(BaseModel):
@@ -834,3 +842,55 @@ async def update_issue_pin(
         include_issue_body=True,
     )
     return _issue_to_read(issue, mentions_by_source.get((issue.id, None), []))
+
+
+@router.patch("/{issue_id}/body", response_model=IssueRead)
+async def update_issue_body(
+    issue_id: int,
+    data: IssueBodyUpdate,
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> IssueRead:
+    """Update the body of an issue. Only the issue author may edit."""
+    from app.services.issues import replace_issue_references
+
+    result = await db.execute(
+        select(Issue)
+        .options(*_issue_load_options())
+        .where(Issue.id == issue_id)
+    )
+    issue = result.scalar_one_or_none()
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Issue not found.")
+    if issue.author_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the author may edit this issue.")
+
+    now = datetime.now(UTC)
+    issue.body = data.body
+    issue.updated_at = now
+    await db.flush()
+
+    await replace_issue_references(
+        db,
+        issue_id=issue_id,
+        issue_title=issue.title,
+        comment_id=None,
+        body=data.body,
+        actor_user_id=current_user.id,
+        actor_username=current_user.username,
+    )
+
+    await db.commit()
+
+    result = await db.execute(
+        select(Issue)
+        .options(*_issue_load_options())
+        .where(Issue.id == issue_id)
+    )
+    issue = result.scalar_one()
+    mentions_by_source = await _load_issue_mentions(
+        db,
+        issue_ids=[issue_id],
+        include_issue_body=True,
+    )
+    return _issue_to_read(issue, mentions_by_source.get((issue_id, None), []))

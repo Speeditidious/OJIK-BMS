@@ -314,3 +314,26 @@ def test_persist_issue_references_accepts_send_notifications_kwarg() -> None:
     sig = inspect.signature(persist_issue_references)
     assert "send_notifications" in sig.parameters
     assert sig.parameters["send_notifications"].default is True
+
+
+def test_issue_body_update_schema_exists_with_body_field() -> None:
+    from app.routers.issues import IssueBodyUpdate
+
+    assert "body" in IssueBodyUpdate.model_fields
+    field = IssueBodyUpdate.model_fields["body"]
+    # min_length=1, max_length=20000
+    metadata = {c.__class__.__name__: c for c in (field.metadata or [])}
+    assert "MinLen" in metadata or any(
+        hasattr(c, "min_length") for c in (field.metadata or [])
+    )
+
+
+def test_issue_body_update_rejects_empty_body() -> None:
+    from pydantic import ValidationError
+    from app.routers.issues import IssueBodyUpdate
+
+    try:
+        IssueBodyUpdate(body="")
+        assert False, "Should have raised ValidationError"
+    except ValidationError:
+        pass
