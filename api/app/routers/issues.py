@@ -890,7 +890,7 @@ async def update_issue_body(
     issue = result.scalar_one()
     mentions_by_source = await _load_issue_mentions(
         db,
-        issue_ids=[issue_id],
+        issue_ids=[issue.id],
         include_issue_body=True,
     )
-    return _issue_to_read(issue, mentions_by_source.get((issue_id, None), []))
+    return _issue_to_read(issue, mentions_by_source.get((issue.id, None), []))
