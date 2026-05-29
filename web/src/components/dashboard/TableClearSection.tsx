@@ -7,7 +7,8 @@ import Link from "next/link";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { X, Search, FileSpreadsheet, Settings2 } from "lucide-react";
 import { useUserFavoriteTables, type DifficultyTableItem } from "@/hooks/use-tables";
-import { useTableClearDistribution, TableClearSong, type TableClearLevel } from "@/hooks/use-analysis";
+import { useTableClearDistribution, useCalendarActivityDots, TableClearSong, type TableClearLevel } from "@/hooks/use-analysis";
+import { SnapshotDatePicker } from "@/components/dashboard/SnapshotDatePicker";
 import { type ClientVisibilityKey } from "@/hooks/use-preferences";
 import { useDashboardClearVisibility, type ClearVisibilitySource } from "@/hooks/use-dashboard-clear-visibility";
 import {
@@ -630,10 +631,11 @@ interface TableClearSectionProps {
 }
 
 // URL param keys (prefixed with d_ to avoid collision with dashboard's existing tab/date params)
-const P_TBL = "d_tbl";
-const P_LV  = "d_lv";
-const P_CT  = "d_ct";
-const P_Q   = "d_q";
+const P_TBL   = "d_tbl";
+const P_LV    = "d_lv";
+const P_CT    = "d_ct";
+const P_Q     = "d_q";
+const P_AS_OF = "d_asof";
 const HISTOGRAM_SPACER_LEVEL = "__table_clear_spacer__non_regular";
 
 export function TableClearSection({
@@ -682,6 +684,7 @@ export function TableClearSection({
   );
   const filterTitle = searchParams.get(P_Q) ?? "";
   const deferredTitle = useDeferredValue(filterTitle);
+  const asOf = searchParams.get(P_AS_OF);
 
   // URL update helper (preserves existing params)
   const updateParams = useCallback((updates: Record<string, string | null>) => {
@@ -691,6 +694,40 @@ export function TableClearSection({
     }
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }, [searchParams, router, pathname]);
+
+  // Calendar state for snapshot date picker
+  const [visibleCalendarFrom, setVisibleCalendarFrom] = useState<string | null>(null);
+  const [visibleCalendarTo, setVisibleCalendarTo] = useState<string | null>(null);
+
+  const activityDotsQuery = useCalendarActivityDots(
+    visibleCalendarFrom,
+    visibleCalendarTo,
+    clientType === "lr2" || clientType === "beatoraja" ? (clientType as "lr2" | "beatoraja") : "all",
+    userId,
+    !!visibleCalendarFrom && !!visibleCalendarTo,
+  );
+
+  const playRecordDates = useMemo(
+    () =>
+      new Set(
+        (activityDotsQuery.data?.data ?? [])
+          .filter((day) => day.plays > 0)
+          .map((day) => day.date),
+      ),
+    [activityDotsQuery.data],
+  );
+
+  const handleDateSelect = useCallback(
+    (date: string | null) => {
+      updateParams({ [P_AS_OF]: date });
+    },
+    [updateParams],
+  );
+
+  const handleMonthChange = useCallback((from: string, to: string) => {
+    setVisibleCalendarFrom(from);
+    setVisibleCalendarTo(to);
+  }, []);
 
   // Build visible favorite id set (union of both lists)
   const visibleFavoriteIds = useMemo(() => new Set([
@@ -716,7 +753,7 @@ export function TableClearSection({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authInitialized, selectedTableId, visibleFavoriteIds.size, effectiveTableId]);
 
-  const { data: dist, isLoading: distLoading } = useTableClearDistribution(effectiveTableId, clientType, userId);
+  const { data: dist, isLoading: distLoading } = useTableClearDistribution(effectiveTableId, clientType, userId, asOf);
 
   // Ordered levels list (backend applies display_level_order/non_regular_level_order).
   const orderedLevels = useMemo(() => {
@@ -880,6 +917,21 @@ export function TableClearSection({
           </div>
         ) : (
           <>
+            {/* Date picker row + snapshot banner */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <SnapshotDatePicker
+                selectedDate={asOf}
+                onSelect={handleDateSelect}
+                playRecordDates={playRecordDates}
+                onMonthChange={handleMonthChange}
+              />
+              {asOf && (
+                <span className="text-label text-muted-foreground">
+                  스냅샷: <span className="text-foreground font-medium">{asOf.replace(/-/g, ".")}</span>
+                </span>
+              )}
+            </div>
+
             {/* Stacked histogram */}
             <TableClearHistogram
               levels={histogramLevels}

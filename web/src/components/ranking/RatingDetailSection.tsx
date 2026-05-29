@@ -1,10 +1,12 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useCallback, useMemo, useState } from "react";
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { UserPublicRead } from "@/hooks/use-user-profile";
 import { useRankingContributionRows } from "@/hooks/use-rankings";
+import { useCalendarActivityDots } from "@/hooks/use-analysis";
 import type {
   MyRankData,
   RankingTableConfig,
@@ -16,6 +18,9 @@ import { cn } from "@/lib/utils";
 import { RankingTableSelector } from "./RankingTableSelector";
 import { RatingProfileHeader } from "./RatingProfileHeader";
 import { ContributionTable } from "./ContributionTable";
+import { SnapshotDatePicker } from "@/components/dashboard/SnapshotDatePicker";
+
+const P_RATING_AS_OF = "rating_asof";
 
 interface RatingDetailSectionProps {
   profileUser: UserPublicRead;
@@ -49,12 +54,47 @@ export function RatingDetailSection({
   enabled = true,
 }: RatingDetailSectionProps) {
   const { t } = useTranslation();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const ratingAsOf = searchParams.get(P_RATING_AS_OF);
+
+  const updateParams = useCallback((updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [k, v] of Object.entries(updates)) {
+      if (v) params.set(k, v); else params.delete(k);
+    }
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [searchParams, router, pathname]);
+
   const selectedTable = useMemo(
     () => tables.find((table) => table.slug === selectedTableSlug) ?? null,
     [selectedTableSlug, tables],
   );
   const [searchText, setSearchText] = useState("");
   const deferredSearch = useDeferredValue(searchText.trim());
+
+  const [visibleCalendarFrom, setVisibleCalendarFrom] = useState<string | null>(null);
+  const [visibleCalendarTo, setVisibleCalendarTo] = useState<string | null>(null);
+
+  const activityDotsQuery = useCalendarActivityDots(
+    visibleCalendarFrom,
+    visibleCalendarTo,
+    "all",
+    userId ?? undefined,
+    !!visibleCalendarFrom && !!visibleCalendarTo,
+  );
+
+  const playRecordDates = useMemo(
+    () =>
+      new Set(
+        (activityDotsQuery.data?.data ?? [])
+          .filter((day) => day.plays > 0)
+          .map((day) => day.date),
+      ),
+    [activityDotsQuery.data],
+  );
 
   const contributionQuery = useRankingContributionRows({
     tableSlug: myRank?.status === "ok" ? selectedTableSlug : null,
@@ -65,7 +105,19 @@ export function RatingDetailSection({
     query: scope === "all" ? deferredSearch : "",
     userId,
     enabled,
+    asOf: ratingAsOf,
   });
+
+  const displayedRankData = useMemo(() => {
+    if (!ratingAsOf || !contributionQuery.data?.summary || myRank?.status !== "ok") return myRank;
+    return {
+      ...myRank,
+      exp: contributionQuery.data.summary.exp,
+      rating: contributionQuery.data.summary.rating,
+      rating_norm: contributionQuery.data.summary.rating_norm,
+      bms_force: contributionQuery.data.summary.rating_norm,
+    };
+  }, [ratingAsOf, contributionQuery.data?.summary, myRank]);
   const displayEntries = useMemo(() => {
     const entries = contributionQuery.data?.entries ?? [];
     if (scope !== "top" || !deferredSearch) return entries;
@@ -90,11 +142,27 @@ export function RatingDetailSection({
   return (
     <div className="space-y-4">
       {tables.length > 0 ? (
-        <RankingTableSelector
-          tables={tables}
-          selected={selectedTableSlug ?? tables[0].slug}
-          onSelect={onSelectTable}
-        />
+        <>
+          <RankingTableSelector
+            tables={tables}
+            selected={selectedTableSlug ?? tables[0].slug}
+            onSelect={onSelectTable}
+          />
+          <div className="flex items-center gap-3">
+            <SnapshotDatePicker
+              selectedDate={ratingAsOf}
+              onSelect={(date) => updateParams({ [P_RATING_AS_OF]: date })}
+              playRecordDates={playRecordDates}
+              onMonthChange={(from, to) => {
+                setVisibleCalendarFrom(from);
+                setVisibleCalendarTo(to);
+              }}
+            />
+            {ratingAsOf && (
+              <span className="text-caption text-muted-foreground">스냅샷: {ratingAsOf}</span>
+            )}
+          </div>
+        </>
       ) : (
         <div className="rounded-xl border border-border bg-card/50 px-6 py-10 text-center text-body text-muted-foreground">
           {t("ranking.detail.noLinkedTables")}
@@ -103,7 +171,7 @@ export function RatingDetailSection({
 
       <RatingProfileHeader
         profileUser={profileUser}
-        data={myRank}
+        data={displayedRankData}
         isLoading={myRankLoading}
       />
 
