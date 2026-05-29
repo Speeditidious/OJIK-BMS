@@ -150,3 +150,23 @@ export function useUpdateIssuePinned(issueId: number) {
     },
   });
 }
+
+export function useUpdateIssueBody(issueId: number) {
+  const queryClient = useQueryClient();
+  return useMutation<Issue, Error, { body: string }>({
+    mutationFn: (data) => api.patch(`/issues/${issueId}/body`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["issues", issueId] });
+    },
+  });
+}
+
+export function useUpdateIssueComment(issueId: number, commentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<IssueComment, Error, { body: string }>({
+    mutationFn: (data) => api.patch(`/issues/${issueId}/comments/${commentId}/body`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["issues", issueId, "comments"] });
+    },
+  });
+}
