@@ -894,3 +894,63 @@ async def update_issue_body(
         include_issue_body=True,
     )
     return _issue_to_read(issue, mentions_by_source.get((issue.id, None), []))
+
+
+@router.patch("/{issue_id}/comments/{comment_id}/body", response_model=IssueCommentRead)
+async def update_comment_body(
+    issue_id: int,
+    comment_id: uuid.UUID,
+    data: IssueCommentBodyUpdate,
+    current_user: Any = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> IssueCommentRead:
+    """Update the body of a comment. Only the comment author may edit. Event entries cannot be edited."""
+    from app.services.issues import replace_issue_references
+
+    result = await db.execute(
+        select(IssueComment)
+        .options(*_comment_load_options())
+        .where(IssueComment.id == comment_id, IssueComment.issue_id == issue_id)
+    )
+    comment = result.scalar_one_or_none()
+    if comment is None:
+        raise HTTPException(status_code=404, detail="Comment not found.")
+    if comment.author_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the author may edit this comment.")
+    if comment.event_type is not None:
+        raise HTTPException(status_code=409, detail="Event entries cannot be edited.")
+
+    result_issue = await db.execute(
+        select(Issue).options(*_issue_load_options()).where(Issue.id == issue_id)
+    )
+    issue = result_issue.scalar_one_or_none()
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Issue not found.")
+
+    now = datetime.now(UTC)
+    comment.body = data.body
+    comment.updated_at = now
+    await db.flush()
+
+    await replace_issue_references(
+        db,
+        issue_id=issue_id,
+        issue_title=issue.title,
+        comment_id=comment_id,
+        body=data.body,
+        actor_user_id=current_user.id,
+        actor_username=current_user.username,
+    )
+
+    await db.commit()
+
+    result = await db.execute(
+        select(IssueComment)
+        .options(*_comment_load_options())
+        .where(IssueComment.id == comment_id)
+    )
+    comment = result.scalar_one()
+    mentions_by_source = await _load_issue_mentions(
+        db, issue_ids=[issue_id], comment_ids=[comment_id]
+    )
+    return _comment_to_read(comment, mentions_by_source.get((comment.issue_id, comment.id), []))

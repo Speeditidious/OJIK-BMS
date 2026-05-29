@@ -337,3 +337,70 @@ def test_issue_body_update_rejects_empty_body() -> None:
         assert False, "Should have raised ValidationError"
     except ValidationError:
         pass
+
+
+def test_issue_comment_body_update_schema_exists_with_body_field() -> None:
+    from app.routers.issues import IssueCommentBodyUpdate
+
+    assert "body" in IssueCommentBodyUpdate.model_fields
+    field = IssueCommentBodyUpdate.model_fields["body"]
+    metadata = {c.__class__.__name__: c for c in (field.metadata or [])}
+    assert "MinLen" in metadata or any(
+        hasattr(c, "min_length") for c in (field.metadata or [])
+    )
+
+
+def test_issue_comment_body_update_rejects_empty_body() -> None:
+    from pydantic import ValidationError
+    from app.routers.issues import IssueCommentBodyUpdate
+
+    try:
+        IssueCommentBodyUpdate(body="")
+        assert False, "Should have raised ValidationError"
+    except ValidationError:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_update_comment_body_returns_403_for_non_author() -> None:
+    """Only the comment author may edit; other users get 403."""
+    from fastapi import HTTPException
+    import uuid
+    from datetime import UTC, datetime
+    from app.routers.issues import update_comment_body, IssueCommentBodyUpdate
+
+    _author_id = uuid.uuid4()
+    _other_id = uuid.uuid4()
+    _comment_id = uuid.uuid4()
+
+    class FakeComment:
+        id = _comment_id
+        issue_id = 1
+        author_id = _author_id
+        event_type = None
+        body = "original"
+        updated_at = datetime.now(UTC)
+
+    class FakeResult:
+        def scalar_one_or_none(self):
+            return FakeComment()
+
+    class FakeDb:
+        async def execute(self, _):
+            return FakeResult()
+
+    class FakeUser:
+        id = _other_id
+
+    data = IssueCommentBodyUpdate(body="new body")
+    try:
+        await update_comment_body(
+            issue_id=1,
+            comment_id=_comment_id,
+            data=data,
+            current_user=FakeUser(),
+            db=FakeDb(),
+        )
+        assert False, "Expected 403"
+    except HTTPException as e:
+        assert e.status_code == 403
