@@ -4,6 +4,8 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+import pytest
+
 
 # ── Task 1: Model smoke tests ─────────────────────────────────────────────────
 
@@ -42,6 +44,18 @@ def test_extract_user_mentions_deduplicates_usernames() -> None:
     from app.services.issues import extract_mentioned_usernames
 
     assert extract_mentioned_usernames("Thanks @RedBall and @redball, cc @player_01.") == ["redball", "player_01"]
+
+
+def test_extract_user_mentions_supports_korean_usernames() -> None:
+    from app.services.issues import extract_mentioned_usernames
+
+    assert extract_mentioned_usernames("@레드볼 확인 부탁드립니다.") == ["레드볼"]
+
+
+def test_extract_user_mentions_supports_japanese_usernames() -> None:
+    from app.services.issues import extract_mentioned_usernames
+
+    assert extract_mentioned_usernames("@レッドボール 確認お願いします。") == ["レッドボール"]
 
 
 def test_extract_issue_references_empty() -> None:
@@ -212,6 +226,38 @@ def test_issue_pin_update_schema_exists() -> None:
     assert "is_pinned" in IssuePinUpdate.model_fields
 
 
+@pytest.mark.asyncio
+async def test_issue_user_search_keeps_all_matching_users() -> None:
+    """@mention autocomplete should not hide inactive matching usernames."""
+    from sqlalchemy.dialects import postgresql
+
+    from app.routers.issues import search_users
+
+    class EmptyScalars:
+        def all(self) -> list:
+            return []
+
+    class EmptyResult:
+        def scalars(self) -> EmptyScalars:
+            return EmptyScalars()
+
+    class RecordingDb:
+        def __init__(self) -> None:
+            self.statement = None
+
+        async def execute(self, statement):
+            self.statement = statement
+            return EmptyResult()
+
+    db = RecordingDb()
+
+    await search_users(q="q", db=db)
+
+    assert db.statement is not None
+    sql = str(db.statement.compile(dialect=postgresql.dialect()))
+    assert "users.is_active IS true" not in sql
+
+
 def test_issue_search_keyword_normalization_removes_whitespace() -> None:
     from app.routers.issues import _normalize_issue_search_keyword
 
@@ -252,3 +298,19 @@ def test_migration_0038_adds_issue_mention_source_index() -> None:
     assert 'down_revision = "0037"' in content
     assert "ix_issue_user_mentions_source" in content
     assert '"issue_id", "comment_id", "created_at", "id"' in content
+
+
+def test_replace_issue_references_function_is_importable() -> None:
+    from app.services.issues import replace_issue_references
+    import inspect
+    sig = inspect.signature(replace_issue_references)
+    assert "comment_id" in sig.parameters
+    assert "send_notifications" not in sig.parameters  # notifications always off for edits
+
+
+def test_persist_issue_references_accepts_send_notifications_kwarg() -> None:
+    from app.services.issues import persist_issue_references
+    import inspect
+    sig = inspect.signature(persist_issue_references)
+    assert "send_notifications" in sig.parameters
+    assert sig.parameters["send_notifications"].default is True

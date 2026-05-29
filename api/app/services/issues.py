@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 ISSUE_REF_RE = re.compile(r"(?<![\w])#([1-9][0-9]{0,9})(?![\w])")
-USER_MENTION_RE = re.compile(r"(?<![.\w@])@([A-Za-z0-9_]+(?:[._-][A-Za-z0-9_]+)*)")
+USER_MENTION_RE = re.compile(r"(?<![.\w@])@([\w]+(?:[._-][\w]+)*)")
 
 
 @dataclass(frozen=True)
@@ -59,8 +59,9 @@ async def persist_issue_references(
     body: str,
     actor_user_id: uuid.UUID,
     actor_username: str,
+    send_notifications: bool = True,
 ) -> None:
-    """Resolve and store user/issue references from a body, then notify mentioned users."""
+    """Resolve and store user/issue references from a body, then optionally notify mentioned users."""
     from app.models.issue import IssueIssueReference, IssueUserMention
     from app.models.user import User
     from app.services.notifications import create_issue_mention_notification
@@ -113,14 +114,68 @@ async def persist_issue_references(
     # Flush to persist references before sending notifications
     await db.flush()
 
-    # Create mention notifications for other users
-    for user in resolved_users:
-        if user.id != actor_user_id:
-            await create_issue_mention_notification(
-                db,
-                issue_id=issue_id,
-                issue_title=issue_title,
-                mentioned_user_id=user.id,
-                actor_username=actor_username,
-                comment_id=comment_id,
+    if send_notifications:
+        # Create mention notifications for other users
+        for user in resolved_users:
+            if user.id != actor_user_id:
+                await create_issue_mention_notification(
+                    db,
+                    issue_id=issue_id,
+                    issue_title=issue_title,
+                    mentioned_user_id=user.id,
+                    actor_username=actor_username,
+                    comment_id=comment_id,
+                )
+
+
+async def replace_issue_references(
+    db: AsyncSession,
+    *,
+    issue_id: int,
+    issue_title: str,
+    comment_id: uuid.UUID | None,
+    body: str,
+    actor_user_id: uuid.UUID,
+    actor_username: str,
+) -> None:
+    """Delete existing mentions/refs for a body, then re-persist without notifications. Use for edits."""
+    from app.models.issue import IssueIssueReference, IssueUserMention
+    from sqlalchemy import delete
+
+    if comment_id is None:
+        await db.execute(
+            delete(IssueUserMention).where(
+                IssueUserMention.issue_id == issue_id,
+                IssueUserMention.comment_id.is_(None),
             )
+        )
+        await db.execute(
+            delete(IssueIssueReference).where(
+                IssueIssueReference.source_issue_id == issue_id,
+                IssueIssueReference.source_comment_id.is_(None),
+            )
+        )
+    else:
+        await db.execute(
+            delete(IssueUserMention).where(
+                IssueUserMention.issue_id == issue_id,
+                IssueUserMention.comment_id == comment_id,
+            )
+        )
+        await db.execute(
+            delete(IssueIssueReference).where(
+                IssueIssueReference.source_issue_id == issue_id,
+                IssueIssueReference.source_comment_id == comment_id,
+            )
+        )
+
+    await persist_issue_references(
+        db,
+        issue_id=issue_id,
+        issue_title=issue_title,
+        comment_id=comment_id,
+        body=body,
+        actor_user_id=actor_user_id,
+        actor_username=actor_username,
+        send_notifications=False,
+    )
