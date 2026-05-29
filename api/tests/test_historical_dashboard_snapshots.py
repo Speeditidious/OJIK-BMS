@@ -15,6 +15,11 @@ from httpx import ASGITransport, AsyncClient
 from app.core.database import get_db
 from app.core.security import get_current_user_optional
 from app.main import app
+from app.services.ranking_config import (
+    BonusConfig,
+    ReferenceCondition,
+    TableRankingConfig,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -338,6 +343,345 @@ async def test_historical_snapshot_includes_lr2_md5_only_fumen() -> None:
     assert lr2_song["clear_type"] == 2, (
         f"Expected EASY (2) for LR2 song, got {lr2_song['clear_type']}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Tests: rating contribution snapshots (Task 3)
+# ---------------------------------------------------------------------------
+
+# Minimal TableRankingConfig for rating contribution tests.
+# Uses simple weights so _song_rating and compute_ranking work without errors.
+_ALL_LAMPS = ["NOPLAY", "ASSIST", "EASY", "NORMAL", "HARD", "FC", "PERFECT", "MAX"]
+_ALL_RANKS = ["F", "E", "D", "C", "B", "A", "AA", "AAA", "MAX"]
+
+_CONTRIBUTION_TABLE_CFG = TableRankingConfig(
+    slug="test-table",
+    table_id=_TABLE_ID,
+    display_name="Test Table",
+    display_order=1,
+    level_order=["1", "2"],
+    level_weights={"1": 1.0, "2": 2.0},
+    base_lamp_mult={lamp: (0.0 if lamp == "NOPLAY" else 1.0) for lamp in _ALL_LAMPS},
+    upper_lamp_bonus={lamp: 0.0 for lamp in _ALL_LAMPS},
+    rank_mult={rank: 1.0 for rank in _ALL_RANKS},
+    bonus=BonusConfig(
+        bp_weight=0.0,
+        rate_weight=0.0,
+        bp_floor=1.0,
+        bp_slope=1.0,
+        rate_floor=0.0,
+        rate_slope=1.0,
+    ),
+    reference_20=ReferenceCondition(
+        level="1",
+        lamp="EASY",
+        bp=0,
+        rank="A",
+        rate=0.8,
+    ),
+    c_table=1.0,
+    top_n=100,
+    max_level=200,
+)
+
+
+def _make_history_target_rows():
+    """Target fumen dicts as returned by query_target_fumen_details."""
+    return [
+        {"fumen_id": _FUMEN_ID_A, "sha256": _SHA256_A, "md5": _MD5_A, "title": "Song A", "artist": "", "level": "1"},
+        {"fumen_id": _FUMEN_ID_B, "sha256": _SHA256_B, "md5": _MD5_B, "title": "Song B", "artist": "", "level": "1"},
+        {"fumen_id": _FUMEN_ID_LR2, "sha256": None, "md5": _MD5_LR2, "title": "LR2 Song", "artist": "", "level": "2"},
+    ]
+
+
+def _make_history_score_rows_for_as_of():
+    """Score rows as returned by _query_table_score_history for as_of=2026-05-01.
+
+    Only includes rows with effective_ts.date() <= 2026-05-01.
+    Fumen A has no score — excluded (scored HARD on 2026-05-10).
+    Fumen B has EASY on 2026-04-15.
+    LR2-only has EASY on 2026-04-20.
+    """
+    return [
+        {
+            "fumen_id": _FUMEN_ID_B,
+            "fumen_sha256": _SHA256_B,
+            "fumen_md5": _MD5_B,
+            "clear_type": 2,
+            "exscore": 1000,
+            "rate": 80.0,
+            "rank": "A",
+            "min_bp": 10,
+            "client_type": "lr2",
+            "effective_ts": _dt(2026, 4, 15),
+        },
+        {
+            "fumen_id": _FUMEN_ID_LR2,
+            "fumen_sha256": None,
+            "fumen_md5": _MD5_LR2,
+            "clear_type": 2,
+            "exscore": 900,
+            "rate": 75.0,
+            "rank": "A",
+            "min_bp": 15,
+            "client_type": "lr2",
+            "effective_ts": _dt(2026, 4, 20),
+        },
+    ]
+
+
+def _make_current_score_rows():
+    """Score rows for current (all-time) view — includes fumen A's HARD clear on 2026-05-10."""
+    return [
+        {
+            "fumen_id": _FUMEN_ID_B,
+            "fumen_sha256": _SHA256_B,
+            "fumen_md5": _MD5_B,
+            "clear_type": 2,
+            "exscore": 1000,
+            "rate": 80.0,
+            "rank": "A",
+            "min_bp": 10,
+            "client_type": "lr2",
+            "effective_ts": _dt(2026, 4, 15),
+        },
+        {
+            "fumen_id": _FUMEN_ID_LR2,
+            "fumen_sha256": None,
+            "fumen_md5": _MD5_LR2,
+            "clear_type": 2,
+            "exscore": 900,
+            "rate": 75.0,
+            "rank": "A",
+            "min_bp": 15,
+            "client_type": "lr2",
+            "effective_ts": _dt(2026, 4, 20),
+        },
+        {
+            "fumen_id": _FUMEN_ID_A,
+            "fumen_sha256": _SHA256_A,
+            "fumen_md5": _MD5_A,
+            "clear_type": 7,
+            "exscore": 1500,
+            "rate": 90.0,
+            "rank": "AAA",
+            "min_bp": 5,
+            "client_type": "lr2",
+            "effective_ts": _dt(2026, 5, 10),
+        },
+    ]
+
+
+async def test_rating_contribution_historical_snapshot_excludes_later_score(monkeypatch) -> None:
+    """as_of=2026-05-01 contribution rows must NOT include fumen A's HARD clear (scored 2026-05-10)."""
+    from datetime import date as _date
+    from app.services.ranking_dashboard import build_user_contribution_rows_at_date
+
+    targets = _make_history_target_rows()
+    history_rows = _make_history_score_rows_for_as_of()
+
+    async def fake_query_history(user_id, table_cfg, db, until_date, include_metadata=True):
+        return targets, history_rows
+
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard._query_table_score_history",
+        fake_query_history,
+    )
+
+    result = await build_user_contribution_rows_at_date(
+        user_id=_USER_ID,
+        table_cfg=_CONTRIBUTION_TABLE_CFG,
+        db=MagicMock(),
+        metric="rating",
+        scope="all",
+        sort_by="value",
+        sort_dir="desc",
+        page=1,
+        limit=200,
+        query=None,
+        table_symbol="★",
+        as_of=_date(2026, 5, 1),
+        exp_level_step=0.5,
+    )
+
+    entries_by_sha256 = {e["sha256"]: e for e in result["entries"]}
+    assert _SHA256_A not in entries_by_sha256 or entries_by_sha256[_SHA256_A]["clear_type"] == 0, (
+        f"Fumen A must have no clear in historical view; entry={entries_by_sha256.get(_SHA256_A)}"
+    )
+
+
+async def test_rating_contribution_current_snapshot_includes_later_score(monkeypatch) -> None:
+    """Current (no as_of) contribution rows must include fumen A's HARD clear."""
+    from app.services.ranking_dashboard import build_user_contribution_rows_at_date
+    from datetime import date as _date
+
+    targets = _make_history_target_rows()
+    current_rows = _make_current_score_rows()
+
+    async def fake_query_history(user_id, table_cfg, db, until_date, include_metadata=True):
+        return targets, current_rows
+
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard._query_table_score_history",
+        fake_query_history,
+    )
+
+    result = await build_user_contribution_rows_at_date(
+        user_id=_USER_ID,
+        table_cfg=_CONTRIBUTION_TABLE_CFG,
+        db=MagicMock(),
+        metric="rating",
+        scope="all",
+        sort_by="value",
+        sort_dir="desc",
+        page=1,
+        limit=200,
+        query=None,
+        table_symbol="★",
+        as_of=_date(2026, 5, 29),  # future date — sees all rows
+        exp_level_step=0.5,
+    )
+
+    entries_by_sha256 = {e["sha256"]: e for e in result["entries"] if e["sha256"]}
+    assert _SHA256_A in entries_by_sha256, "Fumen A must appear in current view"
+    assert entries_by_sha256[_SHA256_A]["clear_type"] == 7, (
+        f"Fumen A must show HARD (7) in current view; got {entries_by_sha256[_SHA256_A]['clear_type']}"
+    )
+
+
+async def test_rating_contribution_top_membership_based_on_selected_date(monkeypatch) -> None:
+    """is_in_top_n must reflect values as of the snapshot date, not current."""
+    from datetime import date as _date
+    from app.services.ranking_dashboard import build_user_contribution_rows_at_date
+
+    targets = _make_history_target_rows()
+    history_rows = _make_history_score_rows_for_as_of()
+
+    async def fake_query_history(user_id, table_cfg, db, until_date, include_metadata=True):
+        return targets, history_rows
+
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard._query_table_score_history",
+        fake_query_history,
+    )
+
+    result = await build_user_contribution_rows_at_date(
+        user_id=_USER_ID,
+        table_cfg=_CONTRIBUTION_TABLE_CFG,
+        db=MagicMock(),
+        metric="rating",
+        scope="all",
+        sort_by="value",
+        sort_dir="desc",
+        page=1,
+        limit=200,
+        query=None,
+        table_symbol="★",
+        as_of=_date(2026, 5, 1),
+        exp_level_step=0.5,
+    )
+
+    assert result["top_n"] == 100
+    # Only B and LR2 have scores; A has no play → they're in top N (since top_n=100 and only 2 played)
+    played_entries = [e for e in result["entries"] if e["clear_type"] != 0]
+    for entry in played_entries:
+        assert entry["is_in_top_n"] is True, f"Played entry should be in top-N: {entry}"
+
+
+async def test_rating_contribution_historical_summary_fields_returned(monkeypatch) -> None:
+    """Historical view must include summary.rating, summary.exp, summary.rating_norm, summary.top_n."""
+    from datetime import date as _date
+    from app.services.ranking_dashboard import build_user_contribution_rows_at_date
+
+    targets = _make_history_target_rows()
+    history_rows = _make_history_score_rows_for_as_of()
+
+    async def fake_query_history(user_id, table_cfg, db, until_date, include_metadata=True):
+        return targets, history_rows
+
+    monkeypatch.setattr(
+        "app.services.ranking_dashboard._query_table_score_history",
+        fake_query_history,
+    )
+
+    result = await build_user_contribution_rows_at_date(
+        user_id=_USER_ID,
+        table_cfg=_CONTRIBUTION_TABLE_CFG,
+        db=MagicMock(),
+        metric="rating",
+        scope="all",
+        sort_by="value",
+        sort_dir="desc",
+        page=1,
+        limit=200,
+        query=None,
+        table_symbol="★",
+        as_of=_date(2026, 5, 1),
+        exp_level_step=0.5,
+    )
+
+    assert "summary" in result, "Historical response must include summary field"
+    summary = result["summary"]
+    assert "rating" in summary, "summary must include rating"
+    assert "exp" in summary, "summary must include exp"
+    assert "rating_norm" in summary, "summary must include rating_norm"
+    assert summary["top_n"] == 100, f"summary.top_n must be 100; got {summary['top_n']}"
+
+
+async def test_rating_contribution_router_returns_snapshot_metadata(monkeypatch) -> None:
+    """GET /rankings/{slug}/me/contributions?as_of=... must return snapshot metadata fields."""
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from datetime import date as _date
+
+    user = _make_user()
+
+    # Mock the ranking config lookup
+    from app.services.ranking_config import RankingConfig
+    mock_config = RankingConfig(
+        tables=[_CONTRIBUTION_TABLE_CFG],
+        exp_level_step=0.5,
+        high_tier_rating_anchor=20.0,
+    )
+
+    targets = _make_history_target_rows()
+    history_rows = _make_history_score_rows_for_as_of()
+
+    async def fake_build_at_date(**kwargs):
+        return {
+            "top_n": 100,
+            "total_count": 3,
+            "page": 1,
+            "limit": 3,
+            "summary": {"exp": 1.0, "rating": 1.0, "rating_norm": 0.5, "top_n": 100},
+            "entries": [],
+        }
+
+    db = MagicMock()
+    # Mock all DB calls the router makes
+    symbol_result = MagicMock()
+    symbol_result.scalar_one_or_none.return_value = "★"
+    version_result_1 = MagicMock()
+    version_result_1.scalar_one_or_none.return_value = None
+    version_result_2 = MagicMock()
+    version_result_2.scalar_one_or_none.return_value = None
+    db.execute = AsyncMock(side_effect=[symbol_result, version_result_1, version_result_2])
+
+    with patch("app.routers.rankings._get_config_or_503", return_value=mock_config), \
+         patch("app.routers.rankings.build_user_contribution_rows_at_date", new=AsyncMock(side_effect=fake_build_at_date)), \
+         patch("app.routers.rankings._CONTRIBUTION_CACHE", {}):
+
+        async with _make_client_ctx(user, db) as ac:
+            resp = await ac.get(
+                f"/rankings/test-table/me/contributions",
+                params={"as_of": "2026-05-01", "user_id": str(_USER_ID)},
+            )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["snapshot_mode"] == "historical", f"Expected 'historical', got: {data.get('snapshot_mode')}"
+    assert data["snapshot_date"] == "2026-05-01"
+    assert data["is_current_snapshot"] is False
+    assert data["summary"]["top_n"] == 100
 
 
 async def test_historical_snapshot_level_histogram_excludes_post_snapshot_scores() -> None:

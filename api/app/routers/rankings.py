@@ -19,6 +19,7 @@ from app.services.ranking_config import (
 )
 from app.services.ranking_dashboard import (
     build_user_contribution_rows,
+    build_user_contribution_rows_at_date,
     compute_exp_progress_fields,
     get_user_ranking_version,
 )
@@ -497,6 +498,7 @@ async def get_my_contributions(
     limit: int = Query(100, ge=1, le=200),
     query: str | None = Query(None, max_length=200),
     user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    as_of: date | None = Query(None, description="YYYY-MM-DD snapshot date"),
     current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -531,29 +533,51 @@ async def get_my_contributions(
         query or "",
         max_synced_at,
         calculated_at,
+        as_of.isoformat() if as_of else None,
     )
     cached = _CONTRIBUTION_CACHE.get(cache_key)
     if cached is not None:
         return cached
 
-    payload = await build_user_contribution_rows(
-        user_id=target_user.id,
-        table_cfg=table_cfg,
-        db=db,
-        metric=metric,
-        scope=scope,
-        sort_by=effective_sort_by,
-        sort_dir=effective_sort_dir,
-        page=page,
-        limit=limit,
-        query=query,
-        table_symbol=table_symbol,
-    )
+    if as_of is None:
+        payload = await build_user_contribution_rows(
+            user_id=target_user.id,
+            table_cfg=table_cfg,
+            db=db,
+            metric=metric,
+            scope=scope,
+            sort_by=effective_sort_by,
+            sort_dir=effective_sort_dir,
+            page=page,
+            limit=limit,
+            query=query,
+            table_symbol=table_symbol,
+        )
+    else:
+        payload = await build_user_contribution_rows_at_date(
+            user_id=target_user.id,
+            table_cfg=table_cfg,
+            db=db,
+            metric=metric,
+            scope=scope,
+            sort_by=effective_sort_by,
+            sort_dir=effective_sort_dir,
+            page=page,
+            limit=limit,
+            query=query,
+            table_symbol=table_symbol,
+            as_of=as_of,
+            exp_level_step=config.exp_level_step,
+        )
+
     response = {
         "table_slug": table_slug,
         "metric": metric,
         "scope": scope,
         "calculated_at": calculated_at,
+        "snapshot_date": as_of.isoformat() if as_of else None,
+        "snapshot_mode": "historical" if as_of else "current",
+        "is_current_snapshot": as_of is None,
         **payload,
     }
     _CONTRIBUTION_CACHE[cache_key] = response

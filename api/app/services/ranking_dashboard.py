@@ -636,6 +636,182 @@ async def build_user_contribution_rows(
     }
 
 
+async def build_user_contribution_rows_at_date(
+    user_id: uuid.UUID,
+    table_cfg: TableRankingConfig,
+    db: AsyncSession,
+    metric: str,
+    scope: str,
+    sort_by: str,
+    sort_dir: str,
+    page: int,
+    limit: int,
+    query: str | None,
+    table_symbol: str,
+    as_of: date,
+    exp_level_step: float,
+) -> dict[str, Any]:
+    """Build contribution rows for the rating detail tables at the end of one date.
+
+    Replays all score rows up to ``as_of`` (inclusive) to reconstruct the user's
+    best-score state on that date, then formats the result exactly like
+    ``build_user_contribution_rows``.
+    """
+    targets, history_rows = await _query_table_score_history(user_id, table_cfg, db, as_of)
+    sha256_to_md5, md5_to_sha256 = _canonical_key_maps(targets)
+    targets_by_key: dict[tuple[str | None, str | None], dict[str, Any]] = {
+        _canonical_key(target["sha256"], target["md5"], sha256_to_md5, md5_to_sha256): target
+        for target in targets
+    }
+
+    best_curr: dict[tuple[str | None, str | None], BestScore] = {}
+    curr_values: dict[tuple[str | None, str | None], float] = {}
+    per_client_scores: dict[tuple[str | None, str | None], dict[str, PerClientBest]] = {}
+
+    for row in history_rows:
+        _apply_history_row(
+            row,
+            targets_by_key,
+            sha256_to_md5,
+            md5_to_sha256,
+            best_curr,
+            curr_values,
+            table_cfg,
+            per_client_scores,
+        )
+
+    top_keys = _top_keys_from_values(curr_values, targets_by_key, table_cfg.top_n)
+
+    value_sorted_keys = sorted(
+        targets_by_key.keys(),
+        key=lambda key: (
+            -curr_values.get(key, 0.0),
+            title_sort_key((targets_by_key[key].get("title") or "")),
+            key[0] or key[1] or "",
+        ),
+    )
+    rank_by_key = {key: idx for idx, key in enumerate(value_sorted_keys, start=1)}
+
+    rows: list[dict[str, Any]] = []
+    for target in targets:
+        sha256 = target["sha256"]
+        md5 = target["md5"]
+        canonical = _canonical_key(sha256, md5, sha256_to_md5, md5_to_sha256)
+        score = best_curr.get(canonical)
+        raw_value = curr_values.get(canonical, 0.0)
+        per_client_list = list(per_client_scores.get(canonical, {}).values())
+        source_client, source_client_detail = aggregate_source_client(per_client_list) if per_client_list else (None, None)
+        recorded_at = score.recorded_at if score is not None else None
+        sort_recorded_at = score.sort_recorded_at if score is not None else None
+        rank = rank_by_key.get(canonical, len(targets_by_key))
+        is_in_top_n = canonical in top_keys
+        rows.append(
+            {
+                "sha256": sha256,
+                "md5": md5,
+                "title": target.get("title") or "(Unknown Title)",
+                "artist": target.get("artist"),
+                "level": target["level"],
+                "symbol": table_symbol,
+                "clear_type": display_clear_type(
+                    score.clear_type,
+                    exscore=score.exscore,
+                    rate=score.rate,
+                ) if score is not None and score.clear_type is not None else 0,
+                "client_types": list(score.client_types) if score is not None else [],
+                "min_bp": score.min_bp if score is not None else None,
+                "rate": score.rate if score is not None else None,
+                "rank_grade": score.rank if score is not None else None,
+                "exscore": score.exscore if score is not None else None,
+                "raw_value": raw_value,
+                "value": raw_value,
+                "rank": rank,
+                "is_in_top_n": is_in_top_n,
+                "recorded_at": recorded_at,
+                "sort_recorded_at": sort_recorded_at,
+                "source_client": source_client,
+                "source_client_detail": source_client_detail,
+            }
+        )
+
+    if scope == "top":
+        value_sorted_rows = sorted(
+            rows,
+            key=lambda row: (
+                -row["raw_value"],
+                title_sort_key(row["title"]),
+                row["sha256"] or row["md5"] or "",
+            ),
+        )
+        filtered = [row for row in value_sorted_rows if (row["sha256"], row["md5"]) in
+                    {(k[0], k[1]) for k in top_keys}]
+        total_count = len(filtered)
+        entries = filtered
+        page_out = 1
+        limit_out = total_count
+    else:
+        filtered = rows
+        if query:
+            normalized_query = query.strip().casefold()
+            filtered = [
+                row
+                for row in filtered
+                if normalized_query in row["title"].casefold()
+                or normalized_query in (row["artist"] or "").casefold()
+            ]
+        level_index = {level: idx for idx, level in enumerate(table_cfg.level_order)}
+        filtered = sorted(
+            filtered,
+            key=cmp_to_key(
+                lambda left, right: _compare_entries(left, right, sort_by, sort_dir, level_index)
+            ),
+        )
+        total_count = len(filtered)
+        entries = filtered
+        page_out = 1
+        limit_out = total_count
+
+    ranking_result = compute_ranking(table_cfg, exp_level_step, list(best_curr.values()))
+    summary = {
+        "exp": round(ranking_result.exp, 2),
+        "rating": round(ranking_result.rating, 2),
+        "rating_norm": round(ranking_result.rating_norm, 3),
+        "top_n": table_cfg.top_n,
+    }
+
+    return {
+        "top_n": table_cfg.top_n,
+        "total_count": total_count,
+        "page": page_out,
+        "limit": limit_out,
+        "summary": summary,
+        "entries": [
+            {
+                "rank": row["rank"],
+                "sha256": row["sha256"],
+                "md5": row["md5"],
+                "title": row["title"],
+                "artist": row["artist"],
+                "level": row["level"],
+                "symbol": row["symbol"],
+                "clear_type": row["clear_type"],
+                "client_types": row["client_types"],
+                "min_bp": row["min_bp"],
+                "rate": row["rate"],
+                "rank_grade": row["rank_grade"],
+                "exscore": row["exscore"],
+                "value": round(row["value"], 3),
+                "is_in_top_n": row["is_in_top_n"],
+                "recorded_at": row["recorded_at"].isoformat() if row.get("recorded_at") else None,
+                "sort_recorded_at": row["sort_recorded_at"].isoformat() if row.get("sort_recorded_at") else None,
+                "source_client": row.get("source_client"),
+                "source_client_detail": row.get("source_client_detail"),
+            }
+            for row in entries
+        ],
+    }
+
+
 async def _query_table_score_history(
     user_id: uuid.UUID,
     table_cfg: TableRankingConfig,
