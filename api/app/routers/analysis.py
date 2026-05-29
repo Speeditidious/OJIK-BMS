@@ -1689,6 +1689,7 @@ async def get_table_clear_distribution(
     table_id: uuid.UUID,
     client_type: str | None = Query(None, description="Filter by client: lr2, beatoraja"),
     user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    as_of: date_cls | None = Query(None, description="YYYY-MM-DD snapshot date"),
     current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
@@ -1699,6 +1700,9 @@ async def get_table_clear_distribution(
         levels: per-level histogram data (clear_type → count)
         songs: per-song score data (title, level, clear_type, score_rate, min_bp)
         level_order: ordered list of level names from the table header
+        snapshot_mode: "historical" when as_of is set, "current" otherwise
+        snapshot_date: ISO date string if as_of is set, else None
+        is_current_snapshot: True when no as_of filter is applied
     """
     target_user = await _resolve_target_user(user_id, current_user, db)
 
@@ -1740,6 +1744,9 @@ async def get_table_clear_distribution(
             "display_level_order": _normalize_level_order(table.display_level_order),
             "regular_level_order": regular_level_order,
             "non_regular_level_order": non_regular_level_order,
+            "snapshot_date": as_of.isoformat() if as_of else None,
+            "snapshot_mode": "historical" if as_of else "current",
+            "is_current_snapshot": as_of is None,
         }
 
     # Build song list from fumens with their levels
@@ -1780,6 +1787,9 @@ async def get_table_clear_distribution(
             "display_level_order": _normalize_level_order(table.display_level_order),
             "regular_level_order": regular_level_order,
             "non_regular_level_order": non_regular_level_order,
+            "snapshot_date": as_of.isoformat() if as_of else None,
+            "snapshot_mode": "historical" if as_of else "current",
+            "is_current_snapshot": as_of is None,
         }
 
     score_filter = [
@@ -1789,6 +1799,11 @@ async def get_table_clear_distribution(
     ]
     if client_type:
         score_filter.append(UserScore.client_type == client_type)
+
+    if as_of is not None:
+        effective_ts = func.coalesce(UserScore.recorded_at, UserScore.synced_at)
+        effective_date = cast(effective_ts, Date)
+        score_filter.append(effective_date <= as_of)
 
     scores_result = await db.execute(
         select(
@@ -1885,6 +1900,9 @@ async def get_table_clear_distribution(
         "display_level_order": _normalize_level_order(table.display_level_order),
         "regular_level_order": regular_level_order,
         "non_regular_level_order": non_regular_level_order,
+        "snapshot_date": as_of.isoformat() if as_of else None,
+        "snapshot_mode": "historical" if as_of else "current",
+        "is_current_snapshot": as_of is None,
     }
 
 
