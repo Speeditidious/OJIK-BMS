@@ -565,6 +565,8 @@ export default function IssueDetailPage() {
   const { data: commentsData } = useIssueComments(id, 1, 100);
   const updateStatus = useUpdateIssueStatus(id);
   const updatePin = useUpdateIssuePinned(id);
+  const [isEditingBody, setIsEditingBody] = useState(false);
+  const updateIssueBody = useUpdateIssueBody(id);
 
   if (isLoading) {
     return (
@@ -590,9 +592,6 @@ export default function IssueDetailPage() {
 
   const isCommentable = COMMENTABLE_STATUSES.has(issue.status);
   const isClosed = !isCommentable;
-
-  const [isEditingBody, setIsEditingBody] = useState(false);
-  const updateIssueBody = useUpdateIssueBody(id);
 
   return (
     <>
