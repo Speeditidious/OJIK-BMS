@@ -4,11 +4,19 @@ import { useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
-import { MessageSquare, ChevronDown, GitBranch, ArrowLeft, Pin, ShieldCheck } from "lucide-react";
+import { MessageSquare, ChevronDown, GitBranch, ArrowLeft, Pin, ShieldCheck, Pencil, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { resolveTagBadgeStyle } from "@/lib/tag-color";
 import { Navbar } from "@/components/layout/navbar";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
   DropdownMenu,
@@ -26,11 +34,14 @@ import {
   useCreateIssueComment,
   useUpdateIssueStatus,
   useUpdateIssuePinned,
+  useUpdateIssueBody,
+  useUpdateIssueComment,
   useSearchIssueUsers,
   useSearchIssues,
 } from "@/hooks/use-issues";
 import { useAuthStore } from "@/stores/auth";
 import { resolveAvatarUrl } from "@/lib/avatar";
+import { getMentionAutocompleteTrigger } from "@/lib/mention-autocomplete-core.mjs";
 import { timeAgo } from "@/lib/time";
 import type { IssueComment as IssueCommentType, IssuePinChangeEventPayload, IssueStatus, IssueTag } from "@/types";
 
@@ -158,14 +169,31 @@ function PinChangeEntry({ comment }: { comment: IssueCommentType }) {
   );
 }
 
-function TimelineEntry({ comment }: { comment: IssueCommentType }) {
+function TimelineEntry({
+  comment,
+  issueId,
+  currentUserId,
+}: {
+  comment: IssueCommentType;
+  issueId: number;
+  currentUserId: string | undefined;
+}) {
   const { t } = useTranslation();
+  const [isEditing, setIsEditing] = useState(false);
+  const updateComment = useUpdateIssueComment(issueId, comment.id);
+
+  const isOwnComment = currentUserId !== undefined && currentUserId === comment.author.id;
+  const isEditable = isOwnComment && comment.event_type === null;
+
   if (comment.event_type === "status_change") {
     return <StatusChangeEntry comment={comment} />;
   }
   if (comment.event_type === "pin_change") {
     return <PinChangeEntry comment={comment} />;
   }
+
+  const wasEdited = comment.created_at !== comment.updated_at;
+
   return (
     <div className="flex gap-3">
       <Avatar
@@ -173,18 +201,48 @@ function TimelineEntry({ comment }: { comment: IssueCommentType }) {
         avatarUrl={comment.author.avatar_url}
         userId={comment.author.id}
       />
-      <div className="flex-1 rounded-lg border overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border-b">
-          <span className="text-label font-medium text-foreground flex items-center gap-1">
-            {comment.author.is_admin && <AdminBadge label={t("issues.admin")} />}
-            {comment.author.username}
-          </span>
-          <span className="text-label text-muted-foreground">{timeAgo(comment.created_at, t)}</span>
+      {isEditing ? (
+        <InlineEditor
+          initialBody={comment.body ?? ""}
+          isSaving={updateComment.isPending}
+          onCancel={() => setIsEditing(false)}
+          onSave={async (body) => {
+            await updateComment.mutateAsync({ body });
+            setIsEditing(false);
+          }}
+        />
+      ) : (
+        <div className="flex-1 rounded-lg border overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border-b">
+            <span className="text-label font-medium text-foreground flex items-center gap-2 flex-wrap min-w-0">
+              {comment.author.is_admin && <AdminBadge label={t("issues.admin")} />}
+              <span className="shrink-0">{comment.author.username}</span>
+              <span className="font-normal text-muted-foreground shrink-0">
+                {timeAgo(comment.created_at, t)}
+              </span>
+              {wasEdited && (
+                <span className="font-normal text-muted-foreground/70 shrink-0">
+                  {t("issues.detail.editedAt", { time: timeAgo(comment.updated_at, t) })}
+                </span>
+              )}
+            </span>
+            {isEditable && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 ml-2 text-muted-foreground opacity-60 hover:opacity-100 shrink-0"
+                onClick={() => setIsEditing(true)}
+                aria-label={t("issues.detail.editComment")}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+          <div className="p-4">
+            <MarkdownContent mentions={comment.mentions}>{comment.body ?? ""}</MarkdownContent>
+          </div>
         </div>
-        <div className="p-4">
-          <MarkdownContent mentions={comment.mentions}>{comment.body ?? ""}</MarkdownContent>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -192,17 +250,177 @@ function TimelineEntry({ comment }: { comment: IssueCommentType }) {
 // ── Mention autocomplete ───────────────────────────────────────────────────────
 
 function useMentionAutocomplete(body: string) {
-  const atMatch = body.match(/(?:^|[\s\n])@([A-Za-z0-9_]*)$/);
-  const hashMatch = body.match(/(?:^|[\s\n])#([0-9]*)$/);
-
-  const type: "user" | "issue" | null = atMatch ? "user" : hashMatch ? "issue" : null;
-  const userQuery = atMatch ? atMatch[1] : "";
-  const issueQuery = hashMatch ? hashMatch[1] : "";
+  const trigger = getMentionAutocompleteTrigger(body);
+  const type = trigger?.type ?? null;
+  const userQuery = trigger?.type === "user" ? trigger.query : "";
+  const issueQuery = trigger?.type === "issue" ? trigger.query : "";
 
   const { data: users } = useSearchIssueUsers(userQuery, type === "user");
   const { data: issues } = useSearchIssues(issueQuery, type === "issue");
 
   return { type, users: users ?? [], issues: issues ?? [] };
+}
+
+// ── Inline editor (reused for issue body and comment edits) ───────────────────
+
+interface InlineEditorProps {
+  initialBody: string;
+  onSave: (body: string) => Promise<void>;
+  onCancel: () => void;
+  isSaving: boolean;
+}
+
+function InlineEditor({ initialBody, onSave, onCancel, isSaving }: InlineEditorProps) {
+  const { t } = useTranslation();
+  const [body, setBody] = useState(initialBody);
+  const [activeTab, setActiveTab] = useState<"edit" | "preview">("edit");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { type, users, issues } = useMentionAutocomplete(body);
+
+  function insertMention(insert: string) {
+    const el = textareaRef.current;
+    if (!el) return;
+    const cursor = el.selectionStart;
+    const before = body.slice(0, cursor);
+    const after = body.slice(cursor);
+    const replaced = before
+      .replace(/(@[\p{L}\p{N}_]*(?:[._-][\p{L}\p{N}_]+)*)$/u, insert)
+      .replace(/(#[0-9]*)$/, insert);
+    setBody(replaced + after);
+  }
+
+  const hasChanged = body.trim() !== initialBody.trim();
+
+  function handleCancelClick() {
+    if (hasChanged) {
+      setConfirmOpen(true);
+    } else {
+      onCancel();
+    }
+  }
+
+  return (
+    <>
+      <div className="flex-1 rounded-lg border overflow-hidden">
+        <div className="flex items-center border-b bg-muted/30">
+          <div className="flex flex-1">
+            {(["edit", "preview"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setActiveTab(tab)}
+                className={[
+                  "px-4 py-2 text-label font-medium transition-colors",
+                  activeTab === tab
+                    ? "bg-background text-foreground border-b-2 border-primary -mb-px"
+                    : "text-muted-foreground hover:text-foreground",
+                ].join(" ")}
+              >
+                {t(tab === "edit" ? "issues.create.edit" : "issues.create.preview")}
+              </button>
+            ))}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 mr-2 text-muted-foreground hover:text-foreground shrink-0"
+            onClick={handleCancelClick}
+            aria-label={t("issues.detail.cancelEdit")}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="relative">
+          {activeTab === "edit" ? (
+            <Textarea
+              ref={textareaRef}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              className="min-h-24 rounded-none border-0 resize-none focus-visible:ring-0"
+              rows={4}
+            />
+          ) : (
+            <div className="min-h-24 p-4">
+              {body ? (
+                <MarkdownContent>{body}</MarkdownContent>
+              ) : (
+                <p className="text-muted-foreground text-label italic">
+                  {t("issues.detail.commentPlaceholder")}
+                </p>
+              )}
+            </div>
+          )}
+
+          {type === "user" && users.length > 0 && (
+            <div className="absolute bottom-full left-0 z-50 w-64 rounded-lg border bg-popover shadow-lg mb-1">
+              {users.map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  className="w-full text-left px-3 py-2 text-label hover:bg-muted transition-colors"
+                  onClick={() => insertMention(`@${u.username} `)}
+                >
+                  @{u.username}
+                </button>
+              ))}
+            </div>
+          )}
+          {type === "issue" && issues.length > 0 && (
+            <div className="absolute bottom-full left-0 z-50 w-80 rounded-lg border bg-popover shadow-lg mb-1">
+              {issues.map((iss) => (
+                <button
+                  key={iss.id}
+                  type="button"
+                  className="w-full text-left px-3 py-2 text-label hover:bg-muted transition-colors"
+                  onClick={() => insertMention(`#${iss.id} `)}
+                >
+                  <span className="text-muted-foreground">#{iss.id}</span> {iss.title}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end p-2 border-t bg-muted/30">
+          <Button
+            size="sm"
+            disabled={!body.trim() || !hasChanged || isSaving}
+            onClick={async () => {
+              if (!body.trim() || !hasChanged) return;
+              await onSave(body.trim());
+            }}
+          >
+            {isSaving ? t("issues.detail.savingEdit") : t("issues.detail.saveEdit")}
+          </Button>
+        </div>
+      </div>
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("issues.detail.cancelEditConfirmTitle")}</DialogTitle>
+            <DialogDescription>{t("issues.detail.cancelEditConfirmBody")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+              {t("common.actions.cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setConfirmOpen(false);
+                onCancel();
+              }}
+            >
+              {t("common.actions.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
 // ── Comment box ───────────────────────────────────────────────────────────────
@@ -222,7 +440,9 @@ function CommentBox({ issueId }: { issueId: number }) {
     const cursor = el.selectionStart;
     const before = body.slice(0, cursor);
     const after = body.slice(cursor);
-    const replaced = before.replace(/(@[A-Za-z0-9_]*)$/, insert).replace(/(#[0-9]*)$/, insert);
+    const replaced = before
+      .replace(/(@[\p{L}\p{N}_]*(?:[._-][\p{L}\p{N}_]+)*)$/u, insert)
+      .replace(/(#[0-9]*)$/, insert);
     setBody(replaced + after);
   }
 
@@ -371,6 +591,9 @@ export default function IssueDetailPage() {
   const isCommentable = COMMENTABLE_STATUSES.has(issue.status);
   const isClosed = !isCommentable;
 
+  const [isEditingBody, setIsEditingBody] = useState(false);
+  const updateIssueBody = useUpdateIssueBody(id);
+
   return (
     <>
       <Navbar />
@@ -480,27 +703,60 @@ export default function IssueDetailPage() {
             avatarUrl={issue.author.avatar_url}
             userId={issue.author.id}
           />
-          <div className="flex-1 rounded-lg border overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border-b">
-              <span className="text-label font-medium text-foreground flex items-center gap-1">
-                {issue.author.is_admin && <AdminBadge label={t("issues.admin")} />}
-                {issue.author.username}
-              </span>
-              <span className="text-label text-muted-foreground">
-                {timeAgo(issue.created_at, t)}
-              </span>
+          {isEditingBody ? (
+            <InlineEditor
+              initialBody={issue.body}
+              isSaving={updateIssueBody.isPending}
+              onCancel={() => setIsEditingBody(false)}
+              onSave={async (body) => {
+                await updateIssueBody.mutateAsync({ body });
+                setIsEditingBody(false);
+              }}
+            />
+          ) : (
+            <div className="flex-1 rounded-lg border overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border-b">
+                <span className="text-label font-medium text-foreground flex items-center gap-2 flex-wrap min-w-0">
+                  {issue.author.is_admin && <AdminBadge label={t("issues.admin")} />}
+                  <span className="shrink-0">{issue.author.username}</span>
+                  <span className="font-normal text-muted-foreground shrink-0">
+                    {timeAgo(issue.created_at, t)}
+                  </span>
+                  {issue.created_at !== issue.updated_at && (
+                    <span className="font-normal text-muted-foreground/70 shrink-0">
+                      {t("issues.detail.editedAt", { time: timeAgo(issue.updated_at, t) })}
+                    </span>
+                  )}
+                </span>
+                {user?.id === issue.author.id && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 ml-2 text-muted-foreground opacity-60 hover:opacity-100 shrink-0"
+                    onClick={() => setIsEditingBody(true)}
+                    aria-label={t("issues.detail.editBody")}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+              <div className="p-4">
+                <MarkdownContent mentions={issue.mentions}>{issue.body}</MarkdownContent>
+              </div>
             </div>
-            <div className="p-4">
-              <MarkdownContent mentions={issue.mentions}>{issue.body}</MarkdownContent>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Comments */}
         {commentsData && commentsData.items.length > 0 && (
           <div className="space-y-4 border-t pt-4">
             {commentsData.items.map((comment) => (
-              <TimelineEntry key={comment.id} comment={comment} />
+              <TimelineEntry
+                key={comment.id}
+                comment={comment}
+                issueId={id}
+                currentUserId={user?.id}
+              />
             ))}
           </div>
         )}
