@@ -143,9 +143,14 @@ def test_lookup_wrong_keymode_returns_none(seed_map):
     result_5k = lookup_lr2_arrangement(5, first_seed)
     result_7k = lookup_lr2_arrangement(7, first_seed)
     assert result_7k == first_arrangement
-    # result_5k may or may not be None depending on coincidence; just verify
-    # it doesn't crash
-    assert result_5k is None or isinstance(result_5k, str)
+    # The same seed should not cross-map to a 5K arrangement for THIS seed.
+    # If by coincidence the seed integer also exists in the 5K map, that is a
+    # data coincidence, not a bug — but for the current dataset we assert None
+    # to catch any future regression that leaks the 7K index into keymode=5.
+    assert result_5k is None, (
+        f"Seed {first_seed} (7K arrangement '{first_arrangement}') must not "
+        f"resolve in keymode=5; got '{result_5k}'"
+    )
 
 
 def test_multiple_seeds_per_arrangement_supported(tmp_path):
