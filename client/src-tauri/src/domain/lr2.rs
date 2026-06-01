@@ -237,6 +237,7 @@ pub fn parse_songdata(db_path: &str) -> Vec<FumenDetailItem> {
         .then_some("subartist".to_string());
     let minbpm_col = columns.contains("minbpm").then_some("minbpm".to_string());
     let maxbpm_col = columns.contains("maxbpm").then_some("maxbpm".to_string());
+    let mode_col = columns.contains("mode").then_some("mode".to_string());
 
     let mut select_cols = vec![hash_col.clone()];
     for col in [
@@ -246,6 +247,7 @@ pub fn parse_songdata(db_path: &str) -> Vec<FumenDetailItem> {
         &subartist_col,
         &minbpm_col,
         &maxbpm_col,
+        &mode_col,
     ]
     .into_iter()
     .flatten()
@@ -284,6 +286,7 @@ pub fn parse_songdata(db_path: &str) -> Vec<FumenDetailItem> {
             artist,
             bpm_min: get_f64(row, minbpm_col.as_deref()),
             bpm_max: get_f64(row, maxbpm_col.as_deref()),
+            keymode: get_i64(row, mode_col.as_deref()),
             client_type: "lr2".to_string(),
             ..FumenDetailItem::default()
         });
@@ -894,6 +897,59 @@ mod tests {
         assert!(message.contains("Beatoraja 데이터베이스"));
         assert!(message.contains("LR2 유저가 아니시라면 경로를 비우시고"));
         assert!(message.contains("epg"));
+
+        let _ = fs::remove_file(db);
+    }
+
+    #[test]
+    fn parse_songdata_extracts_keymode() {
+        let db = temp_db("songdata_keymode");
+        let conn = Connection::open(&db).expect("create lr2 songdata db");
+        conn.execute_batch(&format!(
+            r#"
+            CREATE TABLE song (
+                hash TEXT PRIMARY KEY,
+                title TEXT,
+                minbpm REAL,
+                maxbpm REAL,
+                mode INTEGER
+            );
+            INSERT INTO song VALUES ('{}', 'KeymodeTest', 130.0, 180.0, 5);
+            "#,
+            "k".repeat(32)
+        ))
+        .expect("create song table with mode");
+
+        let items = parse_songdata(db.to_str().unwrap());
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].keymode, Some(5));
+        assert_eq!(items[0].md5.as_deref(), Some(&"k".repeat(32) as &str));
+
+        let _ = fs::remove_file(db);
+    }
+
+    #[test]
+    fn parse_songdata_keymode_none_when_mode_column_absent() {
+        let db = temp_db("songdata_no_mode");
+        let conn = Connection::open(&db).expect("create lr2 songdata db");
+        conn.execute_batch(&format!(
+            r#"
+            CREATE TABLE song (
+                hash TEXT PRIMARY KEY,
+                title TEXT,
+                minbpm REAL
+            );
+            INSERT INTO song VALUES ('{}', 'NoModeTest', 120.0);
+            "#,
+            "n".repeat(32)
+        ))
+        .expect("create song table without mode");
+
+        let items = parse_songdata(db.to_str().unwrap());
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].keymode, None, "keymode should be None when mode column absent");
 
         let _ = fs::remove_file(db);
     }

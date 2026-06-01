@@ -1480,7 +1480,7 @@ async fn run_full_detail_sync(
         "info",
         &text.fumen_detail_summary(
             summary.inserted,
-            summary.supplemented + summary.updated,
+            summary.supplemented + summary.enriched,
             summary.skipped,
         ),
     );

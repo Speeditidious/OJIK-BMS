@@ -395,6 +395,7 @@ pub fn parse_songdata(db_path: &str) -> Vec<FumenDetailItem> {
         "maxbpm",
         "notes",
         "length",
+        "mode",
     ];
     let select_cols = wanted
         .into_iter()
@@ -427,6 +428,7 @@ pub fn parse_songdata(db_path: &str) -> Vec<FumenDetailItem> {
             bpm_max: get_f64(row, Some("maxbpm")),
             notes_total: get_i64(row, Some("notes")),
             length: get_i64(row, Some("length")),
+            keymode: get_i64(row, Some("mode")),
             client_type: "beatoraja".to_string(),
             ..FumenDetailItem::default()
         });
@@ -610,12 +612,14 @@ fn build_item(
         max_combo: none_if_zero(get_i64(row, cols.maxcombo.as_deref()).unwrap_or(0)),
         min_bp: get_i64(row, cols.minbp.as_deref()),
         judgments: Some(judgments),
-        options: Some(json!({
-            "mode": row_mode,
-            "option": get_i64(row, cols.arrangement.as_deref()).unwrap_or(0),
-            "seed": get_i64(row, cols.seed.as_deref()).unwrap_or(-1),
-            "random": get_i64(row, cols.random_raw.as_deref()).unwrap_or(0),
-        })),
+        options: cols.arrangement.as_ref().map(|opt_col| {
+            json!({
+                "mode": row_mode,
+                "option": get_i64(row, Some(opt_col.as_str())),
+                "seed": get_i64(row, cols.seed.as_deref()),
+                "random": get_i64(row, cols.random_raw.as_deref()),
+            })
+        }),
         play_count: Some(get_i64(row, cols.playcount.as_deref()).unwrap_or(0)),
         clear_count: Some(get_i64(row, cols.clearcount.as_deref()).unwrap_or(0)),
         recorded_at: get_i64(row, cols.date.as_deref()).and_then(unix_to_rfc3339),
@@ -1345,6 +1349,184 @@ mod tests {
         let entry = info.get(&"s".repeat(64)).expect("songinfo entry");
         assert_eq!(entry.notes_n, Some(1));
         assert_eq!(entry.bpm_main, Some(150.0));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn parse_songdata_extracts_keymode() {
+        let dir = temp_dir("songdata_keymode");
+        let songdata = dir.join("songdata.db");
+        let conn = Connection::open(&songdata).expect("create songdata db");
+        conn.execute_batch(&format!(
+            r#"
+            CREATE TABLE song (
+                sha256 TEXT,
+                md5 TEXT,
+                title TEXT,
+                minbpm REAL,
+                maxbpm REAL,
+                notes INTEGER,
+                length INTEGER,
+                mode INTEGER
+            );
+            INSERT INTO song VALUES ('{}', '{}', 'KeymodeTest', 120.0, 180.0, 500, 60, 7);
+            "#,
+            "k".repeat(64),
+            "k".repeat(32)
+        ))
+        .expect("create song table with mode");
+
+        let items = parse_songdata(songdata.to_str().unwrap());
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].keymode, Some(7));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn build_item_options_null_when_option_column_absent() {
+        // BeaCols with arrangement = None simulates a DB without 'option' column
+        let cols = BeaCols {
+            arrangement: None,
+            seed: None,
+            random_raw: None,
+            ep: None,
+            lp: None,
+            eg: None,
+            lg: None,
+            egd: None,
+            lgd: None,
+            ebd: None,
+            lbd: None,
+            epr: None,
+            lpr: None,
+            ems: None,
+            lms: None,
+            maxcombo: None,
+            minbp: None,
+            playcount: None,
+            exscore: None,
+            date: None,
+            notes: None,
+            clearcount: None,
+        };
+
+        let dir = temp_dir("build_item_no_option");
+        let conn = Connection::open(dir.join("score.db")).expect("create db");
+        conn.execute_batch(&format!(
+            r#"
+            CREATE TABLE score (
+                sha256 TEXT NOT NULL,
+                mode INTEGER NOT NULL,
+                clear INTEGER
+            );
+            INSERT INTO score VALUES ('{}', 0, 5);
+            "#,
+            "o".repeat(64)
+        ))
+        .expect("create minimal score table");
+
+        let mut stmt = conn.prepare("SELECT sha256, mode, clear FROM score").unwrap();
+        let mut rows = stmt.query([]).unwrap();
+        let row = rows.next().unwrap().unwrap();
+
+        let item = build_item(row, &cols, None, Some("o".repeat(64)), Vec::new());
+
+        assert!(
+            item.options.is_none(),
+            "options should be None when option column is absent"
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn build_item_options_present_when_option_column_exists() {
+        let dir = temp_dir("build_item_with_option");
+        let conn = Connection::open(dir.join("score.db")).expect("create db");
+        conn.execute_batch(&format!(
+            r#"
+            CREATE TABLE score (
+                sha256 TEXT NOT NULL,
+                mode INTEGER NOT NULL,
+                clear INTEGER,
+                option INTEGER,
+                seed INTEGER,
+                random INTEGER
+            );
+            INSERT INTO score VALUES ('{}', 0, 5, 256, 9999, 1);
+            "#,
+            "p".repeat(64)
+        ))
+        .expect("create score table with option");
+
+        let available: std::collections::HashSet<String> = ["sha256", "mode", "clear", "option", "seed", "random"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let cols = BeaCols::new(&available);
+
+        let mut stmt = conn
+            .prepare("SELECT sha256, mode, clear, option, seed, random FROM score")
+            .unwrap();
+        let mut rows = stmt.query([]).unwrap();
+        let row = rows.next().unwrap().unwrap();
+
+        let item = build_item(row, &cols, None, Some("p".repeat(64)), Vec::new());
+
+        assert!(
+            item.options.is_some(),
+            "options should be Some when option column exists"
+        );
+        let opts = item.options.unwrap();
+        assert_eq!(opts["option"], 256);
+        assert_eq!(opts["seed"], 9999);
+        assert_eq!(opts["random"], 1);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn build_item_options_seed_and_random_nullable_when_columns_absent() {
+        // Simulate a DB that has 'option' column but not seed/random
+        let dir = temp_dir("build_item_no_seed");
+        let conn = Connection::open(dir.join("score.db")).expect("create db");
+        conn.execute_batch(&format!(
+            r#"
+            CREATE TABLE score (
+                sha256 TEXT NOT NULL,
+                mode INTEGER NOT NULL,
+                clear INTEGER,
+                option INTEGER
+            );
+            INSERT INTO score VALUES ('{}', 0, 5, 128);
+            "#,
+            "q".repeat(64)
+        ))
+        .expect("create score table option only");
+
+        let available: std::collections::HashSet<String> = ["sha256", "mode", "clear", "option"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let cols = BeaCols::new(&available);
+
+        let mut stmt = conn
+            .prepare("SELECT sha256, mode, clear, option FROM score")
+            .unwrap();
+        let mut rows = stmt.query([]).unwrap();
+        let row = rows.next().unwrap().unwrap();
+
+        let item = build_item(row, &cols, None, Some("q".repeat(64)), Vec::new());
+
+        assert!(item.options.is_some(), "options should be Some when option column exists");
+        let opts = item.options.unwrap();
+        assert_eq!(opts["option"], 128);
+        // seed and random columns are absent — they should be null, not invented values
+        assert!(opts["seed"].is_null(), "seed should be null when column absent");
+        assert!(opts["random"].is_null(), "random should be null when column absent");
 
         let _ = fs::remove_dir_all(dir);
     }

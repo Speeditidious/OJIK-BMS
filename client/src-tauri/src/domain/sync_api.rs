@@ -92,6 +92,8 @@ pub struct KnownHashes {
     pub partial_sha256: Vec<String>,
     #[serde(default)]
     pub partial_md5: Vec<String>,
+    #[serde(default)]
+    pub keymode_missing_md5: Vec<String>,
 }
 
 #[derive(Clone)]
