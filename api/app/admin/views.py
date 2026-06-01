@@ -746,9 +746,9 @@ class FumenAdmin(ModelView, model=Fumen):
     name = "Fumen"
     name_plural = "Fumens"
     icon = "fa-solid fa-music"
-    column_list = [Fumen.fumen_id, Fumen.title, Fumen.artist, Fumen.md5, Fumen.sha256, Fumen.bpm_max]
+    column_list = [Fumen.fumen_id, Fumen.title, Fumen.artist, Fumen.md5, Fumen.sha256, Fumen.bpm_max, Fumen.keymode]
     column_searchable_list = [Fumen.title, Fumen.artist, Fumen.md5, Fumen.sha256]
-    column_sortable_list = [Fumen.title, Fumen.artist, Fumen.bpm_max, Fumen.created_at]
+    column_sortable_list = [Fumen.title, Fumen.artist, Fumen.bpm_max, Fumen.keymode, Fumen.created_at]
 
 
 class FumenTableEntryAdmin(ModelView, model=FumenTableEntry):

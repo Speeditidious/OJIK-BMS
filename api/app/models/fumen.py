@@ -60,6 +60,7 @@ class Fumen(Base, TimestampMixin):
     notes_ls: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total: Mapped[int | None] = mapped_column(Integer, nullable=True)
     length: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    keymode: Mapped[int | None] = mapped_column(Integer, nullable=True)
     youtube_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_url_diff: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -155,6 +155,17 @@ async def test_client_play_data_reset_scopes_deletes_and_first_sync_key() -> Non
     assert first_sync_params == {"uid": str(user_id), "client_type": "lr2"}
 
 
+def test_fumen_admin_exposes_keymode() -> None:
+    """FumenAdmin should expose keymode in list and sortable columns."""
+    from app.admin.views import FumenAdmin
+    from app.models.fumen import Fumen
+
+    list_keys = {col.key for col in FumenAdmin.column_list}
+    sortable_keys = {col.key for col in FumenAdmin.column_sortable_list}
+    assert "keymode" in list_keys
+    assert "keymode" in sortable_keys
+
+
 class _FakeDb:
     def __init__(self) -> None:
         self.calls: list[tuple[object, object | None]] = []
