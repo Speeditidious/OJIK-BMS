@@ -21,7 +21,7 @@ fumens           : fumen_id(UUID PK), md5, sha256
                    title(Text), artist(Text),
                    bpm_min, bpm_max, bpm_main,
                    notes_total, notes_n, notes_ln, notes_s, notes_ls,
-                   total, length,
+                   total, length, keymode(Integer nullable),
                    youtube_url, file_url, file_url_diff,
                    added_by_user_id(FK→users, nullable),
                    created_at, updated_at
