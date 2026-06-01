@@ -233,15 +233,15 @@ fn beatoraja_item_should_send(
     let complete = item
         .sha256
         .as_ref()
-        .is_some_and(|h| complete_sha256.contains(h))
+        .is_some_and(|h| complete_sha256.contains(&h.to_lowercase()))
         || item
             .md5
             .as_ref()
-            .is_some_and(|h| complete_md5.contains(h));
+            .is_some_and(|h| complete_md5.contains(&h.to_lowercase()));
     let needs_keymode = item
         .md5
         .as_ref()
-        .is_some_and(|h| keymode_missing_md5.contains(h));
+        .is_some_and(|h| keymode_missing_md5.contains(&h.to_lowercase()));
     !complete || needs_keymode
 }
 
