@@ -129,6 +129,69 @@ def normalize_judgments(client_type: str, judgments: dict | None) -> dict | None
 
 
 # ---------------------------------------------------------------------------
+# Best-per-client selection
+# ---------------------------------------------------------------------------
+
+from typing import Any
+
+
+def pick_best_per_client(rows: list[Any]) -> list[Any]:
+    """Return the single best representative row per client_type.
+
+    Selection priority (higher = better):
+    1. Highest exscore (None is treated as -infinity).
+    2. Highest clear_type (None is treated as -infinity).
+    3. Latest coalesce(recorded_at, synced_at) (None is treated as earliest).
+
+    Args:
+        rows: Iterable of objects with attributes ``client_type``, ``exscore``,
+              ``clear_type``, ``recorded_at``, ``synced_at``.
+
+    Returns:
+        One row per distinct ``client_type``, chosen by the priority above.
+    """
+    best: dict[str, Any] = {}
+
+    for row in rows:
+        ct = row.client_type
+        if ct not in best:
+            best[ct] = row
+            continue
+
+        incumbent = best[ct]
+
+        # --- exscore comparison (higher wins, None is -infinity) ---
+        ex_new = row.exscore if row.exscore is not None else -1
+        ex_inc = incumbent.exscore if incumbent.exscore is not None else -1
+        if ex_new > ex_inc:
+            best[ct] = row
+            continue
+        if ex_new < ex_inc:
+            continue
+
+        # --- tie: clear_type (higher wins, None is -infinity) ---
+        cl_new = row.clear_type if row.clear_type is not None else -1
+        cl_inc = incumbent.clear_type if incumbent.clear_type is not None else -1
+        if cl_new > cl_inc:
+            best[ct] = row
+            continue
+        if cl_new < cl_inc:
+            continue
+
+        # --- tie: latest timestamp (None is earliest) ---
+        ts_new = row.recorded_at or row.synced_at
+        ts_inc = incumbent.recorded_at or incumbent.synced_at
+        if ts_new is None and ts_inc is None:
+            continue
+        if ts_new is None:
+            continue
+        if ts_inc is None or ts_new > ts_inc:
+            best[ct] = row
+
+    return list(best.values())
+
+
+# ---------------------------------------------------------------------------
 # Arrangement decoding
 # ---------------------------------------------------------------------------
 

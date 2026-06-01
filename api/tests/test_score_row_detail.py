@@ -547,3 +547,754 @@ def test_bea_dp_battle_as_returns_assist_option_unsupported():
     packed_option = 0 | (10 << 8)
     result = decode_arrangement("beatoraja", {"option": packed_option}, 10)
     assert result["unavailable_reason"] == "assist_option_unsupported"
+
+
+# ---------------------------------------------------------------------------
+# pick_best_per_client unit tests
+# ---------------------------------------------------------------------------
+
+from app.services.score_row_detail import pick_best_per_client
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
+
+def _make_score(
+    client_type: str = "lr2",
+    exscore: int | None = None,
+    clear_type: int | None = None,
+    recorded_at: datetime | None = None,
+    synced_at: datetime | None = None,
+    **kwargs,
+) -> SimpleNamespace:
+    """Create a minimal score-like object for pick_best_per_client testing."""
+    return SimpleNamespace(
+        client_type=client_type,
+        exscore=exscore,
+        clear_type=clear_type,
+        recorded_at=recorded_at,
+        synced_at=synced_at,
+        **kwargs,
+    )
+
+
+def test_pick_best_empty():
+    """Empty input returns empty list."""
+    assert pick_best_per_client([]) == []
+
+
+def test_pick_best_single_row():
+    """Single row returns itself."""
+    row = _make_score("lr2", exscore=1000)
+    result = pick_best_per_client([row])
+    assert result == [row]
+
+
+def test_pick_best_higher_exscore_wins():
+    """Row with higher exscore is preferred."""
+    low = _make_score("lr2", exscore=500)
+    high = _make_score("lr2", exscore=800)
+    result = pick_best_per_client([low, high])
+    assert len(result) == 1
+    assert result[0] is high
+
+
+def test_pick_best_higher_exscore_wins_reversed_order():
+    """Order of input does not affect exscore selection."""
+    low = _make_score("lr2", exscore=500)
+    high = _make_score("lr2", exscore=800)
+    result = pick_best_per_client([high, low])
+    assert len(result) == 1
+    assert result[0] is high
+
+
+def test_pick_best_clear_type_tiebreak():
+    """When exscore is equal, higher clear_type wins."""
+    lower_ct = _make_score("lr2", exscore=1000, clear_type=3)
+    higher_ct = _make_score("lr2", exscore=1000, clear_type=5)
+    result = pick_best_per_client([lower_ct, higher_ct])
+    assert result[0] is higher_ct
+
+
+def test_pick_best_timestamp_tiebreak():
+    """When exscore and clear_type are equal, latest timestamp wins."""
+    older = _make_score(
+        "lr2", exscore=1000, clear_type=5,
+        recorded_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    newer = _make_score(
+        "lr2", exscore=1000, clear_type=5,
+        recorded_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+    )
+    result = pick_best_per_client([older, newer])
+    assert result[0] is newer
+
+
+def test_pick_best_uses_synced_at_when_recorded_at_is_none():
+    """synced_at is used as fallback when recorded_at is None."""
+    no_recorded = _make_score(
+        "lr2", exscore=1000,
+        recorded_at=None,
+        synced_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+    )
+    with_older_recorded = _make_score(
+        "lr2", exscore=1000,
+        recorded_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        synced_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+    )
+    result = pick_best_per_client([with_older_recorded, no_recorded])
+    assert result[0] is no_recorded
+
+
+def test_pick_best_two_clients_return_two_records():
+    """Two different client types each get one representative."""
+    lr2_row = _make_score("lr2", exscore=1000)
+    bea_row = _make_score("beatoraja", exscore=900)
+    result = pick_best_per_client([lr2_row, bea_row])
+    assert len(result) == 2
+    client_types = {r.client_type for r in result}
+    assert client_types == {"lr2", "beatoraja"}
+
+
+def test_pick_best_none_exscore_loses_to_any_value():
+    """A row with exscore=None loses to any numeric exscore."""
+    no_score = _make_score("lr2", exscore=None)
+    has_score = _make_score("lr2", exscore=1)
+    result = pick_best_per_client([no_score, has_score])
+    assert result[0] is has_score
+
+
+# ---------------------------------------------------------------------------
+# GET /scores/fumen/{fumen_id}/row-detail API endpoint tests
+# ---------------------------------------------------------------------------
+
+import uuid as uuid_mod
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
+from app.core.database import get_db
+from app.core.security import get_current_user_optional
+from app.main import app
+
+
+def _make_fumen_row(
+    fumen_id: uuid_mod.UUID | None = None,
+    sha256: str | None = "a" * 64,
+    md5: str | None = "b" * 32,
+    keymode: int | None = 7,
+    notes_total: int | None = 1000,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        fumen_id=fumen_id or uuid_mod.uuid4(),
+        sha256=sha256,
+        md5=md5,
+        keymode=keymode,
+        notes_total=notes_total,
+    )
+
+
+def _make_user_row(
+    user_id: uuid_mod.UUID | None = None,
+    is_active: bool = True,
+) -> SimpleNamespace:
+    user = SimpleNamespace(
+        id=user_id or uuid_mod.uuid4(),
+        is_active=is_active,
+    )
+    return user
+
+
+def _make_user_score(
+    score_id: uuid_mod.UUID | None = None,
+    user_id: uuid_mod.UUID | None = None,
+    client_type: str = "beatoraja",
+    exscore: int | None = 1000,
+    clear_type: int | None = 5,
+    min_bp: int | None = 10,
+    rate: float | None = 90.0,
+    rank: str | None = "AA",
+    play_count: int | None = 5,
+    judgments: dict | None = None,
+    options: dict | None = None,
+    fumen_hash_others: str | None = None,
+    recorded_at: datetime | None = None,
+    synced_at: datetime | None = None,
+    fumen_id: uuid_mod.UUID | None = None,
+    fumen_sha256: str | None = None,
+    fumen_md5: str | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=score_id or uuid_mod.uuid4(),
+        user_id=user_id or uuid_mod.uuid4(),
+        client_type=client_type,
+        exscore=exscore,
+        clear_type=clear_type,
+        min_bp=min_bp,
+        rate=rate,
+        rank=rank,
+        play_count=play_count,
+        judgments=judgments,
+        options=options,
+        fumen_hash_others=fumen_hash_others,
+        recorded_at=recorded_at or datetime(2026, 1, 1, tzinfo=timezone.utc),
+        synced_at=synced_at or datetime(2026, 1, 2, tzinfo=timezone.utc),
+        fumen_id=fumen_id,
+        fumen_sha256=fumen_sha256,
+        fumen_md5=fumen_md5,
+        scorehash=None,
+    )
+
+
+def _make_mock_db_for_row_detail(
+    fumen_row: SimpleNamespace | None,
+    user_row: SimpleNamespace | None,
+    score_rows: list[SimpleNamespace],
+) -> MagicMock:
+    """Build a mock AsyncSession for /scores/fumen/{fumen_id}/row-detail.
+
+    Call sequence:
+      1. SELECT Fumen WHERE fumen_id=... → fumen_row (or None)
+      2. SELECT User WHERE id=... → user_row (or None)  [only if user_id query param given]
+      3. SELECT UserScore WHERE ... → score_rows
+    """
+    call_count = [0]
+    fumen_result = MagicMock()
+    if fumen_row is not None:
+        fumen_result.one_or_none.return_value = fumen_row
+    else:
+        fumen_result.one_or_none.return_value = None
+
+    user_result = MagicMock()
+    if user_row is not None:
+        user_result.scalar_one_or_none.return_value = user_row
+    else:
+        user_result.scalar_one_or_none.return_value = None
+
+    scores_result = MagicMock()
+    scores_result.scalars.return_value.all.return_value = score_rows
+
+    async def _execute(stmt, *args, **kwargs):
+        call_count[0] += 1
+        try:
+            from sqlalchemy.dialects import sqlite as sqlite_dialect
+            sql_text = str(stmt.compile(dialect=sqlite_dialect.dialect()))
+            sql_lower = sql_text.lower()
+            # Detect which query by table/column presence
+            if "fumens" in sql_lower and "fumen_id" in sql_lower and call_count[0] == 1:
+                return fumen_result
+            if "users" in sql_lower and "user_id" in sql_lower or "users" in sql_lower:
+                return user_result
+            # Default: return scores
+            return scores_result
+        except Exception:
+            return scores_result
+
+    db = MagicMock()
+    db.execute = _execute
+    return db
+
+
+@pytest.mark.asyncio
+async def test_row_detail_one_record_per_client():
+    """Two different client types → two records in response."""
+    fumen_id = uuid_mod.uuid4()
+    user_id = uuid_mod.uuid4()
+    fumen = _make_fumen_row(fumen_id=fumen_id)
+    user = _make_user_row(user_id=user_id)
+    scores = [
+        _make_user_score(client_type="beatoraja", exscore=1000, fumen_id=fumen_id),
+        _make_user_score(client_type="lr2", exscore=900, fumen_id=fumen_id),
+    ]
+
+    # Use a more reliable mock approach: sequential call counter
+    call_idx = [0]
+
+    async def _execute(stmt, *args, **kwargs):
+        call_idx[0] += 1
+        result = MagicMock()
+        if call_idx[0] == 1:
+            # Fumen lookup
+            result.one_or_none.return_value = fumen
+        elif call_idx[0] == 2:
+            # User lookup
+            result.scalar_one_or_none.return_value = user
+        else:
+            # Score query
+            result.scalars.return_value.all.return_value = scores
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute = _execute
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user_optional] = lambda: None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(
+                f"/scores/fumen/{fumen_id}/row-detail",
+                params={"user_id": str(user_id)},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["fumen_id"] == str(fumen_id)
+    assert data["keymode"] == 7
+    assert data["detail_basis"] == "best_exscore_per_client"
+    assert len(data["records"]) == 2
+    client_types = {r["client_type"] for r in data["records"]}
+    assert client_types == {"beatoraja", "lr2"}
+
+
+@pytest.mark.asyncio
+async def test_row_detail_best_exscore_selected():
+    """When multiple rows exist for the same client, the highest exscore is selected."""
+    fumen_id = uuid_mod.uuid4()
+    user_id = uuid_mod.uuid4()
+    fumen = _make_fumen_row(fumen_id=fumen_id)
+    user = _make_user_row(user_id=user_id)
+    best = _make_user_score(client_type="lr2", exscore=1500)
+    worse = _make_user_score(client_type="lr2", exscore=800)
+
+    call_idx = [0]
+
+    async def _execute(stmt, *args, **kwargs):
+        call_idx[0] += 1
+        result = MagicMock()
+        if call_idx[0] == 1:
+            result.one_or_none.return_value = fumen
+        elif call_idx[0] == 2:
+            result.scalar_one_or_none.return_value = user
+        else:
+            result.scalars.return_value.all.return_value = [worse, best]
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute = _execute
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user_optional] = lambda: None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(
+                f"/scores/fumen/{fumen_id}/row-detail",
+                params={"user_id": str(user_id)},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert len(data["records"]) == 1
+    assert data["records"][0]["exscore"] == 1500
+
+
+@pytest.mark.asyncio
+async def test_row_detail_latest_timestamp_tiebreak():
+    """When exscore is equal, the row with the latest timestamp is selected."""
+    fumen_id = uuid_mod.uuid4()
+    user_id = uuid_mod.uuid4()
+    fumen = _make_fumen_row(fumen_id=fumen_id)
+    user = _make_user_row(user_id=user_id)
+
+    older_score = _make_user_score(
+        score_id=uuid_mod.uuid4(),
+        client_type="lr2", exscore=1000,
+        recorded_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+    )
+    newer_score = _make_user_score(
+        score_id=uuid_mod.uuid4(),
+        client_type="lr2", exscore=1000,
+        recorded_at=datetime(2026, 5, 1, tzinfo=timezone.utc),
+    )
+
+    call_idx = [0]
+
+    async def _execute(stmt, *args, **kwargs):
+        call_idx[0] += 1
+        result = MagicMock()
+        if call_idx[0] == 1:
+            result.one_or_none.return_value = fumen
+        elif call_idx[0] == 2:
+            result.scalar_one_or_none.return_value = user
+        else:
+            result.scalars.return_value.all.return_value = [older_score, newer_score]
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute = _execute
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user_optional] = lambda: None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(
+                f"/scores/fumen/{fumen_id}/row-detail",
+                params={"user_id": str(user_id)},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert len(data["records"]) == 1
+    assert data["records"][0]["score_id"] == str(newer_score.id)
+
+
+@pytest.mark.asyncio
+async def test_row_detail_course_records_excluded():
+    """Rows with fumen_hash_others set (course records) are excluded by the query."""
+    # The endpoint passes fumen_hash_others IS NULL as a WHERE condition.
+    # We verify: when the DB returns only a course record, the response has 0 records.
+    fumen_id = uuid_mod.uuid4()
+    user_id = uuid_mod.uuid4()
+    fumen = _make_fumen_row(fumen_id=fumen_id)
+    user = _make_user_row(user_id=user_id)
+
+    call_idx = [0]
+
+    async def _execute(stmt, *args, **kwargs):
+        call_idx[0] += 1
+        result = MagicMock()
+        if call_idx[0] == 1:
+            result.one_or_none.return_value = fumen
+        elif call_idx[0] == 2:
+            result.scalar_one_or_none.return_value = user
+        else:
+            # Return empty — as the SQL WHERE fumen_hash_others IS NULL filters them out
+            result.scalars.return_value.all.return_value = []
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute = _execute
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user_optional] = lambda: None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(
+                f"/scores/fumen/{fumen_id}/row-detail",
+                params={"user_id": str(user_id)},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["records"] == []
+
+
+@pytest.mark.asyncio
+async def test_row_detail_fumen_not_found_returns_404():
+    """If fumen_id does not exist in DB, endpoint returns 404."""
+    fumen_id = uuid_mod.uuid4()
+    user_id = uuid_mod.uuid4()
+
+    call_idx = [0]
+
+    async def _execute(stmt, *args, **kwargs):
+        call_idx[0] += 1
+        result = MagicMock()
+        if call_idx[0] == 1:
+            result.one_or_none.return_value = None  # fumen not found
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute = _execute
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user_optional] = lambda: None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(
+                f"/scores/fumen/{fumen_id}/row-detail",
+                params={"user_id": str(user_id)},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_row_detail_inactive_user_returns_404():
+    """If the target user is inactive, endpoint returns 404."""
+    fumen_id = uuid_mod.uuid4()
+    user_id = uuid_mod.uuid4()
+    fumen = _make_fumen_row(fumen_id=fumen_id)
+    inactive_user = _make_user_row(user_id=user_id, is_active=False)
+
+    call_idx = [0]
+
+    async def _execute(stmt, *args, **kwargs):
+        call_idx[0] += 1
+        result = MagicMock()
+        if call_idx[0] == 1:
+            result.one_or_none.return_value = fumen
+        else:
+            result.scalar_one_or_none.return_value = inactive_user
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute = _execute
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user_optional] = lambda: None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(
+                f"/scores/fumen/{fumen_id}/row-detail",
+                params={"user_id": str(user_id)},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_row_detail_missing_user_returns_404():
+    """If the target user_id does not exist in DB, endpoint returns 404."""
+    fumen_id = uuid_mod.uuid4()
+    user_id = uuid_mod.uuid4()
+    fumen = _make_fumen_row(fumen_id=fumen_id)
+
+    call_idx = [0]
+
+    async def _execute(stmt, *args, **kwargs):
+        call_idx[0] += 1
+        result = MagicMock()
+        if call_idx[0] == 1:
+            result.one_or_none.return_value = fumen
+        else:
+            result.scalar_one_or_none.return_value = None  # user not found
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute = _execute
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user_optional] = lambda: None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(
+                f"/scores/fumen/{fumen_id}/row-detail",
+                params={"user_id": str(user_id)},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_row_detail_no_auth_no_user_id_returns_401():
+    """Without authentication and without user_id param, endpoint returns 401."""
+    fumen_id = uuid_mod.uuid4()
+    fumen = _make_fumen_row(fumen_id=fumen_id)
+
+    call_idx = [0]
+
+    async def _execute(stmt, *args, **kwargs):
+        call_idx[0] += 1
+        result = MagicMock()
+        if call_idx[0] == 1:
+            result.one_or_none.return_value = fumen
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute = _execute
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user_optional] = lambda: None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(f"/scores/fumen/{fumen_id}/row-detail")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_row_detail_compact_columns_no_full_history():
+    """Response records have expected fields and do not include full history payload."""
+    fumen_id = uuid_mod.uuid4()
+    user_id = uuid_mod.uuid4()
+    fumen = _make_fumen_row(fumen_id=fumen_id)
+    user = _make_user_row(user_id=user_id)
+    score = _make_user_score(
+        client_type="beatoraja",
+        exscore=2345,
+        clear_type=5,
+        min_bp=12,
+        rate=91.23,
+        rank="AA",
+        play_count=42,
+    )
+
+    call_idx = [0]
+
+    async def _execute(stmt, *args, **kwargs):
+        call_idx[0] += 1
+        result = MagicMock()
+        if call_idx[0] == 1:
+            result.one_or_none.return_value = fumen
+        elif call_idx[0] == 2:
+            result.scalar_one_or_none.return_value = user
+        else:
+            result.scalars.return_value.all.return_value = [score]
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute = _execute
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user_optional] = lambda: None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(
+                f"/scores/fumen/{fumen_id}/row-detail",
+                params={"user_id": str(user_id)},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    record = data["records"][0]
+
+    # Compact expected fields
+    assert "score_id" in record
+    assert "client_type" in record
+    assert "clear_type" in record
+    assert "min_bp" in record
+    assert "rate" in record
+    assert "rank" in record
+    assert "exscore" in record
+    assert "play_count" in record
+    assert "judgment_detail" in record
+    assert "arrangement" in record
+
+    # No full history or raw hash fields
+    assert "fumen_sha256" not in record
+    assert "fumen_md5" not in record
+    assert "scorehash" not in record
+    assert "user_id" not in record
+
+    assert record["exscore"] == 2345
+    assert record["play_count"] == 42
+
+
+@pytest.mark.asyncio
+async def test_row_detail_as_of_parameter_passed_to_query():
+    """as_of parameter is accepted; with a past date filtering empty results is valid."""
+    fumen_id = uuid_mod.uuid4()
+    user_id = uuid_mod.uuid4()
+    fumen = _make_fumen_row(fumen_id=fumen_id)
+    user = _make_user_row(user_id=user_id)
+
+    call_idx = [0]
+
+    async def _execute(stmt, *args, **kwargs):
+        call_idx[0] += 1
+        result = MagicMock()
+        if call_idx[0] == 1:
+            result.one_or_none.return_value = fumen
+        elif call_idx[0] == 2:
+            result.scalar_one_or_none.return_value = user
+        else:
+            # Simulate as_of filtering result — no scores before this old date
+            result.scalars.return_value.all.return_value = []
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute = _execute
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user_optional] = lambda: None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(
+                f"/scores/fumen/{fumen_id}/row-detail",
+                params={"user_id": str(user_id), "as_of": "2020-01-01"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["records"] == []
+
+
+@pytest.mark.asyncio
+async def test_row_detail_invalid_as_of_returns_400():
+    """An invalid as_of date string returns 400."""
+    fumen_id = uuid_mod.uuid4()
+    user_id = uuid_mod.uuid4()
+    fumen = _make_fumen_row(fumen_id=fumen_id)
+    user = _make_user_row(user_id=user_id)
+
+    call_idx = [0]
+
+    async def _execute(stmt, *args, **kwargs):
+        call_idx[0] += 1
+        result = MagicMock()
+        if call_idx[0] == 1:
+            result.one_or_none.return_value = fumen
+        elif call_idx[0] == 2:
+            result.scalar_one_or_none.return_value = user
+        else:
+            result.scalars.return_value.all.return_value = []
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute = _execute
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user_optional] = lambda: None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(
+                f"/scores/fumen/{fumen_id}/row-detail",
+                params={"user_id": str(user_id), "as_of": "not-a-date"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 400

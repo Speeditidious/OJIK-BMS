@@ -2,10 +2,11 @@
 
 import math
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -20,6 +21,11 @@ from app.services.client_aggregation import (
     aggregate_source_client,
 )
 from app.services.initial_sync import is_initial_sync_timestamp
+from app.services.score_row_detail import (
+    decode_arrangement,
+    normalize_judgments,
+    pick_best_per_client,
+)
 
 router = APIRouter(prefix="/scores", tags=["scores"])
 
@@ -250,6 +256,136 @@ async def get_scores_for_fumen(
             is_first_sync=_is_first_sync(s),
         ))
     return out
+
+
+class RowDetailRecord(BaseModel):
+    """Single client's best score record in fumen row detail response."""
+
+    score_id: str
+    client_type: str
+    clear_type: int | None
+    min_bp: int | None
+    rate: float | None
+    rank: str | None
+    exscore: int | None
+    play_count: int | None
+    judgment_detail: dict | None
+    arrangement: dict | None
+
+
+class FumenRowDetailResponse(BaseModel):
+    """Response for GET /scores/fumen/{fumen_id}/row-detail."""
+
+    fumen_id: str
+    keymode: int | None
+    detail_basis: str
+    records: list[RowDetailRecord]
+
+
+@router.get("/fumen/{fumen_id}/row-detail", response_model=FumenRowDetailResponse)
+async def get_fumen_row_detail(
+    fumen_id: uuid.UUID,
+    user_id: uuid.UUID | None = Query(None),
+    as_of: str | None = Query(None, description="ISO date YYYY-MM-DD for historical filtering"),
+    current_user: User | None = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
+) -> FumenRowDetailResponse:
+    """Return one best score record per client type for a fumen, identified by fumen_id UUID.
+
+    Selection is by highest exscore, then highest clear_type, then latest timestamp.
+    Course records (fumen_hash_others IS NOT NULL) are excluded.
+    An ``as_of`` date filters to scores recorded/synced on or before that date.
+    """
+    # 1. Resolve fumen
+    fumen_result = await db.execute(
+        select(Fumen.fumen_id, Fumen.sha256, Fumen.md5, Fumen.keymode, Fumen.notes_total)
+        .where(Fumen.fumen_id == fumen_id)
+        .limit(1)
+    )
+    fumen_row = fumen_result.one_or_none()
+    if fumen_row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fumen not found")
+
+    fumen_sha256 = fumen_row.sha256
+    fumen_md5 = fumen_row.md5
+    fumen_keymode = fumen_row.keymode
+    notes_total = fumen_row.notes_total
+
+    # 2. Resolve target user
+    target_user = await _resolve_target_user(user_id, current_user, db)
+
+    # 3. Build fumen identity condition
+    # Include rows linked by fumen_id UUID, sha256, or md5-only (LR2) fallback
+    identity_conditions = [UserScore.fumen_id == fumen_id]
+    if fumen_sha256:
+        identity_conditions.append(UserScore.fumen_sha256 == fumen_sha256)
+    if fumen_md5:
+        # LR2 rows: md5 matches, but fumen_sha256 is NULL (no sha256 recorded)
+        identity_conditions.append(
+            (UserScore.fumen_md5 == fumen_md5) & UserScore.fumen_sha256.is_(None)
+        )
+
+    base_condition = (
+        UserScore.user_id == target_user.id,
+        UserScore.fumen_hash_others.is_(None),
+        or_(*identity_conditions),
+    )
+
+    query = select(UserScore).where(*base_condition)
+
+    # 4. as_of date filter
+    if as_of:
+        try:
+            as_of_date = date.fromisoformat(as_of)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="as_of must be in ISO format YYYY-MM-DD",
+            )
+        query = query.where(
+            func.coalesce(UserScore.recorded_at, UserScore.synced_at).cast(
+                __import__("sqlalchemy").Date
+            )
+            <= as_of_date
+        )
+
+    result = await db.execute(query)
+    all_scores = result.scalars().all()
+
+    # 5. Pick best representative per client
+    representatives = pick_best_per_client(all_scores)
+
+    # 6. Build records
+    records: list[RowDetailRecord] = []
+    for s in representatives:
+        # Compute rate/rank if missing
+        rate = s.rate
+        rank = s.rank
+        if rate is None and s.exscore is not None and notes_total:
+            rate, rank = _compute_rate_rank(s.exscore, notes_total)
+
+        judgment_detail = normalize_judgments(s.client_type, s.judgments)
+        arrangement = decode_arrangement(s.client_type, s.options, fumen_keymode)
+
+        records.append(RowDetailRecord(
+            score_id=str(s.id),
+            client_type=s.client_type,
+            clear_type=display_clear_type(s.clear_type, exscore=s.exscore, rate=rate),
+            min_bp=s.min_bp,
+            rate=rate,
+            rank=rank,
+            exscore=s.exscore,
+            play_count=s.play_count,
+            judgment_detail=judgment_detail,
+            arrangement=arrangement,
+        ))
+
+    return FumenRowDetailResponse(
+        fumen_id=str(fumen_id),
+        keymode=fumen_keymode,
+        detail_basis="best_exscore_per_client",
+        records=records,
+    )
 
 
 @router.get("/me/{fumen_sha256}", response_model=PerFieldBestScore)
