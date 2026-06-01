@@ -674,7 +674,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.core.database import get_db
-from app.core.security import get_current_user_optional
+from app.core.security import get_current_user, get_current_user_optional
 from app.main import app
 
 
@@ -712,6 +712,7 @@ def _make_user_score(
     exscore: int | None = 1000,
     clear_type: int | None = 5,
     min_bp: int | None = 10,
+    max_combo: int | None = None,
     rate: float | None = 90.0,
     rank: str | None = "AA",
     play_count: int | None = 5,
@@ -731,6 +732,7 @@ def _make_user_score(
         exscore=exscore,
         clear_type=clear_type,
         min_bp=min_bp,
+        max_combo=max_combo,
         rate=rate,
         rank=rank,
         play_count=play_count,
@@ -1298,3 +1300,134 @@ async def test_row_detail_invalid_as_of_returns_400():
         app.dependency_overrides.clear()
 
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# GET /scores/me/fumen/{hash_value} — judgment_detail and arrangement fields
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_history_fumen_rows_include_judgment_detail():
+    """GET /scores/me/fumen/{hash} returns judgment_detail for each LR2 score row."""
+    user_id = uuid_mod.uuid4()
+    user = _make_user_row(user_id=user_id)
+    md5 = "b" * 32
+
+    score = _make_user_score(
+        user_id=user_id,
+        client_type="lr2",
+        judgments={"perfect": 100, "great": 10, "good": 2, "bad": 0, "poor": 1},
+        options=None,
+        fumen_md5=md5,
+    )
+
+    call_idx = [0]
+
+    async def _execute(stmt, *args, **kwargs):
+        call_idx[0] += 1
+        result = MagicMock()
+        if call_idx[0] == 1:
+            # scores query
+            result.scalars.return_value.all.return_value = [score]
+        elif call_idx[0] == 2:
+            # first_synced_at query
+            result.scalar_one_or_none.return_value = None
+        else:
+            # fumen_meta (notes_total, keymode)
+            result.one_or_none.return_value = SimpleNamespace(
+                **{"0": 1000, "1": 5}
+            )
+            # Use a plain tuple so row[0] / row[1] indexing works
+            result.one_or_none.return_value = (1000, 5)
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute = _execute
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user_optional] = lambda: user
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(f"/scores/me/fumen/{md5}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert len(data) == 1
+    row = data[0]
+
+    # judgment_detail must be present and non-null for a valid LR2 judgments dict
+    assert "judgment_detail" in row
+    assert row["judgment_detail"] is not None
+    # LR2 maps "perfect" → group key "pgreat"
+    first_group = row["judgment_detail"]["judgments"][0]
+    assert first_group["key"] == "pgreat"
+    assert first_group["count"] == 100
+    # LR2 has no fast/slow breakdown
+    assert first_group["fast"] is None
+    assert first_group["slow"] is None
+
+
+@pytest.mark.asyncio
+async def test_history_fumen_rows_include_arrangement():
+    """GET /scores/me/fumen/{hash} returns arrangement for each Beatoraja score row."""
+    user_id = uuid_mod.uuid4()
+    user = _make_user_row(user_id=user_id)
+    md5 = "b" * 32
+
+    score = _make_user_score(
+        user_id=user_id,
+        client_type="beatoraja",
+        judgments=None,
+        options={"option": 0, "seed": 0, "mode": 0, "random": 0},  # option=0 = NORMAL
+        fumen_md5=md5,
+    )
+
+    call_idx = [0]
+
+    async def _execute(stmt, *args, **kwargs):
+        call_idx[0] += 1
+        result = MagicMock()
+        if call_idx[0] == 1:
+            # scores query
+            result.scalars.return_value.all.return_value = [score]
+        elif call_idx[0] == 2:
+            # first_synced_at query
+            result.scalar_one_or_none.return_value = None
+        else:
+            # fumen_meta (notes_total, keymode=7)
+            result.one_or_none.return_value = (1000, 7)
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute = _execute
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user_optional] = lambda: user
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(f"/scores/me/fumen/{md5}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert len(data) == 1
+    row = data[0]
+
+    # arrangement must be present and non-null
+    assert "arrangement" in row
+    assert row["arrangement"] is not None
+    arrangement = row["arrangement"]
+    # option=1 = NORMAL for Beatoraja SP 7K
+    assert arrangement["option_label"] == "NORMAL"
+    assert arrangement["unavailable_reason"] is None
+    # 7K NORMAL: lanes [1, 2, 3, 4, 5, 6, 7]
+    assert arrangement["lane_groups"][0]["lanes"] == [1, 2, 3, 4, 5, 6, 7]

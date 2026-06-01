@@ -6,7 +6,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, or_, select
+from sqlalchemy import Date, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -62,6 +62,8 @@ class UserScoreRead(BaseModel):
     recorded_at: str | None
     synced_at: str | None
     is_first_sync: bool = False
+    judgment_detail: dict | None = None
+    arrangement: dict | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -218,11 +220,17 @@ async def get_scores_for_fumen(
     def _is_first_sync(s: UserScore) -> bool:
         return is_initial_sync_timestamp(first_synced_at, s.client_type, s.synced_at)
 
-    # Fetch notes_total for rate/rank computation on rows where they're null (e.g. scorelog.db rows)
+    # Fetch notes_total and keymode for rate/rank computation and arrangement decoding.
+    # Always fetch when there are scores so arrangement can be decoded for every row.
     notes_total: int | None = None
-    if any(s.rate is None and s.exscore is not None for s in scores):
-        fumen_result = await db.execute(select(Fumen.notes_total).where(notes_condition).limit(1))
-        notes_total = fumen_result.scalar_one_or_none()
+    fumen_keymode: int | None = None
+    if scores and notes_condition is not None:
+        fumen_meta_result = await db.execute(
+            select(Fumen.notes_total, Fumen.keymode).where(notes_condition).limit(1)
+        )
+        row = fumen_meta_result.one_or_none()
+        if row is not None:
+            notes_total, fumen_keymode = row[0], row[1]
 
     def _get_rate_rank(s: UserScore) -> tuple[float | None, str | None]:
         if s.rate is not None:
@@ -254,6 +262,8 @@ async def get_scores_for_fumen(
             recorded_at=s.recorded_at.isoformat() if s.recorded_at else None,
             synced_at=s.synced_at.isoformat() if s.synced_at else None,
             is_first_sync=_is_first_sync(s),
+            judgment_detail=normalize_judgments(s.client_type, s.judgments),
+            arrangement=decode_arrangement(s.client_type, s.options, fumen_keymode),
         ))
     return out
 
@@ -343,10 +353,7 @@ async def get_fumen_row_detail(
                 detail="as_of must be in ISO format YYYY-MM-DD",
             )
         query = query.where(
-            func.coalesce(UserScore.recorded_at, UserScore.synced_at).cast(
-                __import__("sqlalchemy").Date
-            )
-            <= as_of_date
+            func.coalesce(UserScore.recorded_at, UserScore.synced_at).cast(Date) <= as_of_date
         )
 
     result = await db.execute(query)

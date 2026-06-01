@@ -303,9 +303,10 @@ class _ScalarResult:
 
 
 class _QueuedResult:
-    def __init__(self, rows=None, scalar=None):
+    def __init__(self, rows=None, scalar=None, row=None):
         self._rows = rows or []
         self._scalar = scalar
+        self._row = row
 
     def __iter__(self):
         return iter(self._rows)
@@ -318,6 +319,9 @@ class _QueuedResult:
 
     def scalar_one_or_none(self):
         return self._scalar
+
+    def one_or_none(self):
+        return self._row
 
 
 class _QueuedSession:
@@ -400,6 +404,7 @@ async def test_scores_for_fumen_marks_null_recorded_at_within_three_hour_first_s
         [
             _QueuedResult(rows=[score]),
             _QueuedResult(scalar=target_user.first_synced_at),
+            _QueuedResult(row=None),  # fumen_meta (notes_total, keymode)
         ]
     )
 
@@ -441,6 +446,7 @@ async def test_scores_for_fumen_allows_synced_at_after_three_hour_first_sync_win
         [
             _QueuedResult(rows=[score]),
             _QueuedResult(scalar=target_user.first_synced_at),
+            _QueuedResult(row=None),  # fumen_meta (notes_total, keymode)
         ]
     )
 
@@ -483,6 +489,7 @@ async def test_scores_for_fumen_preserves_real_recorded_at_inside_first_sync_win
         [
             _QueuedResult(rows=[score]),
             _QueuedResult(scalar=target_user.first_synced_at),
+            _QueuedResult(row=None),  # fumen_meta (notes_total, keymode)
         ]
     )
 
