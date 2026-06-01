@@ -69,6 +69,7 @@ _BEA_JUDGMENT_GROUPS = (
 )
 _BEA_FAST_KEYS_EX_PGREAT = ("egr", "egd", "ebd", "epr", "ems")
 _BEA_SLOW_KEYS_EX_PGREAT = ("lgr", "lgd", "lbd", "lpr", "lms")
+_ALL_BEA_KEYS: frozenset[str] = frozenset(k for _, e, l in _BEA_JUDGMENT_GROUPS for k in (e, l))
 
 
 def normalize_judgments(client_type: str, judgments: dict | None) -> dict | None:
@@ -106,8 +107,7 @@ def normalize_judgments(client_type: str, judgments: dict | None) -> dict | None
 
     if client_type == "beatoraja":
         # Validate that at least one expected key exists
-        all_bea_keys = {k for _, e, l in _BEA_JUDGMENT_GROUPS for k in (e, l)}
-        if not any(k in judgments for k in all_bea_keys):
+        if not any(k in judgments for k in _ALL_BEA_KEYS):
             return None
 
         groups = []
@@ -185,6 +185,9 @@ def _java_random_shuffle(seed: int, n: int) -> list[int]:
 
     def next_int(bound: int) -> int:
         nonlocal state
+        # Mirrors java.util.Random.nextInt(bound): rejection-sample on overflow.
+        # In Python, integers are arbitrary-precision so bits-val+(bound-1) >= 0 always;
+        # the loop always exits on the first iteration for bounds ≤ 14 (BMS key count).
         while True:
             state = (state * MULT + ADD) & MASK
             bits = state >> 17
@@ -305,28 +308,14 @@ def decode_arrangement(
         if keymode in _BEA_SP_KEYMODES:
             option_enum = option_raw & 0xFF
             label = _BEA_SP_OPTION_LABELS.get(option_enum, f"UNKNOWN({option_enum})")
-
-            if option_enum in _BEA_ASSIST_OPTIONS:
-                return _make_unavailable(label, "assist_option_unsupported")
-            if option_enum in _BEA_STATIC_MAP_OPTIONS:
-                return _make_unavailable(label, "static_map_unsupported")
-
             seed = options.get("seed")
-
-            if option_enum == 0:  # NORMAL
-                lanes = _identity_lanes(keymode)
-            elif option_enum == 1:  # MIRROR
-                lanes = _mirror_lanes(keymode)
-            elif option_enum == 2:  # RANDOM
-                if seed is None:
-                    return _make_unavailable(label, "score_metadata_missing")
-                lanes = _java_random_shuffle(seed, keymode)
-            else:
-                return _make_unavailable(label, "static_map_unsupported")
-
+            result = _decode_bea_sp_option(option_enum, seed, keymode)
+            if isinstance(result, tuple):
+                reason, _ = result
+                return _make_unavailable(label, reason)
             return {
                 "option_label": label,
-                "lane_groups": [{"side": "single", "option_label": label, "lanes": lanes}],
+                "lane_groups": [result],
                 "double_option_label": None,
                 "unavailable_reason": None,
             }

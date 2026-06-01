@@ -351,6 +351,15 @@ def test_lr2_random_7k_mapped():
     assert result["lane_groups"][0]["lanes"] == expected_lanes
 
 
+def test_lr2_random_5k_mapped():
+    """LR2 5K RANDOM with a mapped seed returns the decoded arrangement."""
+    result = decode_arrangement("lr2", {"op_best": _LR2_7K_RANDOM_OP, "rseed": _LR2_5K_RANDOM_SEED}, 5)
+    assert result["unavailable_reason"] is None
+    assert result["option_label"] == "RANDOM"
+    expected_lanes = [int(c) for c in _LR2_5K_RANDOM_ARR]
+    assert result["lane_groups"][0]["lanes"] == expected_lanes
+
+
 def test_lr2_random_7k_unmapped():
     """LR2 7K RANDOM with an unmapped seed returns lr2_seed_unmapped."""
     result = decode_arrangement("lr2", {"op_best": _LR2_7K_RANDOM_OP, "rseed": 999999999}, 7)
