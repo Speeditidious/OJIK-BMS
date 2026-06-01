@@ -197,3 +197,344 @@ def test_5k_seed_count(seed_map):
 def test_7k_seed_count(seed_map):
     """At least 5000 7K arrangements are loaded."""
     assert len(seed_map["7"]) >= 5000
+
+
+# ---------------------------------------------------------------------------
+# Imports for new functions
+# ---------------------------------------------------------------------------
+
+from app.services.score_row_detail import normalize_judgments, decode_arrangement
+
+
+# ---------------------------------------------------------------------------
+# normalize_judgments — LR2
+# ---------------------------------------------------------------------------
+
+def test_lr2_judgment_order():
+    """LR2 judgments are returned in pgreat/great/good/bad/poor/miss order."""
+    j = {"perfect": 100, "great": 20, "good": 5, "bad": 2, "poor": 1}
+    result = normalize_judgments("lr2", j)
+    assert result is not None
+    keys = [g["key"] for g in result["judgments"]]
+    assert keys == ["pgreat", "great", "good", "bad", "poor", "miss"]
+
+
+def test_lr2_judgment_counts():
+    """LR2 judgment counts map correctly from source keys."""
+    j = {"perfect": 500, "great": 30, "good": 10, "bad": 3, "poor": 2}
+    result = normalize_judgments("lr2", j)
+    groups = {g["key"]: g["count"] for g in result["judgments"]}
+    assert groups["pgreat"] == 500
+    assert groups["great"] == 30
+    assert groups["good"] == 10
+    assert groups["bad"] == 3
+    assert groups["poor"] == 2
+    assert groups["miss"] == 0
+
+
+def test_lr2_judgment_fast_slow_null():
+    """LR2 fast and slow values are all None (no early/late data)."""
+    j = {"perfect": 100, "great": 20, "good": 5, "bad": 2, "poor": 1}
+    result = normalize_judgments("lr2", j)
+    for g in result["judgments"]:
+        assert g["fast"] is None, f"{g['key']}.fast should be None"
+        assert g["slow"] is None, f"{g['key']}.slow should be None"
+
+
+def test_lr2_fast_slow_totals_null():
+    """LR2 fast/slow totals are None."""
+    j = {"perfect": 100, "great": 20, "good": 5, "bad": 2, "poor": 1}
+    result = normalize_judgments("lr2", j)
+    assert result["fast_total_excluding_pgreat"] is None
+    assert result["slow_total_excluding_pgreat"] is None
+
+
+def test_lr2_judgment_none_input():
+    """normalize_judgments returns None when judgments is None (LR2)."""
+    assert normalize_judgments("lr2", None) is None
+
+
+# ---------------------------------------------------------------------------
+# normalize_judgments — Beatoraja
+# ---------------------------------------------------------------------------
+
+_BEA_J = {
+    "epg": 600, "lpg": 634,
+    "egr": 20,  "lgr": 36,
+    "egd": 3,   "lgd": 4,
+    "ebd": 1,   "lbd": 0,
+    "epr": 0,   "lpr": 2,
+    "ems": 0,   "lms": 0,
+}
+
+
+def test_bea_judgment_grouped_counts():
+    """Beatoraja grouped counts are sums of early+late."""
+    result = normalize_judgments("beatoraja", _BEA_J)
+    assert result is not None
+    groups = {g["key"]: g for g in result["judgments"]}
+    assert groups["pgreat"]["count"] == 600 + 634
+    assert groups["great"]["count"] == 20 + 36
+    assert groups["good"]["count"] == 3 + 4
+    assert groups["bad"]["count"] == 1 + 0
+    assert groups["poor"]["count"] == 0 + 2
+    assert groups["miss"]["count"] == 0 + 0
+
+
+def test_bea_judgment_fast_slow_values():
+    """Beatoraja per-group fast/slow: pgreat.fast=epg, pgreat.slow=lpg."""
+    result = normalize_judgments("beatoraja", _BEA_J)
+    groups = {g["key"]: g for g in result["judgments"]}
+    assert groups["pgreat"]["fast"] == 600   # epg
+    assert groups["pgreat"]["slow"] == 634   # lpg
+    assert groups["great"]["fast"] == 20     # egr
+    assert groups["great"]["slow"] == 36     # lgr
+    assert groups["bad"]["fast"] == 1        # ebd
+    assert groups["bad"]["slow"] == 0        # lbd
+
+
+def test_bea_fast_slow_totals_excluding_pgreat():
+    """Beatoraja fast/slow totals exclude pgreat."""
+    result = normalize_judgments("beatoraja", _BEA_J)
+    # fast: egr+egd+ebd+epr+ems = 20+3+1+0+0 = 24
+    assert result["fast_total_excluding_pgreat"] == 24
+    # slow: lgr+lgd+lbd+lpr+lms = 36+4+0+2+0 = 42
+    assert result["slow_total_excluding_pgreat"] == 42
+
+
+def test_bea_judgment_none_input():
+    """normalize_judgments returns None when judgments is None (Beatoraja)."""
+    assert normalize_judgments("beatoraja", None) is None
+
+
+# ---------------------------------------------------------------------------
+# decode_arrangement — LR2
+# ---------------------------------------------------------------------------
+
+_LR2_7K_NORMAL_OP = 0 * 10   # arrangement_enum=0 → NORMAL
+_LR2_7K_MIRROR_OP = 1 * 10   # arrangement_enum=1 → MIRROR
+_LR2_7K_RANDOM_OP = 2 * 10   # arrangement_enum=2 → RANDOM
+_LR2_7K_SRANDOM_OP = 3 * 10  # arrangement_enum=3 → S-RANDOM
+
+# A known 7K RANDOM seed/arrangement from the seed map
+_LR2_7K_RANDOM_SEED = 778
+_LR2_7K_RANDOM_ARR = "2561437"  # arrangement for seed=778 in 7K
+
+# A known 5K RANDOM seed
+_LR2_5K_RANDOM_SEED = 11168
+_LR2_5K_RANDOM_ARR = "34512"
+
+
+def test_lr2_normal_7k():
+    """LR2 7K NORMAL returns identity lanes."""
+    result = decode_arrangement("lr2", {"op_best": _LR2_7K_NORMAL_OP, "rseed": 391}, 7)
+    assert result["unavailable_reason"] is None
+    assert result["option_label"] == "NORMAL"
+    assert result["lane_groups"][0]["lanes"] == [1, 2, 3, 4, 5, 6, 7]
+    assert result["lane_groups"][0]["side"] == "single"
+
+
+def test_lr2_mirror_7k():
+    """LR2 7K MIRROR returns reversed lanes."""
+    result = decode_arrangement("lr2", {"op_best": _LR2_7K_MIRROR_OP, "rseed": 0}, 7)
+    assert result["unavailable_reason"] is None
+    assert result["option_label"] == "MIRROR"
+    assert result["lane_groups"][0]["lanes"] == [7, 6, 5, 4, 3, 2, 1]
+
+
+def test_lr2_random_7k_mapped():
+    """LR2 7K RANDOM with a mapped seed returns the decoded arrangement."""
+    result = decode_arrangement("lr2", {"op_best": _LR2_7K_RANDOM_OP, "rseed": _LR2_7K_RANDOM_SEED}, 7)
+    assert result["unavailable_reason"] is None
+    assert result["option_label"] == "RANDOM"
+    expected_lanes = [int(c) for c in _LR2_7K_RANDOM_ARR]
+    assert result["lane_groups"][0]["lanes"] == expected_lanes
+
+
+def test_lr2_random_7k_unmapped():
+    """LR2 7K RANDOM with an unmapped seed returns lr2_seed_unmapped."""
+    result = decode_arrangement("lr2", {"op_best": _LR2_7K_RANDOM_OP, "rseed": 999999999}, 7)
+    assert result["unavailable_reason"] == "lr2_seed_unmapped"
+    assert result["option_label"] == "RANDOM"
+
+
+def test_lr2_srandom_static_map_unsupported():
+    """LR2 S-RANDOM returns static_map_unsupported."""
+    result = decode_arrangement("lr2", {"op_best": _LR2_7K_SRANDOM_OP}, 7)
+    assert result["unavailable_reason"] == "static_map_unsupported"
+    assert result["option_label"] == "S-RANDOM"
+
+
+def test_lr2_dp_unsupported():
+    """LR2 DP (14K keymode) returns dp_unsupported."""
+    result = decode_arrangement("lr2", {"op_best": _LR2_7K_NORMAL_OP}, 14)
+    assert result["unavailable_reason"] == "dp_unsupported"
+
+
+def test_lr2_options_none():
+    """LR2 with options=None returns score_metadata_missing."""
+    result = decode_arrangement("lr2", None, 7)
+    assert result["unavailable_reason"] == "score_metadata_missing"
+
+
+def test_lr2_keymode_none():
+    """LR2 with keymode=None returns keymode_missing."""
+    result = decode_arrangement("lr2", {"op_best": _LR2_7K_NORMAL_OP}, None)
+    assert result["unavailable_reason"] == "keymode_missing"
+
+
+# ---------------------------------------------------------------------------
+# decode_arrangement — Beatoraja SP
+# ---------------------------------------------------------------------------
+
+def test_bea_sp_normal_7k():
+    """Beatoraja 7K NORMAL returns identity lanes."""
+    result = decode_arrangement("beatoraja", {"option": 0}, 7)
+    assert result["unavailable_reason"] is None
+    assert result["option_label"] == "NORMAL"
+    assert result["lane_groups"][0]["lanes"] == [1, 2, 3, 4, 5, 6, 7]
+
+
+def test_bea_sp_mirror_7k():
+    """Beatoraja 7K MIRROR returns reversed lanes."""
+    result = decode_arrangement("beatoraja", {"option": 1}, 7)
+    assert result["unavailable_reason"] is None
+    assert result["option_label"] == "MIRROR"
+    assert result["lane_groups"][0]["lanes"] == [7, 6, 5, 4, 3, 2, 1]
+
+
+def test_bea_sp_random_fixture_seed_7591322():
+    """Beatoraja 7K RANDOM seed=7591322 produces the expected permutation."""
+    result = decode_arrangement("beatoraja", {"option": 2, "seed": 7591322}, 7)
+    assert result["unavailable_reason"] is None
+    assert result["option_label"] == "RANDOM"
+    # Pre-computed expected result: java_random_shuffle(7591322, 7)
+    assert result["lane_groups"][0]["lanes"] == [5, 3, 4, 7, 6, 1, 2]
+
+
+def test_bea_sp_random_missing_seed():
+    """Beatoraja RANDOM with missing seed returns score_metadata_missing."""
+    result = decode_arrangement("beatoraja", {"option": 2}, 7)
+    assert result["unavailable_reason"] == "score_metadata_missing"
+    assert result["option_label"] == "RANDOM"
+
+
+def test_bea_sp_srandom_static_map_unsupported():
+    """Beatoraja S-RANDOM returns static_map_unsupported."""
+    result = decode_arrangement("beatoraja", {"option": 4}, 7)
+    assert result["unavailable_reason"] == "static_map_unsupported"
+    assert result["option_label"] == "S-RANDOM"
+
+
+def test_bea_sp_battle_assist_option_unsupported():
+    """Beatoraja BATTLE returns assist_option_unsupported."""
+    result = decode_arrangement("beatoraja", {"option": 9}, 7)
+    assert result["unavailable_reason"] == "assist_option_unsupported"
+    assert result["option_label"] == "BATTLE"
+
+
+def test_bea_sp_battle_as_assist_option_unsupported():
+    """Beatoraja BATTLE AS returns assist_option_unsupported."""
+    result = decode_arrangement("beatoraja", {"option": 10}, 7)
+    assert result["unavailable_reason"] == "assist_option_unsupported"
+    assert result["option_label"] == "BATTLE AS"
+
+
+def test_bea_options_none():
+    """Beatoraja with options=None returns score_metadata_missing."""
+    result = decode_arrangement("beatoraja", None, 7)
+    assert result["unavailable_reason"] == "score_metadata_missing"
+
+
+def test_bea_keymode_unsupported():
+    """Beatoraja with unsupported keymode (e.g., 9 for POPN) returns keymode_unsupported."""
+    result = decode_arrangement("beatoraja", {"option": 0}, 9)
+    assert result["unavailable_reason"] == "keymode_unsupported"
+
+
+def test_bea_normal_decodable_without_seed():
+    """Beatoraja NORMAL does not require a seed."""
+    result = decode_arrangement("beatoraja", {"option": 0}, 7)
+    assert result["unavailable_reason"] is None
+    assert result["lane_groups"][0]["lanes"] == [1, 2, 3, 4, 5, 6, 7]
+
+
+def test_bea_mirror_decodable_without_seed():
+    """Beatoraja MIRROR does not require a seed."""
+    result = decode_arrangement("beatoraja", {"option": 1}, 7)
+    assert result["unavailable_reason"] is None
+    assert result["lane_groups"][0]["lanes"] == [7, 6, 5, 4, 3, 2, 1]
+
+
+def test_bea_missing_option_key():
+    """Beatoraja options dict without 'option' key returns score_metadata_missing."""
+    result = decode_arrangement("beatoraja", {"seed": 12345}, 7)
+    assert result["unavailable_reason"] == "score_metadata_missing"
+
+
+# ---------------------------------------------------------------------------
+# decode_arrangement — Beatoraja DP (10K/14K)
+# ---------------------------------------------------------------------------
+
+def test_bea_dp_10k_option_seed_unpacking():
+    """Beatoraja 10K DP option and seed are unpacked correctly per side."""
+    # option_1p=1 (MIRROR), option_2p=2 (RANDOM), double=0 (none)
+    # seed_1p=0, seed_2p=12345
+    # packed_option = 1 | (2 << 8) | (0 << 16) = 513
+    # packed_seed = 0 | (12345 << 32)
+    packed_option = 1 | (2 << 8)
+    packed_seed = 12345 << 32
+    result = decode_arrangement("beatoraja", {"option": packed_option, "seed": packed_seed}, 10)
+    assert result["unavailable_reason"] is None
+    assert result["double_option_label"] is None
+    assert len(result["lane_groups"]) == 2
+    # 1P: MIRROR of 5 lanes
+    assert result["lane_groups"][0]["side"] == "1p"
+    assert result["lane_groups"][0]["option_label"] == "MIRROR"
+    assert result["lane_groups"][0]["lanes"] == [5, 4, 3, 2, 1]
+    # 2P: RANDOM with seed=12345
+    assert result["lane_groups"][1]["side"] == "2p"
+    assert result["lane_groups"][1]["option_label"] == "RANDOM"
+    # java_random_shuffle(12345, 5)
+    assert result["lane_groups"][1]["lanes"] == [5, 3, 4, 1, 2]
+
+
+def test_bea_dp_flip_ordering():
+    """Beatoraja DP with FLIP swaps 1P and 2P before per-side decoding."""
+    # option_1p_orig=1 (MIRROR), option_2p_orig=2 (RANDOM), double=1 (FLIP)
+    # After FLIP: 1P gets RANDOM (seed_2p=12345), 2P gets MIRROR
+    packed_option = 1 | (2 << 8) | (1 << 16)   # = 66049
+    packed_seed = 0 | (12345 << 32)             # seed_1p=0, seed_2p=12345
+    result = decode_arrangement("beatoraja", {"option": packed_option, "seed": packed_seed}, 10)
+    assert result["unavailable_reason"] is None
+    assert result["double_option_label"] == "FLIP"
+    # After FLIP: 1p = RANDOM (originally 2p's option+seed), 2p = MIRROR (originally 1p's)
+    assert result["lane_groups"][0]["side"] == "1p"
+    assert result["lane_groups"][0]["option_label"] == "RANDOM"
+    assert result["lane_groups"][0]["lanes"] == [5, 3, 4, 1, 2]  # java_random_shuffle(12345, 5)
+    assert result["lane_groups"][1]["side"] == "2p"
+    assert result["lane_groups"][1]["option_label"] == "MIRROR"
+    assert result["lane_groups"][1]["lanes"] == [5, 4, 3, 2, 1]
+
+
+def test_bea_dp_normal_1p():
+    """Beatoraja DP 10K with both sides NORMAL decodes identity for each side."""
+    packed_option = 0 | (0 << 8)
+    result = decode_arrangement("beatoraja", {"option": packed_option}, 10)
+    assert result["unavailable_reason"] is None
+    assert result["lane_groups"][0]["lanes"] == [1, 2, 3, 4, 5]
+    assert result["lane_groups"][1]["lanes"] == [1, 2, 3, 4, 5]
+
+
+def test_bea_dp_battle_returns_assist_option_unsupported():
+    """Beatoraja DP BATTLE (option_1p=9) returns assist_option_unsupported, not dp_unsupported."""
+    packed_option = 9 | (0 << 8)
+    result = decode_arrangement("beatoraja", {"option": packed_option}, 10)
+    assert result["unavailable_reason"] == "assist_option_unsupported"
+
+
+def test_bea_dp_battle_as_returns_assist_option_unsupported():
+    """Beatoraja DP BATTLE AS (option_2p=10) returns assist_option_unsupported."""
+    packed_option = 0 | (10 << 8)
+    result = decode_arrangement("beatoraja", {"option": packed_option}, 10)
+    assert result["unavailable_reason"] == "assist_option_unsupported"
