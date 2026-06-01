@@ -346,6 +346,32 @@ async def test_keymode_only_fill_does_not_affect_inserted_or_skipped_counts():
 
 
 @pytest.mark.asyncio
+async def test_beatoraja_does_not_overwrite_existing_non_null_keymode():
+    """Beatoraja item must not overwrite an already-populated keymode field."""
+    existing = _make_existing_row(sha256=_SHA256_BEA, md5=_MD5_BEA, keymode=7)
+    mock_db = _make_mock_db(existing_by_sha256={_SHA256_BEA: existing})
+    mock_user = _make_user()
+
+    app.dependency_overrides[get_db] = lambda: (yield mock_db)  # type: ignore[misc]
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    try:
+        data = await _post_sync_details({
+            "items": [{
+                "sha256": _SHA256_BEA,
+                "md5": _MD5_BEA,
+                "client_type": "beatoraja",
+                "keymode": 5,  # different value — must NOT overwrite
+            }],
+        })
+    finally:
+        app.dependency_overrides.clear()
+
+    assert data["skipped"] == 1, f"non-null keymode must not be overwritten by Beatoraja; got {data}"
+    assert data["enriched"] == 0
+    assert data["inserted"] == 0
+
+
+@pytest.mark.asyncio
 async def test_hash_supplement_plus_keymode_fill_reports_one_enriched_after_overlap_correction():
     """When a fumen is both hash-supplemented and keymode-filled, overlap_count is incremented.
 
