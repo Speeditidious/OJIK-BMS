@@ -6,6 +6,7 @@ See api/app/data/LR2HackBox-MIT-LICENSE.txt for the full license text.
 """
 import json
 from pathlib import Path
+from typing import Any
 
 _DATA_DIR = Path(__file__).parent.parent / "data"
 _SEED_MAP_PATH = _DATA_DIR / "lr2_random_seed_map.json"
@@ -69,7 +70,7 @@ _BEA_JUDGMENT_GROUPS = (
 )
 _BEA_FAST_KEYS_EX_PGREAT = ("egr", "egd", "ebd", "epr", "ems")
 _BEA_SLOW_KEYS_EX_PGREAT = ("lgr", "lgd", "lbd", "lpr", "lms")
-_ALL_BEA_KEYS: frozenset[str] = frozenset(k for _, e, l in _BEA_JUDGMENT_GROUPS for k in (e, l))
+_ALL_BEA_KEYS: frozenset[str] = frozenset(k for _, e, lk in _BEA_JUDGMENT_GROUPS for k in (e, lk))
 
 
 def normalize_judgments(client_type: str, judgments: dict | None) -> dict | None:
@@ -112,9 +113,9 @@ def normalize_judgments(client_type: str, judgments: dict | None) -> dict | None
 
         groups = []
         for group_key, early_key, late_key in _BEA_JUDGMENT_GROUPS:
-            e = judgments.get(early_key, 0)
-            l = judgments.get(late_key, 0)
-            groups.append({"key": group_key, "count": e + l, "fast": e, "slow": l})
+            early = judgments.get(early_key, 0)
+            late = judgments.get(late_key, 0)
+            groups.append({"key": group_key, "count": early + late, "fast": early, "slow": late})
 
         fast_total = sum(judgments.get(k, 0) for k in _BEA_FAST_KEYS_EX_PGREAT)
         slow_total = sum(judgments.get(k, 0) for k in _BEA_SLOW_KEYS_EX_PGREAT)
@@ -131,8 +132,6 @@ def normalize_judgments(client_type: str, judgments: dict | None) -> dict | None
 # ---------------------------------------------------------------------------
 # Best-per-client selection
 # ---------------------------------------------------------------------------
-
-from typing import Any
 
 
 def pick_best_per_client(rows: list[Any]) -> list[Any]:
@@ -237,12 +236,12 @@ def _java_random_shuffle(seed: int, n: int) -> list[int]:
 
     Returns a list of lane numbers 1..n in shuffled order.
     """
-    MASK = (1 << 48) - 1
-    MULT = 0x5DEECE66D
-    ADD = 0xB
+    mask = (1 << 48) - 1
+    mult = 0x5DEECE66D
+    add = 0xB
 
-    # Java Random initializes with (seed ^ MULT) & MASK
-    state = (seed ^ MULT) & MASK
+    # Java Random initializes with (seed ^ mult) & mask
+    state = (seed ^ mult) & mask
 
     lanes = list(range(1, n + 1))
 
@@ -252,7 +251,7 @@ def _java_random_shuffle(seed: int, n: int) -> list[int]:
         # In Python, integers are arbitrary-precision so bits-val+(bound-1) >= 0 always;
         # the loop always exits on the first iteration for bounds ≤ 14 (BMS key count).
         while True:
-            state = (state * MULT + ADD) & MASK
+            state = (state * mult + add) & mask
             bits = state >> 17
             val = bits % bound
             if bits - val + (bound - 1) >= 0:
