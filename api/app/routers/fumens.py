@@ -503,6 +503,387 @@ async def get_fumen_by_legacy_hash(
     return await _fumen_read(db, fumen, visible_table_ids)
 
 
+# ---------------------------------------------------------------------------
+# Fumen detail sync — route registrations that must come before /{hash_value}
+# ---------------------------------------------------------------------------
+
+# NOTE: /known-hashes and /sync-details are registered here (before /{hash_value})
+# so that FastAPI matches them before the catch-all path parameter route.
+
+class KnownHashesResponse(BaseModel):
+    """Response for GET /fumens/known-hashes."""
+
+    complete_sha256: list[str]
+    complete_md5: list[str]
+    partial_sha256: list[str]
+    partial_md5: list[str]
+    keymode_missing_md5: list[str] = []
+
+
+# Detail columns — NULL이 하나라도 있으면 "partial"
+# NOTE: keymode is intentionally excluded here — it is tracked separately via
+# keymode_missing_md5 so that LR2 clients can do a targeted backfill without
+# causing all existing fumens to become "partial".
+_DETAIL_COLS = (
+    "bpm_min", "bpm_max", "bpm_main", "notes_total", "total",
+    "notes_n", "notes_ln", "notes_s", "notes_ls", "length",
+)
+
+# Columns fetched for pre-fetch (hash keys + fillable detail fields only, no table_entries JSONB)
+_PREFETCH_COLS = (
+    Fumen.sha256, Fumen.md5, Fumen.title, Fumen.artist,
+    Fumen.bpm_min, Fumen.bpm_max, Fumen.bpm_main,
+    Fumen.notes_total, Fumen.total,
+    Fumen.notes_n, Fumen.notes_ln, Fumen.notes_s, Fumen.notes_ls,
+    Fumen.length,
+    Fumen.keymode,
+)
+
+# All fillable column names (title/artist + detail + keymode)
+# keymode is added explicitly here (not via _DETAIL_COLS) so Beatoraja can fill it
+# while it stays out of the complete/partial completeness check.
+_FILLABLE_COL_NAMES = ("title", "artist") + _DETAIL_COLS + ("keymode",)
+
+
+@router.get("/known-hashes", response_model=KnownHashesResponse)
+async def get_known_hashes(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> KnownHashesResponse:
+    """Return sets of known fumen hashes, split by detail completeness.
+
+    - complete: all detail columns are non-NULL → client can skip entirely.
+    - partial: at least one detail column is NULL → Beatoraja items should be sent for fill.
+    - keymode_missing_md5: md5 values of fumens with NULL keymode (separate from partial/complete).
+    """
+    detail_all_filled = sa.and_(
+        *[getattr(Fumen, col).isnot(None) for col in _DETAIL_COLS],
+        Fumen.title.isnot(None),
+        Fumen.artist.isnot(None),
+        Fumen.sha256.isnot(None), Fumen.sha256 != "",
+        Fumen.md5.isnot(None), Fumen.md5 != "",
+    )
+
+    result = await db.execute(
+        select(
+            Fumen.sha256,
+            Fumen.md5,
+            Fumen.keymode,
+            detail_all_filled.label("is_complete"),
+        )
+    )
+    rows = result.all()
+
+    complete_sha256: list[str] = []
+    complete_md5: list[str] = []
+    partial_sha256: list[str] = []
+    partial_md5: list[str] = []
+    keymode_missing_md5: list[str] = []
+
+    for row in rows:
+        if row.is_complete:
+            if row.sha256:
+                complete_sha256.append(row.sha256)
+            if row.md5:
+                complete_md5.append(row.md5)
+        else:
+            if row.sha256:
+                partial_sha256.append(row.sha256)
+            if row.md5:
+                partial_md5.append(row.md5)
+        # keymode_missing_md5 is separate from partial/complete — even a "complete"
+        # fumen may have NULL keymode (added after the fumen was first synced).
+        if row.keymode is None and row.md5:
+            keymode_missing_md5.append(row.md5)
+
+    return KnownHashesResponse(
+        complete_sha256=complete_sha256,
+        complete_md5=complete_md5,
+        partial_sha256=partial_sha256,
+        partial_md5=partial_md5,
+        keymode_missing_md5=keymode_missing_md5,
+    )
+
+
+class FumenDetailItem(BaseModel):
+    """A single fumen detail item from the client's local song DB."""
+
+    md5: str | None = None
+    sha256: str | None = None
+    title: str | None = None
+    artist: str | None = None
+    bpm_min: float | None = None
+    bpm_max: float | None = None
+    bpm_main: float | None = None
+    notes_total: int | None = None
+    total: int | None = None
+    notes_n: int | None = None
+    notes_ln: int | None = None
+    notes_s: int | None = None
+    notes_ls: int | None = None
+    length: int | None = None
+    keymode: int | None = None
+    client_type: str  # "beatoraja" or "lr2"
+
+
+class FumenDetailSyncRequest(BaseModel):
+    """Request body for POST /fumens/sync-details."""
+
+    items: list[FumenDetailItem]
+    supplemented_md5s: list[str] = []    # 이번 세션에서 supplement로 sha256 채워진 fumen의 md5
+    supplemented_sha256s: list[str] = [] # 이번 세션에서 supplement로 md5 채워진 fumen의 sha256
+
+
+class FumenDetailSyncResponse(BaseModel):
+    """Response body for POST /fumens/sync-details."""
+
+    inserted: int
+    enriched: int
+    skipped: int
+    overlap_count: int = 0  # enriched 중 supplemented와 겹치는 수 (double-count 보정용)
+
+
+@router.post("/sync-details", response_model=FumenDetailSyncResponse)
+async def sync_fumen_details(
+    body: FumenDetailSyncRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> FumenDetailSyncResponse:
+    """Sync fumen detail data from client's local song DBs.
+
+    Accepts fumen metadata items (Beatoraja first, then LR2).
+    - Beatoraja items: fill NULL detail fields on existing fumens, INSERT new ones.
+    - LR2 items: fill NULL keymode on existing fumens; INSERT if not in DB.
+    All new inserts record added_by_user_id.
+
+    NOTE: Client should call GET /fumens/known-hashes first and only send
+    items that are new or have incomplete details on the server.
+    LR2 items should additionally only be resent for md5s listed in keymode_missing_md5.
+    """
+    if not body.items:
+        return FumenDetailSyncResponse(inserted=0, enriched=0, skipped=0)
+
+    supplemented_md5_set = set(body.supplemented_md5s)
+    supplemented_sha256_set = set(body.supplemented_sha256s)
+    overlap_count = 0
+
+    # ── Step 1: Bulk pre-fetch — detail columns only (no table_entries JSONB) ──
+    all_sha256s = [it.sha256.lower() for it in body.items if it.sha256]
+    all_md5s = [it.md5.lower() for it in body.items if it.md5]
+
+    existing_by_sha256: dict[str, Any] = {}
+    if all_sha256s:
+        result = await db.execute(
+            select(*_PREFETCH_COLS).where(Fumen.sha256.in_(all_sha256s))
+        )
+        for row in result.all():
+            existing_by_sha256[row.sha256] = row
+
+    existing_by_md5: dict[str, Any] = {}
+    if all_md5s:
+        result = await db.execute(
+            select(*_PREFETCH_COLS).where(
+                Fumen.md5.in_(all_md5s),
+                # No sha256 IS NULL filter — a fumen with {sha256=X, md5=Y} must also be
+                # found when querying by md5=Y, to avoid duplicate inserts.
+            )
+        )
+        for row in result.all():
+            existing_by_md5[row.md5] = row
+
+    existing_md5_set = set(existing_by_md5.keys())
+
+    skipped_count = 0
+    # Track ALL processed fumens (insert/update/skip) by hash key.
+    # A fumen is the same if sha256 OR md5 matches. Both hashes are added when known.
+    seen_hashes: set[str] = set()
+    new_rows: list[dict] = []
+
+    # Track newly inserted keys so LR2 items can skip them
+    inserted_sha256s: set[str] = set()
+    inserted_md5s: set[str] = set()
+
+    # Collect updates: group by NULL field pattern for bulk CASE WHEN
+    # Key: frozenset of column names to update
+    # Value: list of (hash_key_type, hash_value, {col: new_val})
+    update_groups: dict[frozenset, list[tuple[str, str, dict]]] = {}
+
+    # ── Step 2: Process items in order (Beatoraja first, then LR2) ──
+    for item in body.items:
+        sha256 = item.sha256.lower() if item.sha256 else None
+        md5 = item.md5.lower() if item.md5 else None
+        if not sha256 and not md5:
+            # No valid hash at all — cannot identify fumen, don't count in skipped
+            continue
+
+        existing = None
+        hash_key_type: str = ""
+        hash_key_val: str = ""
+        if sha256 and sha256 in existing_by_sha256:
+            existing = existing_by_sha256[sha256]
+            hash_key_type, hash_key_val = "sha256", sha256
+        elif md5 and md5 in existing_md5_set:
+            existing = existing_by_md5.get(md5)
+            hash_key_type, hash_key_val = "md5", md5
+        elif sha256 and sha256 in inserted_sha256s:
+            # Intra-batch dedup: already inserted by Beatoraja in this request — not a
+            # pre-existing DB row, so don't count as skipped.
+            continue
+        elif md5 and md5 in inserted_md5s:
+            continue
+
+        is_lr2 = item.client_type == "lr2"
+
+        # Build all hash keys (both sha256 and md5 if present) for dedup tracking.
+        # A fumen is the same if it matches on sha256 OR md5.
+        dedup_keys = []
+        if sha256:
+            dedup_keys.append(f"sha256:{sha256}")
+        if md5:
+            dedup_keys.append(f"md5:{md5}")
+
+        # Check if this fumen was already processed in this batch (via another hash or client)
+        already_seen = any(k in seen_hashes for k in dedup_keys)
+
+        if existing is not None:
+            if is_lr2:
+                # LR2 existing fumen: only fill keymode when server value is NULL
+                if existing.keymode is None and item.keymode is not None:
+                    cols_key = frozenset({"keymode"})
+                    update_groups.setdefault(cols_key, []).append(
+                        (hash_key_type, hash_key_val, {"keymode": item.keymode})
+                    )
+                    # Overlap check: fumen was hash-supplemented this session and now also
+                    # gets keymode filled → double-count correction needed.
+                    _is_overlap = (
+                        (sha256 and sha256 in supplemented_sha256_set) or
+                        (md5 and md5 in supplemented_md5_set)
+                    )
+                    if _is_overlap:
+                        overlap_count += 1
+                else:
+                    if not already_seen:
+                        skipped_count += 1
+                seen_hashes.update(dedup_keys)
+                continue
+
+            # Beatoraja: determine which NULL fields to fill
+            update_vals: dict[str, Any] = {}
+            for col in _FILLABLE_COL_NAMES:
+                current_val = getattr(existing, col)
+                new_val = getattr(item, col)
+                if col in {"title", "artist"}:
+                    new_val = normalize_display_text(new_val)
+                if current_val is None and new_val is not None:
+                    update_vals[col] = new_val
+
+            # Hash supplementation: fill in missing sha256/md5 from client data.
+            # Only supplement the hash that was NOT used for matching (to avoid overwriting
+            # the key we matched on), and only if the target hash is currently NULL.
+            # Use `not existing.sha256` to catch both NULL and empty string (legacy data).
+            if hash_key_type == "md5" and sha256 and not existing.sha256:
+                # Collision check: ensure this sha256 isn't already used by another row.
+                if sha256 not in existing_by_sha256:
+                    update_vals["sha256"] = sha256
+            if hash_key_type == "sha256" and md5 and not existing.md5:
+                if md5 not in existing_by_md5:
+                    update_vals["md5"] = md5
+
+            if update_vals:
+                cols_key = frozenset(update_vals.keys())
+                update_groups.setdefault(cols_key, []).append(
+                    (hash_key_type, hash_key_val, update_vals)
+                )
+                # Overlap check: 이번 세션에서 supplement된 fumen이 detail update도 받으면 double-count
+                _is_overlap = (
+                    (sha256 and sha256 in supplemented_sha256_set) or
+                    (md5 and md5 in supplemented_md5_set)
+                )
+                if _is_overlap:
+                    overlap_count += 1
+            else:
+                if not already_seen:
+                    skipped_count += 1
+            # Mark as seen regardless of update/skip — prevents LR2 double-count
+            seen_hashes.update(dedup_keys)
+        else:
+            # New fumen — prepare for bulk INSERT
+            row: dict = {
+                "sha256": sha256,
+                "md5": md5,
+                "title": normalize_display_text(item.title),
+                "artist": normalize_display_text(item.artist),
+                "bpm_min": item.bpm_min,
+                "bpm_max": item.bpm_max,
+                "bpm_main": item.bpm_main,
+                "notes_total": item.notes_total,
+                "total": item.total,
+                "notes_n": item.notes_n,
+                "notes_ln": item.notes_ln,
+                "notes_s": item.notes_s,
+                "notes_ls": item.notes_ls,
+                "length": item.length,
+                "keymode": item.keymode,
+                "added_by_user_id": current_user.id,
+            }
+            new_rows.append(row)
+            if sha256:
+                inserted_sha256s.add(sha256)
+            if md5:
+                inserted_md5s.add(md5)
+
+    # ── Step 3: Bulk UPDATE via CASE WHEN (grouped by NULL field pattern) ──
+    updated_count = 0
+    for cols_key, entries in update_groups.items():
+        sha256_entries = [(hv, vals) for hkt, hv, vals in entries if hkt == "sha256"]
+        md5_entries = [(hv, vals) for hkt, hv, vals in entries if hkt == "md5"]
+
+        for hash_col, hash_entries in [
+            (Fumen.sha256, sha256_entries),
+            (Fumen.md5, md5_entries),
+        ]:
+            if not hash_entries:
+                continue
+
+            hash_values = [hv for hv, _ in hash_entries]
+            case_values: dict[str, Any] = {}
+            for col_name in cols_key:
+                case_mapping = {
+                    hv: vals[col_name]
+                    for hv, vals in hash_entries
+                    if col_name in vals
+                }
+                if case_mapping:
+                    case_values[col_name] = sa.case(case_mapping, value=hash_col)
+
+            if case_values:
+                await db.execute(
+                    update(Fumen)
+                    .where(hash_col.in_(hash_values))
+                    .values(**case_values)
+                    .execution_options(synchronize_session=False)
+                )
+
+        updated_count += len(entries)
+
+    # ── Step 4: Bulk INSERT ──
+    if new_rows:
+        await db.execute(
+            pg_insert(Fumen).values(new_rows).on_conflict_do_nothing()
+        )
+    inserted_count = len(new_rows)
+
+    await db.flush()
+    await db.commit()
+
+    return FumenDetailSyncResponse(
+        inserted=inserted_count,
+        enriched=updated_count,
+        skipped=skipped_count,
+        overlap_count=overlap_count,
+    )
+
+
 @router.get("/{hash_value}", response_model=FumenRead)
 async def get_fumen_by_hash(
     hash_value: str,
@@ -730,352 +1111,6 @@ async def supplement_fumen_hashes(
         courses_updated=courses_updated,
         supplemented_md5s=list(newly_supplemented_md5s),
         supplemented_sha256s=list(newly_supplemented_sha256s),
-    )
-
-
-# ---------------------------------------------------------------------------
-# Fumen detail sync
-# ---------------------------------------------------------------------------
-
-class KnownHashesResponse(BaseModel):
-    """Response for GET /fumens/known-hashes."""
-
-    complete_sha256: list[str]
-    complete_md5: list[str]
-    partial_sha256: list[str]
-    partial_md5: list[str]
-
-
-# Detail columns — NULL이 하나라도 있으면 "partial"
-_DETAIL_COLS = (
-    "bpm_min", "bpm_max", "bpm_main", "notes_total", "total",
-    "notes_n", "notes_ln", "notes_s", "notes_ls", "length",
-)
-
-# Columns fetched for pre-fetch (hash keys + fillable detail fields only, no table_entries JSONB)
-_PREFETCH_COLS = (
-    Fumen.sha256, Fumen.md5, Fumen.title, Fumen.artist,
-    Fumen.bpm_min, Fumen.bpm_max, Fumen.bpm_main,
-    Fumen.notes_total, Fumen.total,
-    Fumen.notes_n, Fumen.notes_ln, Fumen.notes_s, Fumen.notes_ls,
-    Fumen.length,
-)
-
-# All fillable column names (title/artist + detail)
-_FILLABLE_COL_NAMES = ("title", "artist") + _DETAIL_COLS
-
-
-@router.get("/known-hashes", response_model=KnownHashesResponse)
-async def get_known_hashes(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> KnownHashesResponse:
-    """Return sets of known fumen hashes, split by detail completeness.
-
-    - complete: all detail columns are non-NULL → client can skip entirely.
-    - partial: at least one detail column is NULL → Beatoraja items should be sent for fill.
-    """
-    detail_all_filled = sa.and_(
-        *[getattr(Fumen, col).isnot(None) for col in _DETAIL_COLS],
-        Fumen.title.isnot(None),
-        Fumen.artist.isnot(None),
-        Fumen.sha256.isnot(None), Fumen.sha256 != "",
-        Fumen.md5.isnot(None), Fumen.md5 != "",
-    )
-
-    result = await db.execute(
-        select(
-            Fumen.sha256,
-            Fumen.md5,
-            detail_all_filled.label("is_complete"),
-        )
-    )
-    rows = result.all()
-
-    complete_sha256: list[str] = []
-    complete_md5: list[str] = []
-    partial_sha256: list[str] = []
-    partial_md5: list[str] = []
-
-    for row in rows:
-        if row.is_complete:
-            if row.sha256:
-                complete_sha256.append(row.sha256)
-            if row.md5:
-                complete_md5.append(row.md5)
-        else:
-            if row.sha256:
-                partial_sha256.append(row.sha256)
-            if row.md5:
-                partial_md5.append(row.md5)
-
-    return KnownHashesResponse(
-        complete_sha256=complete_sha256,
-        complete_md5=complete_md5,
-        partial_sha256=partial_sha256,
-        partial_md5=partial_md5,
-    )
-
-
-class FumenDetailItem(BaseModel):
-    """A single fumen detail item from the client's local song DB."""
-
-    md5: str | None = None
-    sha256: str | None = None
-    title: str | None = None
-    artist: str | None = None
-    bpm_min: float | None = None
-    bpm_max: float | None = None
-    bpm_main: float | None = None
-    notes_total: int | None = None
-    total: int | None = None
-    notes_n: int | None = None
-    notes_ln: int | None = None
-    notes_s: int | None = None
-    notes_ls: int | None = None
-    length: int | None = None
-    client_type: str  # "beatoraja" or "lr2"
-
-
-class FumenDetailSyncRequest(BaseModel):
-    """Request body for POST /fumens/sync-details."""
-
-    items: list[FumenDetailItem]
-    supplemented_md5s: list[str] = []    # 이번 세션에서 supplement로 sha256 채워진 fumen의 md5
-    supplemented_sha256s: list[str] = [] # 이번 세션에서 supplement로 md5 채워진 fumen의 sha256
-
-
-class FumenDetailSyncResponse(BaseModel):
-    """Response body for POST /fumens/sync-details."""
-
-    inserted: int
-    updated: int
-    skipped: int
-    overlap_count: int = 0  # updated 중 supplemented와 겹치는 수 (double-count 보정용)
-
-
-@router.post("/sync-details", response_model=FumenDetailSyncResponse)
-async def sync_fumen_details(
-    body: FumenDetailSyncRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> FumenDetailSyncResponse:
-    """Sync fumen detail data from client's local song DBs.
-
-    Accepts fumen metadata items (Beatoraja first, then LR2).
-    - Beatoraja items: fill NULL detail fields on existing fumens, INSERT new ones.
-    - LR2 items: INSERT only if not already in DB (skip existing entirely).
-    All new inserts record added_by_user_id.
-
-    NOTE: Client should call GET /fumens/known-hashes first and only send
-    items that are new or have incomplete details on the server.
-    """
-    if not body.items:
-        return FumenDetailSyncResponse(inserted=0, updated=0, skipped=0)
-
-    supplemented_md5_set = set(body.supplemented_md5s)
-    supplemented_sha256_set = set(body.supplemented_sha256s)
-    overlap_count = 0
-
-    # ── Step 1: Bulk pre-fetch — detail columns only (no table_entries JSONB) ──
-    all_sha256s = [it.sha256.lower() for it in body.items if it.sha256]
-    all_md5s = [it.md5.lower() for it in body.items if it.md5]
-
-    existing_by_sha256: dict[str, Any] = {}
-    if all_sha256s:
-        result = await db.execute(
-            select(*_PREFETCH_COLS).where(Fumen.sha256.in_(all_sha256s))
-        )
-        for row in result.all():
-            existing_by_sha256[row.sha256] = row
-
-    existing_by_md5: dict[str, Any] = {}
-    if all_md5s:
-        result = await db.execute(
-            select(*_PREFETCH_COLS).where(
-                Fumen.md5.in_(all_md5s),
-                # No sha256 IS NULL filter — a fumen with {sha256=X, md5=Y} must also be
-                # found when querying by md5=Y, to avoid duplicate inserts.
-            )
-        )
-        for row in result.all():
-            existing_by_md5[row.md5] = row
-
-    existing_md5_set = set(existing_by_md5.keys())
-
-    skipped_count = 0
-    # Track ALL processed fumens (insert/update/skip) by hash key.
-    # A fumen is the same if sha256 OR md5 matches. Both hashes are added when known.
-    seen_hashes: set[str] = set()
-    new_rows: list[dict] = []
-
-    # Track newly inserted keys so LR2 items can skip them
-    inserted_sha256s: set[str] = set()
-    inserted_md5s: set[str] = set()
-
-    # Collect updates: group by NULL field pattern for bulk CASE WHEN
-    # Key: frozenset of column names to update
-    # Value: list of (hash_key_type, hash_value, {col: new_val})
-    update_groups: dict[frozenset, list[tuple[str, str, dict]]] = {}
-
-    # ── Step 2: Process items in order (Beatoraja first, then LR2) ──
-    for item in body.items:
-        sha256 = item.sha256.lower() if item.sha256 else None
-        md5 = item.md5.lower() if item.md5 else None
-        if not sha256 and not md5:
-            # No valid hash at all — cannot identify fumen, don't count in skipped
-            continue
-
-        existing = None
-        hash_key_type: str = ""
-        hash_key_val: str = ""
-        if sha256 and sha256 in existing_by_sha256:
-            existing = existing_by_sha256[sha256]
-            hash_key_type, hash_key_val = "sha256", sha256
-        elif md5 and md5 in existing_md5_set:
-            existing = existing_by_md5.get(md5)
-            hash_key_type, hash_key_val = "md5", md5
-        elif sha256 and sha256 in inserted_sha256s:
-            # Intra-batch dedup: already inserted by Beatoraja in this request — not a
-            # pre-existing DB row, so don't count as skipped.
-            continue
-        elif md5 and md5 in inserted_md5s:
-            continue
-
-        is_lr2 = item.client_type == "lr2"
-
-        # Build all hash keys (both sha256 and md5 if present) for dedup tracking.
-        # A fumen is the same if it matches on sha256 OR md5.
-        dedup_keys = []
-        if sha256:
-            dedup_keys.append(f"sha256:{sha256}")
-        if md5:
-            dedup_keys.append(f"md5:{md5}")
-
-        # Check if this fumen was already processed in this batch (via another hash or client)
-        already_seen = any(k in seen_hashes for k in dedup_keys)
-
-        if existing is not None:
-            if is_lr2:
-                # LR2: always skip existing fumens
-                if not already_seen:
-                    skipped_count += 1
-                seen_hashes.update(dedup_keys)
-                continue
-
-            # Beatoraja: determine which NULL fields to fill
-            update_vals: dict[str, Any] = {}
-            for col in _FILLABLE_COL_NAMES:
-                current_val = getattr(existing, col)
-                new_val = getattr(item, col)
-                if col in {"title", "artist"}:
-                    new_val = normalize_display_text(new_val)
-                if current_val is None and new_val is not None:
-                    update_vals[col] = new_val
-
-            # Hash supplementation: fill in missing sha256/md5 from client data.
-            # Only supplement the hash that was NOT used for matching (to avoid overwriting
-            # the key we matched on), and only if the target hash is currently NULL.
-            # Use `not existing.sha256` to catch both NULL and empty string (legacy data).
-            if hash_key_type == "md5" and sha256 and not existing.sha256:
-                # Collision check: ensure this sha256 isn't already used by another row.
-                if sha256 not in existing_by_sha256:
-                    update_vals["sha256"] = sha256
-            if hash_key_type == "sha256" and md5 and not existing.md5:
-                if md5 not in existing_by_md5:
-                    update_vals["md5"] = md5
-
-            if update_vals:
-                cols_key = frozenset(update_vals.keys())
-                update_groups.setdefault(cols_key, []).append(
-                    (hash_key_type, hash_key_val, update_vals)
-                )
-                # Overlap check: 이번 세션에서 supplement된 fumen이 detail update도 받으면 double-count
-                _is_overlap = (
-                    (sha256 and sha256 in supplemented_sha256_set) or
-                    (md5 and md5 in supplemented_md5_set)
-                )
-                if _is_overlap:
-                    overlap_count += 1
-            else:
-                if not already_seen:
-                    skipped_count += 1
-            # Mark as seen regardless of update/skip — prevents LR2 double-count
-            seen_hashes.update(dedup_keys)
-        else:
-            # New fumen — prepare for bulk INSERT
-            row: dict = {
-                "sha256": sha256,
-                "md5": md5,
-                "title": normalize_display_text(item.title),
-                "artist": normalize_display_text(item.artist),
-                "bpm_min": item.bpm_min,
-                "bpm_max": item.bpm_max,
-                "bpm_main": item.bpm_main,
-                "notes_total": item.notes_total,
-                "total": item.total,
-                "notes_n": item.notes_n,
-                "notes_ln": item.notes_ln,
-                "notes_s": item.notes_s,
-                "notes_ls": item.notes_ls,
-                "length": item.length,
-                "added_by_user_id": current_user.id,
-            }
-            new_rows.append(row)
-            if sha256:
-                inserted_sha256s.add(sha256)
-            if md5:
-                inserted_md5s.add(md5)
-
-    # ── Step 3: Bulk UPDATE via CASE WHEN (grouped by NULL field pattern) ──
-    updated_count = 0
-    for cols_key, entries in update_groups.items():
-        sha256_entries = [(hv, vals) for hkt, hv, vals in entries if hkt == "sha256"]
-        md5_entries = [(hv, vals) for hkt, hv, vals in entries if hkt == "md5"]
-
-        for hash_col, hash_entries in [
-            (Fumen.sha256, sha256_entries),
-            (Fumen.md5, md5_entries),
-        ]:
-            if not hash_entries:
-                continue
-
-            hash_values = [hv for hv, _ in hash_entries]
-            case_values: dict[str, Any] = {}
-            for col_name in cols_key:
-                case_mapping = {
-                    hv: vals[col_name]
-                    for hv, vals in hash_entries
-                    if col_name in vals
-                }
-                if case_mapping:
-                    case_values[col_name] = sa.case(case_mapping, value=hash_col)
-
-            if case_values:
-                await db.execute(
-                    update(Fumen)
-                    .where(hash_col.in_(hash_values))
-                    .values(**case_values)
-                    .execution_options(synchronize_session=False)
-                )
-
-        updated_count += len(entries)
-
-    # ── Step 4: Bulk INSERT ──
-    if new_rows:
-        await db.execute(
-            pg_insert(Fumen).values(new_rows).on_conflict_do_nothing()
-        )
-    inserted_count = len(new_rows)
-
-    await db.flush()
-    await db.commit()
-
-    return FumenDetailSyncResponse(
-        inserted=inserted_count,
-        updated=updated_count,
-        skipped=skipped_count,
-        overlap_count=overlap_count,
     )
 
 
