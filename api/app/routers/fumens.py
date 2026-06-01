@@ -833,7 +833,7 @@ async def sync_fumen_details(
                 inserted_md5s.add(md5)
 
     # ── Step 3: Bulk UPDATE via CASE WHEN (grouped by NULL field pattern) ──
-    updated_count = 0
+    enriched_count = 0
     for cols_key, entries in update_groups.items():
         sha256_entries = [(hv, vals) for hkt, hv, vals in entries if hkt == "sha256"]
         md5_entries = [(hv, vals) for hkt, hv, vals in entries if hkt == "md5"]
@@ -864,7 +864,7 @@ async def sync_fumen_details(
                     .execution_options(synchronize_session=False)
                 )
 
-        updated_count += len(entries)
+        enriched_count += len(entries)
 
     # ── Step 4: Bulk INSERT ──
     if new_rows:
@@ -878,7 +878,7 @@ async def sync_fumen_details(
 
     return FumenDetailSyncResponse(
         inserted=inserted_count,
-        enriched=updated_count,
+        enriched=enriched_count,
         skipped=skipped_count,
         overlap_count=overlap_count,
     )

@@ -183,7 +183,7 @@ async def test_lr2_existing_fumen_fills_null_keymode():
 
 @pytest.mark.asyncio
 async def test_lr2_existing_fumen_does_not_overwrite_nonnull_title_or_bpm():
-    """LR2 keymode fill must not touch title, bpm, or any other detail field."""
+    """LR2 keymode fill must only update keymode — not title, BPM, or any other detail field."""
     existing = _make_existing_row(
         md5=_MD5_LR2,
         sha256=None,
@@ -194,26 +194,21 @@ async def test_lr2_existing_fumen_does_not_overwrite_nonnull_title_or_bpm():
     mock_db = _make_mock_db(existing_by_md5={_MD5_LR2: existing})
     mock_user = _make_user()
 
-    # Track which UPDATE statements are executed
-    executed_updates: list = []
+    # Spy on UPDATE statements to verify only keymode is updated.
+    update_sql_texts: list[str] = []
     original_execute = mock_db.execute
 
-    call_count = 0
-
-    async def _tracking_execute(stmt, *args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        if call_count > 2:
-            # Capture any UPDATE statement text
-            try:
-                from sqlalchemy.sql.dml import Update
-                if hasattr(stmt, "__class__") and "Update" in type(stmt).__name__:
-                    executed_updates.append(stmt)
-            except Exception:
-                pass
+    async def _spy_execute(stmt, *args, **kwargs):
+        try:
+            from sqlalchemy.dialects import sqlite as sqlite_dialect
+            sql_text = str(stmt.compile(dialect=sqlite_dialect.dialect()))
+            if sql_text.strip().upper().startswith("UPDATE"):
+                update_sql_texts.append(sql_text)
+        except Exception:
+            pass
         return await original_execute(stmt, *args, **kwargs)
 
-    mock_db.execute = _tracking_execute
+    mock_db.execute = _spy_execute
 
     app.dependency_overrides[get_db] = lambda: (yield mock_db)  # type: ignore[misc]
     app.dependency_overrides[get_current_user] = lambda: mock_user
@@ -232,9 +227,15 @@ async def test_lr2_existing_fumen_does_not_overwrite_nonnull_title_or_bpm():
     finally:
         app.dependency_overrides.clear()
 
-    # The response should show 1 enriched (keymode fill), not a full update
-    assert data["enriched"] == 1
+    assert data["enriched"] == 1, f"LR2 keymode fill should count as enriched; got {data}"
     assert data["skipped"] == 0
+    # Verify the UPDATE only touches keymode — no title/bpm in SET clause
+    assert update_sql_texts, "expected at least one UPDATE statement to be executed"
+    for sql in update_sql_texts:
+        sql_lower = sql.lower()
+        assert "title" not in sql_lower, f"LR2 fill must not update title; got SQL: {sql}"
+        assert "bpm" not in sql_lower, f"LR2 fill must not update bpm; got SQL: {sql}"
+        assert "keymode" in sql_lower, f"LR2 fill must update keymode; got SQL: {sql}"
 
 
 @pytest.mark.asyncio
@@ -401,3 +402,32 @@ async def test_hash_supplement_plus_keymode_fill_reports_one_enriched_after_over
     assert data["overlap_count"] == 1, (
         f"keymode fill of a supplemented fumen must set overlap_count=1; got {data}"
     )
+
+
+@pytest.mark.asyncio
+async def test_fumen_detail_enriched_field_is_not_score_sync_count():
+    """FumenDetailSyncResponse must not expose inserted_scores or metadata_updated.
+
+    Those fields belong exclusively to the score-sync SyncResponse endpoint.
+    Fumen detail sync only returns inserted, enriched, skipped, overlap_count.
+    """
+    existing = _make_existing_row(md5=_MD5_LR2, sha256=None, keymode=None)
+    mock_db = _make_mock_db(existing_by_md5={_MD5_LR2: existing})
+    mock_user = _make_user()
+
+    app.dependency_overrides[get_db] = lambda: (yield mock_db)  # type: ignore[misc]
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    try:
+        data = await _post_sync_details({
+            "items": [{"md5": _MD5_LR2, "client_type": "lr2", "keymode": 7}],
+        })
+    finally:
+        app.dependency_overrides.clear()
+
+    # Score-sync fields must not bleed into fumen detail sync response
+    assert "inserted_scores" not in data, "score-sync field 'inserted_scores' must not appear in fumen detail response"
+    assert "metadata_updated" not in data, "score-sync field 'metadata_updated' must not appear in fumen detail response"
+    # Fumen detail sync fields
+    assert "enriched" in data
+    assert "inserted" in data
+    assert "skipped" in data
