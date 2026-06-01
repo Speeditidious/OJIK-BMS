@@ -47,8 +47,8 @@ export interface UserScore {
   recorded_at: string | null;
   synced_at: string | null;
   is_first_sync: boolean;
-  judgment_detail: Record<string, unknown> | null;
-  arrangement: Record<string, unknown> | null;
+  judgment_detail: import("@/lib/score-row-detail-types").JudgmentDetail | null;
+  arrangement: import("@/lib/score-row-detail-types").ArrangementDetail | null;
 }
 
 /** Per-field best score aggregated from each client's latest row — used by GET /scores/me/{sha256}. */

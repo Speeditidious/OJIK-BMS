@@ -23,7 +23,8 @@ import {
   LR2_CLEAR_TYPE_LABELS,
   BEATORAJA_CLEAR_TYPE_LABELS,
 } from "@/components/charts/ClearDistributionChart";
-import { SourceClientBadge } from "@/components/common/SourceClientBadge";
+import { FumenRowDetail } from "@/components/fumen/FumenRowDetail";
+import { UnavailableValue } from "@/components/common/UnavailableValue";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -135,16 +136,24 @@ const MAX_TABLE_HEIGHT = 420;
 
 const handleTableCopy = makeTableCopyHandler(1); // col 0=Level, col 1=Title/Artist
 
+const DETAIL_HEIGHT_ESTIMATE_TCS = 180;
+
 const SongRow = React.memo(function SongRow({
   song,
   index,
   userId,
   getDisplayClearType,
+  isExpanded,
+  onToggle,
+  asOf,
 }: {
   song: TableClearSong;
   index: number;
   userId: string;
   getDisplayClearType?: (ct: number) => number;
+  isExpanded: boolean;
+  onToggle: () => void;
+  asOf?: string | null;
 }) {
   const arrangementName = parseArrangement(song.options, song.client_type);
   const arrangementKanji = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? null) : null;
@@ -152,48 +161,62 @@ const SongRow = React.memo(function SongRow({
   const rowClass = CLEAR_ROW_CLASS[displayClearType] ?? "";
   const displayTitle = fumenTitleText(song.title);
   const displayArtist = fumenArtistText(song.artist);
+
+  function handleRowClick(e: React.MouseEvent<HTMLTableRowElement>) {
+    const target = e.target as HTMLElement;
+    if (target.closest('a, button, [role="button"], input, select, textarea, label, [data-state]')) return;
+    onToggle();
+  }
+
   return (
-    <tr
-      data-index={index}
-      style={{ height: ROW_HEIGHT }}
-      className={cn("border-b border-border/30", rowClass || "hover:bg-secondary/50")}
-    >
-      <td className="px-2 text-label">{song.level}</td>
-      <td className="px-2" data-title={displayTitle} data-artist={displayArtist}>
-        <div className="min-w-0 overflow-hidden">
-          <div className="max-w-full truncate">
-            {song.sha256 ? (
-              <Link href={songHref(song, userId)} className="text-label leading-tight hover:text-primary transition-colors">
-                {displayTitle}
-              </Link>
-            ) : (
-              <span className="text-label leading-tight">{displayTitle}</span>
-            )}
+    <>
+      <tr
+        data-index={index}
+        style={{ height: ROW_HEIGHT }}
+        className={cn("border-b border-border/30 cursor-pointer", rowClass || "hover:bg-secondary/50")}
+        onClick={handleRowClick}
+      >
+        <td className="px-2 text-label">{song.level}</td>
+        <td className="px-2" data-title={displayTitle} data-artist={displayArtist}>
+          <div className="min-w-0 overflow-hidden">
+            <div className="max-w-full truncate">
+              {song.sha256 ? (
+                <Link href={songHref(song, userId)} className="text-label leading-tight hover:text-primary transition-colors">
+                  {displayTitle}
+                </Link>
+              ) : (
+                <span className="text-label leading-tight">{displayTitle}</span>
+              )}
+            </div>
+            {displayArtist && <div className="text-caption text-muted-foreground row-muted max-w-full truncate">{displayArtist}</div>}
           </div>
-          {displayArtist && <div className="text-caption text-muted-foreground row-muted max-w-full truncate">{displayArtist}</div>}
-        </div>
-      </td>
-      <td className="px-2"><span className="text-label">{getClearLabel(song.client_type, displayClearType)}</span></td>
-      <td className="px-2 text-label">{song.min_bp !== null ? song.min_bp : <span className="text-muted-foreground row-muted">--</span>}</td>
-      <td className="px-2 text-label">{song.rate !== null ? formatRatePercent(song.rate) : <span className="text-muted-foreground row-muted">--</span>}</td>
-      <td className="px-2 text-label">{song.rank !== null ? song.rank : <span className="text-muted-foreground row-muted">--</span>}</td>
-      <td className="px-2 text-label">{song.ex_score !== null ? song.ex_score : <span className="text-muted-foreground row-muted">--</span>}</td>
-      <td className="px-2 text-label">{song.play_count !== null ? song.play_count : <span className="text-muted-foreground row-muted">--</span>}</td>
-      <td className="px-2 text-label">
-        {arrangementKanji ? <span>{arrangementKanji}</span> : <span className="text-muted-foreground row-muted">–</span>}
-      </td>
-      <td className="px-2">
-        {song.source_client || song.client_type ? (
-          <SourceClientBadge
-            sourceClient={song.source_client}
-            sourceClientDetail={song.source_client_detail}
-            fallbackClientTypes={song.client_type ? [song.client_type] : undefined}
-          />
-        ) : (
-          <span className="text-muted-foreground row-muted">–</span>
-        )}
-      </td>
-    </tr>
+        </td>
+        <td className="px-2"><span className="text-label">{getClearLabel(song.client_type, displayClearType)}</span></td>
+        <td className="px-2 text-label">{song.min_bp !== null ? song.min_bp : <span className="text-muted-foreground row-muted">--</span>}</td>
+        <td className="px-2 text-label">{song.rate !== null ? formatRatePercent(song.rate) : <span className="text-muted-foreground row-muted">--</span>}</td>
+        <td className="px-2 text-label">{song.rank !== null ? song.rank : <span className="text-muted-foreground row-muted">--</span>}</td>
+        <td className="px-2 text-label">{song.ex_score !== null ? song.ex_score : <span className="text-muted-foreground row-muted">--</span>}</td>
+        <td className="px-2 text-label">{song.play_count !== null ? song.play_count : <span className="text-muted-foreground row-muted">--</span>}</td>
+        <td className="px-2 text-label">
+          {arrangementKanji ? (
+            <span>{arrangementKanji}</span>
+          ) : !song.options && song.client_type === "beatoraja" ? (
+            <UnavailableValue reason="score_metadata_missing" />
+          ) : (
+            <span className="text-muted-foreground row-muted">–</span>
+          )}
+        </td>
+      </tr>
+      {isExpanded && (
+        <tr>
+          <td colSpan={9} className="p-0 border-b border-border/20">
+            <div className="border-t border-primary/20 bg-primary/5">
+              <FumenRowDetail fumenId={song.fumen_id} userId={userId} asOf={asOf} />
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 });
 
@@ -202,17 +225,28 @@ const SongTable = React.memo(function SongTable({
   levelOrder,
   userId,
   getDisplayClearType,
+  asOf,
 }: {
   songs: TableClearSong[];
   levelOrder: string[];
   userId: string;
   getDisplayClearType?: (ct: number) => number;
+  asOf?: string | null;
 }) {
   const { t } = useTranslation();
   const [sortKey, setSortKey] = useState<SortKey>("level");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const parentRef = useRef<HTMLDivElement>(null);
   const pinnedRangeRef = useRef<[number, number] | null>(null);
+
+  const toggleRow = useCallback((index: number) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index); else next.add(index);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const toRowIndex = (node: Node | null): number | null => {
@@ -262,7 +296,10 @@ const SongTable = React.memo(function SongTable({
   const rowVirtualizer = useVirtualizer({
     count: sorted.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: useCallback(
+      (i: number) => expandedRows.has(i) ? ROW_HEIGHT + DETAIL_HEIGHT_ESTIMATE_TCS : ROW_HEIGHT,
+      [expandedRows]
+    ),
     overscan: 10,
     rangeExtractor: (range) => {
       const normal = defaultRangeExtractor(range);
@@ -355,7 +392,7 @@ const SongTable = React.memo(function SongTable({
         className="overflow-auto"
         style={{ maxHeight: MAX_TABLE_HEIGHT }}
       >
-        <table className="w-full border-collapse" style={{ tableLayout: "fixed", minWidth: 740 }} onCopy={handleTableCopy}>
+        <table className="w-full border-collapse" style={{ tableLayout: "fixed", minWidth: 680 }} onCopy={handleTableCopy}>
           <colgroup>
             <col style={{ width: 56 }} />
             <col />
@@ -366,13 +403,12 @@ const SongTable = React.memo(function SongTable({
             <col style={{ width: 64 }} />
             <col style={{ width: 60 }} />
             <col style={{ width: 68 }} />
-            <col style={{ width: 64 }} />
           </colgroup>
 
           <thead className="sticky top-0 z-10 bg-background text-label text-foreground font-medium">
             <tr className="border-b border-border">
               {thSort(t("dashboard.scoreUpdates.level"), "level")}
-              {thSort(t("dashboard.scoreUpdates.title"), "title")}
+              {thSort(t("common.fields.titleArtist"), "title")}
               {thSort(t("dashboard.scoreUpdates.clear"), "clear_type")}
               {thSort(t("dashboard.scoreUpdates.bp"), "min_bp")}
               {thSort(t("dashboard.scoreUpdates.rate"), "rate")}
@@ -380,13 +416,12 @@ const SongTable = React.memo(function SongTable({
               {thSort(t("dashboard.scoreUpdates.score"), "ex_score")}
               {thSort(t("dashboard.scoreUpdates.plays"), "plays")}
               {thSort(t("dashboard.scoreUpdates.option"), "option")}
-              <th className="px-2 py-2 text-left font-medium whitespace-nowrap">{t("dashboard.scoreUpdates.env")}</th>
             </tr>
           </thead>
 
           <tbody>
             {paddingTop > 0 && (
-              <tr><td colSpan={10} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
+              <tr><td colSpan={9} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
             )}
             {virtualItems.map((virtualRow) => (
               <SongRow
@@ -395,10 +430,13 @@ const SongTable = React.memo(function SongTable({
                 index={virtualRow.index}
                 userId={userId}
                 getDisplayClearType={getDisplayClearType}
+                isExpanded={expandedRows.has(virtualRow.index)}
+                onToggle={() => toggleRow(virtualRow.index)}
+                asOf={asOf}
               />
             ))}
             {paddingBottom > 0 && (
-              <tr><td colSpan={10} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
+              <tr><td colSpan={9} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
             )}
           </tbody>
         </table>
@@ -865,6 +903,21 @@ export function TableClearSection({
 
   return (
     <div className="flex flex-col gap-4 min-h-0">
+      {/* Snapshot date picker — above favorite table section */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <SnapshotDatePicker
+          selectedDate={asOf}
+          onSelect={handleDateSelect}
+          playRecordDates={playRecordDates}
+          onMonthChange={handleMonthChange}
+        />
+        {asOf && (
+          <span className="text-label text-muted-foreground">
+            스냅샷: <span className="text-foreground font-medium">{asOf.replace(/-/g, ".")}</span>
+          </span>
+        )}
+      </div>
+
       {/* Top panel: favorite table selectors (1 or 2 lists) */}
 
       {/* Case A: Logged-in visitor → target list above viewer list */}
@@ -917,21 +970,6 @@ export function TableClearSection({
           </div>
         ) : (
           <>
-            {/* Date picker row + snapshot banner */}
-            <div className="flex items-center gap-3 flex-wrap">
-              <SnapshotDatePicker
-                selectedDate={asOf}
-                onSelect={handleDateSelect}
-                playRecordDates={playRecordDates}
-                onMonthChange={handleMonthChange}
-              />
-              {asOf && (
-                <span className="text-label text-muted-foreground">
-                  스냅샷: <span className="text-foreground font-medium">{asOf.replace(/-/g, ".")}</span>
-                </span>
-              )}
-            </div>
-
             {/* Stacked histogram */}
             <TableClearHistogram
               levels={histogramLevels}
@@ -1006,7 +1044,7 @@ export function TableClearSection({
             </div>
 
             {/* Song table */}
-            <SongTable songs={filteredSongs} levelOrder={orderedLevels} userId={userId} getDisplayClearType={getDisplayClearType} />
+            <SongTable songs={filteredSongs} levelOrder={orderedLevels} userId={userId} getDisplayClearType={getDisplayClearType} asOf={asOf} />
           </>
         )}
       </div>

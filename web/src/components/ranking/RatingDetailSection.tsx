@@ -14,6 +14,7 @@ import type {
   RatingContributionSortBy,
 } from "@/lib/ranking-types";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
+import { getDisplayedRatingRankData } from "@/lib/rating-detail-display-core.mjs";
 import { cn } from "@/lib/utils";
 import { RankingTableSelector } from "./RankingTableSelector";
 import { RatingProfileHeader } from "./RatingProfileHeader";
@@ -108,16 +109,11 @@ export function RatingDetailSection({
     asOf: ratingAsOf,
   });
 
-  const displayedRankData = useMemo(() => {
-    if (!ratingAsOf || !contributionQuery.data?.summary || myRank?.status !== "ok") return myRank;
-    return {
-      ...myRank,
-      exp: contributionQuery.data.summary.exp,
-      rating: contributionQuery.data.summary.rating,
-      rating_norm: contributionQuery.data.summary.rating_norm,
-      bms_force: contributionQuery.data.summary.rating_norm,
-    };
-  }, [ratingAsOf, contributionQuery.data?.summary, myRank]);
+  const displayedRankData = getDisplayedRatingRankData({
+    ratingAsOf,
+    myRank,
+    contributionData: contributionQuery.data,
+  });
   const displayEntries = useMemo(() => {
     const entries = contributionQuery.data?.entries ?? [];
     if (scope !== "top" || !deferredSearch) return entries;
@@ -148,20 +144,6 @@ export function RatingDetailSection({
             selected={selectedTableSlug ?? tables[0].slug}
             onSelect={onSelectTable}
           />
-          <div className="flex items-center gap-3">
-            <SnapshotDatePicker
-              selectedDate={ratingAsOf}
-              onSelect={(date) => updateParams({ [P_RATING_AS_OF]: date })}
-              playRecordDates={playRecordDates}
-              onMonthChange={(from, to) => {
-                setVisibleCalendarFrom(from);
-                setVisibleCalendarTo(to);
-              }}
-            />
-            {ratingAsOf && (
-              <span className="text-caption text-muted-foreground">스냅샷: {ratingAsOf}</span>
-            )}
-          </div>
         </>
       ) : (
         <div className="rounded-xl border border-border bg-card/50 px-6 py-10 text-center text-body text-muted-foreground">
@@ -178,7 +160,17 @@ export function RatingDetailSection({
       {myRank?.status === "ok" && selectedTable ? (
         <>
           <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr] md:items-center">
-            <div className="hidden md:block" />
+            <div className="hidden md:flex md:items-center">
+              <SnapshotDatePicker
+                selectedDate={ratingAsOf}
+                onSelect={(date) => updateParams({ [P_RATING_AS_OF]: date })}
+                playRecordDates={playRecordDates}
+                onMonthChange={(from, to) => {
+                  setVisibleCalendarFrom(from);
+                  setVisibleCalendarTo(to);
+                }}
+              />
+            </div>
             <div className="flex justify-center">
               <div className="inline-flex rounded-lg border border-border bg-secondary p-0.5">
                 <button

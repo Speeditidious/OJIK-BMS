@@ -139,6 +139,7 @@ export interface RankingContributionResponse {
   snapshot_date?: string | null;
   snapshot_mode?: "current" | "historical";
   is_current_snapshot?: boolean;
+  dan_decoration?: DanDecoration | null;
   summary?: {
     exp: number;
     rating: number;

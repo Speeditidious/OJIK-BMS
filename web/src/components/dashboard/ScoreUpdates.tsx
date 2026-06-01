@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { SourceClientBadge } from "@/components/common/SourceClientBadge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type {
@@ -24,6 +23,8 @@ import { clearText } from "@/components/dashboard/RecentActivity";
 import type { ClientTypeFilter } from "@/hooks/use-analysis";
 import { useScoreUpdates } from "@/hooks/use-analysis";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, makeTableCopyHandler } from "@/lib/fumen-table-utils";
+import { FumenRowDetail } from "@/components/fumen/FumenRowDetail";
+import { UnavailableValue } from "@/components/common/UnavailableValue";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { compareTitles } from "@/lib/bms-sort";
 import { formatRateDelta, formatRatePercent } from "@/lib/rate-format";
@@ -206,7 +207,7 @@ function CourseSectionTable({
         </p>
       </div>
       <div className="overflow-auto">
-        <table className="w-full text-label" style={{ minWidth: "780px" }}>
+        <table className="w-full text-label" style={{ minWidth: "730px" }}>
           <colgroup>
             <col style={{ width: "110px" }} />
             <col style={{ width: "130px" }} />
@@ -217,7 +218,6 @@ function CourseSectionTable({
             <col style={{ width: "105px" }} />
             <col style={{ width: "75px" }} />
             <col style={{ width: "50px" }} />
-            <col style={{ width: "45px" }} />
           </colgroup>
           <thead className="sticky top-0 z-10 bg-background text-foreground border-b border-border/50">
             <tr>
@@ -230,7 +230,6 @@ function CourseSectionTable({
               <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.score")}</th>
               <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.plays")}</th>
               <th className={thCls}>{t("dashboard.scoreUpdates.option")}</th>
-              <th className={thCls}>{t("dashboard.scoreUpdates.env")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/20">{children}</tbody>
@@ -269,10 +268,8 @@ function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
   const playsPrev = item.playCount?.prev ?? null;
   const playsDiff = playsNew != null && playsPrev != null ? playsNew - playsPrev : null;
 
-  // Option / Env
   const arrangementName = parseArrangement(item.options ?? null, item.client_type);
   const optionLabel = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? arrangementName) : null;
-  const envLabel = item.client_type === "lr2" ? "LR" : item.client_type === "beatoraja" ? "BR" : item.client_type;
 
   return (
     <tr>
@@ -397,11 +394,6 @@ function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
       <td className={cn("px-2 py-2 text-label", rowColorCls)}>
         {optionLabel ?? <span className="row-muted">—</span>}
       </td>
-
-      {/* Env */}
-      <td className={cn("px-2 py-2 text-label", rowColorCls)}>
-        {envLabel}
-      </td>
     </tr>
   );
 }
@@ -460,7 +452,7 @@ function SectionTable({
               <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.prev")}</th>
               <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.current")}</th>
               <th className={thCls}>{t("dashboard.scoreUpdates.level")}</th>
-              <th className={thCls}>{t("dashboard.scoreUpdates.title")}</th>
+              <th className={thCls}>{t("common.fields.titleArtist")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/20">{children}</tbody>
@@ -858,7 +850,17 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
   return Array.from(map.values()).filter((f) => f.clear || f.score || f.bp || f.combo || f.playCount);
 }
 
-function FumenRow({ fumen, userId }: { fumen: MergedFumenUpdate; userId?: string }) {
+function FumenRow({
+  fumen,
+  userId,
+  isExpanded,
+  onToggle,
+}: {
+  fumen: MergedFumenUpdate;
+  userId?: string;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
   const displayClearType = fumen.clear?.new ?? fumen.currentState?.clear_type ?? null;
   const rowClass = displayClearType != null ? (CLEAR_ROW_CLASS[displayClearType] ?? "") : "";
 
@@ -873,146 +875,156 @@ function FumenRow({ fumen, userId }: { fumen: MergedFumenUpdate; userId?: string
   const rate = fumen.currentState?.rate;
   const rateLabel = rate != null ? formatRatePercent(rate) : null;
 
+  function handleRowClick(e: React.MouseEvent<HTMLTableRowElement>) {
+    const target = e.target as HTMLElement;
+    if (target.closest('a, button, [role="button"], input, select, textarea, label, [data-state]')) return;
+    onToggle();
+  }
+
   return (
-    <tr className={cn("transition-all", rowClass || "hover:bg-secondary/50")}>
-      {/* Level */}
-      <td className="px-2 py-2 align-top">
-        <TableLevelBadges levels={fumen.table_levels} />
-      </td>
+    <>
+      <tr className={cn("transition-all cursor-pointer", rowClass || "hover:bg-secondary/50")} onClick={handleRowClick}>
+        {/* Level */}
+        <td className="px-2 py-2 align-top">
+          <TableLevelBadges levels={fumen.table_levels} />
+        </td>
 
-      {/* Title + Artist */}
-      <FumenTitleCell
-        item={fumen}
-        userId={userId}
-        className="px-2 py-2 align-top max-w-[220px]"
-        artistClassName="text-caption row-muted max-w-full truncate"
-      />
-
-      {/* Lamp */}
-      <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
-        {fumen.clear ? (
-          <span>
-            <span className="opacity-70">{CLEAR_TYPE_LABELS_SIMPLE[fumen.clear.prev ?? 0] ?? "?"}</span>
-            <span className="opacity-70"> → </span>
-            <span className="font-semibold">{clearText(fumen.clear.new, fumen.client_type)}</span>
-          </span>
-        ) : fumen.currentState?.clear_type != null ? (
-          clearText(fumen.currentState.clear_type, fumen.client_type)
-        ) : (
-          <span className="row-muted">—</span>
-        )}
-      </td>
-
-      {/* BP */}
-      <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
-        {fumen.bp?.prev != null ? (
-          <span>
-            <span className="opacity-70">{fumen.bp.prev} →</span>
-            <span className="font-semibold">{fumen.bp.new ?? "?"}</span>
-            {fumen.bp.new != null && fumen.bp.prev - fumen.bp.new > 0 && (
-              <span className="text-label font-bold opacity-75"> ▼{fumen.bp.prev - fumen.bp.new}</span>
-            )}
-          </span>
-        ) : fumen.bp?.new != null ? (
-          <span>{fumen.bp.new}</span>
-        ) : fumen.currentState?.min_bp != null ? (
-          <span>{fumen.currentState.min_bp}</span>
-        ) : (
-          <span className="row-muted">—</span>
-        )}
-      </td>
-
-      {/* Rate */}
-      <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
-        {fumen.rate?.prev != null ? (
-          <span>
-            <span className="opacity-70">{formatRatePercent(fumen.rate.prev)} →</span>
-            <span className="font-semibold">{fumen.rate.new != null ? formatRatePercent(fumen.rate.new) : "?"}</span>
-            {fumen.rate.new != null && fumen.rate.new - fumen.rate.prev > 0 && (
-              <span className="text-label font-bold opacity-75"> {formatRateDelta(fumen.rate.new - fumen.rate.prev)}</span>
-            )}
-          </span>
-        ) : fumen.rate?.new != null ? (
-          <span>{formatRatePercent(fumen.rate.new)}</span>
-        ) : rateLabel ? (
-          <span>{rateLabel}</span>
-        ) : (
-          <span className="row-muted">—</span>
-        )}
-      </td>
-
-      {/* Rank */}
-      <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
-        {fumen.score?.new_rank ? (
-          fumen.score.prev_rank ? (
-            <span>
-              <span className="opacity-70">{fumen.score.prev_rank} → </span>
-              <span className="font-semibold">{fumen.score.new_rank}</span>
-            </span>
-          ) : (
-            <span>{fumen.score.new_rank}</span>
-          )
-        ) : fumen.currentState?.rank ? (
-          <span>{fumen.currentState.rank}</span>
-        ) : (
-          <span className="row-muted">—</span>
-        )}
-      </td>
-
-      {/* Score */}
-      <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
-        {fumen.score?.prev != null ? (
-          <span>
-            <span className="opacity-70">{fumen.score.prev} →</span>
-            <span className="font-semibold">{fumen.score.new ?? "–"}</span>
-            {scoreDiff != null && scoreDiff > 0 && (
-              <span className="text-label font-bold opacity-75"> ▲{scoreDiff}</span>
-            )}
-          </span>
-        ) : fumen.score?.new != null ? (
-          <span>{fumen.score.new}</span>
-        ) : fumen.currentState?.exscore != null ? (
-          <span>{fumen.currentState.exscore}</span>
-        ) : (
-          <span className="row-muted">—</span>
-        )}
-      </td>
-
-      {/* Plays */}
-      <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
-        {fumen.playCount?.prev != null ? (
-          <span>
-            <span className="opacity-70">{fumen.playCount.prev} →</span>
-            <span className="font-semibold">{fumen.playCount.new ?? "–"}</span>
-            {fumen.playCount.new != null && fumen.playCount.new - fumen.playCount.prev > 0 && (
-              <span className="text-label font-bold opacity-75"> ▲{fumen.playCount.new - fumen.playCount.prev}</span>
-            )}
-          </span>
-        ) : fumen.playCount?.new != null ? (
-          <span>{fumen.playCount.new}</span>
-        ) : (
-          <span className="row-muted">—</span>
-        )}
-      </td>
-
-      {/* Option */}
-      <td className="px-2 py-2 align-top text-label">
-        {optionLabel ? (
-          <span>{optionLabel}</span>
-        ) : (
-          <span className="row-muted">—</span>
-        )}
-      </td>
-
-      {/* Env (client) */}
-      <td className="px-2 py-2 align-top text-label">
-        <SourceClientBadge
-          sourceClient={fumen.source_client}
-          sourceClientDetail={fumen.source_client_detail}
-          fallbackClientTypes={[fumen.client_type]}
+        {/* Title + Artist */}
+        <FumenTitleCell
+          item={fumen}
+          userId={userId}
+          className="px-2 py-2 align-top max-w-[220px]"
+          artistClassName="text-caption row-muted max-w-full truncate"
         />
-      </td>
-    </tr>
+
+        {/* Lamp */}
+        <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
+          {fumen.clear ? (
+            <span>
+              <span className="opacity-70">{CLEAR_TYPE_LABELS_SIMPLE[fumen.clear.prev ?? 0] ?? "?"}</span>
+              <span className="opacity-70"> → </span>
+              <span className="font-semibold">{clearText(fumen.clear.new, fumen.client_type)}</span>
+            </span>
+          ) : fumen.currentState?.clear_type != null ? (
+            clearText(fumen.currentState.clear_type, fumen.client_type)
+          ) : (
+            <span className="row-muted">—</span>
+          )}
+        </td>
+
+        {/* BP */}
+        <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
+          {fumen.bp?.prev != null ? (
+            <span>
+              <span className="opacity-70">{fumen.bp.prev} →</span>
+              <span className="font-semibold">{fumen.bp.new ?? "?"}</span>
+              {fumen.bp.new != null && fumen.bp.prev - fumen.bp.new > 0 && (
+                <span className="text-label font-bold opacity-75"> ▼{fumen.bp.prev - fumen.bp.new}</span>
+              )}
+            </span>
+          ) : fumen.bp?.new != null ? (
+            <span>{fumen.bp.new}</span>
+          ) : fumen.currentState?.min_bp != null ? (
+            <span>{fumen.currentState.min_bp}</span>
+          ) : (
+            <span className="row-muted">—</span>
+          )}
+        </td>
+
+        {/* Rate */}
+        <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
+          {fumen.rate?.prev != null ? (
+            <span>
+              <span className="opacity-70">{formatRatePercent(fumen.rate.prev)} →</span>
+              <span className="font-semibold">{fumen.rate.new != null ? formatRatePercent(fumen.rate.new) : "?"}</span>
+              {fumen.rate.new != null && fumen.rate.new - fumen.rate.prev > 0 && (
+                <span className="text-label font-bold opacity-75"> {formatRateDelta(fumen.rate.new - fumen.rate.prev)}</span>
+              )}
+            </span>
+          ) : fumen.rate?.new != null ? (
+            <span>{formatRatePercent(fumen.rate.new)}</span>
+          ) : rateLabel ? (
+            <span>{rateLabel}</span>
+          ) : (
+            <span className="row-muted">—</span>
+          )}
+        </td>
+
+        {/* Rank */}
+        <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
+          {fumen.score?.new_rank ? (
+            fumen.score.prev_rank ? (
+              <span>
+                <span className="opacity-70">{fumen.score.prev_rank} → </span>
+                <span className="font-semibold">{fumen.score.new_rank}</span>
+              </span>
+            ) : (
+              <span>{fumen.score.new_rank}</span>
+            )
+          ) : fumen.currentState?.rank ? (
+            <span>{fumen.currentState.rank}</span>
+          ) : (
+            <span className="row-muted">—</span>
+          )}
+        </td>
+
+        {/* Score */}
+        <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
+          {fumen.score?.prev != null ? (
+            <span>
+              <span className="opacity-70">{fumen.score.prev} →</span>
+              <span className="font-semibold">{fumen.score.new ?? "–"}</span>
+              {scoreDiff != null && scoreDiff > 0 && (
+                <span className="text-label font-bold opacity-75"> ▲{scoreDiff}</span>
+              )}
+            </span>
+          ) : fumen.score?.new != null ? (
+            <span>{fumen.score.new}</span>
+          ) : fumen.currentState?.exscore != null ? (
+            <span>{fumen.currentState.exscore}</span>
+          ) : (
+            <span className="row-muted">—</span>
+          )}
+        </td>
+
+        {/* Plays */}
+        <td className="px-2 py-2 align-top text-label whitespace-nowrap text-center">
+          {fumen.playCount?.prev != null ? (
+            <span>
+              <span className="opacity-70">{fumen.playCount.prev} →</span>
+              <span className="font-semibold">{fumen.playCount.new ?? "–"}</span>
+              {fumen.playCount.new != null && fumen.playCount.new - fumen.playCount.prev > 0 && (
+                <span className="text-label font-bold opacity-75"> ▲{fumen.playCount.new - fumen.playCount.prev}</span>
+              )}
+            </span>
+          ) : fumen.playCount?.new != null ? (
+            <span>{fumen.playCount.new}</span>
+          ) : (
+            <span className="row-muted">—</span>
+          )}
+        </td>
+
+        {/* Option */}
+        <td className="px-2 py-2 align-top text-label">
+          {optionLabel ? (
+            <span>{optionLabel}</span>
+          ) : !fumen.options && fumen.client_type === "beatoraja" ? (
+            <UnavailableValue reason="score_metadata_missing" />
+          ) : (
+            <span className="row-muted">—</span>
+          )}
+        </td>
+      </tr>
+      {isExpanded && (
+        <tr>
+          <td colSpan={9} className="p-0 border-b border-border/20">
+            <div className="border-t border-primary/20 bg-primary/5">
+              <FumenRowDetail fumenId={fumen.fumen_id} userId={userId} />
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -1022,6 +1034,15 @@ function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: strin
   const { t } = useTranslation();
   const [sortKey, setSortKey] = useState<FumenSortKey>("level");
   const [sortAsc, setSortAsc] = useState(true);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  const toggleFumen = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
 
   const baseFumens = useMemo(() => buildMergedFumens(data), [data]);
   const mergedCourses = useMemo(() => buildMergedCourses(data), [data]);
@@ -1115,7 +1136,7 @@ function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: strin
       {fumens.length > 0 && (
         <div className="border border-border/40 rounded-lg overflow-hidden">
           <div className="overflow-auto max-h-[480px]">
-            <table className="w-full text-label min-w-[760px]" onCopy={handleFumenTableCopy}>
+            <table className="w-full text-label min-w-[680px]" onCopy={handleFumenTableCopy}>
               <colgroup>
                 <col style={{ width: "100px" }} />
                 <col />
@@ -1126,12 +1147,11 @@ function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: strin
                 <col style={{ width: "120px" }} />
                 <col style={{ width: "90px" }} />
                 <col style={{ width: "50px" }} />
-                <col style={{ width: "50px" }} />
               </colgroup>
               <thead className="sticky top-0 z-10 bg-background text-foreground border-b border-border/50">
                 <tr>
                   <th className={thClass("level")} onClick={() => toggleSort("level")}>{t("dashboard.scoreUpdates.level")}{sortIcon("level")}</th>
-                  <th className={thClass("title")} onClick={() => toggleSort("title")}>{t("dashboard.scoreUpdates.title")}{sortIcon("title")}</th>
+                  <th className={thClass("title")} onClick={() => toggleSort("title")}>{t("common.fields.titleArtist")}{sortIcon("title")}</th>
                   <th className={thClass("lamp", true)} onClick={() => toggleSort("lamp")}>{t("dashboard.scoreUpdates.clear")}{sortIcon("lamp")}</th>
                   <th className={thClass("bp", true)} onClick={() => toggleSort("bp")}>{t("dashboard.scoreUpdates.bp")}{sortIcon("bp")}</th>
                   <th className={thClass("rate", true)} onClick={() => toggleSort("rate")}>{t("dashboard.scoreUpdates.rate")}{sortIcon("rate")}</th>
@@ -1139,13 +1159,21 @@ function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: strin
                   <th className={thClass("score", true)} onClick={() => toggleSort("score")}>{t("dashboard.scoreUpdates.score")}{sortIcon("score")}</th>
                   <th className={thClass("plays", true)} onClick={() => toggleSort("plays")}>{t("dashboard.scoreUpdates.plays")}{sortIcon("plays")}</th>
                   <th className={thClass("option")} onClick={() => toggleSort("option")}>{t("dashboard.scoreUpdates.option")}{sortIcon("option")}</th>
-                  <th className={thClass("env")} onClick={() => toggleSort("env")}>{t("dashboard.scoreUpdates.env")}{sortIcon("env")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/30">
-                {fumens.map((fumen, i) => (
-                  <FumenRow key={fumen.fumen_id ?? fumen.sha256 ?? fumen.md5 ?? i} fumen={fumen} userId={userId} />
-                ))}
+                {fumens.map((fumen, i) => {
+                  const fumenKey = fumen.fumen_id ?? fumen.sha256 ?? fumen.md5 ?? String(i);
+                  return (
+                    <FumenRow
+                      key={fumenKey}
+                      fumen={fumen}
+                      userId={userId}
+                      isExpanded={expandedIds.has(fumenKey)}
+                      onToggle={() => toggleFumen(fumenKey)}
+                    />
+                  );
+                })}
               </tbody>
             </table>
           </div>

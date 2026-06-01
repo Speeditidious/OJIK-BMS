@@ -136,6 +136,7 @@ export const resources = {
             "여러 BMS 구동기의 플레이 데이터를 통합 관리하고,\n즐겨찾기한 난이도표에 대한 성과를 한눈에 확인하세요. 즐거운 리딸 되시길 바랍니다.",
           primaryAction: "Discord로 시작하기",
           secondaryAction: "클라이언트 다운로드",
+          dashboardAction: "대시보드 바로가기",
         },
         features: {
           title: "주요 기능",
@@ -645,6 +646,27 @@ export const resources = {
           mixedRecord: "LR2 + Beatoraja 혼합 기록",
         },
       },
+      fumenRowDetail: {
+        loading: "불러오는 중...",
+        noRecords: "기록이 없습니다.",
+        judgments: "판정",
+        arrangement: "배치",
+        fastTotalExPgreat: "FAST 합계 (PG 제외)",
+        slowTotalExPgreat: "SLOW 합계 (PG 제외)",
+        client: {
+          lr2: "LR2",
+          beatoraja: "Beatoraja",
+        },
+        unavailableReason: {
+          score_metadata_missing: "scorelog.db 기록 등 원본 데이터에 옵션 정보가 없어 키배치를 확인할 수 없습니다.",
+          keymode_missing: "차분의 키 모드 정보가 아직 동기화되지 않아 키배치를 표시할 수 없습니다. OJIK BMS Client에서 전체 동기화를 실행해 주세요.",
+          lr2_seed_unmapped: "서버에 이 LR2 랜덤 시드와 대응하는 키배치 정보가 아직 없어 표시할 수 없습니다.",
+          static_map_unsupported: "플레이 중 노트마다 배치가 달라질 수 있는 옵션이므로 하나의 키배치로 표시할 수 없습니다.",
+          assist_option_unsupported: "BATTLE 계열 보조 옵션으로 플레이한 기록은 현재 키배치 표시를 지원하지 않습니다.",
+          keymode_unsupported: "현재 키배치 표시를 지원하지 않는 키 모드입니다.",
+          dp_unsupported: "LR2 DP 기록은 양쪽 키배치를 정확히 복원할 수 없어 표시할 수 없습니다.",
+        },
+      },
       dashboard: {
         tabs: {
           distribution: "클리어 분포",
@@ -748,6 +770,8 @@ export const resources = {
           reset: "초기화",
           chartCount: "차분 {{count}}개",
           chartCountTotal: " / 전체 {{count}}개",
+          viewSnapshot: "과거 기록 보기",
+          viewCurrent: "현재 기록으로",
         },
       },
       ranking: {
@@ -1045,6 +1069,7 @@ export const resources = {
             "Manage play data from multiple BMS clients in one place,\nand review your progress on favorite difficulty tables at a glance. Enjoy.",
           primaryAction: "Start with Discord",
           secondaryAction: "Download Client",
+          dashboardAction: "Go to Dashboard",
         },
         features: {
           title: "Core Features",
@@ -1555,6 +1580,27 @@ export const resources = {
           mixedRecord: "Mixed LR2 + beatoraja record",
         },
       },
+      fumenRowDetail: {
+        loading: "Loading...",
+        noRecords: "No records.",
+        judgments: "Judgments",
+        arrangement: "Lane Arrangement",
+        fastTotalExPgreat: "FAST total (excl. PG)",
+        slowTotalExPgreat: "SLOW total (excl. PG)",
+        client: {
+          lr2: "LR2",
+          beatoraja: "Beatoraja",
+        },
+        unavailableReason: {
+          score_metadata_missing: "Option data is unavailable in the source record (e.g. scorelog.db), so the lane arrangement cannot be shown.",
+          keymode_missing: "The key mode for this chart has not been synced yet. Run a Full Sync in OJIK BMS Client.",
+          lr2_seed_unmapped: "No matching lane arrangement is registered on the server for this LR2 random seed.",
+          static_map_unsupported: "This option applies a different arrangement per note, so a single lane map cannot be displayed.",
+          assist_option_unsupported: "Lane arrangement display is not yet supported for BATTLE-type assist options.",
+          keymode_unsupported: "Lane arrangement display is not supported for this key mode.",
+          dp_unsupported: "LR2 DP records cannot accurately reconstruct both sides' lane arrangements.",
+        },
+      },
       dashboard: {
         tabs: {
           distribution: "Clear Distribution",
@@ -1658,6 +1704,8 @@ export const resources = {
           reset: "Reset",
           chartCount: "{{count}} charts",
           chartCountTotal: " / {{count}} total",
+          viewSnapshot: "View Past Records",
+          viewCurrent: "Back to Current",
         },
       },
       ranking: {
@@ -1955,6 +2003,7 @@ export const resources = {
             "複数のBMSクライアントのプレイデータをまとめて管理し、\nお気に入りの難易度表の成果をひと目で確認できます。楽しいリザルト更新を。",
           primaryAction: "Discordで始める",
           secondaryAction: "クライアントをダウンロード",
+          dashboardAction: "ダッシュボードへ",
         },
         features: {
           title: "主な機能",
@@ -2465,6 +2514,27 @@ export const resources = {
           mixedRecord: "LR2 + beatoraja 混合記録",
         },
       },
+      fumenRowDetail: {
+        loading: "読み込み中...",
+        noRecords: "記録がありません。",
+        judgments: "判定",
+        arrangement: "鍵配置",
+        fastTotalExPgreat: "FAST 合計 (PG 除く)",
+        slowTotalExPgreat: "SLOW 合計 (PG 除く)",
+        client: {
+          lr2: "LR2",
+          beatoraja: "Beatoraja",
+        },
+        unavailableReason: {
+          score_metadata_missing: "scorelog.db 等の原本データにオプション情報がないため、鍵配置を確認できません。",
+          keymode_missing: "この譜面のキーモード情報がまだ同期されていません。OJIK BMS Clientでフル同期を実行してください。",
+          lr2_seed_unmapped: "このLR2ランダムシードに対応する鍵配置情報がサーバーにまだ登録されていません。",
+          static_map_unsupported: "ノートごとに配置が変わるオプションのため、一つの鍵配置では表示できません。",
+          assist_option_unsupported: "BATTLEアシストオプションでプレイした記録は、現在鍵配置表示に対応していません。",
+          keymode_unsupported: "このキーモードは現在鍵配置表示に対応していません。",
+          dp_unsupported: "LR2 DPの記録は両側の鍵配置を正確に復元できないため表示できません。",
+        },
+      },
       dashboard: {
         tabs: {
           distribution: "クリア分布",
@@ -2568,6 +2638,8 @@ export const resources = {
           reset: "リセット",
           chartCount: "譜面 {{count}}件",
           chartCountTotal: " / 全{{count}}件",
+          viewSnapshot: "過去の記録を表示",
+          viewCurrent: "現在の記録に戻る",
         },
       },
       ranking: {

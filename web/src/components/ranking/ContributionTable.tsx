@@ -1,13 +1,16 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { localeFromLanguage } from "@/lib/i18n/locale";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { SourceClientBadge } from "@/components/common/SourceClientBadge";
 import { clearText } from "@/components/dashboard/RecentActivity";
+import { UnavailableValue } from "@/components/common/UnavailableValue";
+import { FumenRowDetail } from "@/components/fumen/FumenRowDetail";
+import { useScoreRowDetail } from "@/hooks/use-score-row-detail";
+import { ARRANGEMENT_KANJI } from "@/lib/fumen-table-utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { CLEAR_ROW_CLASS } from "@/lib/fumen-table-utils";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
@@ -67,7 +70,6 @@ type SectionRow =
 interface SectionModel {
   section: SectionKey;
   count: number;
-  averageDelta: number | null;
   rows: SectionRow[];
 }
 
@@ -86,7 +88,7 @@ type ContributionColumnKey =
   | "min_bp"
   | "rate"
   | "rank_grade"
-  | "env"
+  | "arrangement"
   | "value";
 
 const DEFAULT_COLUMNS: TableColumn[] = [
@@ -98,7 +100,7 @@ const DEFAULT_COLUMNS: TableColumn[] = [
   { key: "min_bp", width: 84, align: "left" },
   { key: "rate", width: 100, align: "left" },
   { key: "rank_grade", width: 84, align: "left" },
-  { key: "env", width: 72, align: "left" },
+  { key: "arrangement", width: 72, align: "left" },
   { key: "value", width: 200, align: "center" },
 ];
 
@@ -110,7 +112,7 @@ const DAY_DETAIL_COLUMNS: TableColumn[] = [
   { key: "min_bp", width: 140, align: "center" },
   { key: "rate", width: 200, align: "center" },
   { key: "rank_grade", width: 116, align: "center" },
-  { key: "env", width: 72, align: "center" },
+  { key: "arrangement", width: 72, align: "center" },
   { key: "value", width: 220, align: "center" },
 ];
 
@@ -154,11 +156,6 @@ function envLabelFromEntry(entry: RankingContributionEntry): string {
   if (unique[0] === "lr2") return "LR";
   if (unique[0] === "beatoraja") return "BR";
   return unique[0]?.toUpperCase() ?? "";
-}
-
-function formatSigned(value: number, digits: number): string {
-  if (Math.abs(value) < 1e-9) return "-";
-  return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
 }
 
 function cellAlignClass(align: TableColumn["align"]): string {
@@ -317,17 +314,16 @@ function columnHeaderConfig(
 ): { label: string; sortKey: RatingContributionSortBy; title?: string } {
   if (column.key === "rank") return { label: t("ranking.rank"), sortKey: "rank" };
   if (column.key === "level") return { label: t("common.fields.level"), sortKey: "level" };
-  if (column.key === "title") return { label: t("common.fields.title"), sortKey: "title" };
+  if (column.key === "title") return { label: t("common.fields.titleArtist"), sortKey: "title" };
   if (column.key === "recorded_at") return { label: t("common.fields.recordedAt"), sortKey: "recorded_at" };
   if (column.key === "clear_type") return { label: t("common.fields.clear"), sortKey: "clear_type" };
   if (column.key === "min_bp") return { label: "BP", sortKey: "min_bp" };
   if (column.key === "rate") return { label: t("common.fields.rate"), sortKey: "rate" };
   if (column.key === "rank_grade") return { label: t("common.fields.rank"), sortKey: "rank_grade" };
-  if (column.key === "env") {
+  if (column.key === "arrangement") {
     return {
-      label: t("common.fields.env"),
+      label: t("common.fields.option"),
       sortKey: "env",
-      title: "LR = LR2, BR = Beatoraja, MIX = both clients",
     };
   }
   return { label: valueLabel, sortKey: "value" };
@@ -574,6 +570,27 @@ function ValueCell({
   );
 }
 
+function ArrangementCell({ fumenId, userId }: { fumenId?: string | null; userId?: string }) {
+  const { data, isLoading } = useScoreRowDetail({
+    fumenId: fumenId ?? null,
+    userId,
+    enabled: !!fumenId,
+  });
+
+  if (!fumenId) return <span className="row-muted">—</span>;
+  if (isLoading) return <span className="text-muted-foreground/50 text-[10px]">...</span>;
+  if (!data || data.records.length === 0) return <span className="row-muted">—</span>;
+
+  const record = data.records[0];
+  const arr = record?.arrangement;
+  if (!arr) return <span className="row-muted">—</span>;
+  if (arr.unavailable_reason) return <UnavailableValue reason={arr.unavailable_reason} />;
+  if (!arr.option_label || arr.option_label === "NORMAL") return <span className="row-muted text-label">正</span>;
+
+  const kanji = ARRANGEMENT_KANJI[arr.option_label] ?? arr.option_label;
+  return <span className="text-label">{kanji}</span>;
+}
+
 function ContributionRow({
   entry,
   metric,
@@ -581,6 +598,8 @@ function ContributionRow({
   presentation,
   columns,
   userId,
+  isExpanded,
+  onToggle,
 }: {
   entry: RankingContributionEntry;
   metric: RatingContributionMetric;
@@ -588,6 +607,8 @@ function ContributionRow({
   presentation: "default" | "day-detail" | "rating-detail";
   columns: TableColumn[];
   userId?: string;
+  isExpanded?: boolean;
+  onToggle?: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const dateLocale = localeFromLanguage(i18n.language);
@@ -671,16 +692,8 @@ function ContributionRow({
     if (column.key === "rank_grade") {
       return <RankGradeCell entry={entry} section={section} presentation={presentation} />;
     }
-    if (column.key === "env") {
-      return entry.updated_today === false ? (
-        <span className="row-prev">—</span>
-      ) : (
-        <SourceClientBadge
-          sourceClient={entry.source_client}
-          sourceClientDetail={entry.source_client_detail}
-          fallbackClientTypes={entry.client_types}
-        />
-      );
+    if (column.key === "arrangement") {
+      return <ArrangementCell fumenId={entry.fumen_id} userId={userId} />;
     }
     return <ValueCell entry={entry} metric={metric} section={section} presentation={presentation} />;
   }
@@ -695,17 +708,35 @@ function ContributionRow({
     );
   }
 
+  function handleRowClick(e: React.MouseEvent<HTMLTableRowElement>) {
+    const target = e.target as HTMLElement;
+    if (target.closest('a, button, [role="button"], input, select, textarea, label, [data-state]')) return;
+    onToggle?.();
+  }
+
   return (
-    <tr
-      style={{ height: ROW_HEIGHT }}
-      className={cn("border-b border-border/30", rowClass || "hover:bg-secondary/50")}
-    >
-      {columns.map((column) => (
-        <td key={column.key} className={cellClassName(column)}>
-          {renderCell(column)}
-        </td>
-      ))}
-    </tr>
+    <>
+      <tr
+        style={{ height: ROW_HEIGHT }}
+        className={cn("border-b border-border/30 cursor-pointer", rowClass || "hover:bg-secondary/50")}
+        onClick={handleRowClick}
+      >
+        {columns.map((column) => (
+          <td key={column.key} className={cellClassName(column)}>
+            {renderCell(column)}
+          </td>
+        ))}
+      </tr>
+      {isExpanded && (
+        <tr>
+          <td colSpan={columns.length} className="p-0 border-b border-border/20">
+            <div className="border-t border-primary/20 bg-primary/5">
+              <FumenRowDetail fumenId={entry.fumen_id} userId={userId} />
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -776,22 +807,24 @@ function SectionCard({
   section,
   rows,
   count,
-  averageDelta,
   colSpan,
   topN,
   valueLabel,
   presentation,
   userId,
+  expandedKeys,
+  onToggle,
 }: {
   section: SectionKey;
   rows: SectionRow[];
   count: number;
-  averageDelta: number | null;
   colSpan: number;
   topN?: number;
   valueLabel: string;
   presentation: "default" | "day-detail" | "rating-detail";
   userId?: string;
+  expandedKeys?: Set<string>;
+  onToggle?: (key: string) => void;
 }) {
   const { t } = useTranslation();
   const meta = sectionMeta(section, t, topN);
@@ -807,11 +840,6 @@ function SectionCard({
             </span>
             <span className="text-caption text-muted-foreground">{count}</span>
           </div>
-          {section === "kept" && averageDelta != null && (
-            <span className="text-caption text-muted-foreground">
-              Avg. change {formatSigned(averageDelta, 2)}
-            </span>
-          )}
         </div>
         {meta.helperText && (
           <p className="mt-2 text-caption text-muted-foreground">{meta.helperText}</p>
@@ -830,7 +858,17 @@ function SectionCard({
             {rows.map((row) => (
               row.kind === "ellipsis"
                 ? <EllipsisRow key={row.id} colSpan={colSpan} />
-                : <ContributionRow key={row.id} entry={row.entry} metric="rating" section={section} presentation={presentation === "rating-detail" ? "default" : presentation} columns={columns} userId={userId} />
+                : <ContributionRow
+                    key={row.id}
+                    entry={row.entry}
+                    metric="rating"
+                    section={section}
+                    presentation={presentation === "rating-detail" ? "default" : presentation}
+                    columns={columns}
+                    userId={userId}
+                    isExpanded={expandedKeys?.has(row.id) ?? false}
+                    onToggle={onToggle ? () => onToggle(row.id) : undefined}
+                  />
             ))}
           </tbody>
         </table>
@@ -857,6 +895,15 @@ export function ContributionTable({
 }: ContributionTableProps) {
   const { t } = useTranslation();
   const parentRef = useRef<HTMLDivElement | null>(null);
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+
+  const toggleEntry = useCallback((key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
   const shouldRenderSections = metric === "rating" && !!previousTopKeys && !!currentTopKeys;
   // rating-detail: no virtualization (render all, no scroll container)
   const shouldVirtualize = !shouldRenderSections && presentation !== "rating-detail" && entries.length >= 50;
@@ -878,11 +925,6 @@ export function ContributionTable({
       entered: [],
       dropped: [],
     };
-    const deltaTotals: Record<SectionKey, number> = {
-      kept: 0,
-      entered: 0,
-      dropped: 0,
-    };
 
     for (const entry of entries) {
       const key = contributionKey(entry);
@@ -898,9 +940,6 @@ export function ContributionTable({
 
       if (!section) continue;
       buckets[section].push(entry);
-      if (section === "kept" && entry.delta_rating != null) {
-        deltaTotals[section] += entry.delta_rating;
-      }
     }
 
     const orderedSections: SectionKey[] = ["entered", "kept", "dropped"];
@@ -932,7 +971,6 @@ export function ContributionTable({
         return {
           section,
           count: bucket.length,
-          averageDelta: section === "kept" ? deltaTotals[section] / bucket.length : null,
           rows,
         };
       })
@@ -983,12 +1021,13 @@ export function ContributionTable({
             section={section.section}
             rows={section.rows}
             count={section.count}
-            averageDelta={section.averageDelta}
             colSpan={colSpan}
             topN={topN}
             valueLabel={valueLabel}
             presentation={presentation}
             userId={userId}
+            expandedKeys={expandedKeys}
+            onToggle={toggleEntry}
           />
         ))}
       </div>
@@ -1034,16 +1073,19 @@ export function ContributionTable({
             {shouldVirtualize && paddingTop > 0 && (
               <tr><td colSpan={colSpan} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
             )}
-            {renderedEntries.map((entry) => (
-              <ContributionRow
-                key={contributionKey(entry)}
+            {renderedEntries.map((entry) => {
+              const entryKey = contributionKey(entry);
+              return <ContributionRow
+                key={entryKey}
                 entry={entry}
                 metric={metric}
                 presentation={presentation}
                 columns={columns}
                 userId={userId}
+                isExpanded={expandedKeys.has(entryKey)}
+                onToggle={() => toggleEntry(entryKey)}
               />
-            ))}
+            })}
             {shouldVirtualize && paddingBottom > 0 && (
               <tr><td colSpan={colSpan} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
             )}
