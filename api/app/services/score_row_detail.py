@@ -266,11 +266,11 @@ def decode_arrangement(
         arrangement_enum = op_best // 10
         label = _LR2_OPTION_LABELS.get(arrangement_enum, f"UNKNOWN({arrangement_enum})")
 
-        # LR2 only supports SP (5K/7K)
+        # LR2 only supports SP (5K/7K); DP modes cannot reconstruct both sides
         if keymode not in _BEA_SP_KEYMODES:
             if keymode in _BEA_DP_KEYMODES:
                 return _make_unavailable(label, "dp_unsupported")
-            return _make_unavailable(label, "dp_unsupported")
+            return _make_unavailable(label, "keymode_unsupported")
 
         if arrangement_enum in _LR2_STATIC_MAP_OPTIONS:
             return _make_unavailable(label, "static_map_unsupported")
