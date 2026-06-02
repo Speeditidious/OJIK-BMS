@@ -201,10 +201,20 @@ async def fetch_table(
             "content-type", ""
         )
 
+        def _safe_json(response: httpx.Response, label: str) -> Any:
+            text = response.text
+            if not text.strip():
+                raise ValueError(f"Empty response body from {label} (status {response.status_code})")
+            try:
+                return response.json()
+            except Exception as exc:
+                snippet = text[:200].replace("\n", " ")
+                raise ValueError(f"Invalid JSON from {label}: {exc} — response preview: {snippet!r}") from exc
+
         if is_json:
             header_url = page_url
             header_base_url = header_url
-            header: dict = resp.json()
+            header: dict = _safe_json(resp, f"header {header_url}")
         else:
             parser = _MetaTagParser()
             parser.feed(resp.text)
@@ -214,7 +224,7 @@ async def fetch_table(
             header_resp = await client.get(header_url, headers={"User-Agent": req_headers["User-Agent"]})
             header_resp.raise_for_status()
             header_base_url = str(header_resp.url)
-            header = header_resp.json()
+            header = _safe_json(header_resp, f"header {header_url}")
 
         data_url_raw: str = header.get("data_url") or header.get("data_url_no_cache", "")
         if not data_url_raw:
@@ -224,7 +234,7 @@ async def fetch_table(
         data_resp = await client.get(data_url, headers={"User-Agent": req_headers["User-Agent"]})
         data_resp.raise_for_status()
 
-        raw_songs: list[dict] = data_resp.json()
+        raw_songs: list[dict] = _safe_json(data_resp, f"data {data_url}")
         if not isinstance(raw_songs, list):
             raise ValueError(f"data.json at {data_url} is not a JSON array")
 

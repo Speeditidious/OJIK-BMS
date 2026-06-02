@@ -776,14 +776,13 @@ async def _get_day_stats(
         for k in keys:
             total_notes_hit += max(0, int(j.get(k) or 0) - int(pj.get(k) or 0))
 
-    # Uncertain when PlayerStats rows exist but delta is 0 — covers first-sync rows
-    # (LAG=NULL) and clients that don't provide playtime/judgments (e.g. LR2 without
-    # a player table).  If rows is empty the date predates PlayerStats tracking;
-    # uncertainty in that case depends on whether score records exist (checked by
-    # the caller).
-    playcount_uncertain = bool(rows) and total_playcount == 0
-    playtime_uncertain = bool(rows) and total_playtime == 0
-    notes_hit_uncertain = bool(rows) and total_notes_hit == 0
+    # Uncertain when any row is a first-sync row (prev_judgments is None = LAG=NULL),
+    # because delta_pt/delta_pc for that row is artificially 0 (COALESCE trick),
+    # not a real "no change". Distinguish from genuine delta=0 (playtime unchanged).
+    has_first_sync_row = any(r.prev_judgments is None for r in rows)
+    playcount_uncertain = has_first_sync_row
+    playtime_uncertain = has_first_sync_row
+    notes_hit_uncertain = has_first_sync_row
 
     # Detect if this date has only unreliable LR2 rows (corruption from LR2ALT bug).
     # An unreliable date = there exists an unreliable LR2 row for this user on this UTC
