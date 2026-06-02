@@ -193,7 +193,20 @@ pub fn parse_player_stats(score_db_path: &str) -> Option<PlayerStats> {
         return None;
     }
 
-    let sql = format!("SELECT {} FROM player LIMIT 1", select_cols.join(", "));
+    let mut order_cols = vec![];
+    for col in [&playcount, &playtime, &pg, &gr, &gd, &bd, &pr]
+        .into_iter()
+        .flatten()
+    {
+        order_cols.push(format!("{col} DESC"));
+    }
+    order_cols.push("rowid ASC".to_string());
+
+    let sql = format!(
+        "SELECT {} FROM player ORDER BY {} LIMIT 1",
+        select_cols.join(", "),
+        order_cols.join(", ")
+    );
     let mut stmt = conn.prepare(&sql).ok()?;
     stmt.query_row([], |row| {
         Ok(PlayerStats {
@@ -867,6 +880,74 @@ mod tests {
         assert_eq!(stats.clearcount, Some(88));
         assert_eq!(stats.playtime, Some(777));
         assert_eq!(stats.judgments.unwrap()["perfect"], 10);
+
+        let _ = fs::remove_file(db);
+    }
+
+    #[test]
+    fn selects_player_stats_by_cumulative_priority() {
+        let db = temp_db("player_priority");
+        create_score_db(&db);
+        let conn = Connection::open(&db).expect("open lr2 test db");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE player (
+                pg INTEGER,
+                gr INTEGER,
+                gd INTEGER,
+                bd INTEGER,
+                pr INTEGER,
+                playcount INTEGER,
+                clearcount INTEGER,
+                playtime INTEGER
+            );
+            INSERT INTO player VALUES (999, 999, 999, 999, 999, 98, 1, 9999);
+            INSERT INTO player VALUES (100, 20, 3, 4, 5, 99, 88, 777);
+            INSERT INTO player VALUES (99, 999, 999, 999, 999, 99, 88, 778);
+            INSERT INTO player VALUES (100, 19, 999, 999, 999, 99, 88, 778);
+            INSERT INTO player VALUES (100, 20, 2, 999, 999, 99, 88, 778);
+            INSERT INTO player VALUES (100, 20, 3, 3, 999, 99, 88, 778);
+            INSERT INTO player VALUES (100, 20, 3, 4, 4, 99, 88, 778);
+            INSERT INTO player VALUES (100, 20, 3, 4, 6, 99, 88, 778);
+            "#,
+        )
+        .expect("create player table");
+
+        let stats = parse_player_stats(db.to_str().unwrap()).expect("parse lr2 player stats");
+
+        assert_eq!(stats.playcount, Some(99));
+        assert_eq!(stats.playtime, Some(778));
+        assert_eq!(stats.judgments.unwrap()["poor"], 6);
+
+        let _ = fs::remove_file(db);
+    }
+
+    #[test]
+    fn selects_first_player_stats_row_when_cumulative_values_match() {
+        let db = temp_db("player_priority_tie");
+        create_score_db(&db);
+        let conn = Connection::open(&db).expect("open lr2 test db");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE player (
+                pg INTEGER,
+                gr INTEGER,
+                gd INTEGER,
+                bd INTEGER,
+                pr INTEGER,
+                playcount INTEGER,
+                clearcount INTEGER,
+                playtime INTEGER
+            );
+            INSERT INTO player VALUES (100, 20, 3, 4, 5, 99, 88, 777);
+            INSERT INTO player VALUES (100, 20, 3, 4, 5, 99, 77, 777);
+            "#,
+        )
+        .expect("create player table");
+
+        let stats = parse_player_stats(db.to_str().unwrap()).expect("parse lr2 player stats");
+
+        assert_eq!(stats.clearcount, Some(88));
 
         let _ = fs::remove_file(db);
     }
