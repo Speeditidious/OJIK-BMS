@@ -78,17 +78,17 @@ impl SyncText {
 
     fn progress_lr2_user_db(&self) -> &'static str {
         match self.language {
-            SyncLanguage::Ko => "LR2 <username>.db 처리 중",
-            SyncLanguage::En => "Processing LR2 <username>.db",
-            SyncLanguage::Ja => "LR2 <username>.dbを処理中",
+            SyncLanguage::Ko => "LR2 <username>.db / <lr2id>.db 처리 중",
+            SyncLanguage::En => "Processing LR2 <username>.db / <lr2id>.db",
+            SyncLanguage::Ja => "LR2 <username>.db / <lr2id>.dbを処理中",
         }
     }
 
     fn lr2_user_db_log(&self) -> String {
         match self.language {
-            SyncLanguage::Ko => "[INFO] LR2 <username>.db 처리 중...".to_string(),
-            SyncLanguage::En => "[INFO] Processing LR2 <username>.db...".to_string(),
-            SyncLanguage::Ja => "[INFO] LR2 <username>.dbを処理中...".to_string(),
+            SyncLanguage::Ko => "[INFO] LR2 <username>.db / <lr2id>.db 처리 중...".to_string(),
+            SyncLanguage::En => "[INFO] Processing LR2 <username>.db / <lr2id>.db...".to_string(),
+            SyncLanguage::Ja => "[INFO] LR2 <username>.db / <lr2id>.dbを処理中...".to_string(),
         }
     }
 

@@ -159,7 +159,7 @@ fn validate_lr2_score_schema(available: &HashSet<String>) -> anyhow::Result<()> 
         return Ok(());
     }
     Err(anyhow!(
-        "선택한 LR2 <username>.db가 Beatoraja 데이터베이스로 보입니다. LR2 유저가 아니시라면 경로를 비우시고, LR2 유저시라면 LR2의 <username>.db 경로에 올바른 경로를 입력했는지 다시 한번 확인해주세요. detected_columns={}",
+        "선택한 LR2 <username>.db / <lr2id>.db가 Beatoraja 데이터베이스로 보입니다. LR2 유저가 아니시라면 경로를 비우시고, LR2 유저시라면 LR2의 <username>.db 또는 <lr2id>.db 경로에 올바른 경로를 입력했는지 다시 한번 확인해주세요. detected_columns={}",
         found.join(", ")
     ))
 }

@@ -126,8 +126,8 @@ export const resources = {
           },
           cards: {
             lr2Score: {
-              label: "<username>.db",
-              hint: "LR2files/Database/Score 경로에 있는 {username}.db 파일을 업로드 해주세요. 일반적으로 용량이 제일 큰 파일입니다.",
+              label: "<username>.db 또는 <lr2id>.db",
+              hint: "LR2files/Database/Score 경로에 있는 {username}.db 또는 {lr2id}.db 파일을 업로드 해주세요. 일반적으로 용량이 제일 큰 파일입니다.",
             },
             lr2Song: {
               label: "song.db",
@@ -443,8 +443,8 @@ export const resources = {
           },
           cards: {
             lr2Score: {
-              label: "<username>.db",
-              hint: "Upload the {username}.db file in LR2files/Database/Score. It is usually the largest file.",
+              label: "<username>.db or <lr2id>.db",
+              hint: "Upload the {username}.db or {lr2id}.db file in LR2files/Database/Score. It is usually the largest file.",
             },
             lr2Song: {
               label: "song.db",
@@ -760,8 +760,8 @@ export const resources = {
           },
           cards: {
             lr2Score: {
-              label: "<username>.db",
-              hint: "LR2files/Database/ScoreにあるUsername.dbファイルをアップロードしてください。通常は最も大きいファイルです。",
+              label: "<username>.db または <lr2id>.db",
+              hint: "LR2files/Database/ScoreにあるUsername.dbまたは{lr2id}.dbファイルをアップロードしてください。通常は最も大きいファイルです。",
             },
             lr2Song: {
               label: "song.db",
