@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { resources } from "../../lib/i18n/resources.mjs";
 
 const userDashboardSource = readFileSync(
   new URL("../../components/dashboard/UserDashboardContent.tsx", import.meta.url),
@@ -27,6 +28,26 @@ test("dashboard overview labels are translated instead of hardcoded", () => {
         userDashboardSource.includes(`"${literal}"`),
       false,
       `${literal} should come from i18n resources`,
+    );
+  }
+});
+
+test("playerStatsUnreliable tooltip exists in all locales", () => {
+  for (const lang of ["ko", "en", "ja"]) {
+    const dayDetail = resources[lang].translation.dashboard.dayDetail;
+    assert.ok(
+      typeof dayDetail.playerStatsUnreliable === "string" && dayDetail.playerStatsUnreliable.length > 0,
+      `${lang} should have playerStatsUnreliable tooltip`,
+    );
+  }
+});
+
+test("noPlayerStats tooltip exists in all locales", () => {
+  for (const lang of ["ko", "en", "ja"]) {
+    const stats = resources[lang].translation.dashboard.stats;
+    assert.ok(
+      typeof stats.noPlayerStats === "string" && stats.noPlayerStats.length > 0,
+      `${lang} should have noPlayerStats tooltip`,
     );
   }
 });

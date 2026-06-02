@@ -367,6 +367,7 @@ export function RatingChangeTabContent({
                 onSortChange={handleSortChange}
                 presentation="day-detail"
                 userId={userId ?? undefined}
+                asOf={date}
               />
             )}
           </>

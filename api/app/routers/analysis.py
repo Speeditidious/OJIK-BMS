@@ -5,7 +5,7 @@ from datetime import date as date_cls
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import Date, and_, cast, func, or_, select, text
+from sqlalchemy import Date, and_, cast, func, not_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -23,13 +23,19 @@ from app.services.client_aggregation import (
     aggregate_source_client,
 )
 from app.services.initial_sync import initial_sync_cutoff, is_initial_sync_timestamp
-from app.services.level_display_preferences import resolve_visible_table_ids
+from app.services.level_display_preferences import (
+    resolve_non_regular_hidden_levels,
+    resolve_visible_table_ids,
+)
+from app.services.player_stats_reliability import lr2_stats_unreliable_sql
+from app.services.ranking_calculator import BestScore
 from app.services.ranking_config import get_ranking_config
 from app.services.ranking_dashboard import (
     compute_rating_breakdown,
     compute_rating_updates,
     compute_rating_updates_aggregated,
     get_user_ranking_version,
+    resolve_best_state_timestamps,
 )
 from app.services.rating_derived_data import (
     fetch_user_rating_update_count_for_date,
@@ -258,14 +264,35 @@ def _canonical_fumen_key(
 def _build_fumen_aggregate(
     rows: list[Any],
     md5_to_sha256: dict[str, str],
+    first_synced_at: dict[str, str] | None = None,
 ) -> dict[tuple[str | None, str | None], dict[str, Any]]:
     aggregated: dict[tuple[str | None, str | None], dict[str, Any]] = {}
     per_fumen_client: dict[tuple[str | None, str | None], dict[str, dict[str, Any]]] = {}
+    history_by_key: dict[tuple[str | None, str | None], list[dict[str, Any]]] = {}
 
     for row in rows:
         key = _canonical_fumen_key(row.fumen_sha256, row.fumen_md5, md5_to_sha256)
         if key == (None, None) or not row.client_type:
             continue
+        recorded_at = getattr(row, "recorded_at", None)
+        synced_at = getattr(row, "synced_at", None)
+        effective_ts = recorded_at or synced_at
+        display_recorded_at = recorded_at
+        if display_recorded_at is None and not is_initial_sync_timestamp(
+            first_synced_at,
+            row.client_type,
+            synced_at,
+        ):
+            display_recorded_at = synced_at
+        history_by_key.setdefault(key, []).append({
+            "clear_type": display_clear_type(row.clear_type, exscore=row.exscore, rate=row.rate),
+            "exscore": row.exscore,
+            "rate": row.rate,
+            "rank": row.rank,
+            "min_bp": row.min_bp,
+            "display_recorded_at": display_recorded_at,
+            "effective_ts": effective_ts,
+        })
         per_client = per_fumen_client.setdefault(key, {})
         entry = per_client.setdefault(
             row.client_type,
@@ -348,6 +375,19 @@ def _build_fumen_aggregate(
             )
             for client_type, entry in per_client.items()
         )
+        recorded_at, sort_recorded_at = resolve_best_state_timestamps(
+            history_by_key.get(key, []),
+            BestScore(
+                sha256=key[0],
+                md5=key[1],
+                level="",
+                clear_type=best_clear_type,
+                exscore=best_exscore,
+                rate=best_rate,
+                rank=best_rank,
+                min_bp=best_min_bp,
+            ),
+        )
         aggregated[key] = {
             "current_state": {
                 "clear_type": best_clear_type,
@@ -362,6 +402,8 @@ def _build_fumen_aggregate(
             "play_count": play_count or None,
             "source_client": source_client,
             "source_client_detail": source_client_detail,
+            "recorded_at": recorded_at,
+            "sort_recorded_at": sort_recorded_at,
         }
     return aggregated
 
@@ -427,7 +469,7 @@ async def get_play_summary(
     latest_subq = (
         select(UserPlayerStats)
         .distinct(UserPlayerStats.client_type)
-        .where(*stats_latest_filter)
+        .where(*stats_latest_filter, not_(lr2_stats_unreliable_sql(UserPlayerStats)))
         .order_by(UserPlayerStats.client_type, UserPlayerStats.synced_at.desc())
     ).subquery()
     pstats_result = await db.execute(
@@ -439,9 +481,10 @@ async def get_play_summary(
     )
     pstats = pstats_result.one()
 
-    total_play_count = int(pstats[0] or 0) or int(row.total_play_count or 0)
+    total_play_count = int(pstats[0] or 0)
     total_playtime = int(pstats[1] or 0)
     last_synced_at = pstats[2]
+    has_player_stats = pstats[0] is not None
 
     lr2_hit_keys = {"perfect", "great", "good", "bad"}
     bea_hit_keys = {"epg", "lpg", "egr", "lgr", "egd", "lgd", "ebd", "lbd"}
@@ -465,6 +508,7 @@ async def get_play_summary(
         "total_notes_hit": total_notes_hit,
         "last_synced_at": last_synced_at.isoformat() if last_synced_at else None,
         "first_synced_by_client": first_synced_by_client,
+        "has_player_stats": has_player_stats,
     }
 
 
@@ -588,7 +632,7 @@ async def _get_daily_plays(
         select(
             cast(func.timezone("UTC", h.synced_at), Date).label("day"),
             delta.label("delta"),
-        ).where(*filters)
+        ).where(*filters, not_(lr2_stats_unreliable_sql(h)))
     ).subquery()
 
     result = await db.execute(
@@ -710,7 +754,7 @@ async def _get_day_stats(
         delta_pt.label("delta_pt"),
         h.judgments.label("judgments"),
         lag_j.label("prev_judgments"),
-    ).where(*filters).subquery()
+    ).where(*filters, not_(lr2_stats_unreliable_sql(h))).subquery()
 
     result = await db.execute(
         select(inner).where(inner.c.day >= target_date, inner.c.day < next_date)
@@ -741,6 +785,26 @@ async def _get_day_stats(
     playtime_uncertain = bool(rows) and total_playtime == 0
     notes_hit_uncertain = bool(rows) and total_notes_hit == 0
 
+    # Detect if this date has only unreliable LR2 rows (corruption from LR2ALT bug).
+    # An unreliable date = there exists an unreliable LR2 row for this user on this UTC
+    # date AND no reliable LR2 row on this UTC date.
+    unreliable_check = await db.execute(
+        select(
+            func.bool_or(lr2_stats_unreliable_sql(h)).label("has_unreliable"),
+            func.bool_or(
+                not_(lr2_stats_unreliable_sql(h)) & (h.client_type == "lr2")
+            ).label("has_reliable_lr2"),
+        ).where(
+            h.user_id == user.id,
+            h.client_type == "lr2",
+            cast(func.timezone("UTC", h.synced_at), Date) == target_date,
+        )
+    )
+    unreliable_row = unreliable_check.one()
+    player_stats_unreliable = bool(unreliable_row.has_unreliable) and not bool(
+        unreliable_row.has_reliable_lr2
+    )
+
     return {
         "playcount": total_playcount,
         "playcount_uncertain": playcount_uncertain,
@@ -749,6 +813,10 @@ async def _get_day_stats(
         "playtime_uncertain": playtime_uncertain,
         "notes_hit_uncertain": notes_hit_uncertain,
         "has_rows": bool(rows),
+        "player_stats_unreliable": player_stats_unreliable,
+        "player_stats_unreliable_reason": (
+            "lr2_player_stats_self_inconsistent" if player_stats_unreliable else None
+        ),
     }
 
 
@@ -1296,6 +1364,7 @@ async def get_recent_updates(
         }
 
         day_stats = await _get_day_stats(target_user, client_type, date, db)
+        is_player_stats_unreliable = day_stats.get("player_stats_unreliable", False)
 
         # Score records exist but no PlayerStats rows → date predates PlayerStats
         # tracking (e.g. Beatoraja recorded_at before first sync) → uncertain.
@@ -1329,13 +1398,24 @@ async def get_recent_updates(
         day_summary_out = {
             "total_updates": total_updates_authoritative,
             "new_plays": total_new_plays_authoritative,
-            "total_play_count": total_play_count_out,
-            "play_count_uncertain": day_stats["playcount_uncertain"] or no_stats_but_has_records,
+            "total_play_count": None if is_player_stats_unreliable else total_play_count_out,
+            "play_count_uncertain": (
+                False if is_player_stats_unreliable
+                else (day_stats["playcount_uncertain"] or no_stats_but_has_records)
+            ),
             "stat_only_count": len(stat_only_ids),
-            "total_playtime": day_stats["playtime"],
-            "total_notes_hit": day_stats["notes_hit"],
-            "playtime_uncertain": day_stats["playtime_uncertain"] or no_stats_but_has_records,
-            "notes_hit_uncertain": day_stats["notes_hit_uncertain"] or no_stats_but_has_records,
+            "total_playtime": None if is_player_stats_unreliable else day_stats["playtime"],
+            "total_notes_hit": None if is_player_stats_unreliable else day_stats["notes_hit"],
+            "playtime_uncertain": (
+                False if is_player_stats_unreliable
+                else (day_stats["playtime_uncertain"] or no_stats_but_has_records)
+            ),
+            "notes_hit_uncertain": (
+                False if is_player_stats_unreliable
+                else (day_stats["notes_hit_uncertain"] or no_stats_but_has_records)
+            ),
+            "player_stats_unreliable": is_player_stats_unreliable,
+            "player_stats_unreliable_reason": day_stats.get("player_stats_unreliable_reason"),
             "rating_updates": 0,
         }
         try:
@@ -1818,6 +1898,8 @@ async def get_table_clear_distribution(
             UserScore.max_combo,
             UserScore.play_count,
             UserScore.options,
+            UserScore.recorded_at,
+            UserScore.synced_at,
         ).where(*score_filter)
     )
     score_rows = scores_result.all()
@@ -1830,6 +1912,7 @@ async def get_table_clear_distribution(
     aggregate_map = _build_fumen_aggregate(
         list(score_rows),
         md5_to_sha256,
+        getattr(target_user, "first_synced_at", None),
     )
 
     # Build song list and level histogram simultaneously
@@ -1870,6 +1953,8 @@ async def get_table_clear_distribution(
             "ex_score": ex_score,
             "play_count": play_count,
             "options": score_data["options"] if score_data else None,
+            "recorded_at": score_data["recorded_at"].isoformat() if score_data and score_data["recorded_at"] else None,
+            "sort_recorded_at": score_data["sort_recorded_at"].isoformat() if score_data and score_data["sort_recorded_at"] else None,
         })
 
     # Sort levels by admin display order, then unknowns, then non-regular levels.
@@ -2049,6 +2134,7 @@ async def get_score_updates(
             .where(FumenTableEntry.fumen_id.in_(list(fumen_id_to_keys)))
         )
         visible_table_ids = await resolve_visible_table_ids(db, target_user)
+        non_regular_hidden = await resolve_non_regular_hidden_levels(db, target_user)
         if visible_table_ids is not None:
             if not visible_table_ids:
                 pass  # skip query — entries_query will never be executed
@@ -2057,6 +2143,8 @@ async def get_score_updates(
         if visible_table_ids is None or visible_table_ids:
             entries_result = await db.execute(entries_query)
             for entry in entries_result.all():
+                if non_regular_hidden and entry.level in non_regular_hidden.get(entry.table_id, set()):
+                    continue
                 entry_dict = {"table_id": str(entry.table_id), "level": entry.level}
                 for key in fumen_id_to_keys.get(entry.fumen_id, []):
                     fumen_meta[key]["table_entries"].append(entry_dict)
@@ -2145,6 +2233,7 @@ async def get_score_updates(
     aggregate_map = _build_fumen_aggregate(
         [row for rows in prev_rows_map.values() for row in rows],
         md5_to_sha256,
+        getattr(target_user, "first_synced_at", None),
     )
 
     # ── 6b. Bulk fetch previous rows for course records ───────────────────────
@@ -2204,6 +2293,8 @@ async def get_score_updates(
         best_min_bp = min((row.min_bp for row in all_rows if row.min_bp is not None), default=None)
         best_max_combo = max((row.max_combo for row in all_rows if row.max_combo is not None), default=None)
         course_base = {
+            "detail_score_id": str(r.id),
+            "course_hash": r.fumen_hash_others,
             "fumen_id": None,
             "fumen_sha256": None,
             "fumen_md5": None,
@@ -2268,6 +2359,8 @@ async def get_score_updates(
         current_best_min_bp = current_state.get("min_bp")
 
         base = {
+            "detail_score_id": str(r.id),
+            "course_hash": None,
             "fumen_id": str(r.fumen_id) if r.fumen_id else None,
             "fumen_sha256": r.fumen_sha256,
             "fumen_md5": r.fumen_md5,

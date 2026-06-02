@@ -139,8 +139,9 @@ async def replace_issue_references(
     actor_username: str,
 ) -> None:
     """Delete existing mentions/refs for a body, then re-persist without notifications. Use for edits."""
-    from app.models.issue import IssueIssueReference, IssueUserMention
     from sqlalchemy import delete
+
+    from app.models.issue import IssueIssueReference, IssueUserMention
 
     if comment_id is None:
         await db.execute(

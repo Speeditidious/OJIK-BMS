@@ -80,12 +80,15 @@ function AdminBadge() {
   );
 }
 
-function IssueRow({ issue, locale }: { issue: Issue; locale: string }) {
+function IssueRow({ issue, locale, backHref }: { issue: Issue; locale: string; backHref?: string }) {
   const { t } = useTranslation();
+  const detailHref = backHref
+    ? `/issues/${issue.id}?back=${encodeURIComponent(backHref)}`
+    : `/issues/${issue.id}`;
 
   return (
     <Link
-      href={`/issues/${issue.id}`}
+      href={detailHref}
       className={cn(
         "flex items-start gap-3 p-4 hover:bg-muted/50 transition-colors group",
         issue.is_pinned && "bg-primary/5 hover:bg-primary/10",
@@ -314,7 +317,12 @@ function IssueListContent() {
         ) : (
           <div className="divide-y">
             {data.items.map((issue) => (
-              <IssueRow key={issue.id} issue={issue} locale={i18n.language} />
+              <IssueRow
+                key={issue.id}
+                issue={issue}
+                locale={i18n.language}
+                backHref={`/issues?${searchParams.toString()}`}
+              />
             ))}
           </div>
         )}

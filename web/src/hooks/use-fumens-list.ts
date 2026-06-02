@@ -35,6 +35,10 @@ export function useFumensList({
       levelDisplayPrefs.server_default,
       levelDisplayPrefs.user_added,
       levelDisplayPrefs.ojik_custom,
+      levelDisplayPrefs.favorite_show_non_regular,
+      levelDisplayPrefs.server_default_show_non_regular,
+      levelDisplayPrefs.user_added_show_non_regular,
+      levelDisplayPrefs.ojik_custom_show_non_regular,
     ],
     queryFn: () => {
       const params = new URLSearchParams({

@@ -96,6 +96,9 @@ export interface RankingContributionEntry {
   rank: number;
   previous_rank?: number | null;
   fumen_id?: string | null;
+  detail_score_id?: string | null;
+  client_type?: string | null;
+  options?: Record<string, unknown> | null;
   sha256: string | null;
   md5: string | null;
   title: string;

@@ -23,7 +23,8 @@ import { clearText } from "@/components/dashboard/RecentActivity";
 import type { ClientTypeFilter } from "@/hooks/use-analysis";
 import { useScoreUpdates } from "@/hooks/use-analysis";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, makeTableCopyHandler } from "@/lib/fumen-table-utils";
-import { FumenRowDetail } from "@/components/fumen/FumenRowDetail";
+import { CourseRowDetail, FumenRowDetail } from "@/components/fumen/FumenRowDetail";
+import { shouldToggleFumenRow } from "@/lib/fumen-row-toggle-core.mjs";
 import { UnavailableValue } from "@/components/common/UnavailableValue";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { compareTitles } from "@/lib/bms-sort";
@@ -126,6 +127,8 @@ function FumenTitleCell({
 // ── Merged course update (clear + score in one row) ────────────────────────────
 
 interface MergedCourseUpdate {
+  detail_score_id: string;
+  course_hash: string | null;
   course_name: string | null;
   dan_title: string | null;
   client_type: string;
@@ -155,9 +158,11 @@ function buildMergedCourses(data: ScoreUpdatesResponse): MergedCourseUpdate[] {
   const map = new Map<string, MergedCourseUpdate>();
 
   function getOrCreateCourse(item: ScoreUpdateBase): MergedCourseUpdate {
-    const key = `${item.course_name}_${item.client_type}`;
+    const key = `${item.detail_score_id}_${item.course_name}_${item.client_type}`;
     if (!map.has(key)) {
       map.set(key, {
+        detail_score_id: item.detail_score_id,
+        course_hash: item.course_hash,
         course_name: item.course_name,
         dan_title: item.dan_title,
         client_type: item.client_type,
@@ -239,7 +244,8 @@ function CourseSectionTable({
   );
 }
 
-function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
+function CourseTableRow({ item, userId, asOf }: { item: MergedCourseUpdate; userId?: string; asOf?: string }) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const newClearCls = item.clear ? clearTdClass(item.clear.new) : "";
 
   const isPlayOnly = !item.clear && !item.score;
@@ -270,9 +276,19 @@ function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
 
   const arrangementName = parseArrangement(item.options ?? null, item.client_type);
   const optionLabel = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? arrangementName) : null;
+  const canExpand = !!item.course_hash;
+
+  function handleRowClick(e: React.MouseEvent<HTMLTableRowElement>) {
+    if (!canExpand || !shouldToggleFumenRow(e.target as HTMLElement)) return;
+    setIsExpanded((prev) => !prev);
+  }
 
   return (
-    <tr>
+    <>
+    <tr
+      className={cn(canExpand && "cursor-pointer")}
+      onClick={handleRowClick}
+    >
       {/* Prev */}
       <td className={cn(
         "px-2 py-2 whitespace-nowrap text-center",
@@ -395,6 +411,16 @@ function CourseTableRow({ item }: { item: MergedCourseUpdate }) {
         {optionLabel ?? <span className="row-muted">—</span>}
       </td>
     </tr>
+    {isExpanded && (
+      <tr>
+        <td colSpan={9} className="p-0 border-b border-border/20">
+          <div className="border-t border-primary/20 bg-primary/5">
+              <CourseRowDetail courseHash={item.course_hash} clientType={item.client_type} scoreId={item.detail_score_id} userId={userId} asOf={asOf} />
+          </div>
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 
@@ -464,10 +490,52 @@ function SectionTable({
 
 // ── Category tab row components ────────────────────────────────────────────────
 
-function LampUpgradeRow({ item, userId }: { item: ClearTypeUpdateItem; userId?: string }) {
+function SummaryFumenRow({
+  item,
+  userId,
+  asOf,
+  children,
+  className,
+}: {
+  item: ScoreUpdateBase;
+  userId?: string;
+  asOf?: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const canExpand = !!item.fumen_id;
+
+  function handleRowClick(e: React.MouseEvent<HTMLTableRowElement>) {
+    if (!canExpand || !shouldToggleFumenRow(e.target as HTMLElement)) return;
+    setIsExpanded((prev) => !prev);
+  }
+
+  return (
+    <>
+      <tr
+        className={cn("transition-all", canExpand && "cursor-pointer hover:bg-secondary/30", className)}
+        onClick={handleRowClick}
+      >
+        {children}
+      </tr>
+      {isExpanded && (
+        <tr>
+          <td colSpan={4} className="p-0 border-b border-border/20">
+            <div className="border-t border-primary/20 bg-primary/5">
+              <FumenRowDetail fumenId={item.fumen_id} scoreId={item.detail_score_id} userId={userId} asOf={asOf} />
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function LampUpgradeRow({ item, userId, asOf }: { item: ClearTypeUpdateItem; userId?: string; asOf?: string }) {
   const newCls = clearTdClass(item.new_clear_type);
   return (
-    <tr>
+    <SummaryFumenRow item={item} userId={userId} asOf={asOf}>
       <td className={cn("px-2 py-2 whitespace-nowrap text-center", clearTdClass(item.prev_clear_type, true))}>
         <span className="text-label row-prev">
           {CLEAR_TYPE_LABELS_SIMPLE[item.prev_clear_type ?? 0] ?? "?"}
@@ -480,12 +548,12 @@ function LampUpgradeRow({ item, userId }: { item: ClearTypeUpdateItem; userId?: 
         <TableLevelBadges levels={item.table_levels} />
       </td>
       <FumenTitleCell item={item} userId={userId} className={cn("px-2 py-2", newCls)} />
-    </tr>
+    </SummaryFumenRow>
   );
 }
 
 
-function ScoreUpgradeRow({ item, userId }: { item: ExscoreUpdateItem; userId?: string }) {
+function ScoreUpgradeRow({ item, userId, asOf }: { item: ExscoreUpdateItem; userId?: string; asOf?: string }) {
   const scoreDiff =
     item.prev_exscore != null && item.new_exscore != null
       ? item.new_exscore - item.prev_exscore
@@ -493,7 +561,7 @@ function ScoreUpgradeRow({ item, userId }: { item: ExscoreUpdateItem; userId?: s
   const newCls = rankTdClass(item.new_rank);
 
   return (
-    <tr>
+    <SummaryFumenRow item={item} userId={userId} asOf={asOf}>
       <td className={cn("px-2 py-2 whitespace-nowrap text-center", rankTdClass(item.prev_rank, true))}>
         {item.prev_rank == null ? (
           <span className="text-label row-prev">NO PLAY</span>
@@ -519,17 +587,17 @@ function ScoreUpgradeRow({ item, userId }: { item: ExscoreUpdateItem; userId?: s
         <TableLevelBadges levels={item.table_levels} />
       </td>
       <FumenTitleCell item={item} userId={userId} className={cn("px-2 py-2", newCls)} />
-    </tr>
+    </SummaryFumenRow>
   );
 }
 
-function BPUpgradeRow({ item, userId }: { item: MinBPUpdateItem; userId?: string }) {
+function BPUpgradeRow({ item, userId, asOf }: { item: MinBPUpdateItem; userId?: string; asOf?: string }) {
   const prev = item.prev_min_bp;
   const next = item.new_min_bp;
   const diff = prev != null && next != null ? prev - next : null;
 
   return (
-    <tr className="transition-all hover:bg-secondary/30">
+    <SummaryFumenRow item={item} userId={userId} asOf={asOf}>
       <td className="px-2 py-2 whitespace-nowrap text-center">
         <span className="text-label row-prev">
           {prev == null ? "NO PLAY" : prev}
@@ -554,17 +622,17 @@ function BPUpgradeRow({ item, userId }: { item: MinBPUpdateItem; userId?: string
         className="px-2 py-2"
         artistClassName="text-caption text-muted-foreground max-w-full truncate opacity-70"
       />
-    </tr>
+    </SummaryFumenRow>
   );
 }
 
-function ComboUpgradeRow({ item, userId }: { item: MaxComboUpdateItem; userId?: string }) {
+function ComboUpgradeRow({ item, userId, asOf }: { item: MaxComboUpdateItem; userId?: string; asOf?: string }) {
   const prev = item.prev_max_combo;
   const next = item.new_max_combo;
   const diff = prev != null && next != null ? next - prev : null;
 
   return (
-    <tr className="transition-all hover:bg-secondary/30">
+    <SummaryFumenRow item={item} userId={userId} asOf={asOf}>
       <td className="px-2 py-2 whitespace-nowrap text-center">
         <span className="text-label row-prev">
           {prev == null ? "NO PLAY" : prev}
@@ -589,13 +657,13 @@ function ComboUpgradeRow({ item, userId }: { item: MaxComboUpdateItem; userId?: 
         className="px-2 py-2"
         artistClassName="text-caption text-muted-foreground max-w-full truncate opacity-70"
       />
-    </tr>
+    </SummaryFumenRow>
   );
 }
 
 // ── Category tab ───────────────────────────────────────────────────────────────
 
-function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: string }) {
+function CategoryTab({ data, userId, asOf }: { data: ScoreUpdatesResponse; userId?: string; asOf?: string }) {
   const { t } = useTranslation();
   const prefs = useScoreUpdatesPrefs();
   const { mutate: updatePrefs } = useUpdateScoreUpdatesPrefs();
@@ -686,7 +754,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
       {summaryCourses.length > 0 && (
         <CourseSectionTable title={t("dashboard.scoreUpdates.courseRecords")} count={summaryCourses.length}>
           {summaryCourses.map((c, i) => (
-            <CourseTableRow key={i} item={c} />
+            <CourseTableRow key={i} item={c} userId={userId} asOf={asOf} />
           ))}
         </CourseSectionTable>
       )}
@@ -701,7 +769,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
               ? () => updatePrefs({ score_updates_lamp_include_new_plays: !prefs.score_updates_lamp_include_new_plays })
               : undefined}
           >
-            {lamp.map((item, i) => <LampUpgradeRow key={i} item={item} userId={userId} />)}
+            {lamp.map((item, i) => <LampUpgradeRow key={i} item={item} userId={userId} asOf={asOf} />)}
           </SectionTable>
         )}
         {scoreAll.length > 0 && (
@@ -713,7 +781,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
               ? () => updatePrefs({ score_updates_score_include_new_plays: !prefs.score_updates_score_include_new_plays })
               : undefined}
           >
-            {score.map((item, i) => <ScoreUpgradeRow key={i} item={item} userId={userId} />)}
+            {score.map((item, i) => <ScoreUpgradeRow key={i} item={item} userId={userId} asOf={asOf} />)}
           </SectionTable>
         )}
         {bpAll.length > 0 && (
@@ -725,7 +793,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
               ? () => updatePrefs({ score_updates_bp_include_new_plays: !prefs.score_updates_bp_include_new_plays })
               : undefined}
           >
-            {bp.map((item, i) => <BPUpgradeRow key={i} item={item} userId={userId} />)}
+            {bp.map((item, i) => <BPUpgradeRow key={i} item={item} userId={userId} asOf={asOf} />)}
           </SectionTable>
         )}
         {comboAll.length > 0 && (
@@ -737,7 +805,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
               ? () => updatePrefs({ score_updates_combo_include_new_plays: !prefs.score_updates_combo_include_new_plays })
               : undefined}
           >
-            {combo.map((item, i) => <ComboUpgradeRow key={i} item={item} userId={userId} />)}
+            {combo.map((item, i) => <ComboUpgradeRow key={i} item={item} userId={userId} asOf={asOf} />)}
           </SectionTable>
         )}
       </div>
@@ -748,6 +816,7 @@ function CategoryTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: st
 // ── Fumen tab ──────────────────────────────────────────────────────────────────
 
 interface MergedFumenUpdate {
+  detail_score_id: string;
   fumen_id: string | null;
   sha256: string | null;
   md5: string | null;
@@ -779,6 +848,7 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
   const map = new Map<string, MergedFumenUpdate>();
 
   function getOrCreate(
+    detail_score_id: string,
     fumen_id: string | null,
     sha256: string | null,
     md5: string | null,
@@ -792,9 +862,10 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
     source_client_detail?: Record<string, string | null> | null,
     currentState?: MergedFumenUpdate["currentState"],
   ): MergedFumenUpdate {
-    const key = fumen_id ?? sha256 ?? md5 ?? `unknown-${Math.random()}`;
+    const key = detail_score_id;
     if (!map.has(key)) {
       map.set(key, {
+        detail_score_id,
         fumen_id,
         sha256,
         md5,
@@ -814,7 +885,7 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
 
   for (const item of data.clear_type_updates) {
     if (item.is_course) continue;
-    const entry = getOrCreate(item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
+    const entry = getOrCreate(item.detail_score_id, item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.clear = { prev: item.prev_clear_type, new: item.new_clear_type };
     if (entry.bp == null && item.best_min_bp != null) {
       entry.bp = { prev: null, new: item.best_min_bp };
@@ -823,7 +894,7 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
 
   for (const item of data.exscore_updates) {
     if (item.is_course) continue;
-    const entry = getOrCreate(item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
+    const entry = getOrCreate(item.detail_score_id, item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.score = { prev: item.prev_exscore, new: item.new_exscore, prev_rank: item.prev_rank, new_rank: item.new_rank };
     entry.rate = { prev: item.prev_rate, new: item.new_rate };
     if (entry.bp == null && item.best_min_bp != null) {
@@ -832,18 +903,18 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
   }
 
   for (const item of data.min_bp_updates) {
-    const entry = getOrCreate(item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
+    const entry = getOrCreate(item.detail_score_id, item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.bp = { prev: item.prev_min_bp, new: item.new_min_bp };
   }
 
   for (const item of data.max_combo_updates) {
-    const entry = getOrCreate(item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
+    const entry = getOrCreate(item.detail_score_id, item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.combo = { prev: item.prev_max_combo, new: item.new_max_combo };
   }
 
   for (const item of data.play_count_updates) {
     if (item.is_course) continue;
-    const entry = getOrCreate(item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
+    const entry = getOrCreate(item.detail_score_id, item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
     entry.playCount = { prev: item.prev_play_count, new: item.new_play_count };
   }
 
@@ -853,11 +924,13 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
 function FumenRow({
   fumen,
   userId,
+  asOf,
   isExpanded,
   onToggle,
 }: {
   fumen: MergedFumenUpdate;
   userId?: string;
+  asOf?: string;
   isExpanded: boolean;
   onToggle: () => void;
 }) {
@@ -876,8 +949,7 @@ function FumenRow({
   const rateLabel = rate != null ? formatRatePercent(rate) : null;
 
   function handleRowClick(e: React.MouseEvent<HTMLTableRowElement>) {
-    const target = e.target as HTMLElement;
-    if (target.closest('a, button, [role="button"], input, select, textarea, label, [data-state]')) return;
+    if (!shouldToggleFumenRow(e.target as HTMLElement)) return;
     onToggle();
   }
 
@@ -1019,7 +1091,7 @@ function FumenRow({
         <tr>
           <td colSpan={9} className="p-0 border-b border-border/20">
             <div className="border-t border-primary/20 bg-primary/5">
-              <FumenRowDetail fumenId={fumen.fumen_id} userId={userId} />
+              <FumenRowDetail fumenId={fumen.fumen_id} scoreId={fumen.detail_score_id} userId={userId} asOf={asOf} />
             </div>
           </td>
         </tr>
@@ -1030,7 +1102,7 @@ function FumenRow({
 
 type FumenSortKey = "recorded_at" | "level" | "title" | "lamp" | "score" | "bp" | "rate" | "rank" | "plays" | "option" | "env";
 
-function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: string }) {
+function FumenTab({ data, userId, asOf }: { data: ScoreUpdatesResponse; userId?: string; asOf?: string }) {
   const { t } = useTranslation();
   const [sortKey, setSortKey] = useState<FumenSortKey>("level");
   const [sortAsc, setSortAsc] = useState(true);
@@ -1128,7 +1200,7 @@ function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: strin
       {mergedCourses.length > 0 && (
         <CourseSectionTable title={t("dashboard.scoreUpdates.courseRecords")} count={mergedCourses.length}>
           {mergedCourses.map((c, i) => (
-            <CourseTableRow key={i} item={c} />
+            <CourseTableRow key={i} item={c} userId={userId} asOf={asOf} />
           ))}
         </CourseSectionTable>
       )}
@@ -1163,12 +1235,13 @@ function FumenTab({ data, userId }: { data: ScoreUpdatesResponse; userId?: strin
               </thead>
               <tbody className="divide-y divide-border/30">
                 {fumens.map((fumen, i) => {
-                  const fumenKey = fumen.fumen_id ?? fumen.sha256 ?? fumen.md5 ?? String(i);
+                  const fumenKey = fumen.detail_score_id ?? fumen.fumen_id ?? fumen.sha256 ?? fumen.md5 ?? String(i);
                   return (
                     <FumenRow
                       key={fumenKey}
                       fumen={fumen}
                       userId={userId}
+                      asOf={asOf}
                       isExpanded={expandedIds.has(fumenKey)}
                       onToggle={() => toggleFumen(fumenKey)}
                     />
@@ -1259,13 +1332,13 @@ export function ScoreUpdates({
               </TabsList>
             </div>
             <TabsContent value="summary">
-              <CategoryTab data={data} userId={userId} />
+              <CategoryTab data={data} userId={userId} asOf={date} />
             </TabsContent>
             {ratingSlot !== undefined && (
               <TabsContent value="rating">{ratingSlot}</TabsContent>
             )}
             <TabsContent value="all">
-              <FumenTab data={data} userId={userId} />
+              <FumenTab data={data} userId={userId} asOf={date} />
             </TabsContent>
           </Tabs>
         )}

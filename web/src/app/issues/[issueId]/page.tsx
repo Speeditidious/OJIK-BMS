@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useState, useRef, Suspense } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { MessageSquare, ChevronDown, GitBranch, ArrowLeft, Pin, ShieldCheck, Pencil, X } from "lucide-react";
@@ -553,6 +553,24 @@ function CommentBox({ issueId }: { issueId: number }) {
   );
 }
 
+// ── Back-to-list link (reads ?back= param, requires Suspense) ─────────────────
+
+function BackToListLink() {
+  const { t } = useTranslation();
+  const searchParams = useSearchParams();
+  const back = searchParams.get("back");
+  const href = back ? decodeURIComponent(back) : "/issues";
+  return (
+    <Link
+      href={href}
+      className="inline-flex items-center gap-1.5 text-label text-muted-foreground hover:text-foreground transition-colors"
+    >
+      <ArrowLeft className="h-3.5 w-3.5" />
+      {t("issues.detail.backToList")}
+    </Link>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function IssueDetailPage() {
@@ -605,13 +623,19 @@ export default function IssueDetailPage() {
                 {issue.title}{" "}
                 <span className="text-muted-foreground font-normal">#{issue.id}</span>
               </h1>
-              <Link
-                href="/issues"
-                className="inline-flex items-center gap-1.5 text-label text-muted-foreground hover:text-foreground transition-colors"
+              <Suspense
+                fallback={
+                  <Link
+                    href="/issues"
+                    className="inline-flex items-center gap-1.5 text-label text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    {t("issues.detail.backToList")}
+                  </Link>
+                }
               >
-                <ArrowLeft className="h-3.5 w-3.5" />
-                {t("issues.detail.backToList")}
-              </Link>
+                <BackToListLink />
+              </Suspense>
             </div>
             {/* Admin controls */}
             {user?.is_admin && (

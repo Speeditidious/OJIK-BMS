@@ -407,17 +407,43 @@ function ClearVisibilityCard() {
   );
 }
 
-const LEVEL_DISPLAY_LABELS: { key: keyof LevelDisplayPrefs; labelKey: string }[] = [
-  { key: "favorite", labelKey: "settings.preferences.levelDisplayFavorite" },
-  { key: "server_default", labelKey: "settings.preferences.levelDisplayServerDefault" },
-  { key: "user_added", labelKey: "settings.preferences.levelDisplayUserAdded" },
-  { key: "ojik_custom", labelKey: "settings.preferences.levelDisplayOjikCustom" },
+const LEVEL_DISPLAY_ROWS: {
+  key: keyof Pick<LevelDisplayPrefs, "favorite" | "server_default" | "user_added" | "ojik_custom">;
+  labelKey: string;
+  nonRegularKey: keyof Pick<
+    LevelDisplayPrefs,
+    | "favorite_show_non_regular"
+    | "server_default_show_non_regular"
+    | "user_added_show_non_regular"
+    | "ojik_custom_show_non_regular"
+  >;
+}[] = [
+  {
+    key: "favorite",
+    labelKey: "settings.preferences.levelDisplayFavorite",
+    nonRegularKey: "favorite_show_non_regular",
+  },
+  {
+    key: "server_default",
+    labelKey: "settings.preferences.levelDisplayServerDefault",
+    nonRegularKey: "server_default_show_non_regular",
+  },
+  {
+    key: "user_added",
+    labelKey: "settings.preferences.levelDisplayUserAdded",
+    nonRegularKey: "user_added_show_non_regular",
+  },
+  {
+    key: "ojik_custom",
+    labelKey: "settings.preferences.levelDisplayOjikCustom",
+    nonRegularKey: "ojik_custom_show_non_regular",
+  },
 ];
 
 function LevelDisplayCard() {
   const { t } = useTranslation();
-  const levelDisplayPrefs = useLevelDisplayPrefs();
-  const { mutate: updateLevelDisplayPrefs } = useUpdateLevelDisplayPrefs();
+  const prefs = useLevelDisplayPrefs();
+  const { mutate: update } = useUpdateLevelDisplayPrefs();
 
   return (
     <Card>
@@ -425,20 +451,61 @@ function LevelDisplayCard() {
         <CardTitle className="text-base">{t("settings.preferences.levelDisplayTitle")}</CardTitle>
         <CardDescription>{t("settings.preferences.levelDisplayDescription")}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {LEVEL_DISPLAY_LABELS.map(({ key, labelKey }) => (
-          <label key={key} className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={levelDisplayPrefs[key]}
-              onChange={(e) =>
-                updateLevelDisplayPrefs({ ...levelDisplayPrefs, [key]: e.target.checked })
-              }
-              className="h-4 w-4 rounded border-input accent-primary cursor-pointer"
-            />
-            <span className="text-body">{t(labelKey)}</span>
-          </label>
-        ))}
+      <CardContent>
+        <div className="rounded-md border border-border overflow-hidden">
+          {/* Header row */}
+          <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-4 px-4 py-2 bg-muted/40 border-b border-border">
+            <span className="text-label font-medium text-muted-foreground" />
+            <span className="text-label font-medium text-muted-foreground text-center w-8">{t("settings.preferences.levelDisplayTitle").slice(0, 0) /* spacer */}</span>
+            <span className="text-label font-medium text-muted-foreground text-center whitespace-nowrap">
+              {t("settings.preferences.levelDisplayNonRegularHeader")}
+            </span>
+          </div>
+
+          {/* Source rows */}
+          {LEVEL_DISPLAY_ROWS.map(({ key, labelKey, nonRegularKey }, idx) => {
+            const sourceOn = prefs[key];
+            return (
+              <div
+                key={key}
+                className={
+                  "grid grid-cols-[1fr_auto_auto] items-center gap-x-4 px-4 py-3" +
+                  (idx < LEVEL_DISPLAY_ROWS.length - 1 ? " border-b border-border" : "")
+                }
+              >
+                {/* Source label + primary toggle */}
+                <label className="flex items-center gap-3 cursor-pointer min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={sourceOn}
+                    onChange={(e) => update({ ...prefs, [key]: e.target.checked })}
+                    className="h-4 w-4 rounded border-input accent-primary cursor-pointer flex-shrink-0"
+                  />
+                  <span className="text-body truncate">{t(labelKey)}</span>
+                </label>
+
+                {/* Spacer column (aligns with header) */}
+                <span className="w-8" />
+
+                {/* Non-regular toggle */}
+                <label
+                  className={
+                    "flex items-center justify-center cursor-pointer" +
+                    (!sourceOn ? " opacity-40 pointer-events-none" : "")
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    checked={prefs[nonRegularKey]}
+                    onChange={(e) => update({ ...prefs, [nonRegularKey]: e.target.checked })}
+                    disabled={!sourceOn}
+                    className="h-4 w-4 rounded border-input accent-primary cursor-pointer disabled:cursor-not-allowed"
+                  />
+                </label>
+              </div>
+            );
+          })}
+        </div>
       </CardContent>
     </Card>
   );

@@ -20,3 +20,17 @@ test("getMentionAutocompleteTrigger detects an empty trailing issue reference", 
 test("getMentionAutocompleteTrigger ignores non-trailing issue references", () => {
   assert.equal(getMentionAutocompleteTrigger("#123 확인 후 계속 작성"), null);
 });
+
+test("getMentionAutocompleteTrigger detects a trailing Korean username", () => {
+  assert.deepEqual(getMentionAutocompleteTrigger("답글 @레드"), {
+    type: "user",
+    query: "레드",
+  });
+});
+
+test("getMentionAutocompleteTrigger detects a trailing Japanese username", () => {
+  assert.deepEqual(getMentionAutocompleteTrigger("返信 @レッド"), {
+    type: "user",
+    query: "レッド",
+  });
+});

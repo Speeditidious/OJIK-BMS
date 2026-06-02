@@ -1,5 +1,6 @@
 """Tests for score_row_detail: LR2 random seed map loading and arrangement lookup."""
 import json
+import inspect
 import pytest
 from pathlib import Path
 from unittest.mock import patch
@@ -203,7 +204,12 @@ def test_7k_seed_count(seed_map):
 # Imports for new functions
 # ---------------------------------------------------------------------------
 
-from app.services.score_row_detail import normalize_judgments, decode_arrangement
+from app.services.score_row_detail import (
+    build_course_stages,
+    course_option_label,
+    decode_arrangement,
+    normalize_judgments,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +258,56 @@ def test_lr2_fast_slow_totals_null():
 def test_lr2_judgment_none_input():
     """normalize_judgments returns None when judgments is None (LR2)."""
     assert normalize_judgments("lr2", None) is None
+
+
+# ---------------------------------------------------------------------------
+# Course row detail
+# ---------------------------------------------------------------------------
+
+def test_course_option_label_decodes_lr2_op_best():
+    assert course_option_label("lr2", {"op_best": 20}) == "RANDOM"
+
+
+def test_course_option_label_decodes_beatoraja_option():
+    assert course_option_label("beatoraja", {"option": 1}) == "MIRROR"
+
+
+def test_course_option_label_returns_none_without_metadata():
+    assert course_option_label("beatoraja", None) is None
+
+
+def test_build_course_stages_prefers_sha256_list_and_preserves_missing_stage():
+    course = type("Course", (), {
+        "sha256_list": ["sha-1", None, "sha-3"],
+        "md5_list": ["md5-1", "md5-2", "md5-3"],
+    })()
+    rows = [
+        {"sha256": "sha-1", "md5": "md5-1", "level": "★1", "title": "First"},
+        {"sha256": None, "md5": "md5-2", "level": "★2", "title": "MD5 fallback must not leak"},
+        {"sha256": "sha-3", "md5": "md5-3", "level": "★3", "title": "Third"},
+    ]
+
+    assert build_course_stages(course, rows) == [
+        {"stage": 1, "level": "★1", "title": "First", "fumen_sha256": "sha-1", "fumen_md5": "md5-1", "table_symbol": None},
+        {"stage": 2, "level": None, "title": None, "fumen_sha256": None, "fumen_md5": None, "table_symbol": None},
+        {"stage": 3, "level": "★3", "title": "Third", "fumen_sha256": "sha-3", "fumen_md5": "md5-3", "table_symbol": None},
+    ]
+
+
+def test_build_course_stages_falls_back_to_md5_list_when_sha256_list_absent():
+    course = type("Course", (), {
+        "sha256_list": None,
+        "md5_list": ["md5-1", "md5-2"],
+    })()
+    rows = [
+        {"sha256": "sha-1", "md5": "md5-1", "level": "▽1", "title": "First"},
+        {"sha256": "sha-2", "md5": "md5-2", "level": "▽2", "title": "Second"},
+    ]
+
+    assert build_course_stages(course, rows) == [
+        {"stage": 1, "level": "▽1", "title": "First", "fumen_sha256": "sha-1", "fumen_md5": "md5-1", "table_symbol": None},
+        {"stage": 2, "level": "▽2", "title": "Second", "fumen_sha256": "sha-2", "fumen_md5": "md5-2", "table_symbol": None},
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -676,6 +732,55 @@ from httpx import ASGITransport, AsyncClient
 from app.core.database import get_db
 from app.core.security import get_current_user, get_current_user_optional
 from app.main import app
+
+
+def test_exact_score_row_detail_route_is_registered():
+    """Exact row expansion must have a dedicated PK-based API route."""
+    assert any(
+        route.path == "/scores/row/{score_id}/row-detail"
+        for route in app.routes
+    )
+
+
+@pytest.mark.asyncio
+async def test_exact_score_row_detail_returns_only_selected_row(monkeypatch):
+    """Exact row expansion serializes one selected score row without aggregate reselection."""
+    from app.routers.scores import get_score_row_detail
+
+    user_id = uuid_mod.uuid4()
+    fumen_id = uuid_mod.uuid4()
+    score = _make_user_score(
+        user_id=user_id,
+        fumen_id=fumen_id,
+        client_type="beatoraja",
+        exscore=1777,
+        judgments={"epg": 800, "lpg": 50},
+        options={"option": 1},
+    )
+    fumen = SimpleNamespace(fumen_id=fumen_id, keymode=7, notes_total=1000)
+    score_result = MagicMock()
+    score_result.scalar_one_or_none.return_value = score
+    fumen_result = MagicMock()
+    fumen_result.one_or_none.return_value = fumen
+    db = MagicMock()
+    db.execute = AsyncMock(side_effect=[score_result, fumen_result])
+
+    async def fake_resolve_target_user(_user_id, _current_user, _db):
+        return SimpleNamespace(id=user_id, is_active=True)
+
+    monkeypatch.setattr("app.routers.scores._resolve_target_user", fake_resolve_target_user)
+
+    result = await get_score_row_detail(
+        score_id=score.id,
+        user_id=user_id,
+        current_user=None,
+        db=db,
+    )
+
+    assert result.detail_basis == "score_row"
+    assert result.fumen_id == str(fumen_id)
+    assert [record.score_id for record in result.records] == [str(score.id)]
+    assert result.records[0].arrangement["option_label"] == "MIRROR"
 
 
 def _make_fumen_row(

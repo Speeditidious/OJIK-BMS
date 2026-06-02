@@ -248,7 +248,7 @@ def _best_state_criteria(
     return {field: value for field, value in criteria.items() if value is not None}
 
 
-def _resolve_best_state_timestamps(
+def resolve_best_state_timestamps(
     history_rows: list[dict[str, Any]],
     best_score: BestScore,
 ) -> tuple[datetime | None, datetime | None]:
@@ -259,6 +259,20 @@ def _resolve_best_state_timestamps(
     clear/BP/rate/rank values, so the display timestamp should stay anchored to
     the first snapshot that already had those values.
     """
+    row = resolve_best_state_row(history_rows, best_score)
+    if row is None:
+        return best_score.recorded_at, best_score.sort_recorded_at
+    return row.get("display_recorded_at"), row.get("effective_ts")
+
+
+_resolve_best_state_timestamps = resolve_best_state_timestamps
+
+
+def resolve_best_state_row(
+    history_rows: list[dict[str, Any]],
+    best_score: BestScore,
+) -> dict[str, Any] | None:
+    """Return the real score row that last completed the displayed BEST state."""
     sorted_rows = sorted(
         history_rows,
         key=lambda row: (
@@ -266,7 +280,6 @@ def _resolve_best_state_timestamps(
             row.get("effective_ts") or datetime.max.replace(tzinfo=UTC),
         ),
     )
-
     criteria = _best_state_criteria(best_score)
 
     def matches_all(row: dict[str, Any]) -> bool:
@@ -275,31 +288,27 @@ def _resolve_best_state_timestamps(
             for field, expected in criteria.items()
         )
 
-    for row in sorted_rows:
-        if matches_all(row):
-            return row.get("display_recorded_at"), row.get("effective_ts")
+    match = next((row for row in sorted_rows if matches_all(row)), None)
+    if match is not None:
+        return match
 
-    component_rows: list[dict[str, Any]] = []
-    predicates = [
-        (lambda field, expected: lambda row: field in row and _score_field_equal(row.get(field), expected))(
-            field,
-            expected,
-        )
+    component_rows = [
+        match
         for field, expected in criteria.items()
+        if (match := next(
+            (
+                row for row in sorted_rows
+                if field in row and _score_field_equal(row.get(field), expected)
+            ),
+            None,
+        )) is not None
     ]
-    for predicate in predicates:
-        match = next((row for row in sorted_rows if predicate(row)), None)
-        if match is not None:
-            component_rows.append(match)
-
-    if not component_rows:
-        return best_score.recorded_at, best_score.sort_recorded_at
-
-    latest_component = max(
-        component_rows,
-        key=lambda row: row.get("effective_ts") or datetime.min.replace(tzinfo=UTC),
-    )
-    return latest_component.get("display_recorded_at"), latest_component.get("effective_ts")
+    if component_rows:
+        return max(
+            component_rows,
+            key=lambda row: row.get("effective_ts") or datetime.min.replace(tzinfo=UTC),
+        )
+    return None
 
 
 def _env_rank(client_types: Iterable[str]) -> int:
@@ -431,8 +440,8 @@ async def _query_best_state_times(
     db: AsyncSession,
     targets: Iterable[dict[str, Any]],
     score_by_key: dict[tuple[str | None, str | None], BestScore],
-) -> dict[tuple[str | None, str | None], tuple[datetime | None, datetime | None]]:
-    """Return contribution display timestamps keyed by canonical fumen hash pair."""
+) -> dict[tuple[str | None, str | None], tuple[datetime | None, datetime | None, str | None, str | None, dict | None]]:
+    """Return contribution display metadata from exact BEST-state rows."""
     if not score_by_key:
         return {}
 
@@ -446,6 +455,7 @@ async def _query_best_state_times(
                 WHERE fte.table_id = :table_id
             )
             SELECT
+                us.id AS score_id,
                 tf.sha256 AS tf_sha256,
                 tf.md5 AS tf_md5,
                 us.fumen_sha256,
@@ -455,6 +465,8 @@ async def _query_best_state_times(
                 us.rate,
                 us.rank,
                 us.min_bp,
+                us.client_type,
+                us.options,
                 CASE
                     WHEN us.recorded_at IS NOT NULL THEN us.recorded_at
                     WHEN us.synced_at IS NULL THEN NULL
@@ -482,11 +494,21 @@ async def _query_best_state_times(
         if key in score_by_key:
             history_by_key.setdefault(key, []).append(dict(row))
 
-    return {
-        key: _resolve_best_state_timestamps(rows, score_by_key[key])
-        for key, rows in history_by_key.items()
-        if key in score_by_key
-    }
+    details = {}
+    for key, rows in history_by_key.items():
+        if key not in score_by_key:
+            continue
+        detail_row = resolve_best_state_row(rows, score_by_key[key])
+        recorded_at = detail_row.get("display_recorded_at") if detail_row else score_by_key[key].recorded_at
+        sort_recorded_at = detail_row.get("effective_ts") if detail_row else score_by_key[key].sort_recorded_at
+        details[key] = (
+            recorded_at,
+            sort_recorded_at,
+            str(detail_row["score_id"]) if detail_row and detail_row.get("score_id") else None,
+            str(detail_row["client_type"]) if detail_row and detail_row.get("client_type") else None,
+            detail_row.get("options") if detail_row else None,
+        )
+    return details
 
 
 async def build_user_contribution_rows(
@@ -518,10 +540,19 @@ async def build_user_contribution_rows(
         raw_value, _resolved_level = _contribution_value(score, target["level"], table_cfg, sha256, md5)
         per_client_list = per_client_map.get((sha256, md5), [])
         source_client, source_client_detail = aggregate_source_client(per_client_list) if per_client_list else (None, None)
-        recorded_at, sort_recorded_at = (
-            best_state_times.get((sha256, md5), (score.recorded_at, score.sort_recorded_at))
+        recorded_at, sort_recorded_at, detail_score_id, detail_client_type, detail_options = (
+            best_state_times.get(
+                (sha256, md5),
+                (
+                    score.recorded_at,
+                    score.sort_recorded_at,
+                    str(score.detail_score_id) if score.detail_score_id else None,
+                    score.detail_client_type,
+                    score.detail_options,
+                ),
+            )
             if score is not None
-            else (None, None)
+            else (None, None, None, None, None)
         )
         rows.append(
             {
@@ -544,6 +575,9 @@ async def build_user_contribution_rows(
                 "raw_value": raw_value,
                 "recorded_at": recorded_at,
                 "sort_recorded_at": sort_recorded_at,
+                "detail_score_id": detail_score_id,
+                "client_type": detail_client_type,
+                "options": detail_options,
                 "source_client": source_client,
                 "source_client_detail": source_client_detail,
             }
@@ -630,6 +664,9 @@ async def build_user_contribution_rows(
                 "sort_recorded_at": row["sort_recorded_at"].isoformat() if row.get("sort_recorded_at") else None,
                 "source_client": row.get("source_client"),
                 "source_client_detail": row.get("source_client_detail"),
+                "detail_score_id": row.get("detail_score_id"),
+                "client_type": row.get("client_type"),
+                "options": row.get("options"),
             }
             for row in entries
         ],
@@ -686,7 +723,7 @@ async def build_user_contribution_rows_at_date(
         targets_by_key.keys(),
         key=lambda key: (
             -curr_values.get(key, 0.0),
-            title_sort_key((targets_by_key[key].get("title") or "")),
+            title_sort_key(targets_by_key[key].get("title") or ""),
             key[0] or key[1] or "",
         ),
     )
@@ -703,6 +740,7 @@ async def build_user_contribution_rows_at_date(
         source_client, source_client_detail = aggregate_source_client(per_client_list) if per_client_list else (None, None)
         recorded_at = score.recorded_at if score is not None else None
         sort_recorded_at = score.sort_recorded_at if score is not None else None
+        detail_score_id = str(score.detail_score_id) if score is not None and score.detail_score_id else None
         rank = rank_by_key.get(canonical, len(targets_by_key))
         is_in_top_n = canonical in top_keys
         rows.append(
@@ -729,6 +767,9 @@ async def build_user_contribution_rows_at_date(
                 "is_in_top_n": is_in_top_n,
                 "recorded_at": recorded_at,
                 "sort_recorded_at": sort_recorded_at,
+                "detail_score_id": detail_score_id,
+                "client_type": score.detail_client_type if score is not None else None,
+                "options": score.detail_options if score is not None else None,
                 "source_client": source_client,
                 "source_client_detail": source_client_detail,
             }
@@ -806,6 +847,9 @@ async def build_user_contribution_rows_at_date(
                 "sort_recorded_at": row["sort_recorded_at"].isoformat() if row.get("sort_recorded_at") else None,
                 "source_client": row.get("source_client"),
                 "source_client_detail": row.get("source_client_detail"),
+                "detail_score_id": row.get("detail_score_id"),
+                "client_type": row.get("client_type"),
+                "options": row.get("options"),
             }
             for row in entries
         ],
@@ -832,6 +876,7 @@ async def _query_table_score_history(
     result = await db.execute(
         text("""
             SELECT
+                us.id AS score_id,
                 us.fumen_id,
                 us.fumen_sha256,
                 us.fumen_md5,
@@ -841,6 +886,7 @@ async def _query_table_score_history(
                 us.rank,
                 us.min_bp,
                 us.client_type,
+                us.options,
                 COALESCE(us.recorded_at, us.synced_at) AS effective_ts
             FROM user_scores us
             WHERE us.user_id = :user_id
@@ -961,6 +1007,8 @@ def _build_rating_update_detail_entry(
         "exscore": score.exscore if score is not None else None,
         "value": round(value, 3),
         "is_in_top_n": True,
+        "client_type": score.detail_client_type if score is not None else None,
+        "options": score.detail_options if score is not None else None,
     }
 
 
@@ -978,6 +1026,9 @@ def _clone_best_score(score: BestScore) -> BestScore:
         client_types=tuple(score.client_types),
         recorded_at=score.recorded_at,
         sort_recorded_at=score.sort_recorded_at,
+        detail_score_id=score.detail_score_id,
+        detail_client_type=score.detail_client_type,
+        detail_options=score.detail_options,
     )
 
 
@@ -1381,8 +1432,16 @@ def _build_breakdown_entry(
     source_client_detail: dict[str, str] | None,
     extra: dict[str, float],
     updated_today: bool = True,
+    detail_score_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     preferred_score = current_score or previous_score
+    detail_score = (
+        previous_score
+        if previous_score is not None and previous_score.detail_score_id == detail_score_id
+        else current_score
+        if current_score is not None and current_score.detail_score_id == detail_score_id
+        else preferred_score
+    )
     return {
         "rank": rank,
         "previous_rank": previous_rank,
@@ -1418,6 +1477,9 @@ def _build_breakdown_entry(
         "source_client": source_client,
         "source_client_detail": source_client_detail,
         "updated_today": updated_today,
+        "detail_score_id": str(detail_score_id) if detail_score_id else None,
+        "client_type": detail_score.detail_client_type if detail_score is not None else None,
+        "options": detail_score.detail_options if detail_score is not None else None,
         **{name: round(delta, 3) for name, delta in extra.items()},
     }
 
@@ -1562,6 +1624,7 @@ async def compute_rating_breakdown(
                 source_client_detail=source_client_detail,
                 extra={"delta_exp": float(delta_exp)},
                 updated_today=bool(day_rows),
+                detail_score_id=best_curr.get(key).detail_score_id if best_curr.get(key) else None,
             )
         )
 
@@ -1606,6 +1669,11 @@ async def compute_rating_breakdown(
                 source_client_detail=source_client_detail,
                 extra={"delta_rating": float(delta_rating)},
                 updated_today=bool(rating_day_rows),
+                detail_score_id=(
+                    best_prev.get(key).detail_score_id
+                    if key in previous_top_keys and key not in current_top_keys and best_prev.get(key)
+                    else best_curr.get(key).detail_score_id if best_curr.get(key) else None
+                ),
             )
         )
 

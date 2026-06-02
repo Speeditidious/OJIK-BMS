@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user_optional
 from app.models.user import User
+from app.services.ranking_calculator import check_dan_clearance
 from app.services.ranking_config import (
     RankingConfig,
     TableRankingConfig,
@@ -570,6 +571,20 @@ async def get_my_contributions(
             exp_level_step=config.exp_level_step,
         )
 
+    # For historical snapshots, compute the dan title as of that date.
+    hist_dan_deco: dict | None = None
+    if as_of is not None:
+        hist_dan_title = await check_dan_clearance(target_user.id, table_cfg, config, db, as_of=as_of)
+        hist_dan_cfg = table_cfg
+        if table_cfg.cross_dan_peer:
+            peer_cfg = config.get_table_by_slug(table_cfg.cross_dan_peer)
+            if peer_cfg is not None:
+                peer_dan_title = await check_dan_clearance(target_user.id, peer_cfg, config, db, as_of=as_of)
+                hist_dan_title, hist_dan_cfg = _best_dan_across_tables(
+                    hist_dan_title, table_cfg, peer_dan_title, peer_cfg
+                )
+        hist_dan_deco = _resolve_dan_decoration(hist_dan_title, hist_dan_cfg, config)
+
     response = {
         "table_slug": table_slug,
         "metric": metric,
@@ -578,6 +593,7 @@ async def get_my_contributions(
         "snapshot_date": as_of.isoformat() if as_of else None,
         "snapshot_mode": "historical" if as_of else "current",
         "is_current_snapshot": as_of is None,
+        **({"dan_decoration": hist_dan_deco} if as_of is not None else {}),
         **payload,
     }
     _CONTRIBUTION_CACHE[cache_key] = response

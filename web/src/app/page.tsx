@@ -2,11 +2,9 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { Music2, BarChart3, CalendarClock, Bot, CircleDot, Download, Megaphone, MessageSquare, Pin, ShieldCheck } from "lucide-react";
+import { Music2, BarChart3, CalendarClock, Bot, Megaphone, MessageSquare, Pin, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
 import { GuideSection } from "@/components/home/GuideSection";
 import { Navbar } from "@/components/layout/navbar";
 import { SiteFooter } from "@/components/layout/SiteFooter";
@@ -132,12 +130,6 @@ export default function HomePage() {
 
               <div className="mt-10 flex flex-wrap justify-center gap-4">
                 <LoginButton />
-                <Link href="/download">
-                  <Button size="lg" variant="outline" className="gap-2 border-border bg-background/85">
-                    <Download className="h-5 w-5" />
-                    {t("home.hero.secondaryAction")}
-                  </Button>
-                </Link>
               </div>
             </div>
           </div>

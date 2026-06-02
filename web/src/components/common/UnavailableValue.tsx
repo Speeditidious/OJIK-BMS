@@ -36,7 +36,7 @@ export function UnavailableValue({ reason }: UnavailableValueProps) {
     <TooltipProvider delayDuration={100}>
       <Tooltip>
         <TooltipTrigger asChild>{inner}</TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs text-xs">
+        <TooltipContent side="top" className="max-w-xs text-label">
           {t(i18nKey)}
         </TooltipContent>
       </Tooltip>

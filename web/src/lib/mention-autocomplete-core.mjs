@@ -2,7 +2,7 @@
  * Returns the active trailing autocomplete trigger for markdown editors.
  */
 export function getMentionAutocompleteTrigger(text) {
-  const atMatch = text.match(/(?:^|[\s\n])@([A-Za-z0-9_]*)$/);
+  const atMatch = text.match(/(?:^|[\s\n])@([\p{L}\p{N}_]*(?:[._-][\p{L}\p{N}_]+)*)$/u);
   if (atMatch) return { type: "user", query: atMatch[1] };
 
   const hashMatch = text.match(/(?:^|[\s\n])#([0-9]*)$/);

@@ -28,7 +28,10 @@ from app.services.fumen_user_scores import (
     fetch_user_score_map,
     fetch_user_tag_map,
 )
-from app.services.level_display_preferences import resolve_visible_table_ids
+from app.services.level_display_preferences import (
+    resolve_non_regular_hidden_levels,
+    resolve_visible_table_ids,
+)
 from app.utils.numeric_filter import numeric_clause, parse_length_to_ms
 from app.utils.score_enums import (
     ARRANGEMENT_KANJI_REV,
@@ -100,6 +103,7 @@ async def _table_entries_map(
     db: AsyncSession,
     fumen_ids: list[_uuid.UUID],
     visible_table_ids: set[_uuid.UUID] | None = None,
+    non_regular_hidden: dict[_uuid.UUID, set[str]] | None = None,
 ) -> dict[_uuid.UUID, list[dict[str, str]]]:
     """Return legacy-shaped table_entries arrays for API compatibility."""
     if not fumen_ids:
@@ -115,6 +119,8 @@ async def _table_entries_map(
     result = await db.execute(query)
     out: dict[_uuid.UUID, list[dict[str, str]]] = {fid: [] for fid in fumen_ids}
     for fumen_id, table_id, level in result.all():
+        if non_regular_hidden and level in non_regular_hidden.get(table_id, set()):
+            continue
         out.setdefault(fumen_id, []).append({"table_id": str(table_id), "level": level})
     return out
 
@@ -123,8 +129,9 @@ async def _fumen_read(
     db: AsyncSession,
     fumen: Fumen,
     visible_table_ids: set[_uuid.UUID] | None = None,
+    non_regular_hidden: dict[_uuid.UUID, set[str]] | None = None,
 ) -> FumenRead:
-    entries = await _table_entries_map(db, [fumen.fumen_id], visible_table_ids)
+    entries = await _table_entries_map(db, [fumen.fumen_id], visible_table_ids, non_regular_hidden)
     return FumenRead(
         fumen_id=fumen.fumen_id,
         md5=fumen.md5,
@@ -431,7 +438,8 @@ async def list_fumens(
         tag_map = await fetch_user_tag_map(db, current_user.id, fumens)
 
     visible_table_ids = await resolve_visible_table_ids(db, current_user)
-    entries_map = await _table_entries_map(db, [f.fumen_id for f in fumens], visible_table_ids)
+    non_regular_hidden = await resolve_non_regular_hidden_levels(db, current_user)
+    entries_map = await _table_entries_map(db, [f.fumen_id for f in fumens], visible_table_ids, non_regular_hidden)
     items = []
     for f in fumens:
         item = FumenListItem(
@@ -500,7 +508,8 @@ async def get_fumen_by_legacy_hash(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid hash length")
     fumen = await _get_fumen_by_hash(hash_value, db)
     visible_table_ids = await resolve_visible_table_ids(db, current_user)
-    return await _fumen_read(db, fumen, visible_table_ids)
+    non_regular_hidden = await resolve_non_regular_hidden_levels(db, current_user)
+    return await _fumen_read(db, fumen, visible_table_ids, non_regular_hidden)
 
 
 # ---------------------------------------------------------------------------
@@ -893,7 +902,8 @@ async def get_fumen_by_hash(
     """Get a fumen by fumen_id UUID, SHA256, or MD5."""
     fumen = await _get_fumen_by_hash(hash_value, db)
     visible_table_ids = await resolve_visible_table_ids(db, current_user)
-    return await _fumen_read(db, fumen, visible_table_ids)
+    non_regular_hidden = await resolve_non_regular_hidden_levels(db, current_user)
+    return await _fumen_read(db, fumen, visible_table_ids, non_regular_hidden)
 
 
 class SupplementItem(BaseModel):
@@ -1164,7 +1174,9 @@ async def update_youtube_url(
     fumen.youtube_url = body.youtube_url
     await db.commit()
     await db.refresh(fumen)
-    return await _fumen_read(db, fumen)
+    visible_table_ids = await resolve_visible_table_ids(db, current_user)
+    non_regular_hidden = await resolve_non_regular_hidden_levels(db, current_user)
+    return await _fumen_read(db, fumen, visible_table_ids, non_regular_hidden)
 
 
 # ---------------------------------------------------------------------------

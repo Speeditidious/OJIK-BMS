@@ -4,13 +4,12 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
-import { localeFromLanguage } from "@/lib/i18n/locale";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { clearText } from "@/components/dashboard/RecentActivity";
+import { RecordedAtCell } from "@/components/common/RecordedAtCell";
 import { UnavailableValue } from "@/components/common/UnavailableValue";
 import { FumenRowDetail } from "@/components/fumen/FumenRowDetail";
-import { useScoreRowDetail } from "@/hooks/use-score-row-detail";
-import { ARRANGEMENT_KANJI } from "@/lib/fumen-table-utils";
+import { ARRANGEMENT_KANJI, parseArrangement } from "@/lib/fumen-table-utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { CLEAR_ROW_CLASS } from "@/lib/fumen-table-utils";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
@@ -21,8 +20,8 @@ import type {
 } from "@/lib/ranking-types";
 import { formatRateDelta, formatRatePercent } from "@/lib/rate-format";
 import { songHref } from "@/lib/song-href";
-import { formatRelativeDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { shouldToggleFumenRow } from "@/lib/fumen-row-toggle-core.mjs";
 
 const ROW_HEIGHT = 44;
 const MAX_TABLE_HEIGHT = 420;
@@ -59,6 +58,7 @@ interface ContributionTableProps {
    */
   presentation?: "default" | "day-detail" | "rating-detail";
   userId?: string;
+  asOf?: string | null;
 }
 
 type SectionKey = "kept" | "entered" | "dropped";
@@ -570,25 +570,15 @@ function ValueCell({
   );
 }
 
-function ArrangementCell({ fumenId, userId }: { fumenId?: string | null; userId?: string }) {
-  const { data, isLoading } = useScoreRowDetail({
-    fumenId: fumenId ?? null,
-    userId,
-    enabled: !!fumenId,
-  });
-
-  if (!fumenId) return <span className="row-muted">—</span>;
-  if (isLoading) return <span className="text-muted-foreground/50 text-[10px]">...</span>;
-  if (!data || data.records.length === 0) return <span className="row-muted">—</span>;
-
-  const record = data.records[0];
-  const arr = record?.arrangement;
-  if (!arr) return <span className="row-muted">—</span>;
-  if (arr.unavailable_reason) return <UnavailableValue reason={arr.unavailable_reason} />;
-  if (!arr.option_label || arr.option_label === "NORMAL") return <span className="row-muted text-label">正</span>;
-
-  const kanji = ARRANGEMENT_KANJI[arr.option_label] ?? arr.option_label;
-  return <span className="text-label">{kanji}</span>;
+function ArrangementCell({ entry }: { entry: RankingContributionEntry }) {
+  const arrangement = parseArrangement(entry.options ?? null, entry.client_type ?? null);
+  if (arrangement) {
+    return <span className="text-label">{ARRANGEMENT_KANJI[arrangement] ?? arrangement}</span>;
+  }
+  if (!entry.options && entry.client_type === "beatoraja") {
+    return <UnavailableValue reason="score_metadata_missing" />;
+  }
+  return <span className="row-muted">—</span>;
 }
 
 function ContributionRow({
@@ -598,6 +588,7 @@ function ContributionRow({
   presentation,
   columns,
   userId,
+  asOf,
   isExpanded,
   onToggle,
 }: {
@@ -607,11 +598,11 @@ function ContributionRow({
   presentation: "default" | "day-detail" | "rating-detail";
   columns: TableColumn[];
   userId?: string;
+  asOf?: string | null;
   isExpanded?: boolean;
   onToggle?: () => void;
 }) {
-  const { t, i18n } = useTranslation();
-  const dateLocale = localeFromLanguage(i18n.language);
+  const { t } = useTranslation();
   const songUrl = entry.sha256 || entry.md5
     ? songHref({ fumen_id: entry.fumen_id, sha256: entry.sha256, md5: entry.md5 }, userId)
     : null;
@@ -644,41 +635,7 @@ function ContributionRow({
       );
     }
     if (column.key === "recorded_at") {
-      if (entry.recorded_at) {
-        return (
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="cursor-default">
-                  {formatRelativeDate(entry.recorded_at, "--", t)}
-                  <span className="ml-0.5 text-accent/70 leading-none">●</span>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-label">
-                {new Date(entry.recorded_at).toLocaleDateString(dateLocale)}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        );
-      }
-      if (entry.sort_recorded_at) {
-        return (
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="cursor-default text-muted-foreground row-muted">
-                  --
-                  <span className="ml-0.5 text-accent/70 leading-none">●</span>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="max-w-64 text-label">
-                {t("ranking.detail.preSyncRecordTooltip")}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        );
-      }
-      return <span className="text-muted-foreground row-muted">--</span>;
+      return <RecordedAtCell recordedAt={entry.recorded_at} sortRecordedAt={entry.sort_recorded_at} />;
     }
     if (column.key === "clear_type") {
       return <ClearCell entry={entry} section={section} clientType={clearClient} presentation={presentation} />;
@@ -693,7 +650,7 @@ function ContributionRow({
       return <RankGradeCell entry={entry} section={section} presentation={presentation} />;
     }
     if (column.key === "arrangement") {
-      return <ArrangementCell fumenId={entry.fumen_id} userId={userId} />;
+      return <ArrangementCell entry={entry} />;
     }
     return <ValueCell entry={entry} metric={metric} section={section} presentation={presentation} />;
   }
@@ -709,8 +666,7 @@ function ContributionRow({
   }
 
   function handleRowClick(e: React.MouseEvent<HTMLTableRowElement>) {
-    const target = e.target as HTMLElement;
-    if (target.closest('a, button, [role="button"], input, select, textarea, label, [data-state]')) return;
+    if (!shouldToggleFumenRow(e.target as HTMLElement)) return;
     onToggle?.();
   }
 
@@ -731,7 +687,7 @@ function ContributionRow({
         <tr>
           <td colSpan={columns.length} className="p-0 border-b border-border/20">
             <div className="border-t border-primary/20 bg-primary/5">
-              <FumenRowDetail fumenId={entry.fumen_id} userId={userId} />
+              <FumenRowDetail fumenId={entry.fumen_id} scoreId={entry.detail_score_id} userId={userId} asOf={asOf} />
             </div>
           </td>
         </tr>
@@ -812,6 +768,7 @@ function SectionCard({
   valueLabel,
   presentation,
   userId,
+  asOf,
   expandedKeys,
   onToggle,
 }: {
@@ -823,6 +780,7 @@ function SectionCard({
   valueLabel: string;
   presentation: "default" | "day-detail" | "rating-detail";
   userId?: string;
+  asOf?: string | null;
   expandedKeys?: Set<string>;
   onToggle?: (key: string) => void;
 }) {
@@ -866,6 +824,7 @@ function SectionCard({
                     presentation={presentation === "rating-detail" ? "default" : presentation}
                     columns={columns}
                     userId={userId}
+                    asOf={asOf}
                     isExpanded={expandedKeys?.has(row.id) ?? false}
                     onToggle={onToggle ? () => onToggle(row.id) : undefined}
                   />
@@ -892,6 +851,7 @@ export function ContributionTable({
   onSortChange,
   presentation = "default",
   userId,
+  asOf,
 }: ContributionTableProps) {
   const { t } = useTranslation();
   const parentRef = useRef<HTMLDivElement | null>(null);
@@ -1026,6 +986,7 @@ export function ContributionTable({
             valueLabel={valueLabel}
             presentation={presentation}
             userId={userId}
+            asOf={asOf}
             expandedKeys={expandedKeys}
             onToggle={toggleEntry}
           />
@@ -1082,6 +1043,7 @@ export function ContributionTable({
                 presentation={presentation}
                 columns={columns}
                 userId={userId}
+                asOf={asOf}
                 isExpanded={expandedKeys.has(entryKey)}
                 onToggle={() => toggleEntry(entryKey)}
               />

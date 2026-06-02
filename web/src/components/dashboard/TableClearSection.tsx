@@ -24,6 +24,7 @@ import {
   BEATORAJA_CLEAR_TYPE_LABELS,
 } from "@/components/charts/ClearDistributionChart";
 import { FumenRowDetail } from "@/components/fumen/FumenRowDetail";
+import { RecordedAtCell } from "@/components/common/RecordedAtCell";
 import { UnavailableValue } from "@/components/common/UnavailableValue";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +34,7 @@ import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, levelSortIndex, e
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { formatRatePercent } from "@/lib/rate-format";
 import { songHref } from "@/lib/song-href";
+import { shouldToggleFumenRow } from "@/lib/fumen-row-toggle-core.mjs";
 
 function getClearLabel(clientType: string | null, clearType: number): string {
   if (clientType === "lr2") return LR2_CLEAR_TYPE_LABELS[clearType] ?? String(clearType);
@@ -46,7 +48,7 @@ function formatLevel(level: string, tableSymbol?: string): string {
   return tableSymbol ? `${tableSymbol}${label}` : label;
 }
 
-type SortKey = "level" | "title" | "ex_score" | "rate" | "rank" | "min_bp" | "clear_type" | "plays" | "option";
+type SortKey = "level" | "title" | "recorded_at" | "ex_score" | "rate" | "rank" | "min_bp" | "clear_type" | "plays" | "option";
 type SortDir = "asc" | "desc";
 const RANK_ORDER: Record<string, number> = {
   MAX: 9, AAA: 8, AA: 7, A: 6, B: 5, C: 4, D: 3, E: 2, F: 1,
@@ -93,6 +95,15 @@ function compareSongs(a: TableClearSong, b: TableClearSong, key: SortKey, dir: S
     case "title":
       result = compareTitles(fumenTitleText(a.title, ""), fumenTitleText(b.title, ""));
       break;
+    case "recorded_at": {
+      const aRecordedAt = a.sort_recorded_at ?? a.recorded_at;
+      const bRecordedAt = b.sort_recorded_at ?? b.recorded_at;
+      if (aRecordedAt == null && bRecordedAt == null) return 0;
+      if (aRecordedAt == null) return 1;
+      if (bRecordedAt == null) return -1;
+      result = aRecordedAt.localeCompare(bRecordedAt);
+      break;
+    }
     case "ex_score":
       result = (a.ex_score ?? -1) - (b.ex_score ?? -1);
       break;
@@ -163,8 +174,7 @@ const SongRow = React.memo(function SongRow({
   const displayArtist = fumenArtistText(song.artist);
 
   function handleRowClick(e: React.MouseEvent<HTMLTableRowElement>) {
-    const target = e.target as HTMLElement;
-    if (target.closest('a, button, [role="button"], input, select, textarea, label, [data-state]')) return;
+    if (!shouldToggleFumenRow(e.target as HTMLElement)) return;
     onToggle();
   }
 
@@ -191,6 +201,9 @@ const SongRow = React.memo(function SongRow({
             {displayArtist && <div className="text-caption text-muted-foreground row-muted max-w-full truncate">{displayArtist}</div>}
           </div>
         </td>
+        <td className="px-2 text-label tabular-nums">
+          <RecordedAtCell recordedAt={song.recorded_at} sortRecordedAt={song.sort_recorded_at} />
+        </td>
         <td className="px-2"><span className="text-label">{getClearLabel(song.client_type, displayClearType)}</span></td>
         <td className="px-2 text-label">{song.min_bp !== null ? song.min_bp : <span className="text-muted-foreground row-muted">--</span>}</td>
         <td className="px-2 text-label">{song.rate !== null ? formatRatePercent(song.rate) : <span className="text-muted-foreground row-muted">--</span>}</td>
@@ -209,7 +222,7 @@ const SongRow = React.memo(function SongRow({
       </tr>
       {isExpanded && (
         <tr>
-          <td colSpan={9} className="p-0 border-b border-border/20">
+          <td colSpan={10} className="p-0 border-b border-border/20">
             <div className="border-t border-primary/20 bg-primary/5">
               <FumenRowDetail fumenId={song.fumen_id} userId={userId} asOf={asOf} />
             </div>
@@ -236,14 +249,14 @@ const SongTable = React.memo(function SongTable({
   const { t } = useTranslation();
   const [sortKey, setSortKey] = useState<SortKey>("level");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const parentRef = useRef<HTMLDivElement>(null);
   const pinnedRangeRef = useRef<[number, number] | null>(null);
 
-  const toggleRow = useCallback((index: number) => {
+  const toggleRow = useCallback((fumenId: string) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
-      if (next.has(index)) next.delete(index); else next.add(index);
+      if (next.has(fumenId)) next.delete(fumenId); else next.add(fumenId);
       return next;
     });
   }, []);
@@ -297,8 +310,8 @@ const SongTable = React.memo(function SongTable({
     count: sorted.length,
     getScrollElement: () => parentRef.current,
     estimateSize: useCallback(
-      (i: number) => expandedRows.has(i) ? ROW_HEIGHT + DETAIL_HEIGHT_ESTIMATE_TCS : ROW_HEIGHT,
-      [expandedRows]
+      (i: number) => expandedRows.has(sorted[i].fumen_id) ? ROW_HEIGHT + DETAIL_HEIGHT_ESTIMATE_TCS : ROW_HEIGHT,
+      [expandedRows, sorted]
     ),
     overscan: 10,
     rangeExtractor: (range) => {
@@ -353,6 +366,7 @@ const SongTable = React.memo(function SongTable({
               { key: "level", header: t("dashboard.scoreUpdates.level") },
               { key: "title", header: t("dashboard.scoreUpdates.title") },
               { key: "artist", header: t("common.fields.artist") },
+              { key: "recorded_at", header: t("common.fields.recordedAt") },
               { key: "lamp", header: t("dashboard.scoreUpdates.clear") },
               { key: "bp", header: t("dashboard.scoreUpdates.bp") },
               { key: "rate", header: t("dashboard.scoreUpdates.rate") },
@@ -368,6 +382,7 @@ const SongTable = React.memo(function SongTable({
                 level: song.level,
                 title: fumenTitleText(song.title, ""),
                 artist: fumenArtistText(song.artist),
+                recorded_at: song.recorded_at ?? "",
                 lamp: getClearLabel(song.client_type, getDisplayClearType ? getDisplayClearType(song.clear_type) : song.clear_type),
                 bp: song.min_bp ?? "",
                 rate: song.rate != null ? formatRatePercent(song.rate) : "",
@@ -392,10 +407,11 @@ const SongTable = React.memo(function SongTable({
         className="overflow-auto"
         style={{ maxHeight: MAX_TABLE_HEIGHT }}
       >
-        <table className="w-full border-collapse" style={{ tableLayout: "fixed", minWidth: 680 }} onCopy={handleTableCopy}>
+        <table className="w-full border-collapse" style={{ tableLayout: "fixed", minWidth: 780 }} onCopy={handleTableCopy}>
           <colgroup>
             <col style={{ width: 56 }} />
             <col />
+            <col style={{ width: 100 }} />
             <col style={{ width: 96 }} />
             <col style={{ width: 48 }} />
             <col style={{ width: 74 }} />
@@ -409,6 +425,7 @@ const SongTable = React.memo(function SongTable({
             <tr className="border-b border-border">
               {thSort(t("dashboard.scoreUpdates.level"), "level")}
               {thSort(t("common.fields.titleArtist"), "title")}
+              {thSort(t("common.fields.recordedAt"), "recorded_at")}
               {thSort(t("dashboard.scoreUpdates.clear"), "clear_type")}
               {thSort(t("dashboard.scoreUpdates.bp"), "min_bp")}
               {thSort(t("dashboard.scoreUpdates.rate"), "rate")}
@@ -419,26 +436,33 @@ const SongTable = React.memo(function SongTable({
             </tr>
           </thead>
 
-          <tbody>
-            {paddingTop > 0 && (
-              <tr><td colSpan={9} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
-            )}
+          {paddingTop > 0 && (
+            <tbody>
+              <tr><td colSpan={10} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
+            </tbody>
+          )}
             {virtualItems.map((virtualRow) => (
-              <SongRow
+              <tbody
                 key={sorted[virtualRow.index].sha256 || virtualRow.index}
-                song={sorted[virtualRow.index]}
-                index={virtualRow.index}
-                userId={userId}
-                getDisplayClearType={getDisplayClearType}
-                isExpanded={expandedRows.has(virtualRow.index)}
-                onToggle={() => toggleRow(virtualRow.index)}
-                asOf={asOf}
-              />
+                data-index={virtualRow.index}
+                ref={rowVirtualizer.measureElement}
+              >
+                <SongRow
+                  song={sorted[virtualRow.index]}
+                  index={virtualRow.index}
+                  userId={userId}
+                  getDisplayClearType={getDisplayClearType}
+                  isExpanded={expandedRows.has(sorted[virtualRow.index].fumen_id)}
+                  onToggle={() => toggleRow(sorted[virtualRow.index].fumen_id)}
+                  asOf={asOf}
+                />
+              </tbody>
             ))}
-            {paddingBottom > 0 && (
-              <tr><td colSpan={9} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
-            )}
-          </tbody>
+          {paddingBottom > 0 && (
+            <tbody>
+              <tr><td colSpan={10} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
+            </tbody>
+          )}
         </table>
       </div>
     </div>

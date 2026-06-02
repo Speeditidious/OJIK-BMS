@@ -99,7 +99,9 @@ function BodyEditor({
     const before = body.slice(0, cursor);
     const after = body.slice(cursor);
     // Replace the trailing @prefix or #prefix
-    const replaced = before.replace(/(@[A-Za-z0-9_]*)$/, insert).replace(/(#[0-9]*)$/, insert);
+    const replaced = before
+      .replace(/(@[\p{L}\p{N}_]*(?:[._-][\p{L}\p{N}_]+)*)$/u, insert)
+      .replace(/(#[0-9]*)$/, insert);
     onChange(replaced + after);
   }
 

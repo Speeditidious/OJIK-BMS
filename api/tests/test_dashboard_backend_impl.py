@@ -17,11 +17,14 @@ from app.models.user import User
 from app.routers.analysis import (
     _build_fumen_aggregate,
     _build_activity_subquery,
+    _get_daily_plays,
+    _get_day_stats,
     _initial_sync_exclusion_filters,
     _initial_sync_exclusion_for_subq,
     _split_table_level_order,
     _resolve_activity_window,
     _resolve_rating_update_window,
+    get_play_summary,
     get_score_updates,
 )
 from app.routers.rankings import get_ranking_display_config, get_ranking_history
@@ -43,6 +46,7 @@ from app.services.ranking_dashboard import (
     compute_rating_breakdown,
     compute_rating_updates,
     compute_rating_updates_aggregated,
+    resolve_best_state_row,
 )
 from app.services.rating_derived_data import _build_user_table_rating_derived_rows
 
@@ -202,7 +206,6 @@ def test_level_overrides_affect_rating_but_not_saved_display_level():
         rank="AA",
         min_bp=1,
     )
-
     result = compute_ranking(table_cfg, exp_level_step=100.0, scores=[score])
 
     assert result.rating == 200.0
@@ -226,6 +229,8 @@ async def test_contribution_rows_display_original_level_with_level_override(monk
         rank="AA",
         min_bp=1,
     )
+    detail_score_id = uuid.uuid4()
+    detail_options = {"option": 2}
 
     async def fake_query_target_fumen_details(_table_id, _db):
         return [
@@ -245,7 +250,15 @@ async def test_contribution_rows_display_original_level_with_level_override(monk
         return {}
 
     async def fake_query_best_state_times(_table_id, _user_id, _db, _targets, _score_by_key):
-        return {}
+        return {
+            (song_sha256, None): (
+                None,
+                None,
+                str(detail_score_id),
+                "beatoraja",
+                detail_options,
+            )
+        }
 
     monkeypatch.setattr(
         "app.services.ranking_dashboard.query_target_fumen_details",
@@ -280,6 +293,9 @@ async def test_contribution_rows_display_original_level_with_level_override(monk
 
     assert result["entries"][0]["value"] == 200.0
     assert result["entries"][0]["level"] == "12"
+    assert result["entries"][0]["detail_score_id"] == str(detail_score_id)
+    assert result["entries"][0]["client_type"] == "beatoraja"
+    assert result["entries"][0]["options"] == detail_options
 
 
 def test_ranking_config_toml_is_valid():
@@ -321,6 +337,9 @@ class _QueuedResult:
         return self._scalar
 
     def one_or_none(self):
+        return self._row
+
+    def one(self):
         return self._row
 
 
@@ -379,6 +398,7 @@ async def test_score_updates_uses_target_user_for_initial_sync_flag(monkeypatch)
     )
 
     assert result["play_count_updates"][0]["is_initial_sync"] is True
+    assert result["play_count_updates"][0]["detail_score_id"] == str(score.id)
 
 
 @pytest.mark.asyncio
@@ -661,6 +681,50 @@ def test_best_state_timestamp_requires_exscore_when_available():
 
     assert display_ts == first_best_at
     assert sort_ts == first_best_at
+
+
+def test_best_state_row_returns_first_real_row_that_completed_best_state():
+    best = BestScore(
+        sha256="a" * 64,
+        md5=None,
+        level="12",
+        clear_type=5,
+        exscore=1040,
+        rate=86.67,
+        rank="AA",
+        min_bp=12,
+    )
+    first_id = uuid.uuid4()
+    repeat_id = uuid.uuid4()
+    first_best_at = datetime(2026, 4, 20, 11, 0, tzinfo=UTC)
+    repeat_best_at = datetime(2026, 4, 21, 12, 0, tzinfo=UTC)
+
+    row = resolve_best_state_row(
+        [
+            {
+                "score_id": first_id,
+                "clear_type": 5,
+                "min_bp": 12,
+                "exscore": 1040,
+                "rate": 86.67,
+                "rank": "AA",
+                "effective_ts": first_best_at,
+            },
+            {
+                "score_id": repeat_id,
+                "clear_type": 5,
+                "min_bp": 12,
+                "exscore": 1040,
+                "rate": 86.67,
+                "rank": "AA",
+                "effective_ts": repeat_best_at,
+            },
+        ],
+        best,
+    )
+
+    assert row is not None
+    assert row["score_id"] == first_id
 
 
 def test_best_state_timestamp_ignores_missing_optional_best_fields():
@@ -1274,8 +1338,13 @@ async def test_rating_breakdown_uses_display_delta_for_entered_song(monkeypatch)
         {"sha256": song_b, "md5": None, "title": "Beta", "artist": "Artist", "level": "12"},
         {"sha256": song_c, "md5": None, "title": "Gamma", "artist": "Artist", "level": "12"},
     ]
+    alpha_id = uuid.uuid4()
+    beta_previous_id = uuid.uuid4()
+    gamma_previous_id = uuid.uuid4()
+    beta_current_id = uuid.uuid4()
     history_rows = [
         {
+            "score_id": alpha_id,
             "fumen_sha256": song_a,
             "fumen_md5": None,
             "clear_type": 5,
@@ -1284,9 +1353,11 @@ async def test_rating_breakdown_uses_display_delta_for_entered_song(monkeypatch)
             "rank": "AA",
             "min_bp": 10,
             "client_type": "lr2",
+            "options": {"op_best": 0},
             "effective_ts": datetime(2026, 4, 21, 10, 0, tzinfo=UTC),
         },
         {
+            "score_id": beta_previous_id,
             "fumen_sha256": song_b,
             "fumen_md5": None,
             "clear_type": 5,
@@ -1295,9 +1366,11 @@ async def test_rating_breakdown_uses_display_delta_for_entered_song(monkeypatch)
             "rank": "AA",
             "min_bp": 12,
             "client_type": "lr2",
+            "options": {"op_best": 10},
             "effective_ts": datetime(2026, 4, 21, 10, 5, tzinfo=UTC),
         },
         {
+            "score_id": gamma_previous_id,
             "fumen_sha256": song_c,
             "fumen_md5": None,
             "clear_type": 5,
@@ -1306,9 +1379,11 @@ async def test_rating_breakdown_uses_display_delta_for_entered_song(monkeypatch)
             "rank": "AA",
             "min_bp": 11,
             "client_type": "lr2",
+            "options": {"op_best": 20},
             "effective_ts": datetime(2026, 4, 21, 10, 10, tzinfo=UTC),
         },
         {
+            "score_id": beta_current_id,
             "fumen_sha256": song_b,
             "fumen_md5": None,
             "clear_type": 5,
@@ -1317,6 +1392,7 @@ async def test_rating_breakdown_uses_display_delta_for_entered_song(monkeypatch)
             "rank": "AAA",
             "min_bp": 8,
             "client_type": "beatoraja",
+            "options": {"option": 3},
             "effective_ts": datetime(2026, 4, 22, 9, 0, tzinfo=UTC),
         },
     ]
@@ -1358,9 +1434,15 @@ async def test_rating_breakdown_uses_display_delta_for_entered_song(monkeypatch)
     assert beta_entry["previous_rate"] == 89.444
     assert beta_entry["was_in_top_n"] is False
     assert beta_entry["is_in_top_n"] is True
+    assert beta_entry["detail_score_id"] == str(beta_current_id)
+    assert beta_entry["client_type"] == "beatoraja"
+    assert beta_entry["options"] == {"option": 3}
     assert gamma_entry["delta_rating"] == 0
     assert gamma_entry["was_in_top_n"] is True
     assert gamma_entry["is_in_top_n"] is False
+    assert gamma_entry["detail_score_id"] == str(gamma_previous_id)
+    assert gamma_entry["client_type"] == "lr2"
+    assert gamma_entry["options"] == {"op_best": 20}
 
 
 @pytest.mark.asyncio
@@ -1862,3 +1944,215 @@ async def test_rating_breakdown_skips_excluded_first_sync_date(monkeypatch):
 
     assert result["exp_contributions"] == []
     assert result["rating_contributions"] == []
+
+
+# ── LR2 player-stats reliability filter tests ──────────────────────────────
+
+
+class _CaptureSession:
+    """Fake async DB session that captures compiled SQL strings and returns empty results."""
+
+    def __init__(self, row_overrides: dict | None = None):
+        self.captured_queries: list[str] = []
+        self._row_overrides = row_overrides or {}
+
+    async def execute(self, query):
+        compiled = str(
+            query.compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+        self.captured_queries.append(compiled)
+        idx = len(self.captured_queries) - 1
+        if idx in self._row_overrides:
+            return self._row_overrides[idx]
+        return _QueuedResult(
+            rows=[],
+            row=SimpleNamespace(has_unreliable=False, has_reliable_lr2=False),
+        )
+
+
+@pytest.mark.asyncio
+async def test_daily_plays_excludes_unreliable_lr2_rows():
+    """_get_daily_plays inner SQL must filter out unreliable LR2 player-stat rows."""
+    user = SimpleNamespace(id=uuid.uuid4(), first_synced_at={})
+    db = _CaptureSession()
+
+    from datetime import date as date_cls
+    await _get_daily_plays(user, None, date_cls(2026, 1, 1), date_cls(2026, 2, 1), db)
+
+    assert db.captured_queries, "_get_daily_plays should execute at least one query"
+    inner_sql = db.captured_queries[0]
+    # The unreliable predicate: playtime < 10 * playcount for lr2 rows
+    assert "playtime" in inner_sql, "inner query should reference playtime column"
+    assert "playcount" in inner_sql, "inner query should reference playcount column"
+    assert "10 * user_player_stats.playcount" in inner_sql or "playtime < 10 *" in inner_sql or "10" in inner_sql
+    assert "lr2" in inner_sql, "inner query should reference lr2 client_type"
+    # Key assertion: NOT unreliable = reliable rows only
+    assert "NOT" in inner_sql or "not" in inner_sql.lower(), (
+        "inner query should contain NOT to negate the unreliable predicate"
+    )
+
+
+@pytest.mark.asyncio
+async def test_day_stats_excludes_unreliable_lr2_rows():
+    """_get_day_stats inner SQL must filter out unreliable LR2 player-stat rows."""
+    user = SimpleNamespace(id=uuid.uuid4(), first_synced_at={})
+
+    # First execute() → inner query result (empty rows)
+    # Second execute() → unreliable_check (SimpleNamespace row)
+    db = _CaptureSession(
+        row_overrides={
+            1: _QueuedResult(
+                row=SimpleNamespace(has_unreliable=False, has_reliable_lr2=False)
+            )
+        }
+    )
+
+    result = await _get_day_stats(user, None, "2026-01-15", db)
+
+    assert len(db.captured_queries) >= 2, "_get_day_stats should execute at least 2 queries"
+    inner_sql = db.captured_queries[0]
+    assert "playtime" in inner_sql
+    assert "playcount" in inner_sql
+    assert "lr2" in inner_sql
+    assert "NOT" in inner_sql or "not" in inner_sql.lower(), (
+        "inner query should contain NOT to negate the unreliable predicate"
+    )
+
+    # Verify player_stats_unreliable key is present in result
+    assert "player_stats_unreliable" in result
+    assert "player_stats_unreliable_reason" in result
+
+
+@pytest.mark.asyncio
+async def test_day_stats_returns_unreliable_flag_when_lr2_is_self_inconsistent():
+    """_get_day_stats returns player_stats_unreliable=True when only unreliable LR2 rows exist."""
+    user = SimpleNamespace(id=uuid.uuid4(), first_synced_at={})
+
+    # First execute() → inner query result (empty rows — filtered out)
+    # Second execute() → unreliable check: unreliable exists, no reliable
+    db = _CaptureSession(
+        row_overrides={
+            1: _QueuedResult(
+                row=SimpleNamespace(has_unreliable=True, has_reliable_lr2=False)
+            )
+        }
+    )
+
+    result = await _get_day_stats(user, None, "2026-01-15", db)
+
+    assert result["player_stats_unreliable"] is True
+    assert result["player_stats_unreliable_reason"] == "lr2_player_stats_self_inconsistent"
+
+
+@pytest.mark.asyncio
+async def test_day_stats_does_not_set_unreliable_flag_when_reliable_lr2_exists():
+    """_get_day_stats does not flag unreliable when reliable LR2 rows also exist."""
+    user = SimpleNamespace(id=uuid.uuid4(), first_synced_at={})
+
+    db = _CaptureSession(
+        row_overrides={
+            1: _QueuedResult(
+                row=SimpleNamespace(has_unreliable=True, has_reliable_lr2=True)
+            )
+        }
+    )
+
+    result = await _get_day_stats(user, None, "2026-01-15", db)
+
+    assert result["player_stats_unreliable"] is False
+    assert result["player_stats_unreliable_reason"] is None
+
+
+@pytest.mark.asyncio
+async def test_play_summary_excludes_unreliable_lr2_rows():
+    """get_play_summary SQL must include NOT unreliable predicate in latest_subq."""
+    target_user = SimpleNamespace(
+        id=uuid.uuid4(),
+        first_synced_at={},
+        is_active=True,
+    )
+
+    async def fake_resolve_target_user(_user_id, _current_user, _db):
+        return target_user
+
+    import app.routers.analysis as analysis_module
+
+    original = analysis_module._resolve_target_user
+
+    capture_db = _CaptureSession(
+        row_overrides={
+            # query 0: UserScore count query → (total_scores=0, total_play_count=0)
+            0: _QueuedResult(row=SimpleNamespace(total_scores=0, total_play_count=0)),
+            # query 1: pstats latest_subq aggregate → (None, None, None) as tuple
+            1: _QueuedResult(row=(None, None, None)),
+            # query 2: judgments query → empty rows
+            2: _QueuedResult(rows=[]),
+        }
+    )
+
+    analysis_module._resolve_target_user = fake_resolve_target_user
+    try:
+        result = await get_play_summary(
+            client_type=None,
+            user_id=None,
+            current_user=None,
+            db=capture_db,
+        )
+    finally:
+        analysis_module._resolve_target_user = original
+
+    # latest_subq is built in query index 1 (pstats aggregate query)
+    # The SQL for it should contain the NOT unreliable predicate
+    assert len(capture_db.captured_queries) >= 2
+    pstats_sql = capture_db.captured_queries[1]
+    assert "lr2" in pstats_sql
+    assert "playtime" in pstats_sql
+    assert "NOT" in pstats_sql or "not" in pstats_sql.lower()
+
+    # has_player_stats should be in the result
+    assert "has_player_stats" in result
+    assert result["has_player_stats"] is False  # pstats[0] is None → no reliable rows
+
+
+@pytest.mark.asyncio
+async def test_play_summary_has_player_stats_true_when_reliable_rows_exist():
+    """get_play_summary returns has_player_stats=True when reliable player-stat rows exist."""
+    target_user = SimpleNamespace(
+        id=uuid.uuid4(),
+        first_synced_at={},
+        is_active=True,
+    )
+
+    import app.routers.analysis as analysis_module
+
+    original = analysis_module._resolve_target_user
+
+    async def fake_resolve(_user_id, _current_user, _db):
+        return target_user
+
+    capture_db = _CaptureSession(
+        row_overrides={
+            0: _QueuedResult(row=SimpleNamespace(total_scores=10, total_play_count=50)),
+            # pstats[0] is not None → has reliable rows (sum=100 playcount, 3600s playtime)
+            1: _QueuedResult(row=(100, 3600, None)),
+            2: _QueuedResult(rows=[]),
+        }
+    )
+
+    analysis_module._resolve_target_user = fake_resolve
+    try:
+        result = await get_play_summary(
+            client_type=None,
+            user_id=None,
+            current_user=None,
+            db=capture_db,
+        )
+    finally:
+        analysis_module._resolve_target_user = original
+
+    assert result["has_player_stats"] is True
+    # No fallback: total_play_count comes only from pstats
+    assert result["total_play_count"] == 100

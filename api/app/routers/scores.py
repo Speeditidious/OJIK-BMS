@@ -3,15 +3,18 @@
 import math
 import uuid
 from datetime import date
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import Date, func, or_, select
+from sqlalchemy import Date, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user, get_current_user_optional
-from app.models.fumen import Fumen
+from app.models.course import Course
+from app.models.difficulty_table import DifficultyTable
+from app.models.fumen import Fumen, FumenTableEntry
 from app.models.score import UserScore
 from app.models.user import User
 from app.services.clear_type_display import display_clear_type
@@ -22,7 +25,10 @@ from app.services.client_aggregation import (
 )
 from app.services.initial_sync import is_initial_sync_timestamp
 from app.services.score_row_detail import (
+    build_course_stages,
+    course_option_label,
     decode_arrangement,
+    match_course_from_hash,
     normalize_judgments,
     pick_best_per_client,
 )
@@ -292,6 +298,225 @@ class FumenRowDetailResponse(BaseModel):
     records: list[RowDetailRecord]
 
 
+class CourseRowDetailRecord(BaseModel):
+    """One aggregate course score record for an execution client."""
+
+    score_id: str
+    client_type: str
+    judgment_detail: dict | None
+    option_label: str | None
+
+
+class CourseStage(BaseModel):
+    """One ordered member of a course."""
+
+    stage: int
+    level: str | None
+    title: str | None
+    fumen_sha256: str | None = None
+    fumen_md5: str | None = None
+    table_symbol: str | None = None
+
+
+class CourseRowDetailResponse(BaseModel):
+    """Response for GET /scores/course/{course_hash}/row-detail."""
+
+    course_name: str
+    records: list[CourseRowDetailRecord]
+    stages: list[CourseStage]
+
+
+@router.get("/course/{course_hash}/row-detail", response_model=CourseRowDetailResponse)
+async def get_course_row_detail(
+    course_hash: str,
+    client_type: str = Query(..., description="Client used to resolve the aggregate course hash"),
+    score_id: uuid.UUID | None = None,
+    user_id: uuid.UUID | None = Query(None),
+    as_of: str | None = Query(None, description="ISO date YYYY-MM-DD for historical filtering"),
+    current_user: User | None = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
+) -> CourseRowDetailResponse:
+    """Return aggregate judgments, option labels, and ordered stages for a course."""
+    target_user = await _resolve_target_user(user_id, current_user, db)
+
+    course_result = await db.execute(select(Course).where(Course.is_active.is_(True)))
+    course = match_course_from_hash(course_result.scalars().all(), course_hash, client_type)
+    if course is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
+
+    score_query = select(UserScore).where(
+        UserScore.user_id == target_user.id,
+        UserScore.fumen_hash_others == course_hash,
+    )
+    if score_id is not None:
+        score_query = score_query.where(UserScore.id == score_id)
+    if as_of:
+        try:
+            as_of_date = date.fromisoformat(as_of)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="as_of must be in ISO format YYYY-MM-DD",
+            )
+        score_query = score_query.where(
+            func.coalesce(UserScore.recorded_at, UserScore.synced_at).cast(Date) <= as_of_date
+        )
+    score_result = await db.execute(score_query)
+    representatives = pick_best_per_client(score_result.scalars().all())
+
+    records = [
+        CourseRowDetailRecord(
+            score_id=str(score.id),
+            client_type=score.client_type,
+            judgment_detail=normalize_judgments(score.client_type, score.judgments),
+            option_label=course_option_label(score.client_type, score.options),
+        )
+        for score in representatives
+    ]
+
+    # Fetch source table symbol and slug for level display and fallback logic
+    source_table_symbol: str | None = None
+    source_table_slug: str | None = None
+    if course.source_table_id:
+        tbl_result = await db.execute(
+            select(DifficultyTable.symbol, DifficultyTable.slug)
+            .where(DifficultyTable.id == course.source_table_id)
+            .limit(1)
+        )
+        tbl_row = tbl_result.first()
+        if tbl_row:
+            source_table_symbol = tbl_row.symbol
+            source_table_slug = tbl_row.slug
+
+    sha256_list = list(course.sha256_list or [])
+    hashes = [value for value in (sha256_list if sha256_list else course.md5_list or []) if value]
+    if hashes:
+        hash_condition = Fumen.sha256.in_(hashes) if sha256_list else Fumen.md5.in_(hashes)
+        stage_result = await db.execute(
+            select(Fumen.sha256, Fumen.md5, Fumen.title, FumenTableEntry.level)
+            .outerjoin(
+                FumenTableEntry,
+                and_(
+                    FumenTableEntry.fumen_id == Fumen.fumen_id,
+                    FumenTableEntry.table_id == course.source_table_id,
+                ),
+            )
+            .where(hash_condition)
+        )
+        stage_rows = stage_result.all()
+
+        # For new_balgwang courses, also query balgwang as a level fallback
+        fallback_rows: list[Any] = []
+        if source_table_slug == "new_balgwang":
+            balgwang_result = await db.execute(
+                select(DifficultyTable.id)
+                .where(DifficultyTable.slug == "balgwang")
+                .limit(1)
+            )
+            balgwang_row = balgwang_result.first()
+            if balgwang_row:
+                fb_result = await db.execute(
+                    select(Fumen.sha256, Fumen.md5, Fumen.title, FumenTableEntry.level)
+                    .outerjoin(
+                        FumenTableEntry,
+                        and_(
+                            FumenTableEntry.fumen_id == Fumen.fumen_id,
+                            FumenTableEntry.table_id == balgwang_row.id,
+                        ),
+                    )
+                    .where(hash_condition)
+                )
+                fallback_rows = fb_result.all()
+    else:
+        stage_rows = []
+        fallback_rows = []
+
+    return CourseRowDetailResponse(
+        course_name=course.name,
+        records=records,
+        stages=[
+            CourseStage(**stage)
+            for stage in build_course_stages(
+                course,
+                stage_rows,
+                fallback_rows=fallback_rows or None,
+                table_symbol=source_table_symbol,
+            )
+        ],
+    )
+
+
+def _build_fumen_row_detail_record(
+    score: UserScore,
+    notes_total: int | None,
+    keymode: int | None,
+) -> RowDetailRecord:
+    """Serialize one real fumen score row into lazy expanded detail."""
+    rate = score.rate
+    rank = score.rank
+    if rate is None and score.exscore is not None and notes_total:
+        rate, rank = _compute_rate_rank(score.exscore, notes_total)
+    return RowDetailRecord(
+        score_id=str(score.id),
+        client_type=score.client_type,
+        clear_type=display_clear_type(score.clear_type, exscore=score.exscore, rate=rate),
+        min_bp=score.min_bp,
+        rate=rate,
+        rank=rank,
+        exscore=score.exscore,
+        play_count=score.play_count,
+        judgment_detail=normalize_judgments(score.client_type, score.judgments),
+        arrangement=decode_arrangement(score.client_type, score.options, keymode),
+    )
+
+
+@router.get("/row/{score_id}/row-detail", response_model=FumenRowDetailResponse)
+async def get_score_row_detail(
+    score_id: uuid.UUID,
+    user_id: uuid.UUID | None = Query(None),
+    current_user: User | None = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
+) -> FumenRowDetailResponse:
+    """Return lazy detail for one exact non-course score row."""
+    target_user = await _resolve_target_user(user_id, current_user, db)
+    score_result = await db.execute(
+        select(UserScore).where(
+            UserScore.id == score_id,
+            UserScore.user_id == target_user.id,
+            UserScore.fumen_hash_others.is_(None),
+        )
+    )
+    score = score_result.scalar_one_or_none()
+    if score is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Score row not found")
+
+    identity_conditions = []
+    if score.fumen_id:
+        identity_conditions.append(Fumen.fumen_id == score.fumen_id)
+    if score.fumen_sha256:
+        identity_conditions.append(Fumen.sha256 == score.fumen_sha256)
+    if score.fumen_md5:
+        identity_conditions.append(Fumen.md5 == score.fumen_md5)
+    if not identity_conditions:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fumen not found")
+
+    fumen_result = await db.execute(
+        select(Fumen.fumen_id, Fumen.keymode, Fumen.notes_total)
+        .where(or_(*identity_conditions))
+        .limit(1)
+    )
+    fumen = fumen_result.one_or_none()
+    if fumen is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fumen not found")
+
+    return FumenRowDetailResponse(
+        fumen_id=str(fumen.fumen_id),
+        keymode=fumen.keymode,
+        detail_basis="score_row",
+        records=[_build_fumen_row_detail_record(score, fumen.notes_total, fumen.keymode)],
+    )
+
+
 @router.get("/fumen/{fumen_id}/row-detail", response_model=FumenRowDetailResponse)
 async def get_fumen_row_detail(
     fumen_id: uuid.UUID,
@@ -365,27 +590,7 @@ async def get_fumen_row_detail(
     # 6. Build records
     records: list[RowDetailRecord] = []
     for s in representatives:
-        # Compute rate/rank if missing
-        rate = s.rate
-        rank = s.rank
-        if rate is None and s.exscore is not None and notes_total:
-            rate, rank = _compute_rate_rank(s.exscore, notes_total)
-
-        judgment_detail = normalize_judgments(s.client_type, s.judgments)
-        arrangement = decode_arrangement(s.client_type, s.options, fumen_keymode)
-
-        records.append(RowDetailRecord(
-            score_id=str(s.id),
-            client_type=s.client_type,
-            clear_type=display_clear_type(s.clear_type, exscore=s.exscore, rate=rate),
-            min_bp=s.min_bp,
-            rate=rate,
-            rank=rank,
-            exscore=s.exscore,
-            play_count=s.play_count,
-            judgment_detail=judgment_detail,
-            arrangement=arrangement,
-        ))
+        records.append(_build_fumen_row_detail_record(s, notes_total, fumen_keymode))
 
     return FumenRowDetailResponse(
         fumen_id=str(fumen_id),

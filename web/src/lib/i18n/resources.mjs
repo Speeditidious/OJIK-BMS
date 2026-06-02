@@ -651,12 +651,10 @@ export const resources = {
         noRecords: "기록이 없습니다.",
         judgments: "판정",
         arrangement: "배치",
-        fastTotalExPgreat: "FAST 합계 (PG 제외)",
-        slowTotalExPgreat: "SLOW 합계 (PG 제외)",
-        client: {
-          lr2: "LR2",
-          beatoraja: "Beatoraja",
-        },
+        client: "구동기",
+        fastSlowTotalExPgreat: "(GREAT~MISS) FAST: {{fast}}, SLOW: {{slow}}",
+        stages: "코스 구성",
+        unknownStage: "(정보 없음)",
         unavailableReason: {
           score_metadata_missing: "scorelog.db 기록 등 원본 데이터에 옵션 정보가 없어 키배치를 확인할 수 없습니다.",
           keymode_missing: "차분의 키 모드 정보가 아직 동기화되지 않아 키배치를 표시할 수 없습니다. OJIK BMS Client에서 전체 동기화를 실행해 주세요.",
@@ -665,6 +663,10 @@ export const resources = {
           assist_option_unsupported: "BATTLE 계열 보조 옵션으로 플레이한 기록은 현재 키배치 표시를 지원하지 않습니다.",
           keymode_unsupported: "현재 키배치 표시를 지원하지 않는 키 모드입니다.",
           dp_unsupported: "LR2 DP 기록은 양쪽 키배치를 정확히 복원할 수 없어 표시할 수 없습니다.",
+        },
+        clientLabel: {
+          lr2: "LR2",
+          beatoraja: "Beatoraja",
         },
       },
       dashboard: {
@@ -685,6 +687,7 @@ export const resources = {
           totalNotes: "총 격파한 노트 수",
           allClients: "통합",
           noValue: "없음",
+          noPlayerStats: "동기화된 데이터에 플레이어 스탯 정보가 없어 집계할 수 없습니다.",
         },
         activity: {
           title: "최근 활동",
@@ -732,6 +735,7 @@ export const resources = {
           notesHit: "격파한 노트 수",
           notesHitSub: "이 날짜에 격파한 노트 수",
           notesHitUncertain: "첫 동기화 당일 혹은 그 이전 기록의 격파한 노트 수는 확인할 수 없습니다.",
+          playerStatsUnreliable: "대체 IR의 일시적인 오류로 정확한 플레이 통계를 계산할 수 없습니다. 이 날짜의 플레이 통계는 집계에서 제외됩니다.",
         },
         scoreUpdates: {
           cardTitle: "기록 상세",
@@ -895,6 +899,7 @@ export const resources = {
           levelDisplayServerDefault: "서버 기본 난이도표",
           levelDisplayUserAdded: "유저 추가 난이도표",
           levelDisplayOjikCustom: "OJIK BMS 커스텀 난이도표 (구현 예정)",
+          levelDisplayNonRegularHeader: "비정규 포함",
           scoreUpdatesTitle: "기록 갱신 표시 설정",
           scoreUpdatesDescription: "기록 갱신 보기의 각 카테고리에서 신규 기록(첫 플레이)을 포함할지 설정합니다.",
           lampUpgradeIncludeNewPlays: "램프 갱신 — 신규 기록 포함",
@@ -1585,12 +1590,10 @@ export const resources = {
         noRecords: "No records.",
         judgments: "Judgments",
         arrangement: "Lane Arrangement",
-        fastTotalExPgreat: "FAST total (excl. PG)",
-        slowTotalExPgreat: "SLOW total (excl. PG)",
-        client: {
-          lr2: "LR2",
-          beatoraja: "Beatoraja",
-        },
+        client: "Client",
+        fastSlowTotalExPgreat: "(GREAT~MISS) FAST: {{fast}}, SLOW: {{slow}}",
+        stages: "Course Stages",
+        unknownStage: "(Unknown)",
         unavailableReason: {
           score_metadata_missing: "Option data is unavailable in the source record (e.g. scorelog.db), so the lane arrangement cannot be shown.",
           keymode_missing: "The key mode for this chart has not been synced yet. Run a Full Sync in OJIK BMS Client.",
@@ -1599,6 +1602,10 @@ export const resources = {
           assist_option_unsupported: "Lane arrangement display is not yet supported for BATTLE-type assist options.",
           keymode_unsupported: "Lane arrangement display is not supported for this key mode.",
           dp_unsupported: "LR2 DP records cannot accurately reconstruct both sides' lane arrangements.",
+        },
+        clientLabel: {
+          lr2: "LR2",
+          beatoraja: "Beatoraja",
         },
       },
       dashboard: {
@@ -1619,6 +1626,7 @@ export const resources = {
           totalNotes: "Total Notes Hit",
           allClients: "All",
           noValue: "None",
+          noPlayerStats: "No player-stat data in the synced records, so this value cannot be calculated.",
         },
         activity: {
           title: "Recent Activity",
@@ -1666,6 +1674,7 @@ export const resources = {
           notesHit: "Notes Hit",
           notesHitSub: "Notes hit this day",
           notesHitUncertain: "Notes hit for records on or before the first sync date cannot be determined.",
+          playerStatsUnreliable: "Play statistics cannot be calculated accurately due to a temporary alternative IR issue. Play statistics for this date are excluded from aggregation.",
         },
         scoreUpdates: {
           cardTitle: "Record Details",
@@ -1829,6 +1838,7 @@ export const resources = {
           levelDisplayServerDefault: "Server default tables",
           levelDisplayUserAdded: "User-added tables",
           levelDisplayOjikCustom: "OJIK BMS custom tables (coming soon)",
+          levelDisplayNonRegularHeader: "Incl. non-regular",
           scoreUpdatesTitle: "Score Updates Display",
           scoreUpdatesDescription: "Configure whether to include new plays (first play) in each category of the score updates view.",
           lampUpgradeIncludeNewPlays: "Lamp Upgrade — include new plays",
@@ -2519,12 +2529,10 @@ export const resources = {
         noRecords: "記録がありません。",
         judgments: "判定",
         arrangement: "鍵配置",
-        fastTotalExPgreat: "FAST 合計 (PG 除く)",
-        slowTotalExPgreat: "SLOW 合計 (PG 除く)",
-        client: {
-          lr2: "LR2",
-          beatoraja: "Beatoraja",
-        },
+        client: "本体",
+        fastSlowTotalExPgreat: "(GREAT~MISS) FAST: {{fast}}, SLOW: {{slow}}",
+        stages: "コース構成",
+        unknownStage: "(情報なし)",
         unavailableReason: {
           score_metadata_missing: "scorelog.db 等の原本データにオプション情報がないため、鍵配置を確認できません。",
           keymode_missing: "この譜面のキーモード情報がまだ同期されていません。OJIK BMS Clientでフル同期を実行してください。",
@@ -2533,6 +2541,10 @@ export const resources = {
           assist_option_unsupported: "BATTLEアシストオプションでプレイした記録は、現在鍵配置表示に対応していません。",
           keymode_unsupported: "このキーモードは現在鍵配置表示に対応していません。",
           dp_unsupported: "LR2 DPの記録は両側の鍵配置を正確に復元できないため表示できません。",
+        },
+        clientLabel: {
+          lr2: "LR2",
+          beatoraja: "Beatoraja",
         },
       },
       dashboard: {
@@ -2553,6 +2565,7 @@ export const resources = {
           totalNotes: "総撃破ノーツ数",
           allClients: "統合",
           noValue: "なし",
+          noPlayerStats: "同期されたデータにプレイヤー統計がないため、集計できません。",
         },
         activity: {
           title: "最近の活動",
@@ -2600,6 +2613,7 @@ export const resources = {
           notesHit: "撃破ノーツ数",
           notesHitSub: "この日に撃破したノーツ数",
           notesHitUncertain: "初回同期日以前の記録は撃破ノーツ数を確認できません。",
+          playerStatsUnreliable: "代替IRの一時的な不具合により、正確なプレイ統計を計算できません。この日のプレイ統計は集計から除外されます。",
         },
         scoreUpdates: {
           cardTitle: "記録詳細",
@@ -2763,6 +2777,7 @@ export const resources = {
           levelDisplayServerDefault: "サーバー標準難易度表",
           levelDisplayUserAdded: "ユーザー追加難易度表",
           levelDisplayOjikCustom: "OJIK BMSカスタム難易度表（実装予定）",
+          levelDisplayNonRegularHeader: "非正規含む",
           scoreUpdatesTitle: "更新表示設定",
           scoreUpdatesDescription: "更新表示の各カテゴリで新規記録（初プレイ）を含めるかを設定します。",
           lampUpgradeIncludeNewPlays: "ランプ更新 — 新規記録を含める",

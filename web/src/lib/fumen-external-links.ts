@@ -41,7 +41,8 @@ export function buildFumenExternalLinkGroups(fumen: {
     {
       labelKey: "fumen.detail.ir",
       links: [
-        linkOrMissing("LR2IR", "md5", md5, `http://www.dream-pro.info/~lavalse/LR2IR/search.cgi?mode=ranking&bmsmd5=${md5}`, { color: "#666699" }),
+        linkOrMissing("BMS-IR", "md5", md5, `https://www.bms-ir.org/new/song?songmd5=${md5}&view=both`, { color: "#3d5a80", textColor: "#e0eaf5" }),
+        linkOrMissing("LR2Archive", "md5", md5, `https://lr2ir.com/charts/${md5}`, { color: "#666699" }),
         linkOrMissing("MinIR", "sha256", sha256, `https://www.gaftalk.com/minir/#/viewer/song/${sha256}/0`, { color: "#40c0c9", textColor: "#ffffff" }),
         linkOrMissing("Mocha", "sha256", sha256, `https://mocha-repository.info/song.php?sha256=${sha256}`, { color: "#a07850" }),
       ],

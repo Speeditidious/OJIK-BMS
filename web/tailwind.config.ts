@@ -6,7 +6,7 @@ const config: Config = {
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
-    "./src/lib/**/*.{js,ts,jsx,tsx}",
+    "./src/lib/**/*.{js,ts,jsx,tsx,mjs}",
   ],
   theme: {
     container: {
@@ -85,6 +85,14 @@ const config: Config = {
       },
     },
   },
+  safelist: [
+    "text-emerald-400",
+    "text-blue-400",
+    "text-orange-400",
+    "text-red-400",
+    "text-purple-400",
+    "text-gray-400",
+  ],
   plugins: [],
 };
 

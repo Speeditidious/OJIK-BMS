@@ -49,3 +49,28 @@ export interface FumenRowDetailResponse {
   detail_basis: string;
   records: RowDetailRecord[];
 }
+
+/** One aggregate score record for a course. */
+export interface CourseRowDetailRecord {
+  score_id: string;
+  client_type: string;
+  judgment_detail: JudgmentDetail | null;
+  option_label: string | null;
+}
+
+/** One ordered stage in a course. */
+export interface CourseStage {
+  stage: number;
+  level: string | null;
+  title: string | null;
+  fumen_sha256: string | null;
+  fumen_md5: string | null;
+  table_symbol: string | null;
+}
+
+/** Response from GET /scores/course/{course_hash}/row-detail */
+export interface CourseRowDetailResponse {
+  course_name: string;
+  records: CourseRowDetailRecord[];
+  stages: CourseStage[];
+}

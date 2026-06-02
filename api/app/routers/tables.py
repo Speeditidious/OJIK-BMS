@@ -28,7 +28,10 @@ from app.services.fumen_user_scores import (
     fetch_user_score_map,
     fetch_user_tag_map,
 )
-from app.services.level_display_preferences import resolve_visible_table_ids
+from app.services.level_display_preferences import (
+    resolve_non_regular_hidden_levels,
+    resolve_visible_table_ids,
+)
 
 router = APIRouter(prefix="/tables", tags=["tables"])
 
@@ -229,10 +232,12 @@ async def get_table_songs(
 
     fumen_level_map: dict[uuid.UUID, str] = {row[0].fumen_id: row[1] for row in rows}
     visible_table_ids = await resolve_visible_table_ids(db, current_user)
+    non_regular_hidden = await resolve_non_regular_hidden_levels(db, current_user)
     table_entries_map = await _table_entries_map(
         db,
         [f.fumen_id for f in filtered_fumens],
         visible_table_ids=visible_table_ids,
+        non_regular_hidden=non_regular_hidden,
     )
 
     # Fetch per-field best scores and tags for the logged-in user
@@ -619,6 +624,7 @@ async def _table_entries_map(
     db: AsyncSession,
     fumen_ids: list[uuid.UUID],
     visible_table_ids: set[uuid.UUID] | None = None,
+    non_regular_hidden: dict[uuid.UUID, set[str]] | None = None,
 ) -> dict[uuid.UUID, list[dict[str, str]]]:
     """Return legacy-shaped table_entries lists for API compatibility."""
     if not fumen_ids:
@@ -634,6 +640,8 @@ async def _table_entries_map(
     result = await db.execute(query)
     out: dict[uuid.UUID, list[dict[str, str]]] = {fid: [] for fid in fumen_ids}
     for fumen_id, table_id, entry_level in result.all():
+        if non_regular_hidden and entry_level in non_regular_hidden.get(table_id, set()):
+            continue
         out.setdefault(fumen_id, []).append({"table_id": str(table_id), "level": entry_level})
     return out
 

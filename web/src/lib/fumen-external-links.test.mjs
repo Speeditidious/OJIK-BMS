@@ -14,7 +14,8 @@ assert.deepEqual(
       ["EZ2PATTERN", `https://ez2pattern.kr/bms/chart?sha256=${sha256}`, undefined],
     ]],
     ["fumen.detail.ir", [
-      ["LR2IR", `http://www.dream-pro.info/~lavalse/LR2IR/search.cgi?mode=ranking&bmsmd5=${md5}`, undefined],
+      ["BMS-IR", `https://www.bms-ir.org/new/song?songmd5=${md5}&view=both`, undefined],
+      ["LR2Archive", `https://lr2ir.com/charts/${md5}`, undefined],
       ["MinIR", `https://www.gaftalk.com/minir/#/viewer/song/${sha256}/0`, undefined],
       ["Mocha", `https://mocha-repository.info/song.php?sha256=${sha256}`, undefined],
     ]],
@@ -28,7 +29,8 @@ assert.deepEqual(
   [
     ["ScoreViewer", undefined, "md5"],
     ["EZ2PATTERN", undefined, "sha256"],
-    ["LR2IR", undefined, "md5"],
+    ["BMS-IR", undefined, "md5"],
+    ["LR2Archive", undefined, "md5"],
     ["MinIR", undefined, "sha256"],
     ["Mocha", undefined, "sha256"],
   ],

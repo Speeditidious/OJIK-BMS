@@ -1,85 +1,99 @@
 "use client";
 
+import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { useScoreRowDetail } from "@/hooks/use-score-row-detail";
+import { useCourseRowDetail } from "@/hooks/use-course-row-detail";
 import { UnavailableValue } from "@/components/common/UnavailableValue";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ARRANGEMENT_KANJI } from "@/lib/fumen-table-utils";
 import {
   JUDGMENT_STYLE,
-  arrangementOptionLabel,
+  ARRANGEMENT_REASON_I18N_KEY,
   laneIsWhiteKey,
 } from "@/lib/score-row-detail-core.mjs";
-import type { RowDetailRecord, LaneGroup } from "@/lib/score-row-detail-types";
 
-const JUDGMENT_BG: Record<string, string> = {
-  pgreat: "bg-emerald-400/10 border-emerald-400/30",
-  great:  "bg-blue-400/10 border-blue-400/30",
-  good:   "bg-orange-400/10 border-orange-400/30",
-  bad:    "bg-red-400/10 border-red-400/30",
-  poor:   "bg-purple-400/10 border-purple-400/30",
-  miss:   "bg-gray-400/10 border-gray-400/30",
-};
+import type { CourseRowDetailRecord, RowDetailRecord, LaneGroup } from "@/lib/score-row-detail-types";
+import type { UserScore } from "@/types";
+
+// ── Section heading ──────────────────────────────────────────────────────────
+
+function SectionLabel({ label }: { label: string }) {
+  return (
+    <p className="text-caption text-muted-foreground/70 text-center uppercase tracking-widest mb-1.5">
+      {label}
+    </p>
+  );
+}
+
+// ── Judgment section ─────────────────────────────────────────────────────────
 
 function JudgmentSection({ record }: { record: RowDetailRecord }) {
   const { t } = useTranslation();
   const detail = record.judgment_detail;
   if (!detail) return null;
+  const isLr2 = record.client_type === "lr2";
   const isBeatoraja = record.client_type === "beatoraja";
 
+  const fast = detail.fast_total_excluding_pgreat;
+  const slow = detail.slow_total_excluding_pgreat;
+  const showTotals = isBeatoraja && (fast !== null || slow !== null);
+
+  // LR2 does not have a Miss judgment
+  const visibleJudgments = isLr2
+    ? detail.judgments.filter((jg) => jg.key !== "miss")
+    : detail.judgments;
+
   return (
-    <div className="space-y-1.5">
-      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-        {t("fumenRowDetail.judgments")}
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        {detail.judgments.map((jg) => {
-          const style = JUDGMENT_STYLE[jg.key] ?? { color: "text-foreground" };
-          const bgStyle = JUDGMENT_BG[jg.key] ?? "bg-muted/30 border-border/50";
-          const label = jg.key === "pgreat" ? "PG" : jg.key.charAt(0).toUpperCase() + jg.key.slice(1);
-          return (
-            <div
-              key={jg.key}
-              className={cn(
-                "flex flex-col items-center rounded-md px-2 py-1 border",
-                bgStyle,
-              )}
-            >
-              <span className={cn("text-[9px] font-bold uppercase tracking-wide", style.color)}>
-                {label}
-              </span>
-              <span className="text-xs font-mono font-semibold text-foreground tabular-nums">
-                {jg.count.toLocaleString()}
-              </span>
-              {isBeatoraja && jg.fast !== null && jg.slow !== null && (
-                <div className="flex gap-1.5 mt-0.5">
-                  <span className="text-[9px] font-mono text-blue-400 tabular-nums">{jg.fast}</span>
-                  <span className="text-[9px] font-mono text-red-400 tabular-nums">{jg.slow}</span>
-                </div>
-              )}
-            </div>
-          );
-        })}
+    <div className="flex flex-col items-center gap-1.5">
+      <SectionLabel label={t("fumenRowDetail.judgments")} />
+      <div>
+        <table className="text-label border-collapse">
+          <tbody>
+            {visibleJudgments.map((jg) => {
+              const style = JUDGMENT_STYLE[jg.key] ?? { color: "text-foreground" };
+              const label =
+                jg.key === "pgreat"
+                  ? "PGreat"
+                  : jg.key.charAt(0).toUpperCase() + jg.key.slice(1);
+              return (
+                <tr key={jg.key} className="leading-snug">
+                  <td className={cn("pr-2.5 font-semibold whitespace-nowrap", style.color)}>
+                    {label}
+                  </td>
+                  <td className="pr-3 tabular-nums text-right text-foreground font-medium">
+                    {jg.count.toLocaleString()}
+                  </td>
+                  {isBeatoraja && (
+                    <>
+                      <td className="pr-1.5 tabular-nums text-right text-blue-400/80 text-caption">
+                        {jg.fast !== null ? `F ${jg.fast}` : ""}
+                      </td>
+                      <td className="tabular-nums text-right text-rose-400/80 text-caption">
+                        {jg.slow !== null ? `S ${jg.slow}` : ""}
+                      </td>
+                    </>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {showTotals && (
+          <p className="mt-1 text-caption text-muted-foreground/60">
+            {t("fumenRowDetail.fastSlowTotalExPgreat", {
+              fast: fast ?? 0,
+              slow: slow ?? 0,
+            })}
+          </p>
+        )}
       </div>
-      {isBeatoraja && (
-        detail.fast_total_excluding_pgreat !== null ||
-        detail.slow_total_excluding_pgreat !== null
-      ) && (
-        <div className="flex gap-3 pt-0.5">
-          {detail.fast_total_excluding_pgreat !== null && (
-            <span className="text-[10px] text-blue-400">
-              {t("fumenRowDetail.fastTotalExPgreat")}: <span className="font-mono font-semibold">{detail.fast_total_excluding_pgreat.toLocaleString()}</span>
-            </span>
-          )}
-          {detail.slow_total_excluding_pgreat !== null && (
-            <span className="text-[10px] text-red-400">
-              {t("fumenRowDetail.slowTotalExPgreat")}: <span className="font-mono font-semibold">{detail.slow_total_excluding_pgreat.toLocaleString()}</span>
-            </span>
-          )}
-        </div>
-      )}
     </div>
   );
 }
+
+// ── Lane group display ────────────────────────────────────────────────────────
 
 function LaneGroupDisplay({
   group,
@@ -93,24 +107,22 @@ function LaneGroupDisplay({
   return (
     <div className="flex flex-col items-center gap-1">
       {label && (
-        <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">
+        <span className="text-caption font-semibold text-muted-foreground/70 uppercase tracking-wider">
           {label}
         </span>
       )}
-      <div className="flex gap-0.5">
+      <div className="flex gap-px">
         {group.lanes.map((lane, idx) => {
-          const isWhite = keymode !== null
-            ? laneIsWhiteKey(keymode, lane)
-            : idx % 2 === 0;
+          const isWhite = laneIsWhiteKey(keymode ?? group.lanes.length, lane);
           return (
             <div
               key={idx}
               className={cn(
-                "flex items-center justify-center rounded-sm text-[9px] font-mono font-semibold select-none border",
-                "w-6 h-10",
+                "flex items-center justify-center text-caption select-none",
+                "w-6 h-9 rounded-sm",
                 isWhite
-                  ? "bg-white/20 border-white/40 text-white/90"
-                  : "bg-zinc-900/60 border-white/10 text-white/50",
+                  ? "bg-slate-200 dark:bg-slate-200/20 text-slate-700 dark:text-slate-200/90 border border-slate-300 dark:border-slate-200/30"
+                  : "bg-slate-700 dark:bg-zinc-900 text-slate-200 dark:text-zinc-500 border border-slate-600 dark:border-zinc-700/60",
               )}
             >
               {lane}
@@ -118,14 +130,52 @@ function LaneGroupDisplay({
           );
         })}
       </div>
-      {group.option_label && (
-        <span className="text-[9px] text-muted-foreground font-mono">
-          {group.option_label}
-        </span>
-      )}
     </div>
   );
 }
+
+function UnknownLaneGroupDisplay({
+  keymode,
+  reason,
+}: {
+  keymode: number | null;
+  reason: string | null;
+}) {
+  const { t } = useTranslation();
+  const count = keymode ?? 7;
+  const i18nKey =
+    reason
+      ? (ARRANGEMENT_REASON_I18N_KEY[reason] ?? `fumenRowDetail.unavailableReason.${reason}`)
+      : null;
+
+  const keys = (
+    <div className="flex gap-px cursor-default">
+      {Array.from({ length: count }, (_, i) => i + 1).map((lane) => (
+        <div
+          key={lane}
+          className="flex items-center justify-center text-caption select-none w-6 h-9 rounded-sm bg-violet-500/10 text-violet-400/70 border border-violet-500/25"
+        >
+          ?
+        </div>
+      ))}
+    </div>
+  );
+
+  if (!i18nKey) return keys;
+
+  return (
+    <TooltipProvider delayDuration={100}>
+      <Tooltip>
+        <TooltipTrigger asChild>{keys}</TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs text-label">
+          {t(i18nKey)}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+// ── Arrangement section ───────────────────────────────────────────────────────
 
 function ArrangementSection({
   record,
@@ -138,32 +188,29 @@ function ArrangementSection({
   const arr = record.arrangement;
   if (!arr) return null;
 
-  const optionLabel = arrangementOptionLabel(arr.option_label);
+  const rawLabel = arr.option_label ?? "NORMAL";
+  const displayLabel = ARRANGEMENT_KANJI[rawLabel] ?? rawLabel;
   const isUnavailable = arr.unavailable_reason !== null || arr.lane_groups === null;
 
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-1.5">
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-          {t("fumenRowDetail.arrangement")}
-        </p>
-        <span className="text-[10px] font-mono text-foreground/60 bg-muted/50 px-1.5 py-0 rounded border border-border/30">
-          {optionLabel}
-        </span>
+    <div className="flex flex-col items-center gap-1.5">
+      <SectionLabel label={t("fumenRowDetail.arrangement")} />
+      <div className="flex items-center gap-1.5 text-label text-foreground/80">
+        <span>{displayLabel}</span>
         {arr.double_option_label && (
-          <span className="text-[10px] font-mono text-accent/70 bg-accent/10 px-1.5 py-0 rounded border border-accent/20">
-            {arr.double_option_label}
+          <span className="text-muted-foreground/60">
+            + {ARRANGEMENT_KANJI[arr.double_option_label] ?? arr.double_option_label}
           </span>
         )}
       </div>
       {isUnavailable ? (
-        <UnavailableValue reason={arr.unavailable_reason} />
+        <UnknownLaneGroupDisplay keymode={keymode} reason={arr.unavailable_reason} />
       ) : (
         <div className="flex gap-3">
           {arr.lane_groups!.map((group, idx) => {
             const isDP = arr.lane_groups!.length > 1;
             const sideLabel = isDP
-              ? (group.side === "1p" ? "1P" : group.side === "2p" ? "2P" : group.side.toUpperCase())
+              ? group.side === "1p" ? "1P" : group.side === "2p" ? "2P" : group.side.toUpperCase()
               : undefined;
             return (
               <LaneGroupDisplay
@@ -180,28 +227,26 @@ function ArrangementSection({
   );
 }
 
-function ClientLabel({ clientType }: { clientType: string }) {
+// ── Client label ──────────────────────────────────────────────────────────────
+
+function ClientSection({ record }: { record: RowDetailRecord }) {
   const { t } = useTranslation();
-  const label = clientType === "lr2"
-    ? t("fumenRowDetail.client.lr2")
-    : clientType === "beatoraja"
-    ? t("fumenRowDetail.client.beatoraja")
-    : clientType.toUpperCase();
-  const colorClass = clientType === "lr2"
-    ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
-    : clientType === "beatoraja"
-    ? "bg-cyan-500/10 text-cyan-400 border-cyan-500/30"
-    : "bg-muted/50 text-muted-foreground border-border/50";
+  const label =
+    record.client_type === "lr2"
+      ? t("fumenRowDetail.clientLabel.lr2")
+      : record.client_type === "beatoraja"
+      ? t("fumenRowDetail.clientLabel.beatoraja")
+      : record.client_type.toUpperCase();
 
   return (
-    <span className={cn(
-      "inline-flex items-center px-1.5 py-0 rounded text-[9px] font-bold uppercase tracking-wider border",
-      colorClass,
-    )}>
-      {label}
-    </span>
+    <div className="flex flex-col items-center gap-1.5">
+      <SectionLabel label={t("fumenRowDetail.client")} />
+      <span className="text-label font-semibold text-foreground">{label}</span>
+    </div>
   );
 }
+
+// ── Record card ───────────────────────────────────────────────────────────────
 
 function RecordCard({
   record,
@@ -212,26 +257,22 @@ function RecordCard({
 }) {
   const hasJudgments = record.judgment_detail !== null;
   const hasArrangement = record.arrangement !== null;
-
   if (!hasJudgments && !hasArrangement) return null;
 
   return (
-    <div className="flex flex-wrap gap-4 p-3 rounded-lg bg-muted/20 border border-border/40">
-      <div className="flex items-start pt-0.5">
-        <ClientLabel clientType={record.client_type} />
-      </div>
-      <div className="flex flex-wrap gap-4 min-w-0">
-        {hasJudgments && <JudgmentSection record={record} />}
-        {hasArrangement && <ArrangementSection record={record} keymode={keymode} />}
-      </div>
+    <div className="flex flex-wrap justify-center gap-x-8 gap-y-3 py-3 px-4">
+      <ClientSection record={record} />
+      {hasJudgments && <JudgmentSection record={record} />}
+      {hasArrangement && <ArrangementSection record={record} keymode={keymode} />}
     </div>
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Main export ───────────────────────────────────────────────────────────────
 
 interface FumenRowDetailProps {
   fumenId: string | null | undefined;
+  scoreId?: string | null;
   userId?: string | null;
   asOf?: string | null;
 }
@@ -240,20 +281,21 @@ interface FumenRowDetailProps {
  * Expanded-row detail panel for a fumen in a table or song list.
  * Lazy-fetches judgment and arrangement details on mount.
  */
-export function FumenRowDetail({ fumenId, userId, asOf }: FumenRowDetailProps) {
+export function FumenRowDetail({ fumenId, scoreId, userId, asOf }: FumenRowDetailProps) {
   const { t } = useTranslation();
   const { data, isLoading, isError } = useScoreRowDetail({
     fumenId,
+    scoreId,
     userId,
     asOf,
-    enabled: !!fumenId,
+    enabled: !!scoreId || !!fumenId,
   });
 
-  if (!fumenId) return null;
+  if (!scoreId && !fumenId) return null;
 
   if (isLoading) {
     return (
-      <div className="px-3 py-2 text-[11px] text-muted-foreground">
+      <div className="px-3 py-2 text-label text-muted-foreground">
         {t("fumenRowDetail.loading")}
       </div>
     );
@@ -263,7 +305,7 @@ export function FumenRowDetail({ fumenId, userId, asOf }: FumenRowDetailProps) {
 
   if (data.records.length === 0) {
     return (
-      <div className="px-3 py-2 text-[11px] text-muted-foreground">
+      <div className="px-3 py-2 text-label text-muted-foreground">
         {t("fumenRowDetail.noRecords")}
       </div>
     );
@@ -275,10 +317,165 @@ export function FumenRowDetail({ fumenId, userId, asOf }: FumenRowDetailProps) {
   if (!hasContent) return null;
 
   return (
-    <div className="px-3 py-2 space-y-2">
+    <div className="border-t border-border/30 bg-muted/10 flex flex-wrap justify-center divide-x divide-border/30">
       {data.records.map((record) => (
         <RecordCard key={record.score_id} record={record} keymode={data.keymode} />
       ))}
+    </div>
+  );
+}
+
+// ── Course record card ────────────────────────────────────────────────────────
+
+function CourseRecordCard({ record }: { record: CourseRowDetailRecord }) {
+  const { t } = useTranslation();
+  const judgmentRecord: RowDetailRecord = {
+    score_id: record.score_id,
+    client_type: record.client_type,
+    clear_type: null,
+    min_bp: null,
+    rate: null,
+    rank: null,
+    exscore: null,
+    play_count: null,
+    judgment_detail: record.judgment_detail,
+    arrangement: null,
+  };
+
+  const displayLabel = record.option_label
+    ? (ARRANGEMENT_KANJI[record.option_label] ?? record.option_label)
+    : null;
+
+  return (
+    <div className="flex flex-wrap justify-center gap-x-8 gap-y-3 py-3 px-4">
+      <ClientSection record={judgmentRecord} />
+      {record.judgment_detail && <JudgmentSection record={judgmentRecord} />}
+      <div className="flex flex-col items-center gap-1.5">
+        <SectionLabel label={t("fumenRowDetail.arrangement")} />
+        {displayLabel ? (
+          <span className="text-label text-foreground/80">{displayLabel}</span>
+        ) : (
+          <UnavailableValue reason="score_metadata_missing" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface CourseRowDetailProps {
+  courseHash: string | null | undefined;
+  clientType: string | null | undefined;
+  scoreId?: string | null;
+  userId?: string | null;
+  asOf?: string | null;
+}
+
+/** Expanded aggregate detail panel for a course score row. */
+export function CourseRowDetail({ courseHash, clientType, scoreId, userId, asOf }: CourseRowDetailProps) {
+  const { t } = useTranslation();
+  const { data, isLoading, isError } = useCourseRowDetail({
+    courseHash,
+    clientType,
+    scoreId,
+    userId,
+    asOf,
+    enabled: !!courseHash && !!clientType,
+  });
+
+  if (!courseHash || !clientType) return null;
+  if (isLoading) {
+    return (
+      <div className="border-t border-border/30 bg-muted/10 px-3 py-2 text-label text-muted-foreground">
+        {t("fumenRowDetail.loading")}
+      </div>
+    );
+  }
+  if (isError || !data) return null;
+
+  return (
+    <div className="border-t border-border/30 bg-muted/10">
+      {data.records.length === 0 && (
+        <div className="px-3 py-2 text-label text-muted-foreground">{t("fumenRowDetail.noRecords")}</div>
+      )}
+      <div className="flex flex-wrap justify-center divide-x divide-border/30">
+        {data.records.map((record) => (
+          <CourseRecordCard key={record.score_id} record={record} />
+        ))}
+      </div>
+      <CourseStagesSection stages={data.stages} />
+    </div>
+  );
+}
+
+// ── Course stages section ─────────────────────────────────────────────────────
+
+import type { CourseStage } from "@/lib/score-row-detail-types";
+
+function CourseStagesSection({ stages }: { stages: CourseStage[] }) {
+  const { t } = useTranslation();
+  return (
+    <div className="px-3 py-2 border-t border-border/30">
+      <p className="text-caption text-muted-foreground/70 uppercase tracking-widest mb-2">
+        {t("fumenRowDetail.stages")}
+      </p>
+      <div className="space-y-1">
+        {stages.map((stage) => {
+          const hash = stage.fumen_sha256 ?? stage.fumen_md5;
+          const levelStr = stage.level
+            ? (stage.table_symbol
+                ? `${stage.table_symbol}${stage.level.replace(stage.table_symbol, "")}`
+                : stage.level)
+            : "--";
+          return (
+            <div key={stage.stage} className="flex items-baseline gap-2 text-label">
+              <span className="w-14 shrink-0 text-caption text-muted-foreground/60 tabular-nums">
+                STAGE {stage.stage}
+              </span>
+              <span className="w-12 shrink-0 text-caption tabular-nums text-muted-foreground">
+                {levelStr}
+              </span>
+              {hash && stage.title ? (
+                <Link
+                  href={`/songs/${encodeURIComponent(hash)}`}
+                  className="truncate hover:text-primary transition-colors"
+                >
+                  {stage.title}
+                </Link>
+              ) : (
+                <span className={cn("truncate", !stage.title && "text-muted-foreground")}>
+                  {stage.title ?? t("fumenRowDetail.unknownStage")}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── History row detail (song page) ────────────────────────────────────────────
+
+/** Render song-history detail from an already enriched API row. */
+export function FumenHistoryRowDetail({ score }: { score: UserScore }) {
+  const record: RowDetailRecord = {
+    score_id: score.id,
+    client_type: score.client_type,
+    clear_type: score.clear_type,
+    min_bp: score.min_bp,
+    rate: score.rate,
+    rank: score.rank,
+    exscore: score.exscore,
+    play_count: score.play_count,
+    judgment_detail: score.judgment_detail,
+    arrangement: score.arrangement,
+  };
+
+  if (record.judgment_detail === null && record.arrangement === null) return null;
+
+  return (
+    <div className="border-t border-border/30 bg-muted/10">
+      <RecordCard record={record} keymode={null} />
     </div>
   );
 }

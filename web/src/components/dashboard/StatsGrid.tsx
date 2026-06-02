@@ -117,18 +117,21 @@ export function StatsGrid({ clientType, onClientTypeChange, userId }: StatsGridP
               value={data.total_play_count.toLocaleString()}
               sub=""
               icon={Music2}
+              tooltip={!data.has_player_stats ? t("dashboard.stats.noPlayerStats") : undefined}
             />
             <StatCard
               title={t("dashboard.stats.totalPlayTime")}
               value={formatDuration(data.total_playtime, t)}
               sub=""
               icon={Clock}
+              tooltip={!data.has_player_stats ? t("dashboard.stats.noPlayerStats") : undefined}
             />
             <StatCard
               title={t("dashboard.stats.totalNotes")}
               value={data.total_notes_hit.toLocaleString()}
               sub=""
               icon={Hammer}
+              tooltip={!data.has_player_stats ? t("dashboard.stats.noPlayerStats") : undefined}
             />
           </>
         )}

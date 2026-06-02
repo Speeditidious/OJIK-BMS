@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useMemo, useEffect } from "react";
+import { Fragment, use, useState, useMemo, useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -10,6 +10,8 @@ import { Navbar } from "@/components/layout/navbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FumenTags } from "@/components/fumen/FumenTags";
+import { FumenHistoryRowDetail } from "@/components/fumen/FumenRowDetail";
+import { UnavailableValue } from "@/components/common/UnavailableValue";
 import { api } from "@/lib/api";
 import { songHref, parseSongRouteSegment } from "@/lib/song-href";
 import { useUserProfile } from "@/hooks/use-user-profile";
@@ -25,13 +27,14 @@ import { cn } from "@/lib/utils";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement } from "@/lib/fumen-table-utils";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { buildFumenExternalLinkGroups, type ExternalHashType, type FumenExternalLink } from "@/lib/fumen-external-links";
+import { shouldToggleFumenRow } from "@/lib/fumen-row-toggle-core.mjs";
 import type { DifficultyTable, FumenDetail, UserScore } from "@/types";
 
 interface SongDetailPageProps {
   params: Promise<{ fumen_id: string }>;
 }
 
-type SortKey = "clear_type" | "exscore" | "rate" | "rank" | "min_bp" | "play_count" | "option" | "client_type" | "recorded_at";
+type SortKey = "clear_type" | "exscore" | "rate" | "rank" | "min_bp" | "play_count" | "option" | "recorded_at";
 type SortDir = "asc" | "desc";
 
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -173,7 +176,6 @@ function compareScores(a: UserScore, b: UserScore, key: SortKey, dir: SortDir): 
   else if (key === "min_bp") { va = a.min_bp; vb = b.min_bp; }
   else if (key === "play_count") { va = a.play_count; vb = b.play_count; }
   else if (key === "option") { va = parseArrangement(a.options, a.client_type) ?? ""; vb = parseArrangement(b.options, b.client_type) ?? ""; }
-  else if (key === "client_type") { va = a.client_type; vb = b.client_type; }
   else if (key === "recorded_at") {
     va = sortScoreRecordedAt(a);
     vb = sortScoreRecordedAt(b);
@@ -212,6 +214,15 @@ function ScoreHistorySection({
   thClass: (align?: "left" | "right") => string;
 }) {
   const { t } = useTranslation();
+  const [expandedScoreIds, setExpandedScoreIds] = useState<Set<string>>(new Set());
+
+  function toggleScore(scoreId: string) {
+    setExpandedScoreIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(scoreId)) next.delete(scoreId); else next.add(scoreId);
+      return next;
+    });
+  }
 
   return (
     <div>
@@ -250,9 +261,6 @@ function ScoreHistorySection({
                 <th className={thClass()} onClick={() => onSort("option")}>
                   {t("common.fields.option")}<SortIcon col="option" sortKey={sortKey} sortDir={sortDir} />
                 </th>
-                <th className={thClass()} onClick={() => onSort("client_type")}>
-                  {t("common.fields.env")}<SortIcon col="client_type" sortKey={sortKey} sortDir={sortDir} />
-                </th>
                 <th className={thClass()} onClick={() => onSort("recorded_at")}>
                   {t("common.fields.recordedAt")}<SortIcon col="recorded_at" sortKey={sortKey} sortDir={sortDir} />
                 </th>
@@ -262,14 +270,23 @@ function ScoreHistorySection({
               {scores.map((s) => {
                 const arrangementName = parseArrangement(s.options, s.client_type);
                 const arrangementKanji = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? arrangementName) : null;
+                const arrangementReason = s.arrangement?.unavailable_reason ?? null;
                 const displayType = displayClearType(s.clear_type, { exscore: s.exscore, rate: s.rate });
                 const rowClass = CLEAR_ROW_CLASS[displayType ?? 0] ?? "";
                 const effectiveTs = displayScoreRecordedAt(s);
                 const sortTs = sortScoreRecordedAt(s);
                 const relativeDate = formatRelativeDate(effectiveTs, "--", t);
                 const exactDate = effectiveTs ? new Date(effectiveTs).toLocaleDateString("ko-KR") : null;
+                const isExpanded = expandedScoreIds.has(s.id);
                 return (
-                  <tr key={s.id} className={cn("border-b border-border/30 last:border-0", rowClass || "hover:bg-secondary/50")}>
+                  <Fragment key={s.id}>
+                  <tr
+                    className={cn("border-b border-border/30 cursor-pointer", rowClass || "hover:bg-secondary/50")}
+                    onClick={(event) => {
+                      if (!shouldToggleFumenRow(event.target as HTMLElement)) return;
+                      toggleScore(s.id);
+                    }}
+                  >
                     <td className="px-3 py-2">
                       {clearText(s.clear_type, s.client_type, { exscore: s.exscore, rate: s.rate })}
                     </td>
@@ -289,12 +306,9 @@ function ScoreHistorySection({
                       {s.play_count !== null ? s.play_count : <span className="text-muted-foreground row-muted">—</span>}
                     </td>
                     <td className="px-3 py-2 text-label">
-                      {arrangementKanji ?? <span className="text-muted-foreground row-muted">—</span>}
-                    </td>
-                    <td className="px-3 py-2 text-label">
-                      <span className="text-label">
-                        {s.client_type === "beatoraja" ? "BR" : s.client_type.toUpperCase()}
-                      </span>
+                      {arrangementReason
+                        ? <UnavailableValue reason={arrangementReason} />
+                        : arrangementKanji ?? <span className="text-muted-foreground row-muted">—</span>}
                     </td>
                     <td className="px-3 py-2 text-label">
                       {exactDate ? (
@@ -330,6 +344,16 @@ function ScoreHistorySection({
                       )}
                     </td>
                   </tr>
+                  {isExpanded && (
+                    <tr key={`${s.id}-detail`}>
+                      <td colSpan={8} className="p-0 border-b border-border/20">
+                        <div className="border-t border-primary/20 bg-primary/5">
+                          <FumenHistoryRowDetail score={s} />
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -366,6 +390,10 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
       levelDisplayPrefs.server_default,
       levelDisplayPrefs.user_added,
       levelDisplayPrefs.ojik_custom,
+      levelDisplayPrefs.favorite_show_non_regular,
+      levelDisplayPrefs.server_default_show_non_regular,
+      levelDisplayPrefs.user_added_show_non_regular,
+      levelDisplayPrefs.ojik_custom_show_non_regular,
     ],
     queryFn: () => api.get(`/fumens/${routeFumenId}`),
     staleTime: 10 * 60 * 1000,

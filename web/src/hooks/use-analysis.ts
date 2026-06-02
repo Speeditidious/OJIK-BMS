@@ -11,6 +11,7 @@ export interface PlaySummary {
   total_notes_hit: number;
   last_synced_at: string | null;
   first_synced_by_client: Record<string, string | null>;
+  has_player_stats: boolean;
 }
 
 export interface HeatmapDay {
@@ -58,10 +59,12 @@ export interface DaySummary {
   total_play_count: number | null;  // null = cannot aggregate (includes first-sync records)
   play_count_uncertain: boolean;
   stat_only_count: number;
-  total_playtime: number;        // seconds; from PlayerStats LAG delta
-  total_notes_hit: number;       // notes hit; from PlayerStats judgments LAG delta
+  total_playtime: number | null;        // seconds; from PlayerStats LAG delta
+  total_notes_hit: number | null;       // notes hit; from PlayerStats judgments LAG delta
   playtime_uncertain: boolean;   // true when first-sync row caused delta=0
   notes_hit_uncertain: boolean;  // true when first-sync row caused delta=0
+  player_stats_unreliable: boolean;     // true when LR2ALT player stats are corrupted
+  player_stats_unreliable_reason: string | null;  // e.g. "lr2_player_stats_self_inconsistent"
   rating_updates?: number;
 }
 
@@ -147,6 +150,8 @@ export interface TableClearSong {
   ex_score: number | null;
   play_count: number | null;
   options: Record<string, unknown> | null;
+  recorded_at: string | null;
+  sort_recorded_at: string | null;
 }
 
 export interface TableClearDistribution {
@@ -472,6 +477,10 @@ export function useScoreUpdates(
       levelDisplayPrefs.server_default,
       levelDisplayPrefs.user_added,
       levelDisplayPrefs.ojik_custom,
+      levelDisplayPrefs.favorite_show_non_regular,
+      levelDisplayPrefs.server_default_show_non_regular,
+      levelDisplayPrefs.user_added_show_non_regular,
+      levelDisplayPrefs.ojik_custom_show_non_regular,
     ],
     queryFn: () => {
       const params = new URLSearchParams({ limit: String(limit) });

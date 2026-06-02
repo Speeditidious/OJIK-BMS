@@ -38,6 +38,15 @@ def auto_slug_for_url(url: str) -> str:
     return f"url_{digest}"
 
 
+def _normalize_db_level_order(slug: str, level_order: list[Any] | None) -> list[Any] | None:
+    """Return the DB-facing level order with source-specific aliases applied."""
+    if level_order is None:
+        return None
+    if slug == "gachimijoy":
+        return ["?" if str(level) == "8" else level for level in level_order]
+    return list(level_order)
+
+
 @dataclass(frozen=True)
 class TableSyncTarget:
     """Existing DB difficulty table selected for remote synchronization."""
@@ -202,6 +211,7 @@ async def _persist_table_data(
     slug = configured_slug or auto_slug_for_url(canonical_url)
     name = configured_name or header.get("name") or header.get("title") or urlsplit(canonical_url).netloc
     effective_symbol = symbol_fallback or table_data.get("symbol")
+    db_level_order = _normalize_db_level_order(slug, table_data.get("level_order"))
 
     if save_disk_cache and slug:
         save_table_to_disk(slug, table_data)
@@ -223,7 +233,7 @@ async def _persist_table_data(
                     source_url=canonical_url,
                     is_default=is_default,
                     default_order=default_order,
-                    level_order=table_data.get("level_order"),
+                    level_order=db_level_order,
                 )
                 db.add(table)
                 await db.flush()
@@ -240,7 +250,7 @@ async def _persist_table_data(
                     table.is_default = True
                 if default_order is not None:
                     table.default_order = default_order
-                table.level_order = table_data.get("level_order")
+                table.level_order = db_level_order
                 table.updated_at = datetime.now(UTC)
                 db_status = "updated"
 

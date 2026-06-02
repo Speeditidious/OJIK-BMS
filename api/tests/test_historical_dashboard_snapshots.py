@@ -322,6 +322,53 @@ async def test_current_snapshot_fumen_a_shows_hard() -> None:
     )
 
 
+async def test_current_snapshot_exposes_rating_detail_recorded_at_fields() -> None:
+    """Clear-distribution songs must expose the same display and sort dates as rating detail."""
+    user = _make_user()
+    db = _make_db(_make_fumen_rows(), _make_all_score_rows())
+
+    async with _make_client_ctx(user, db) as ac:
+        resp = await ac.get(
+            f"/analysis/table/{_TABLE_ID}/clear-distribution",
+            params={"user_id": str(_USER_ID)},
+        )
+
+    assert resp.status_code == 200, resp.text
+    songs = {s["sha256"]: s for s in resp.json()["songs"]}
+
+    assert songs[_SHA256_B]["recorded_at"] == _dt(2026, 4, 15).isoformat()
+    assert songs[_SHA256_B]["sort_recorded_at"] == _dt(2026, 4, 15).isoformat()
+
+
+async def test_current_snapshot_hides_initial_sync_display_date_but_keeps_sort_date() -> None:
+    """Initial-sync rows must sort by sync time while rendering the unknown-date tooltip."""
+    first_sync = _dt(2026, 4, 15)
+    user = _make_user()
+    user.first_synced_at = {"lr2": first_sync.isoformat()}
+    score_rows = [
+        _make_score(
+            sha256=_SHA256_B,
+            md5=_MD5_B,
+            clear_type=2,
+            recorded_at=None,
+            synced_at=first_sync,
+        ),
+    ]
+    db = _make_db(_make_fumen_rows(), score_rows)
+
+    async with _make_client_ctx(user, db) as ac:
+        resp = await ac.get(
+            f"/analysis/table/{_TABLE_ID}/clear-distribution",
+            params={"user_id": str(_USER_ID)},
+        )
+
+    assert resp.status_code == 200, resp.text
+    songs = {s["sha256"]: s for s in resp.json()["songs"]}
+
+    assert songs[_SHA256_B]["recorded_at"] is None
+    assert songs[_SHA256_B]["sort_recorded_at"] == first_sync.isoformat()
+
+
 async def test_historical_snapshot_includes_lr2_md5_only_fumen() -> None:
     """LR2 md5-only fumens must appear in historical snapshots with correct clear type."""
     user = _make_user()
@@ -681,6 +728,7 @@ async def test_rating_contribution_router_returns_snapshot_metadata(monkeypatch)
     assert data["snapshot_mode"] == "historical", f"Expected 'historical', got: {data.get('snapshot_mode')}"
     assert data["snapshot_date"] == "2026-05-01"
     assert data["is_current_snapshot"] is False
+    assert data["dan_decoration"] is None
     assert data["summary"]["top_n"] == 100
 
 

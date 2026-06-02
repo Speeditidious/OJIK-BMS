@@ -231,6 +231,97 @@ _BEA_SP_KEYMODES = {5, 7}
 _BEA_DP_KEYMODES = {10, 14}
 
 
+def course_option_label(client_type: str, options: dict | None) -> str | None:
+    """Return the aggregate option label stored for a course score."""
+    if options is None:
+        return None
+    if client_type == "lr2":
+        op_best = options.get("op_best")
+        if not isinstance(op_best, int):
+            return None
+        option = op_best // 10
+        return _LR2_OPTION_LABELS.get(option, f"UNKNOWN({option})")
+    if client_type == "beatoraja":
+        option_raw = options.get("option")
+        if not isinstance(option_raw, int):
+            return None
+        option = option_raw & 0xFF
+        return _BEA_SP_OPTION_LABELS.get(option, f"UNKNOWN({option})")
+    return None
+
+
+def build_course_stages(
+    course: Any,
+    rows: list[Any],
+    fallback_rows: list[Any] | None = None,
+    table_symbol: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return ordered course stages, preserving unresolved members.
+
+    ``fallback_rows`` provides level data from a secondary table (e.g.
+    ``balgwang`` when the course's source table is ``new_balgwang``).  The
+    primary ``rows`` level takes precedence; the fallback is used only when
+    the primary level is NULL.
+    """
+    sha256_list = list(course.sha256_list or [])
+    use_sha256 = bool(sha256_list)
+    hashes = sha256_list if use_sha256 else list(course.md5_list or [])
+    hash_field = "sha256" if use_sha256 else "md5"
+
+    def value(row: Any, key: str) -> Any:
+        if isinstance(row, dict):
+            return row.get(key)
+        return getattr(row, key, None)
+
+    by_hash = {
+        value(row, hash_field): row
+        for row in rows
+        if value(row, hash_field)
+    }
+    fallback_by_hash: dict[str, Any] = {}
+    if fallback_rows:
+        fallback_by_hash = {
+            value(row, hash_field): row
+            for row in fallback_rows
+            if value(row, hash_field)
+        }
+
+    stages = []
+    for index, hash_value in enumerate(hashes, start=1):
+        row = by_hash.get(hash_value)
+        fb = fallback_by_hash.get(hash_value) if fallback_by_hash else None
+
+        # Prefer primary row fields; fill missing values from fallback
+        title = (value(row, "title") if row is not None else None) or (value(fb, "title") if fb is not None else None)
+        level = (value(row, "level") if row is not None else None) or (value(fb, "level") if fb is not None else None)
+        fumen_sha256 = (value(row, "sha256") if row is not None else None) or (value(fb, "sha256") if fb is not None else None)
+        fumen_md5 = (value(row, "md5") if row is not None else None) or (value(fb, "md5") if fb is not None else None)
+
+        stages.append({
+            "stage": index,
+            "level": level,
+            "title": title,
+            "fumen_sha256": fumen_sha256,
+            "fumen_md5": fumen_md5,
+            "table_symbol": table_symbol,
+        })
+    return stages
+
+
+def match_course_from_hash(courses: list[Any], course_hash: str, client_type: str) -> Any | None:
+    """Return the active course matching one client-specific aggregate hash."""
+    for course in courses:
+        if client_type == "lr2":
+            joined = "".join(value for value in (course.md5_list or []) if value)
+            if joined and course_hash.endswith(joined):
+                return course
+        elif client_type == "beatoraja":
+            sha256_list = list(course.sha256_list or [])
+            if sha256_list and all(sha256_list) and course_hash == "".join(sha256_list):
+                return course
+    return None
+
+
 def _java_random_shuffle(seed: int, n: int) -> list[int]:
     """Simulate java.util.Random(seed) Fisher-Yates shuffle of n keys.
 

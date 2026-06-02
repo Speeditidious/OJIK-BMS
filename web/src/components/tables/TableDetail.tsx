@@ -21,6 +21,7 @@ import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { formatRatePercent } from "@/lib/rate-format";
 import { displayClearType } from "@/lib/clear-type-display";
 import { songHref } from "@/lib/song-href";
+import { shouldToggleFumenRow } from "@/lib/fumen-row-toggle-core.mjs";
 import { CLEAR_TYPE_LABELS } from "@/components/charts/ClearDistributionChart";
 import type { DifficultyTableDetail, TableFumen } from "@/types";
 import { clearText } from "@/components/dashboard/RecentActivity";
@@ -315,8 +316,7 @@ const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores,
   const displayArtist = fumenArtistText(song.artist);
 
   function handleRowClick(e: React.MouseEvent<HTMLTableRowElement>) {
-    const target = e.target as HTMLElement;
-    if (target.closest('a, button, [role="button"], input, select, textarea, label, [data-state]')) return;
+    if (!shouldToggleFumenRow(e.target as HTMLElement)) return;
     onToggle();
   }
 
@@ -470,12 +470,12 @@ const SongVirtualList = memo(function SongVirtualList({
   const { t } = useTranslation();
   const parentRef = useRef<HTMLDivElement>(null);
   const pinnedRangeRef = useRef<[number, number] | null>(null);
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
-  const toggleRow = useCallback((index: number) => {
+  const toggleRow = useCallback((fumenId: string) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
-      if (next.has(index)) next.delete(index); else next.add(index);
+      if (next.has(fumenId)) next.delete(fumenId); else next.add(fumenId);
       return next;
     });
   }, []);
@@ -515,8 +515,8 @@ const SongVirtualList = memo(function SongVirtualList({
     count: songs.length,
     getScrollElement: () => parentRef.current,
     estimateSize: useCallback(
-      (i: number) => expandedRows.has(i) ? 44 + DETAIL_HEIGHT_ESTIMATE_TD : 44,
-      [expandedRows]
+      (i: number) => expandedRows.has(songs[i].fumen_id) ? 44 + DETAIL_HEIGHT_ESTIMATE_TD : 44,
+      [expandedRows, songs]
     ),
     overscan: 10,
     rangeExtractor: (range) => {
@@ -648,26 +648,29 @@ const SongVirtualList = memo(function SongVirtualList({
             </tr>
           </thead>
 
-          <tbody>
-            {paddingTop > 0 && (
+          {paddingTop > 0 && (
+            <tbody>
               <tr><td colSpan={colCount} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
-            )}
+            </tbody>
+          )}
             {virtualItems.map((virtualRow) => (
-              <SongRow
-                key={virtualRow.key}
-                song={songs[virtualRow.index]}
-                index={virtualRow.index}
-                tableSymbol={table.symbol ?? undefined}
-                hasUserScores={hasUserScores}
-                isExpanded={expandedRows.has(virtualRow.index)}
-                onToggle={() => toggleRow(virtualRow.index)}
-                colCount={colCount}
-              />
+              <tbody key={virtualRow.key} data-index={virtualRow.index} ref={rowVirtualizer.measureElement}>
+                <SongRow
+                  song={songs[virtualRow.index]}
+                  index={virtualRow.index}
+                  tableSymbol={table.symbol ?? undefined}
+                  hasUserScores={hasUserScores}
+                  isExpanded={expandedRows.has(songs[virtualRow.index].fumen_id)}
+                  onToggle={() => toggleRow(songs[virtualRow.index].fumen_id)}
+                  colCount={colCount}
+                />
+              </tbody>
             ))}
-            {paddingBottom > 0 && (
+          {paddingBottom > 0 && (
+            <tbody>
               <tr><td colSpan={colCount} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
-            )}
-          </tbody>
+            </tbody>
+          )}
         </table>
       </div>
     </div>

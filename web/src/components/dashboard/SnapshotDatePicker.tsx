@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 interface SnapshotDatePickerProps {
@@ -35,6 +36,7 @@ export function SnapshotDatePicker({
   playRecordDates,
   onMonthChange,
 }: SnapshotDatePickerProps) {
+  const { t } = useTranslation();
   const today = new Date();
   const todayStr = toDateString(today.getFullYear(), today.getMonth() + 1, today.getDate());
 
@@ -45,38 +47,35 @@ export function SnapshotDatePicker({
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Notify parent when month changes
-  const notifyMonthChange = useCallback(
-    (year: number, month: number) => {
-      if (!onMonthChange) return;
-      const { from, to } = getMonthRange(year, month);
-      onMonthChange(from, to);
-    },
-    [onMonthChange],
-  );
+  const notifyMonthChange = (year: number, month: number) => {
+    if (!onMonthChange) return;
+    const { from, to } = getMonthRange(year, month);
+    onMonthChange(from, to);
+  };
 
   // When calendar opens, notify parent of current month
-  const handleOpen = useCallback(() => {
+  const handleOpen = () => {
     setIsOpen(true);
     notifyMonthChange(viewYear, viewMonth);
-  }, [viewYear, viewMonth, notifyMonthChange]);
+  };
 
-  const handlePrevMonth = useCallback(() => {
+  const handlePrevMonth = () => {
     let y = viewYear;
     let m = viewMonth - 1;
     if (m < 1) { m = 12; y -= 1; }
     setViewYear(y);
     setViewMonth(m);
     notifyMonthChange(y, m);
-  }, [viewYear, viewMonth, notifyMonthChange]);
+  };
 
-  const handleNextMonth = useCallback(() => {
+  const handleNextMonth = () => {
     let y = viewYear;
     let m = viewMonth + 1;
     if (m > 12) { m = 1; y += 1; }
     setViewYear(y);
     setViewMonth(m);
     notifyMonthChange(y, m);
-  }, [viewYear, viewMonth, notifyMonthChange]);
+  };
 
   // Click-outside to close
   useEffect(() => {
@@ -128,7 +127,7 @@ export function SnapshotDatePicker({
 
   const buttonLabel = selectedDate
     ? selectedDate.replace(/-/g, ".")
-    : "현재 기록";
+    : t("dashboard.tableClear.viewSnapshot");
 
   return (
     <div ref={containerRef} className="relative inline-block">
@@ -136,10 +135,10 @@ export function SnapshotDatePicker({
       <button
         onClick={handleOpen}
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-label border transition-colors",
+          "inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-label border transition-colors font-medium",
           selectedDate
-            ? "border-primary/50 bg-primary/10 text-primary hover:bg-primary/15"
-            : "border-border/50 text-muted-foreground hover:border-border hover:text-foreground bg-card/50",
+            ? "border-primary/60 bg-primary/15 text-primary hover:bg-primary/20"
+            : "border-border bg-secondary text-foreground hover:border-primary/40 hover:bg-secondary/80",
         )}
       >
         <CalendarDays className="h-3.5 w-3.5 shrink-0" />
@@ -149,13 +148,13 @@ export function SnapshotDatePicker({
       {/* Dropdown calendar */}
       {isOpen && (
         <div className="absolute left-0 top-full mt-1 z-50 w-[280px] rounded-lg border border-border bg-card shadow-lg p-3 space-y-2">
-          {/* "현재 기록 보기" button — only when a date is selected */}
+          {/* "현재 기록으로" button — only when a date is selected */}
           {selectedDate && (
             <button
               onClick={() => { onSelect(null); setIsOpen(false); }}
               className="w-full text-left text-label text-primary/80 hover:text-primary px-1 py-0.5 rounded transition-colors"
             >
-              현재 기록 보기
+              {t("dashboard.tableClear.viewCurrent")}
             </button>
           )}
 

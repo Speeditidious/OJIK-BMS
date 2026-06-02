@@ -443,25 +443,37 @@ function CalendarDayDetail({
               value={`${data.day_summary.total_play_count ?? 0}`}
               sub={t("dashboard.dayDetail.playCountSub")}
               icon={Music2}
-              uncertain={data.day_summary.play_count_uncertain}
-              uncertainTooltip={t("dashboard.dayDetail.playCountUncertain")}
+              uncertain={data.day_summary.player_stats_unreliable || data.day_summary.play_count_uncertain}
+              uncertainTooltip={
+                data.day_summary.player_stats_unreliable
+                  ? t("dashboard.dayDetail.playerStatsUnreliable")
+                  : t("dashboard.dayDetail.playCountUncertain")
+              }
               accentVar="var(--chart-play)"
             />
             <DayStatCard
               title={t("dashboard.dayDetail.playTime")}
-              value={formatDuration(data.day_summary.total_playtime, t)}
+              value={formatDuration(data.day_summary.total_playtime ?? 0, t)}
               sub={t("dashboard.dayDetail.playTimeSub")}
               icon={Clock}
-              uncertain={data.day_summary.playtime_uncertain}
-              uncertainTooltip={t("dashboard.dayDetail.playTimeUncertain")}
+              uncertain={data.day_summary.player_stats_unreliable || data.day_summary.playtime_uncertain}
+              uncertainTooltip={
+                data.day_summary.player_stats_unreliable
+                  ? t("dashboard.dayDetail.playerStatsUnreliable")
+                  : t("dashboard.dayDetail.playTimeUncertain")
+              }
             />
             <DayStatCard
               title={t("dashboard.dayDetail.notesHit")}
-              value={`${data.day_summary.total_notes_hit.toLocaleString()}`}
+              value={`${(data.day_summary.total_notes_hit ?? 0).toLocaleString()}`}
               sub={t("dashboard.dayDetail.notesHitSub")}
               icon={Hammer}
-              uncertain={data.day_summary.notes_hit_uncertain}
-              uncertainTooltip={t("dashboard.dayDetail.notesHitUncertain")}
+              uncertain={data.day_summary.player_stats_unreliable || data.day_summary.notes_hit_uncertain}
+              uncertainTooltip={
+                data.day_summary.player_stats_unreliable
+                  ? t("dashboard.dayDetail.playerStatsUnreliable")
+                  : t("dashboard.dayDetail.notesHitUncertain")
+              }
             />
           </div>
         </TooltipProvider>

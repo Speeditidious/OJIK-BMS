@@ -20,7 +20,7 @@ export function preprocessMarkdownMentions(text, mentions = []) {
 
       const withResolvedMentions = mentions.reduce((current, mention) => {
         if (!mention.source_text || !mention.user.id || !mention.user.username) return current;
-        const pattern = new RegExp(`(?<![.\\w@])${escapeRegExp(mention.source_text)}(?![A-Za-z0-9_.-])`, "gi");
+        const pattern = new RegExp(`(?<![.\\p{L}\\p{N}_@])${escapeRegExp(mention.source_text)}(?![\\p{L}\\p{N}_.-])`, "giu");
         return current.replace(pattern, () => {
           const placeholder = `\u0000OJIK_MENTION_${placeholders.length}\u0000`;
           placeholders.push(`[@${escapeMarkdownLabel(mention.user.username)}](/users/${mention.user.id}/dashboard)`);
@@ -29,7 +29,7 @@ export function preprocessMarkdownMentions(text, mentions = []) {
       }, part);
 
       return withResolvedMentions
-        .replace(/(?<![.\w@])@([A-Za-z0-9_]+(?:[._-][A-Za-z0-9_]+)*)/g, "[@$1](/u/$1)")
+        .replace(/(?<![.\p{L}\p{N}_@])@([\p{L}\p{N}_]+(?:[._-][\p{L}\p{N}_]+)*)(?![\p{L}\p{N}_.-])/gu, "[@$1](/u/$1)")
         .replace(/(?<![.\w#])#([1-9][0-9]{0,9})(?!\w)/g, "[#$1](/issues/$1)");
     })
     .join("")

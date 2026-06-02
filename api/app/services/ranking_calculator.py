@@ -60,6 +60,9 @@ class BestScore:
     recorded_at: datetime | None = None
     sort_recorded_at: datetime | None = None
     fumen_id: uuid.UUID | None = None
+    detail_score_id: uuid.UUID | None = None
+    detail_client_type: str | None = None
+    detail_options: dict[str, Any] | None = None
 
 
 @dataclass
@@ -229,6 +232,9 @@ def _merge_best_score_fields(
         client_types=existing.client_types if existing is not None else (),
         recorded_at=existing.recorded_at if existing is not None else None,
         sort_recorded_at=existing.sort_recorded_at if existing is not None else None,
+        detail_score_id=existing.detail_score_id if existing is not None else None,
+        detail_client_type=existing.detail_client_type if existing is not None else None,
+        detail_options=existing.detail_options if existing is not None else None,
     )
     changed = False
 
@@ -252,6 +258,9 @@ def _merge_best_score_fields(
         current.client_types = tuple(sorted(merged_types))
         current.recorded_at = row.get("recorded_at") or current.recorded_at
         current.sort_recorded_at = row.get("effective_ts") or row.get("latest_ts") or current.sort_recorded_at
+        current.detail_score_id = row.get("score_id") or current.detail_score_id
+        current.detail_client_type = str(row["client_type"])
+        current.detail_options = row.get("options")
 
     if not changed:
         return existing, False
@@ -386,6 +395,7 @@ async def compute_ranking_history_for_user(
     result = await db.execute(
         text("""
             SELECT
+                us.id AS score_id,
                 us.fumen_id,
                 us.fumen_sha256, us.fumen_md5,
                 us.clear_type, us.exscore, us.rate, us.rank, us.min_bp,
@@ -632,8 +642,12 @@ async def check_dan_clearance(
     table_cfg: TableRankingConfig,
     config: RankingConfig,
     db: AsyncSession,
+    as_of: date | None = None,
 ) -> str | None:
-    """Return the highest-priority cleared dan_title for a user, or None."""
+    """Return the highest-priority cleared dan_title for a user, or None.
+
+    When as_of is provided, only scores with effective date <= as_of are considered.
+    """
     dans = get_effective_dans(table_cfg, config)
     if not dans:
         return None
@@ -684,12 +698,18 @@ async def check_dan_clearance(
         if not conditions:
             continue
 
+        date_clause = ""
+        if as_of is not None:
+            date_clause = "AND COALESCE(recorded_at, synced_at)::date <= :as_of"
+            params["as_of"] = as_of.isoformat()
+
         score_result = await db.execute(
             text(f"""
                 SELECT MAX(clear_type) AS best_clear
                 FROM user_scores
                 WHERE user_id = :user_id
                   AND ({' OR '.join(conditions)})
+                  {date_clause}
             """),
             params,
         )

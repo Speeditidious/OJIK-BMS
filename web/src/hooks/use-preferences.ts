@@ -265,6 +265,10 @@ export interface LevelDisplayPrefs {
   server_default: boolean;
   user_added: boolean;
   ojik_custom: boolean;
+  favorite_show_non_regular: boolean;
+  server_default_show_non_regular: boolean;
+  user_added_show_non_regular: boolean;
+  ojik_custom_show_non_regular: boolean;
 }
 
 export const DEFAULT_LEVEL_DISPLAY_PREFS: LevelDisplayPrefs = {
@@ -272,6 +276,10 @@ export const DEFAULT_LEVEL_DISPLAY_PREFS: LevelDisplayPrefs = {
   server_default: false,
   user_added: false,
   ojik_custom: false,
+  favorite_show_non_regular: true,
+  server_default_show_non_regular: true,
+  user_added_show_non_regular: true,
+  ojik_custom_show_non_regular: true,
 };
 
 export function normalizeLevelDisplayPrefs(raw: unknown): LevelDisplayPrefs {
@@ -281,6 +289,18 @@ export function normalizeLevelDisplayPrefs(raw: unknown): LevelDisplayPrefs {
     server_default: typeof obj.server_default === "boolean" ? obj.server_default : false,
     user_added: typeof obj.user_added === "boolean" ? obj.user_added : false,
     ojik_custom: typeof obj.ojik_custom === "boolean" ? obj.ojik_custom : false,
+    favorite_show_non_regular:
+      typeof obj.favorite_show_non_regular === "boolean" ? obj.favorite_show_non_regular : true,
+    server_default_show_non_regular:
+      typeof obj.server_default_show_non_regular === "boolean"
+        ? obj.server_default_show_non_regular
+        : true,
+    user_added_show_non_regular:
+      typeof obj.user_added_show_non_regular === "boolean" ? obj.user_added_show_non_regular : true,
+    ojik_custom_show_non_regular:
+      typeof obj.ojik_custom_show_non_regular === "boolean"
+        ? obj.ojik_custom_show_non_regular
+        : true,
   };
 }
 
