@@ -40,6 +40,21 @@ export function arrangementOptionLabel(optionLabel) {
 }
 
 /**
+ * Return the option label that should be shown in compact score-table columns.
+ * Lane-map availability is explained in the expanded row; the compact column
+ * should still show the known option when metadata includes it.
+ *
+ * @param {string | null} parsedArrangementName
+ * @param {{ option_label?: string | null } | null | undefined} arrangement
+ * @returns {string | null}
+ */
+export function arrangementColumnLabel(parsedArrangementName, arrangement) {
+  const label = parsedArrangementName ?? arrangement?.option_label ?? null;
+  if (!label || label === "UNKNOWN" || label.startsWith("UNKNOWN(")) return null;
+  return label;
+}
+
+/**
  * Whether a given lane index should render as a white key for the given keymode.
  *
  * BMS lane numbering: scratch is lane 0, playable keys start at 1.

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   JUDGMENT_STYLE,
+  arrangementColumnLabel,
   arrangementOptionLabel,
   laneIsWhiteKey,
 } from "./score-row-detail-core.mjs";
@@ -18,6 +19,28 @@ assert.equal(arrangementOptionLabel(null),     "NORMAL");
 assert.equal(arrangementOptionLabel("MIRROR"), "MIRROR");
 assert.equal(arrangementOptionLabel("RANDOM"), "RANDOM");
 assert.equal(arrangementOptionLabel(""),       "");
+
+// arrangementColumnLabel
+assert.equal(
+  arrangementColumnLabel("RANDOM", {
+    option_label: "RANDOM",
+    lane_groups: null,
+    double_option_label: null,
+    unavailable_reason: "lr2_seed_unmapped",
+  }),
+  "RANDOM",
+  "known option labels stay visible even when the lane arrangement is unavailable",
+);
+assert.equal(
+  arrangementColumnLabel(null, {
+    option_label: "UNKNOWN",
+    lane_groups: null,
+    double_option_label: null,
+    unavailable_reason: "score_metadata_missing",
+  }),
+  null,
+  "unknown metadata still renders as unavailable",
+);
 
 // laneIsWhiteKey — 7K SP
 assert.equal(laneIsWhiteKey(7, 1), true,  "7K lane 1 is white");

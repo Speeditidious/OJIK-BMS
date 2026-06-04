@@ -19,7 +19,7 @@ from app.models.fumen import (
     FumenPopularityDirty,
     FumenPopularityWindow,
 )
-from app.models.score import UserScore
+from app.models.score import UserPlayerStats, UserScore
 from app.services.fumen_popularity import (
     mark_fumens_dirty,
     rebuild_popularity_window,
@@ -89,6 +89,18 @@ async def db_session():
             )
             """,
             """
+            CREATE TABLE user_player_stats (
+                id CHAR(32) PRIMARY KEY,
+                user_id CHAR(32) NOT NULL,
+                client_type VARCHAR(32) NOT NULL,
+                synced_at DATETIME NOT NULL,
+                playcount INTEGER,
+                clearcount INTEGER,
+                playtime BIGINT,
+                judgments JSON
+            )
+            """,
+            """
             CREATE TABLE fumen_play_popularity (
                 fumen_id CHAR(32) PRIMARY KEY,
                 played_user_count INTEGER NOT NULL DEFAULT 0,
@@ -150,6 +162,27 @@ async def _add_score(
             fumen_hash_others=other_hash,
             play_count=play_count,
             synced_at=synced_at or datetime.now(UTC),
+        )
+    )
+
+
+async def _add_player_stats(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    client_type: str,
+    synced_at: datetime,
+    playcount: int | None,
+    playtime: int | None,
+) -> None:
+    db.add(
+        UserPlayerStats(
+            id=uuid.uuid4(),
+            user_id=user_id,
+            client_type=client_type,
+            synced_at=synced_at,
+            playcount=playcount,
+            playtime=playtime,
         )
     )
 
@@ -414,6 +447,50 @@ async def test_window_refresh_keeps_client_play_count_timelines_separate(db_sess
 
     assert (weekly.played_user_count, weekly.play_count) == (1, 7)
     assert (monthly.played_user_count, monthly.play_count) == (1, 7)
+
+
+@pytest.mark.asyncio
+async def test_window_refresh_excludes_lr2_scores_from_unreliable_player_stats_day(db_session: AsyncSession):
+    fumen_id = _fid()
+    user = _fid()
+    now = datetime.now(UTC)
+    db_session.add(Fumen(fumen_id=fumen_id, sha256="8" * 64, title="Unreliable LR2"))
+    await db_session.flush()
+    await _add_score(
+        db_session,
+        fumen_id=fumen_id,
+        user_id=user,
+        client_type="lr2",
+        play_count=10,
+        synced_at=now - timedelta(days=8),
+    )
+    await _add_score(
+        db_session,
+        fumen_id=fumen_id,
+        user_id=user,
+        client_type="lr2",
+        play_count=15,
+        synced_at=now,
+    )
+    await _add_player_stats(
+        db_session,
+        user_id=user,
+        client_type="lr2",
+        synced_at=now,
+        playcount=15,
+        playtime=0,
+    )
+    await db_session.flush()
+
+    refreshed = await refresh_popularity_window_for_fumens(db_session, "weekly", [fumen_id])
+
+    rows = (
+        await db_session.execute(
+            sa.select(FumenPopularityWindow).where(FumenPopularityWindow.window == "weekly")
+        )
+    ).scalars().all()
+    assert refreshed == 1
+    assert rows == []
 
 
 @pytest.mark.asyncio

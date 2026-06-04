@@ -19,8 +19,9 @@ from app.models.fumen import (
     FumenPopularityDirty,
     FumenPopularityWindow,
 )
-from app.models.score import UserScore
+from app.models.score import UserPlayerStats, UserScore
 from app.services.initial_sync import INITIAL_SYNC_WINDOW_HOURS
+from app.services.player_stats_reliability import lr2_stats_unreliable_sql
 
 _WINDOW_DAYS = {"weekly": 7, "monthly": 30}
 _TOP_N = 50
@@ -84,6 +85,74 @@ def _resolved_score_rows() -> Any:
         )
         .where(UserScore.fumen_hash_others.is_(None))
         .subquery("resolved_scores")
+    )
+
+
+def _utc_date_expr(value: Any, dialect_name: str) -> Any:
+    if dialect_name == "sqlite":
+        return sa.func.date(value)
+    return sa.cast(sa.func.timezone("UTC", value), sa.Date)
+
+
+def _reliable_window_score_rows(dialect_name: str) -> Any:
+    """Return resolved score rows excluding dates with unreliable LR2 stats."""
+    resolved = _resolved_score_rows()
+    stats_day = _utc_date_expr(UserPlayerStats.synced_at, dialect_name)
+
+    unreliable_days = (
+        sa.select(
+            UserPlayerStats.user_id.label("user_id"),
+            UserPlayerStats.client_type.label("client_type"),
+            stats_day.label("sync_day"),
+        )
+        .where(lr2_stats_unreliable_sql(UserPlayerStats))
+        .group_by(UserPlayerStats.user_id, UserPlayerStats.client_type, stats_day)
+        .subquery("unreliable_lr2_days")
+    )
+    reliable_lr2_days = (
+        sa.select(
+            UserPlayerStats.user_id.label("user_id"),
+            UserPlayerStats.client_type.label("client_type"),
+            stats_day.label("sync_day"),
+        )
+        .where(
+            UserPlayerStats.client_type == "lr2",
+            sa.not_(lr2_stats_unreliable_sql(UserPlayerStats)),
+        )
+        .group_by(UserPlayerStats.user_id, UserPlayerStats.client_type, stats_day)
+        .subquery("reliable_lr2_days")
+    )
+    unreliable_only_days = (
+        sa.select(
+            unreliable_days.c.user_id,
+            unreliable_days.c.client_type,
+            unreliable_days.c.sync_day,
+        )
+        .outerjoin(
+            reliable_lr2_days,
+            sa.and_(
+                reliable_lr2_days.c.user_id == unreliable_days.c.user_id,
+                reliable_lr2_days.c.client_type == unreliable_days.c.client_type,
+                reliable_lr2_days.c.sync_day == unreliable_days.c.sync_day,
+            ),
+        )
+        .where(reliable_lr2_days.c.user_id.is_(None))
+        .subquery("unreliable_only_lr2_days")
+    )
+
+    score_day = _utc_date_expr(resolved.c.synced_at, dialect_name)
+    return (
+        sa.select(resolved)
+        .outerjoin(
+            unreliable_only_days,
+            sa.and_(
+                unreliable_only_days.c.user_id == resolved.c.user_id,
+                unreliable_only_days.c.client_type == resolved.c.client_type,
+                unreliable_only_days.c.sync_day == score_day,
+            ),
+        )
+        .where(unreliable_only_days.c.user_id.is_(None))
+        .subquery("reliable_resolved_scores")
     )
 
 
@@ -252,7 +321,7 @@ def _window_delta_aggregate(
 ) -> Any:
     """Build per-fumen play deltas for a moving popularity window."""
     cutoff = _window_cutoff(window)
-    resolved = _resolved_score_rows()
+    resolved = _reliable_window_score_rows(dialect_name)
 
     base_filter = [
         resolved.c.resolved_fumen_id.isnot(None),
@@ -317,12 +386,12 @@ def _window_delta_aggregate(
 
     first_sync = (
         sa.select(
-            UserScore.user_id.label("user_id"),
-            UserScore.client_type.label("client_type"),
-            sa.func.min(UserScore.synced_at).label("first_synced_at"),
+            resolved.c.user_id.label("user_id"),
+            resolved.c.client_type.label("client_type"),
+            sa.func.min(resolved.c.synced_at).label("first_synced_at"),
         )
-        .where(UserScore.synced_at.isnot(None))
-        .group_by(UserScore.user_id, UserScore.client_type)
+        .where(resolved.c.synced_at.isnot(None))
+        .group_by(resolved.c.user_id, resolved.c.client_type)
         .subquery("first_sync")
     )
     first_sync_cutoff = (

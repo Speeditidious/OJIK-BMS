@@ -28,6 +28,7 @@ import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement } from "@/lib/fume
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { buildFumenExternalLinkGroups, type ExternalHashType, type FumenExternalLink } from "@/lib/fumen-external-links";
 import { shouldToggleFumenRow } from "@/lib/fumen-row-toggle-core.mjs";
+import { arrangementColumnLabel } from "@/lib/score-row-detail-core.mjs";
 import type { DifficultyTable, FumenDetail, UserScore } from "@/types";
 
 interface SongDetailPageProps {
@@ -175,7 +176,10 @@ function compareScores(a: UserScore, b: UserScore, key: SortKey, dir: SortDir): 
   else if (key === "rank") { va = a.rank; vb = b.rank; }
   else if (key === "min_bp") { va = a.min_bp; vb = b.min_bp; }
   else if (key === "play_count") { va = a.play_count; vb = b.play_count; }
-  else if (key === "option") { va = parseArrangement(a.options, a.client_type) ?? ""; vb = parseArrangement(b.options, b.client_type) ?? ""; }
+  else if (key === "option") {
+    va = arrangementColumnLabel(parseArrangement(a.options, a.client_type), a.arrangement) ?? "";
+    vb = arrangementColumnLabel(parseArrangement(b.options, b.client_type), b.arrangement) ?? "";
+  }
   else if (key === "recorded_at") {
     va = sortScoreRecordedAt(a);
     vb = sortScoreRecordedAt(b);
@@ -268,7 +272,10 @@ function ScoreHistorySection({
             </thead>
             <tbody>
               {scores.map((s) => {
-                const arrangementName = parseArrangement(s.options, s.client_type);
+                const arrangementName = arrangementColumnLabel(
+                  parseArrangement(s.options, s.client_type),
+                  s.arrangement,
+                );
                 const arrangementKanji = arrangementName ? (ARRANGEMENT_KANJI[arrangementName] ?? arrangementName) : null;
                 const arrangementReason = s.arrangement?.unavailable_reason ?? null;
                 const displayType = displayClearType(s.clear_type, { exscore: s.exscore, rate: s.rate });
@@ -306,9 +313,11 @@ function ScoreHistorySection({
                       {s.play_count !== null ? s.play_count : <span className="text-muted-foreground row-muted">—</span>}
                     </td>
                     <td className="px-3 py-2 text-label">
-                      {arrangementReason
-                        ? <UnavailableValue reason={arrangementReason} />
-                        : arrangementKanji ?? <span className="text-muted-foreground row-muted">—</span>}
+                      {arrangementKanji ?? (
+                        arrangementReason
+                          ? <UnavailableValue reason={arrangementReason} />
+                          : <span className="text-muted-foreground row-muted">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-label">
                       {exactDate ? (
