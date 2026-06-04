@@ -4,6 +4,7 @@ import { useState } from "react";
 import { StickyNote, Pencil, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MarkdownContent } from "@/components/common/MarkdownContent";
 import { MarkdownEditor } from "@/components/common/MarkdownEditor";
@@ -24,6 +25,7 @@ export function DayNotePopover({ userId, date, isOwner, cellTrigger = false, has
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [editingTitle, setEditingTitle] = useState("");
 
   const { data: note, isLoading } = useDayNote(open ? userId : null, open ? date : null);
   const upsert = useUpsertDayNote(userId);
@@ -42,13 +44,22 @@ export function DayNotePopover({ userId, date, isOwner, cellTrigger = false, has
   // When owner opens popover and there's no note, enter editing mode automatically
   const showEditor = editing || (isOwner && !note && !isLoading && open);
 
+  // Sync editingTitle when entering editing mode
+  const [prevEditing, setPrevEditing] = useState(false);
+  if (showEditor && !prevEditing) {
+    setPrevEditing(true);
+    setEditingTitle(note?.title ?? "");
+  } else if (!showEditor && prevEditing) {
+    setPrevEditing(false);
+  }
+
   function handleTriggerClick(e: React.MouseEvent) {
     if (cellTrigger) e.stopPropagation();
     setOpen((prev) => !prev);
   }
 
   async function handleSave(content: string) {
-    await upsert.mutateAsync({ date, content });
+    await upsert.mutateAsync({ date, title: editingTitle.trim() || null, content });
     setEditing(false);
   }
 
@@ -57,6 +68,8 @@ export function DayNotePopover({ userId, date, isOwner, cellTrigger = false, has
     // note is now gone → editor will auto-open via showEditor logic
     setEditing(false);
   }
+
+  const displayTitle = note?.title || t("dashboard.dayDetail.note.title");
 
   const trigger = cellTrigger ? (
     <button
@@ -86,11 +99,21 @@ export function DayNotePopover({ userId, date, isOwner, cellTrigger = false, has
         {/* Header */}
         <div className="border-b bg-muted/30">
           <div className="flex items-center justify-between px-3 pt-2 pb-1.5">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-2">
               <StickyNote className="h-3.5 w-3.5 text-primary shrink-0" />
-              <span className="text-label font-medium">{t("dashboard.dayDetail.note.title")}</span>
+              {showEditor ? (
+                <Input
+                  value={editingTitle}
+                  onChange={(e) => setEditingTitle(e.target.value)}
+                  placeholder={t("dashboard.dayDetail.note.titlePlaceholder")}
+                  maxLength={100}
+                  className="h-6 text-label font-medium border-none shadow-none bg-transparent px-0 py-0 focus-visible:ring-0 placeholder:text-muted-foreground/50"
+                />
+              ) : (
+                <span className="text-label font-medium truncate">{displayTitle}</span>
+              )}
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
               {isOwner && !editing && note && (
                 <>
                   <Button
@@ -137,6 +160,7 @@ export function DayNotePopover({ userId, date, isOwner, cellTrigger = false, has
                 isSaving={upsert.isPending}
                 placeholder={t("dashboard.dayDetail.note.placeholder")}
                 maxLength={2000}
+                hasExternalChanges={editingTitle.trim() !== (note?.title ?? "")}
               />
             </div>
           ) : note ? (

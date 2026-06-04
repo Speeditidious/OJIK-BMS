@@ -1,7 +1,7 @@
 import uuid
 from datetime import date
 
-from sqlalchemy import Date, ForeignKey, Index, Text, text
+from sqlalchemy import Date, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +24,7 @@ class UserDayNote(Base, TimestampMixin):
         nullable=False,
     )
     note_date: Mapped[date] = mapped_column(Date, nullable=False)
+    title: Mapped[str | None] = mapped_column(String(100), nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
     def __repr__(self) -> str:

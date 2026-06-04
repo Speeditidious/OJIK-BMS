@@ -19,12 +19,14 @@ from app.models.user import User
 router = APIRouter(tags=["day-notes"])
 
 _MAX_CONTENT_LEN = 2000
+_MAX_TITLE_LEN = 100
 
 
 class DayNoteRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     date: date
+    title: str | None
     content: str
     created_at: str
     updated_at: str
@@ -38,6 +40,7 @@ class DayNoteSummary(BaseModel):
 
 
 class DayNotePayload(BaseModel):
+    title: str | None = None
     content: str
 
 
@@ -95,6 +98,7 @@ async def get_day_note(
         return None
     return DayNoteRead(
         date=row.note_date,
+        title=row.title,
         content=row.content,
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),
@@ -111,6 +115,7 @@ async def upsert_day_note(
     """Upsert a day note. Empty content after strip = delete. Max 2000 chars."""
     note_date = _parse_date(date_str)
     content = payload.content.strip()
+    title = (payload.title or "").strip() or None
 
     if not content:
         await db.execute(
@@ -126,20 +131,26 @@ async def upsert_day_note(
 
     if len(content) > _MAX_CONTENT_LEN:
         raise HTTPException(status_code=422, detail=f"content exceeds {_MAX_CONTENT_LEN} characters")
+    if title and len(title) > _MAX_TITLE_LEN:
+        raise HTTPException(status_code=422, detail=f"title exceeds {_MAX_TITLE_LEN} characters")
 
     stmt = (
         pg_insert(UserDayNote)
-        .values(user_id=current_user.id, note_date=note_date, content=content)
+        .values(user_id=current_user.id, note_date=note_date, title=title, content=content)
         .on_conflict_do_update(
             index_elements=["user_id", "note_date"],
-            set_={"content": content, "updated_at": func.now()},
+            set_={"title": title, "content": content, "updated_at": func.now()},
         )
-        .returning(UserDayNote.note_date, UserDayNote.content, UserDayNote.created_at, UserDayNote.updated_at)
+        .returning(
+            UserDayNote.note_date, UserDayNote.title, UserDayNote.content,
+            UserDayNote.created_at, UserDayNote.updated_at,
+        )
     )
     row = (await db.execute(stmt)).one()
     await db.commit()
     return DayNoteRead(
         date=row.note_date,
+        title=row.title,
         content=row.content,
         created_at=row.created_at.isoformat(),
         updated_at=row.updated_at.isoformat(),

@@ -30,6 +30,8 @@ export interface MarkdownEditorProps {
     textarea: HTMLTextAreaElement | null,
     setBody: (v: string) => void,
   ) => React.ReactNode;
+  /** When true, save is enabled even if body is unchanged (e.g. only a title changed). */
+  hasExternalChanges?: boolean;
 }
 
 export function MarkdownEditor({
@@ -41,6 +43,7 @@ export function MarkdownEditor({
   maxLength,
   enableMentions = false,
   renderMentionDropdown,
+  hasExternalChanges = false,
 }: MarkdownEditorProps) {
   const { t } = useTranslation();
   const [body, setBody] = useState(initialBody);
@@ -49,7 +52,7 @@ export function MarkdownEditor({
   const [textareaEl, setTextareaEl] = useState<HTMLTextAreaElement | null>(null);
   const textareaCallbackRef = useCallback((el: HTMLTextAreaElement | null) => setTextareaEl(el), []);
 
-  const hasChanged = body.trim() !== initialBody.trim();
+  const hasChanged = body.trim() !== initialBody.trim() || hasExternalChanges;
   const overLimit = maxLength != null && body.length > maxLength;
 
   function handleCancelClick() {

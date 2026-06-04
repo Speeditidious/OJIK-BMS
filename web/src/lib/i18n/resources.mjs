@@ -770,6 +770,7 @@ export const resources = {
           playerStatsUnreliable: "대체 IR의 일시적인 오류로 정확한 플레이 통계를 계산할 수 없습니다. 이 날짜의 플레이 통계는 집계에서 제외됩니다.",
           note: {
             title: "메모",
+            titlePlaceholder: "제목 (선택사항)",
             publicBadge: "공개",
             publicHint: "이 메모는 모든 사용자에게 공개됩니다.",
             empty: "아직 메모가 없습니다.",
@@ -1755,6 +1756,7 @@ export const resources = {
           playerStatsUnreliable: "Play statistics cannot be calculated accurately due to a temporary alternative IR issue. Play statistics for this date are excluded from aggregation.",
           note: {
             title: "Note",
+            titlePlaceholder: "Title (optional)",
             publicBadge: "Public",
             publicHint: "This note is visible to everyone.",
             empty: "No note yet.",
@@ -2740,6 +2742,7 @@ export const resources = {
           playerStatsUnreliable: "代替IRの一時的な不具合により、正確なプレイ統計を計算できません。この日のプレイ統計は集計から除外されます。",
           note: {
             title: "メモ",
+            titlePlaceholder: "タイトル（任意）",
             publicBadge: "公開",
             publicHint: "このメモは全てのユーザーに公開されます。",
             empty: "まだメモがありません。",

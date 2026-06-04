@@ -8,6 +8,7 @@ export interface DayNoteSummary {
 
 export interface DayNote {
   date: string;
+  title: string | null;
   content: string;
   created_at: string;
   updated_at: string;
@@ -36,9 +37,9 @@ export function useDayNote(userId: string | null, date: string | null) {
 export function useUpsertDayNote(userId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ date, content }: { date: string; content: string }) =>
-      api.put(`/me/day-notes/${date}`, { content }),
-    onSuccess: (data, { date }) => {
+    mutationFn: ({ date, title, content }: { date: string; title?: string | null; content: string }) =>
+      api.put(`/me/day-notes/${date}`, { title: title ?? null, content }),
+    onSuccess: (data, { date }: { date: string; title?: string | null; content: string }) => {
       const [year, month] = date.split("-").map(Number);
       queryClient.invalidateQueries({ queryKey: ["day-note", userId, date] });
       queryClient.invalidateQueries({ queryKey: ["day-notes", userId, year, month] });
