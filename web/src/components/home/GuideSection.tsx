@@ -145,7 +145,7 @@ export function GuideSection() {
   });
 
   return (
-    <section aria-labelledby="guide-title" className="border-t border-border/60 py-20">
+    <section id="guide" aria-labelledby="guide-title" className="border-t border-border/60 py-20">
       <div className="container mx-auto px-4">
         <div className="mx-auto max-w-3xl text-center">
           <h2 id="guide-title" className="text-3xl font-bold tracking-tight">

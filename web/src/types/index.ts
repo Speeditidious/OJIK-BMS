@@ -183,9 +183,11 @@ export interface Schedule {
 // ── Fumen list types ──────────────────────────────────────────────────────────
 
 export type FumenSearchField =
-  | "title" | "artist" | "level"
+  | "title_artist" | "title" | "artist" | "level"
   | "bpm" | "notes" | "length"
   | "clear" | "bp" | "rate" | "rank" | "score" | "plays" | "option" | "env";
+
+export type FumenSearchMode = "basic" | "regex";
 
 export interface FumenListItem {
   fumen_id: string;
@@ -207,6 +209,8 @@ export interface FumenListItem {
   file_url: string | null;
   file_url_diff: string | null;
   table_entries: Array<{ table_id: string; level: string }> | null;
+  played_user_count: number;
+  total_play_count: number;
   user_score: TableFumenScore | null;
   user_tags: UserTag[];
 }
@@ -216,6 +220,24 @@ export interface FumenListResponse {
   total: number;
   page: number;
   limit: number;
+}
+
+export type PopularRange = "weekly" | "monthly" | "all_time";
+
+export interface PopularFumen {
+  rank: number;
+  fumen_id: string;
+  title: string | null;
+  artist: string | null;
+  sha256: string | null;
+  md5: string | null;
+  played_user_count: number;
+  play_count: number;
+}
+
+export interface PopularFumensResponse {
+  as_of: string | null;
+  items: PopularFumen[];
 }
 
 // ── API utility types ─────────────────────────────────────────────────────────

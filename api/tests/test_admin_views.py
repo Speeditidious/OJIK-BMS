@@ -10,12 +10,13 @@ from app.admin.views import (
     ClientUpdateAnnouncementAdmin,
     DifficultyTableAdmin,
     UserAdmin,
+    UserPlayerStatsAdmin,
     UserScoreAdmin,
     _clean_level_subset,
     _parse_admin_user_ids,
     _reset_user_play_data,
 )
-from app.models.score import UserScore
+from app.models.score import UserPlayerStats, UserScore
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -40,6 +41,27 @@ def test_user_score_admin_searches_every_column() -> None:
     model_keys = {column.key for column in UserScore.__table__.columns}
 
     assert searchable_keys == model_keys
+
+
+def test_user_player_stats_admin_searches_every_column_and_sorts_by_sync_date() -> None:
+    """Player Stats admin should support broad search and sync-date ordering."""
+    searchable_keys = {
+        column.key for column in UserPlayerStatsAdmin.column_searchable_list
+    }
+    model_keys = {column.key for column in UserPlayerStats.__table__.columns}
+    sortable_keys = {column.key for column in UserPlayerStatsAdmin.column_sortable_list}
+
+    assert searchable_keys == model_keys
+    assert {
+        "id",
+        "user_id",
+        "client_type",
+        "playcount",
+        "clearcount",
+        "playtime",
+        "synced_at",
+    }.issubset(sortable_keys)
+    assert UserPlayerStatsAdmin.column_default_sort == [(UserPlayerStats.synced_at, True)]
 
 
 def test_user_admin_exposes_per_client_reset_actions() -> None:

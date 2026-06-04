@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { formatLocalizedDateTime, formatNumber, formatRelativeTime } from "../../lib/format";
 import type { ClientConfig, SyncResult } from "../../types";
 import { Button } from "../primitives/Button";
+import { Tooltip } from "../primitives/Tooltip";
 
 export interface SyncHeroProps {
   config: ClientConfig;
@@ -31,6 +32,9 @@ export function SyncHero({
   const lastSyncedAt = lastResultErrorCount > 0
     ? config.last_synced_at
     : lastResult?.finished_at ?? config.last_synced_at;
+  // Quick Sync only makes sense once a full sync has populated chart metadata,
+  // so hide it until the user has at least one sync on record.
+  const hasSyncHistory = Boolean(lastSyncedAt);
 
   return (
     <section className="sync-hero" aria-label={t("client.sync.hero.ariaLabel")}>
@@ -88,26 +92,32 @@ export function SyncHero({
           </Button>
         ) : (
           <>
-            <Button
-              variant="primary"
-              size="lg"
-              leadingIcon={<Database size={16} aria-hidden="true" />}
-              onClick={onQuickSync}
-              disabled={syncDisabled}
-              title={syncDisabledReason}
-            >
-              {t("client.sync.hero.quick")}
-            </Button>
-            <Button
-              variant="accent"
-              size="lg"
-              leadingIcon={<Download size={16} aria-hidden="true" />}
-              onClick={onFullSync}
-              disabled={syncDisabled}
-              title={syncDisabledReason}
-            >
-              {t("client.sync.hero.full")}
-            </Button>
+            {hasSyncHistory ? (
+              <Tooltip text={t("client.sync.hero.quickHint")}>
+                <Button
+                  variant="primary"
+                  size="lg"
+                  leadingIcon={<Database size={16} aria-hidden="true" />}
+                  onClick={onQuickSync}
+                  disabled={syncDisabled}
+                  title={syncDisabledReason}
+                >
+                  {t("client.sync.hero.quick")}
+                </Button>
+              </Tooltip>
+            ) : null}
+            <Tooltip text={t("client.sync.hero.fullHint")}>
+              <Button
+                variant="accent"
+                size="lg"
+                leadingIcon={<Download size={16} aria-hidden="true" />}
+                onClick={onFullSync}
+                disabled={syncDisabled}
+                title={syncDisabledReason}
+              >
+                {t("client.sync.hero.full")}
+              </Button>
+            </Tooltip>
           </>
         )}
       </div>

@@ -1,4 +1,5 @@
 """Local agent synchronization endpoints."""
+import logging
 import math
 from datetime import UTC, datetime
 from datetime import date as date_cls
@@ -17,6 +18,7 @@ from app.models.score import UserPlayerStats, UserScore
 from app.models.user import User
 
 router = APIRouter(prefix="/sync", tags=["sync"])
+logger = logging.getLogger(__name__)
 
 
 def _compute_score_fields(
@@ -541,6 +543,7 @@ async def sync_data(
     skipped_scores = 0
     metadata_updated = 0
     now = datetime.now(UTC)
+    touched_fumen_ids: set[Any] = set()
 
     if not payload.scores and not payload.player_stats:
         return SyncResponse(synced_scores=0, skipped_scores=0, errors=[])
@@ -742,6 +745,8 @@ async def sync_data(
                         )
                         metadata_updated += 1
                         new_id = existing_same_day.id
+                        if resolved_fumen_id is not None:
+                            touched_fumen_ids.add(resolved_fumen_id)
                         # Reflect merged values back so in-memory best cache stays accurate
                         exscore = merged["exscore"]
                         rate = merged["rate"]
@@ -815,6 +820,8 @@ async def sync_data(
                         if new_id is None:
                             skipped_scores += 1
                             continue
+                        if resolved_fumen_id is not None:
+                            touched_fumen_ids.add(resolved_fumen_id)
                         if updates_existing_scorehash:
                             metadata_updated += 1
                         else:
@@ -999,6 +1006,25 @@ async def sync_data(
             pass  # Non-fatal: backfill failure must not break sync response
 
     await db.commit()
+
+    if touched_fumen_ids:
+        try:
+            from app.services.fumen_popularity import mark_fumens_dirty
+            from app.tasks.fumen_popularity import (
+                refresh_fumen_popularity_windows_for_fumens_task,
+            )
+
+            await mark_fumens_dirty(db, touched_fumen_ids)
+            await db.commit()
+            refresh_fumen_popularity_windows_for_fumens_task.delay(
+                [str(fid) for fid in touched_fumen_ids]
+            )
+        except Exception:
+            await db.rollback()
+            logger.warning(
+                "Failed to queue fumens for popularity refresh; counts will catch up later",
+                exc_info=True,
+            )
 
     # Trigger ranking recalculation for this user in the background
     if _should_enqueue_ranking_recalculation(payload, synced_scores, inserted_scores):

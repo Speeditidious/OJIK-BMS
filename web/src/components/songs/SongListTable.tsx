@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { TableLevelBadges } from "@/components/common/TableLevelBadges";
 import { cn } from "@/lib/utils";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
-import { CLEAR_ROW_CLASS, parseArrangement, ARRANGEMENT_KANJI } from "@/lib/fumen-table-utils";
+import { CLEAR_ROW_CLASS } from "@/lib/fumen-table-utils";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { formatRatePercent } from "@/lib/rate-format";
 import { displayClearType } from "@/lib/clear-type-display";
@@ -17,7 +17,6 @@ import { clearText } from "@/components/dashboard/RecentActivity";
 import { songHref } from "@/lib/song-href";
 import { shouldToggleFumenRow } from "@/lib/fumen-row-toggle-core.mjs";
 import { FumenRowDetail } from "@/components/fumen/FumenRowDetail";
-import { UnavailableValue } from "@/components/common/UnavailableValue";
 import type { FumenListItem, FumenSearchField } from "@/types";
 
 export interface SongListTableProps {
@@ -27,7 +26,7 @@ export interface SongListTableProps {
   tableSymbolMap: Record<string, string>;
   sortKey?: string;
   sortDir?: "asc" | "desc";
-  onSort?: (sortKey: FumenSearchField | "level", sortDir: "asc" | "desc") => void;
+  onSort?: (sortKey: FumenSearchField | "level" | "players", sortDir: "asc" | "desc") => void;
 }
 
 function SortIcon({ col, sortKey, sortDir }: { col: string; sortKey?: string; sortDir?: "asc" | "desc" }) {
@@ -36,15 +35,16 @@ function SortIcon({ col, sortKey, sortDir }: { col: string; sortKey?: string; so
 }
 
 function Th({
-  col, label, sortKey, sortDir, onSort, className,
+  col, label, sortKey, sortDir, onSort, className, tooltip,
 }: {
   col: string; label: string; sortKey?: string; sortDir?: "asc" | "desc";
-  onSort?: (k: FumenSearchField | "level", d: "asc" | "desc") => void; className?: string;
+  onSort?: (k: FumenSearchField | "level" | "players", d: "asc" | "desc") => void; className?: string;
+  tooltip?: string;
 }) {
   function handleClick() {
     if (!onSort) return;
     const nextDir = sortKey === col && sortDir === "asc" ? "desc" : "asc";
-    onSort(col as FumenSearchField | "level", nextDir);
+    onSort(col as FumenSearchField | "level" | "players", nextDir);
   }
   return (
     <th
@@ -55,7 +55,14 @@ function Th({
       )}
       onClick={handleClick}
     >
-      {label}
+      {tooltip ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-help">{label}</span>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-label">{tooltip}</TooltipContent>
+        </Tooltip>
+      ) : label}
       {onSort && <SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />}
     </th>
   );
@@ -74,6 +81,7 @@ interface SongRowProps {
 }
 
 const SongRow = memo(function SongRow({ item, index, tableSymbolMap, isLoggedIn, isExpanded, onToggle, colCount }: SongRowProps) {
+  const { t } = useTranslation();
   const s = item.user_score;
   const href = songHref(item);
 
@@ -89,8 +97,6 @@ const SongRow = memo(function SongRow({ item, index, tableSymbolMap, isLoggedIn,
 
   const displayType = displayClearType(s?.best_clear_type ?? null, { exscore: s?.best_exscore, rate: s?.rate });
   const rowClass = CLEAR_ROW_CLASS[displayType ?? 0] ?? "";
-  const arrangement = s ? parseArrangement(s.options, s.client_type) : null;
-  const arrangementLabel = arrangement ? (ARRANGEMENT_KANJI[arrangement] ?? arrangement) : null;
   const displayTitle = fumenTitleText(item.title);
   const displayArtist = fumenArtistText(item.artist);
 
@@ -145,16 +151,6 @@ const SongRow = memo(function SongRow({ item, index, tableSymbolMap, isLoggedIn,
             <td className="px-2 align-middle text-label">{s?.rate != null ? formatRatePercent(s.rate) : <span className="row-muted">—</span>}</td>
             <td className="px-2 align-middle text-label">{s?.rank ?? <span className="row-muted">—</span>}</td>
             <td className="px-2 align-middle text-label">{s?.best_exscore ?? <span className="row-muted">—</span>}</td>
-            <td className="px-2 align-middle text-label">{s?.play_count ?? <span className="row-muted">—</span>}</td>
-            <td className="px-2 align-middle text-label">
-              {arrangementLabel ? (
-                <span>{arrangementLabel}</span>
-              ) : !s?.options && s?.client_type === "beatoraja" ? (
-                <UnavailableValue reason="score_metadata_missing" />
-              ) : (
-                <span className="row-muted">—</span>
-              )}
-            </td>
           </>
         )}
 
@@ -207,12 +203,18 @@ const SongRow = memo(function SongRow({ item, index, tableSymbolMap, isLoggedIn,
             </a>
           ) : <span className="text-muted-foreground/30 text-label">–</span>}
         </td>
+        <td className="px-2 align-middle text-center text-label tabular-nums">
+          {item.played_user_count > 0 ? item.played_user_count.toLocaleString() : <span className="text-muted-foreground/30">–</span>}
+        </td>
+        <td className="px-2 align-middle text-center text-label tabular-nums">
+          {item.total_play_count > 0 ? item.total_play_count.toLocaleString() : <span className="text-muted-foreground/30">–</span>}
+        </td>
       </tr>
       {isExpanded && (
         <tr>
           <td colSpan={colCount} className="p-0 border-b border-border/20">
             <div className="border-t border-primary/20 bg-primary/5">
-              <FumenRowDetail fumenId={item.fumen_id} />
+              <FumenRowDetail fumenId={item.fumen_id} playCount={isLoggedIn ? (s?.play_count ?? null) : null} />
             </div>
           </td>
         </tr>
@@ -232,6 +234,10 @@ export function SongListTable({
 }: SongListTableProps) {
   const { t } = useTranslation();
   const parentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    parentRef.current?.scrollTo({ top: 0 });
+  }, [items]);
   const pinnedRangeRef = useRef<[number, number] | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
@@ -295,7 +301,7 @@ export function SongListTable({
   const paddingBottom = virtualItems.length > 0
     ? rowVirtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end
     : 0;
-  const colCount = isLoggedIn ? 15 : 7;
+  const colCount = isLoggedIn ? 15 : 10;
 
   if (isLoading && items.length === 0) {
     return (
@@ -332,8 +338,6 @@ export function SongListTable({
                   <col style={{ width: 68 }} />
                   <col style={{ width: 56 }} />
                   <col style={{ width: 62 }} />
-                  <col style={{ width: 60 }} />
-                  <col style={{ width: 68 }} />
                 </>
               )}
               <col style={{ width: 68 }} />
@@ -342,6 +346,8 @@ export function SongListTable({
               <col style={{ width: 48 }} />
               <col style={{ width: 48 }} />
               <col style={{ width: 72 }} />
+              <col style={{ width: 90 }} />
+              <col style={{ width: 64 }} />
             </colgroup>
 
             <thead className="sticky top-0 z-10 bg-background text-label text-foreground font-medium">
@@ -355,9 +361,7 @@ export function SongListTable({
                     <Th col="rate" label={t("songs.columns.rate")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                     <Th col="rank" label={t("songs.columns.rank")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                     <Th col="score" label={t("songs.columns.score")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                    <Th col="plays" label={t("songs.columns.plays")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                    <Th col="option" label={t("songs.columns.option")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-                  </>
+</>
                 )}
                 <Th col="bpm" label="BPM" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
                 <Th col="notes" label={t("songs.columns.notes")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
@@ -365,6 +369,24 @@ export function SongListTable({
                 <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">URL1</th>
                 <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">URL2</th>
                 <th className="px-2 py-1.5 text-center font-medium whitespace-nowrap">Youtube</th>
+                <Th
+                  col="players"
+                  label={t("songs.columns.players")}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={onSort}
+                  className="text-center"
+                  tooltip={t("songs.columns.playersTooltip")}
+                />
+                <Th
+                  col="plays"
+                  label={t("songs.columns.totalPlays")}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={onSort}
+                  className="text-center"
+                  tooltip={t("songs.columns.totalPlaysTooltip")}
+                />
               </tr>
             </thead>
 

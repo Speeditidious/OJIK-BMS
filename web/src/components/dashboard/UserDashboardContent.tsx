@@ -69,6 +69,8 @@ import { niceTicks, decimalsForStep } from "@/lib/axis-ticks";
 import { getDashboardRankingTable, mergeDashboardParams } from "@/lib/dashboard-url-state.mjs";
 import { useAuthStore } from "@/stores/auth";
 import { formatDuration } from "@/lib/time";
+import { useMonthDayNotes } from "@/hooks/use-day-notes";
+import { DayNotePopover } from "@/components/fumen/DayNotePopover";
 
 function DayStatCard({
   title,
@@ -327,6 +329,8 @@ function CalendarDayDetail({
   clientType,
   onBack,
   backLabel,
+  isOwner,
+  hasNote,
   rankingTables,
   selectedRankingTable,
   onSelectRankingTable,
@@ -340,6 +344,8 @@ function CalendarDayDetail({
   clientType: ClientTypeFilter;
   onBack: () => void;
   backLabel?: string;
+  isOwner: boolean;
+  hasNote?: boolean;
   rankingTables: Array<{
     slug: string;
     table_id: string;
@@ -486,6 +492,9 @@ function CalendarDayDetail({
         ratingBadgeCount={data?.day_summary?.rating_updates ?? 0}
         viewMode={dayView}
         onViewModeChange={onDayViewChange}
+        noteSlot={
+          <DayNotePopover userId={userId} date={date} isOwner={isOwner} hasNote={hasNote} />
+        }
         ratingSlot={rankingTables.length > 0 ? (
           <RatingChangeTabContent
             userId={userId}
@@ -595,6 +604,16 @@ export function UserDashboardContent({ userId }: { userId: string }) {
   const { data: calHeatmapData } = useActivityHeatmap(calYear, clientType, userId, showCalendarOverview);
   const { data: calLr2Data } = useActivityHeatmap(calYear, "lr2", userId, showCalendarOverview);
   const { data: calBeatorajaData } = useActivityHeatmap(calYear, "beatoraja", userId, showCalendarOverview);
+
+  const { data: monthNotes } = useMonthDayNotes(
+    currentTab === "calendar" ? userId : null,
+    calYear,
+    calMonth,
+  );
+  const noteDatesSet = useMemo<Set<string>>(
+    () => new Set((monthNotes ?? []).map((n) => n.date)),
+    [monthNotes],
+  );
 
   const { data: heatmapCourseData } = useCourseActivity(
     heatmapYear,
@@ -792,6 +811,8 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 clientType={clientType}
                 onBack={handleBackToActivity}
                 backLabel={t("dashboard.dayDetail.backToActivity")}
+                isOwner={isOwner}
+                hasNote={noteDatesSet.has(activityDate)}
                 rankingTables={rankingTables}
                 selectedRankingTable={selectedRankingTable}
                 onSelectRankingTable={(slug) => updateParams({ ranking_table: slug })}
@@ -974,6 +995,8 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 clientType={clientType}
                 onBack={handleBackToCalendar}
                 backLabel={t("dashboard.calendar.back")}
+                isOwner={isOwner}
+                hasNote={noteDatesSet.has(calendarDate)}
                 rankingTables={rankingTables}
                 selectedRankingTable={selectedRankingTable}
                 onSelectRankingTable={(slug) => updateParams({ ranking_table: slug })}
@@ -1005,6 +1028,15 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                     ratingUpdatesData={(calHeatmapData?.data ?? [])
                       .filter((item) => (item.rating_updates ?? 0) > 0)
                       .map((item) => ({ date: item.date, count: item.rating_updates ?? 0 }))}
+                    noteDates={noteDatesSet}
+                    renderNoteIndicator={(dateStr) => (
+                      <DayNotePopover
+                        userId={userId}
+                        date={dateStr}
+                        isOwner={isOwner}
+                        cellTrigger
+                      />
+                    )}
                   />
                 </CardContent>
               </Card>

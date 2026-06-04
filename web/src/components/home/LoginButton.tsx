@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Download, LayoutDashboard } from "lucide-react";
+import { BookOpen, LayoutDashboard } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth";
@@ -40,12 +40,17 @@ export function LoginButton() {
           {t("home.hero.primaryAction")}
         </Button>
       </Link>
-      <Link href="/download">
-        <Button size="lg" variant="outline" className="gap-2 border-border bg-background/85">
-          <Download className="h-5 w-5" />
-          {t("home.hero.secondaryAction")}
-        </Button>
-      </Link>
+      <Button
+        size="lg"
+        variant="outline"
+        className="gap-2 border-border bg-background/85"
+        onClick={() => {
+          document.getElementById("guide")?.scrollIntoView({ behavior: "smooth" });
+        }}
+      >
+        <BookOpen className="h-5 w-5" />
+        {t("home.hero.secondaryAction")}
+      </Button>
     </>
   );
 }

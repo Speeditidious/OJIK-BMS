@@ -16,6 +16,9 @@ from app.admin.views import (
     CustomDifficultyTableAdmin,
     DifficultyTableAdmin,
     FumenAdmin,
+    FumenPlayPopularityAdmin,
+    FumenPopularityDirtyAdmin,
+    FumenPopularityWindowAdmin,
     FumenTableEntryAdmin,
     IssueAdmin,
     IssueCommentAdmin,
@@ -28,6 +31,7 @@ from app.admin.views import (
     TableImportLogAdmin,
     TableSourceAliasAdmin,
     UserAdmin,
+    UserDayNoteAdmin,
     UserFavoriteDifficultyTableAdmin,
     UserFumenTagAdmin,
     UserPlayerStatsAdmin,
@@ -147,6 +151,9 @@ def create_admin(app, engine) -> Admin:
         NotificationUserStateAdmin,
         DifficultyTableAdmin,
         FumenAdmin,
+        FumenPlayPopularityAdmin,
+        FumenPopularityDirtyAdmin,
+        FumenPopularityWindowAdmin,
         FumenTableEntryAdmin,
         UserScoreAdmin,
         UserPlayerStatsAdmin,
@@ -163,6 +170,7 @@ def create_admin(app, engine) -> Admin:
         UserTableRatingCheckpointAdmin,
         UserTableRatingUpdateDailyAdmin,
         UserRatingUpdateDailyAdmin,
+        UserDayNoteAdmin,
     ]
 
     for view in all_admin_views:

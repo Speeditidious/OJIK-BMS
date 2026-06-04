@@ -1271,6 +1271,8 @@ interface ScoreUpdatesProps {
   viewMode?: ScoreUpdatesViewMode;
   /** Called when user changes view mode. Required when `viewMode` prop is provided. */
   onViewModeChange?: (v: ScoreUpdatesViewMode) => void;
+  /** Rendered in the card header right side — used for the day-note popover icon. */
+  noteSlot?: React.ReactNode;
 }
 
 export function ScoreUpdates({
@@ -1282,6 +1284,7 @@ export function ScoreUpdates({
   userId,
   viewMode: viewModeProp,
   onViewModeChange,
+  noteSlot,
 }: ScoreUpdatesProps) {
   const { t } = useTranslation();
   const { data, isLoading } = useScoreUpdates(clientType, date, limit, userId);
@@ -1295,8 +1298,9 @@ export function ScoreUpdates({
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
         <CardTitle>{t("dashboard.scoreUpdates.cardTitle")}</CardTitle>
+        {noteSlot}
       </CardHeader>
       <CardContent>
         {isLoading && (

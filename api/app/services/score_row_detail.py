@@ -255,13 +255,16 @@ def build_course_stages(
     rows: list[Any],
     fallback_rows: list[Any] | None = None,
     table_symbol: str | None = None,
+    fallback_table_symbol: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return ordered course stages, preserving unresolved members.
 
     ``fallback_rows`` provides level data from a secondary table (e.g.
     ``balgwang`` when the course's source table is ``new_balgwang``).  The
     primary ``rows`` level takes precedence; the fallback is used only when
-    the primary level is NULL.
+    the primary level is NULL.  Each stage gets the symbol of whichever table
+    actually provided its level — ``table_symbol`` for primary, ``fallback_table_symbol``
+    for fallback.
     """
     sha256_list = list(course.sha256_list or [])
     use_sha256 = bool(sha256_list)
@@ -291,11 +294,24 @@ def build_course_stages(
         row = by_hash.get(hash_value)
         fb = fallback_by_hash.get(hash_value) if fallback_by_hash else None
 
+        primary_level = value(row, "level") if row is not None else None
+        fallback_level = value(fb, "level") if fb is not None else None
+
         # Prefer primary row fields; fill missing values from fallback
         title = (value(row, "title") if row is not None else None) or (value(fb, "title") if fb is not None else None)
-        level = (value(row, "level") if row is not None else None) or (value(fb, "level") if fb is not None else None)
         fumen_sha256 = (value(row, "sha256") if row is not None else None) or (value(fb, "sha256") if fb is not None else None)
         fumen_md5 = (value(row, "md5") if row is not None else None) or (value(fb, "md5") if fb is not None else None)
+
+        # Use symbol matching whichever table provided the level
+        if primary_level is not None:
+            level = primary_level
+            stage_symbol = table_symbol
+        elif fallback_level is not None:
+            level = fallback_level
+            stage_symbol = fallback_table_symbol
+        else:
+            level = None
+            stage_symbol = table_symbol
 
         stages.append({
             "stage": index,
@@ -303,7 +319,7 @@ def build_course_stages(
             "title": title,
             "fumen_sha256": fumen_sha256,
             "fumen_md5": fumen_md5,
-            "table_symbol": table_symbol,
+            "table_symbol": stage_symbol,
         })
     return stages
 

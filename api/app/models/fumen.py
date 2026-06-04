@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
     CheckConstraint,
@@ -132,3 +133,48 @@ class UserFumenTag(Base):
 
     def __repr__(self) -> str:
         return f"<UserFumenTag user_id={self.user_id} fumen_id={self.fumen_id} tag={self.tag}>"
+
+
+class FumenPlayPopularity(Base):
+    """Derived all-time play popularity for a registered fumen."""
+
+    __tablename__ = "fumen_play_popularity"
+
+    fumen_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("fumens.fumen_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    played_user_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    total_play_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    updated_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("now()"))
+
+
+class FumenPopularityDirty(Base):
+    """Transient work queue of fumens whose popularity needs recompute."""
+
+    __tablename__ = "fumen_popularity_dirty"
+
+    fumen_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("fumens.fumen_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    queued_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("now()"))
+
+
+class FumenPopularityWindow(Base):
+    """Precomputed weekly/monthly popularity leaderboard rows."""
+
+    __tablename__ = "fumen_popularity_window"
+
+    window: Mapped[str] = mapped_column(String(16), primary_key=True)
+    fumen_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("fumens.fumen_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    played_user_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    play_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    computed_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("now()"))

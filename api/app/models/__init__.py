@@ -3,13 +3,21 @@ from app.models.announcement import Announcement, AnnouncementTag, AnnouncementT
 from app.models.base import Base, TimestampMixin
 from app.models.client_update import ClientUpdateAnnouncement
 from app.models.course import Course
+from app.models.day_note import UserDayNote
 from app.models.difficulty_table import (
     CustomCourse,
     CustomDifficultyTable,
     DifficultyTable,
     UserFavoriteDifficultyTable,
 )
-from app.models.fumen import Fumen, FumenTableEntry, UserFumenTag
+from app.models.fumen import (
+    Fumen,
+    FumenPlayPopularity,
+    FumenPopularityDirty,
+    FumenPopularityWindow,
+    FumenTableEntry,
+    UserFumenTag,
+)
 from app.models.issue import (
     Issue,
     IssueComment,
@@ -53,6 +61,9 @@ __all__ = [
     "User",
     "OAuthAccount",
     "Fumen",
+    "FumenPlayPopularity",
+    "FumenPopularityDirty",
+    "FumenPopularityWindow",
     "FumenTableEntry",
     "UserFumenTag",
     "UserScore",
@@ -64,6 +75,7 @@ __all__ = [
     "TableSourceAlias",
     "CustomDifficultyTable",
     "CustomCourse",
+    "UserDayNote",
     "Schedule",
     "UserRanking",
     "UserTableRatingCheckpoint",

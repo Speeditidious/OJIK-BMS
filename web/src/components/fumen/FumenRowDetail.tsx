@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import { songHref } from "@/lib/song-href";
+import { useAuthStore } from "@/stores/auth";
 import { useScoreRowDetail } from "@/hooks/use-score-row-detail";
 import { useCourseRowDetail } from "@/hooks/use-course-row-detail";
 import { UnavailableValue } from "@/components/common/UnavailableValue";
@@ -29,7 +31,7 @@ function SectionLabel({ label }: { label: string }) {
 
 // ── Judgment section ─────────────────────────────────────────────────────────
 
-function JudgmentSection({ record }: { record: RowDetailRecord }) {
+function JudgmentSection({ record, showLabel = true }: { record: RowDetailRecord; showLabel?: boolean }) {
   const { t } = useTranslation();
   const detail = record.judgment_detail;
   if (!detail) return null;
@@ -47,7 +49,7 @@ function JudgmentSection({ record }: { record: RowDetailRecord }) {
 
   return (
     <div className="flex flex-col items-center gap-1.5">
-      <SectionLabel label={t("fumenRowDetail.judgments")} />
+      {showLabel && <SectionLabel label={t("fumenRowDetail.judgments")} />}
       <div>
         <table className="text-label border-collapse">
           <tbody>
@@ -275,23 +277,38 @@ interface FumenRowDetailProps {
   scoreId?: string | null;
   userId?: string | null;
   asOf?: string | null;
+  playCount?: number | null;
 }
 
 /**
  * Expanded-row detail panel for a fumen in a table or song list.
  * Lazy-fetches judgment and arrangement details on mount.
  */
-export function FumenRowDetail({ fumenId, scoreId, userId, asOf }: FumenRowDetailProps) {
+export function FumenRowDetail({ fumenId, scoreId, userId, asOf, playCount }: FumenRowDetailProps) {
   const { t } = useTranslation();
+  const { user, isInitialized } = useAuthStore();
+
+  // Show login prompt when we know the user is not authenticated and there is no
+  // explicit scoreId/userId to scope the request (anonymous row expansion).
+  const isAnonymous = isInitialized && !user && !userId && !scoreId;
+
   const { data, isLoading, isError } = useScoreRowDetail({
     fumenId,
     scoreId,
     userId,
     asOf,
-    enabled: !!scoreId || !!fumenId,
+    enabled: !isAnonymous && (!!scoreId || !!fumenId),
   });
 
   if (!scoreId && !fumenId) return null;
+
+  if (isAnonymous) {
+    return (
+      <div className="px-3 py-2 text-label text-muted-foreground">
+        {t("fumenRowDetail.loginRequired")}
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -321,6 +338,12 @@ export function FumenRowDetail({ fumenId, scoreId, userId, asOf }: FumenRowDetai
       {data.records.map((record) => (
         <RecordCard key={record.score_id} record={record} keymode={data.keymode} />
       ))}
+      {playCount != null && (
+        <div className="flex flex-col items-center gap-1.5 py-3 px-4 !border-l-0">
+          <SectionLabel label={t("fumenRowDetail.myPlays")} />
+          <span className="text-label font-semibold text-foreground tabular-nums">{playCount.toLocaleString()}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -342,22 +365,23 @@ function CourseRecordCard({ record }: { record: CourseRowDetailRecord }) {
     arrangement: null,
   };
 
-  const displayLabel = record.option_label
-    ? (ARRANGEMENT_KANJI[record.option_label] ?? record.option_label)
-    : null;
+  const clientLabel =
+    record.client_type === "lr2"
+      ? t("fumenRowDetail.clientLabel.lr2")
+      : record.client_type === "beatoraja"
+      ? t("fumenRowDetail.clientLabel.beatoraja")
+      : record.client_type.toUpperCase();
 
   return (
-    <div className="flex flex-wrap justify-center gap-x-8 gap-y-3 py-3 px-4">
-      <ClientSection record={judgmentRecord} />
-      {record.judgment_detail && <JudgmentSection record={judgmentRecord} />}
-      <div className="flex flex-col items-center gap-1.5">
-        <SectionLabel label={t("fumenRowDetail.arrangement")} />
-        {displayLabel ? (
-          <span className="text-label text-foreground/80">{displayLabel}</span>
-        ) : (
-          <UnavailableValue reason="score_metadata_missing" />
-        )}
+    <div className="py-3 px-4 flex flex-col gap-2 min-w-[140px] items-center justify-center flex-1 sm:flex-none">
+      {/* Client badge */}
+      <div>
+        <span className="text-caption font-semibold px-1.5 py-0.5 rounded bg-muted/60 text-muted-foreground">
+          {clientLabel}
+        </span>
       </div>
+      {/* Judgment table */}
+      {record.judgment_detail && <JudgmentSection record={judgmentRecord} showLabel={false} />}
     </div>
   );
 }
@@ -394,15 +418,22 @@ export function CourseRowDetail({ courseHash, clientType, scoreId, userId, asOf 
 
   return (
     <div className="border-t border-border/30 bg-muted/10">
-      {data.records.length === 0 && (
+      {data.records.length === 0 ? (
         <div className="px-3 py-2 text-label text-muted-foreground">{t("fumenRowDetail.noRecords")}</div>
+      ) : (
+        <div className="flex justify-center">
+        <div className="flex flex-col sm:flex-row divide-y sm:divide-y-0 sm:divide-x divide-border/30">
+          {/* Left: record cards (client + judgment + option) */}
+          <div className="flex flex-wrap sm:flex-col justify-center divide-x sm:divide-x-0 sm:divide-y divide-border/30 shrink-0">
+            {data.records.map((record) => (
+              <CourseRecordCard key={record.score_id} record={record} />
+            ))}
+          </div>
+          {/* Right: course stages */}
+          <CourseStagesSection stages={data.stages} userId={userId} />
+        </div>
+        </div>
       )}
-      <div className="flex flex-wrap justify-center divide-x divide-border/30">
-        {data.records.map((record) => (
-          <CourseRecordCard key={record.score_id} record={record} />
-        ))}
-      </div>
-      <CourseStagesSection stages={data.stages} />
     </div>
   );
 }
@@ -411,38 +442,42 @@ export function CourseRowDetail({ courseHash, clientType, scoreId, userId, asOf 
 
 import type { CourseStage } from "@/lib/score-row-detail-types";
 
-function CourseStagesSection({ stages }: { stages: CourseStage[] }) {
+function CourseStagesSection({ stages, userId }: { stages: CourseStage[]; userId?: string | null }) {
   const { t } = useTranslation();
   return (
-    <div className="px-3 py-2 border-t border-border/30">
+    <div className="px-4 py-3 flex-1 min-w-0 flex flex-col justify-center">
       <p className="text-caption text-muted-foreground/70 uppercase tracking-widest mb-2">
         {t("fumenRowDetail.stages")}
       </p>
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         {stages.map((stage) => {
-          const hash = stage.fumen_sha256 ?? stage.fumen_md5;
+          const sha256 = stage.fumen_sha256;
+          const md5 = stage.fumen_md5;
           const levelStr = stage.level
             ? (stage.table_symbol
                 ? `${stage.table_symbol}${stage.level.replace(stage.table_symbol, "")}`
                 : stage.level)
             : "--";
+          const href = (sha256 || md5)
+            ? songHref({ sha256, md5 }, userId ?? undefined)
+            : null;
           return (
             <div key={stage.stage} className="flex items-baseline gap-2 text-label">
-              <span className="w-14 shrink-0 text-caption text-muted-foreground/60 tabular-nums">
+              <span className="w-14 shrink-0 text-caption text-muted-foreground/50 tabular-nums">
                 STAGE {stage.stage}
               </span>
-              <span className="w-12 shrink-0 text-caption tabular-nums text-muted-foreground">
+              <span className="w-14 shrink-0 text-caption tabular-nums text-primary/70 font-medium">
                 {levelStr}
               </span>
-              {hash && stage.title ? (
+              {href && stage.title ? (
                 <Link
-                  href={`/songs/${encodeURIComponent(hash)}`}
+                  href={href}
                   className="truncate hover:text-primary transition-colors"
                 >
                   {stage.title}
                 </Link>
               ) : (
-                <span className={cn("truncate", !stage.title && "text-muted-foreground")}>
+                <span className={cn("truncate", !stage.title && "text-muted-foreground/60")}>
                   {stage.title ?? t("fumenRowDetail.unknownStage")}
                 </span>
               )}

@@ -54,6 +54,12 @@
   min-width: 164px;
 }
 
+@media (max-width: 720px) {
+  .sync-hero-actions { flex-direction: column; align-items: stretch; }
+  .sync-hero-actions .tooltip-wrap { width: 100%; }
+  .sync-hero-actions .btn { width: 100%; }
+}
+
 /* SyncProgressCard */
 .sync-progress {
   display: grid;

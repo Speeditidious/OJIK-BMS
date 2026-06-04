@@ -170,7 +170,7 @@ display_order = 1
   [tables.base_lamp_mult]
   NOPLAY  = 0.0
   FAILED  = 0.1
-  ASSIST  = 0.3
+  ASSIST  = 0.1
   EASY    = 0.5
   NORMAL  = 0.6
   HARD    = 1.0
@@ -344,7 +344,7 @@ cross_dan_tier = 1
   [tables.base_lamp_mult]
   NOPLAY  = 0.0
   FAILED  = 0.1
-  ASSIST  = 0.5
+  ASSIST  = 0.1
   EASY    = 1.0
   NORMAL  = 1.0
   HARD    = 1.0
@@ -504,7 +504,7 @@ cross_dan_tier = 2
   [tables.base_lamp_mult]
   NOPLAY  = 0.0
   FAILED  = 0.1
-  ASSIST  = 0.5
+  ASSIST  = 0.1
   EASY    = 1.0
   NORMAL  = 1.0
   HARD    = 1.0
@@ -663,7 +663,7 @@ display_order = 4
   [tables.base_lamp_mult]
   NOPLAY  = 0.0
   FAILED  = 0.1
-  ASSIST  = 0.5
+  ASSIST  = 0.1
   EASY    = 1.0
   NORMAL  = 1.0
   HARD    = 1.0
@@ -838,7 +838,7 @@ linked_dan_table = "balgwang"
   [tables.base_lamp_mult]
   NOPLAY  = 0.0
   FAILED  = 0.1
-  ASSIST  = 0.5
+  ASSIST  = 0.1
   EASY    = 1.0
   NORMAL  = 1.0
   HARD    = 1.0
@@ -908,7 +908,7 @@ linked_dan_table = "balgwang"
   [tables.base_lamp_mult]
   NOPLAY  = 0.0
   FAILED  = 0.1
-  ASSIST  = 0.5
+  ASSIST  = 0.1
   EASY    = 1.0
   NORMAL  = 1.0
   HARD    = 1.0

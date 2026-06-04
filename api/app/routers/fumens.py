@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import and_, case, exists, func, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -19,7 +20,13 @@ from app.core.security import (
     get_current_user,
     get_current_user_optional,
 )
-from app.models.fumen import Fumen, FumenTableEntry, UserFumenTag
+from app.models.fumen import (
+    Fumen,
+    FumenPlayPopularity,
+    FumenPopularityWindow,
+    FumenTableEntry,
+    UserFumenTag,
+)
 from app.models.score import UserScore
 from app.models.user import User
 from app.services.fumen_user_scores import (
@@ -67,6 +74,8 @@ class FumenRead(BaseModel):
     file_url: str | None
     file_url_diff: str | None
     table_entries: list | None
+    played_user_count: int = 0
+    total_play_count: int = 0
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -75,9 +84,12 @@ FumenSearchField = Literal[
     "bpm", "notes", "length",
     "clear", "bp", "rate", "rank", "score", "plays", "option", "env",
 ]
+FumenSearchMode = Literal["basic", "regex"]
 
 _SCORE_FIELDS = frozenset({"clear", "bp", "rate", "rank", "score", "plays", "option", "env"})
 _AGG_SCORE_FIELDS = frozenset({"clear", "bp", "rate", "rank", "score", "plays"})
+_SCORE_SORT_FIELDS = frozenset({"clear", "bp", "rate", "rank", "score"})
+_TEXT_SEARCH_FIELDS = frozenset({"title_artist", "title", "artist"})
 
 
 class FumenListItem(FumenRead):
@@ -92,6 +104,22 @@ class FumenListResponse(BaseModel):
     total: int
     page: int
     limit: int
+
+
+class PopularFumenRead(BaseModel):
+    rank: int
+    fumen_id: _uuid.UUID
+    title: str | None
+    artist: str | None
+    sha256: str | None
+    md5: str | None
+    played_user_count: int
+    play_count: int
+
+
+class PopularFumensResponse(BaseModel):
+    as_of: str | None
+    items: list[PopularFumenRead]
 
 
 def _entry_visible(table_id: _uuid.UUID, visible_table_ids: set[_uuid.UUID] | None) -> bool:
@@ -319,6 +347,103 @@ def _build_field_condition(
     return None
 
 
+def _escape_regex_literal(value: str) -> str:
+    """Return a regex-safe literal for server-generated search patterns."""
+    return re.escape(value)
+
+
+def _word_boundary_regex(q: str) -> str:
+    """Build a PostgreSQL regex matching q near non-alphanumeric boundaries."""
+    escaped = _escape_regex_literal(q)
+    return rf"(^|[^[:alnum:]]){escaped}([^[:alnum:]]|$)"
+
+
+def _normalize_search_text(value: str) -> str:
+    """Strip non-alphanumerics and lowercase to mirror the SQL norm expression."""
+    return "".join(ch for ch in value.lower() if ch.isalnum())
+
+
+def _norm_expr(col: Any) -> Any:
+    """SQL normalized expression matching `_normalize_search_text`."""
+    return func.regexp_replace(func.lower(func.coalesce(col, "")), "[^[:alnum:]]+", "", "g")
+
+
+def _like_escape(value: str) -> str:
+    """Escape LIKE metacharacters in raw query text."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _column_bucket(col: Any, q_lower: str, q_norm: str, offset: int) -> Any:
+    """Relevance bucket for one column; lower is better."""
+    raw = func.lower(func.coalesce(col, ""))
+    norm = _norm_expr(col)
+    boundary = _word_boundary_regex(q_lower)
+    prefix = _like_escape(q_lower) + "%"
+    return case(
+        (raw == q_lower, offset + 0),
+        (raw.op("~")(boundary), offset + 1),
+        (raw.like(prefix, escape="\\"), offset + 2),
+        (norm == q_norm, offset + 3),
+        (norm.like(q_norm + "%"), offset + 4),
+        else_=99,
+    )
+
+
+def _basic_text_match_bucket(field: str, q: str) -> Any:
+    q_lower = q.lower()
+    q_norm = _normalize_search_text(q)
+    if field == "title":
+        return _column_bucket(Fumen.title, q_lower, q_norm, 0)
+    if field == "artist":
+        return _column_bucket(Fumen.artist, q_lower, q_norm, 0)
+    return func.least(
+        _column_bucket(Fumen.title, q_lower, q_norm, 0),
+        _column_bucket(Fumen.artist, q_lower, q_norm, 10),
+    )
+
+
+def _basic_text_filter(field: str, q: str) -> Any:
+    """Sargable normalized candidate predicate for basic text search."""
+    q_norm = _normalize_search_text(q)
+    if not q_norm:
+        return sa.false()
+    contains = "%" + q_norm + "%"
+    title_hit = _norm_expr(Fumen.title).like(contains)
+    artist_hit = _norm_expr(Fumen.artist).like(contains)
+    if field == "title":
+        return title_hit
+    if field == "artist":
+        return artist_hit
+    return or_(title_hit, artist_hit)
+
+
+def _basic_text_precision_filter(field: str, q: str) -> Any:
+    """Exclude candidates that only matched as normalized infix."""
+    return _basic_text_match_bucket(field, q) < 99
+
+
+def _regex_text_condition(field: str, q: str) -> Any:
+    if field not in _TEXT_SEARCH_FIELDS:
+        raise HTTPException(status_code=400, detail="Regex search is only available for title and artist fields")
+    if len(q) > 120:
+        raise HTTPException(status_code=400, detail="Regex query is too long")
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="Regex query is empty")
+    q_lower = q.lower()
+    title = func.lower(func.coalesce(Fumen.title, ""))
+    artist = func.lower(func.coalesce(Fumen.artist, ""))
+    if field == "title":
+        return title.op("~")(q_lower)
+    if field == "artist":
+        return artist.op("~")(q_lower)
+    return or_(title.op("~")(q_lower), artist.op("~")(q_lower))
+
+
+def _db_error_sqlstate(exc: DBAPIError) -> str | None:
+    orig = exc.orig
+    return getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+
+
 def _dummy_title_bucket() -> Any:
     stripped_title = func.btrim(Fumen.title)
     is_dummy_title = or_(
@@ -328,8 +453,14 @@ def _dummy_title_bucket() -> Any:
     return case((is_dummy_title, 1), else_=0).asc()
 
 
-def _build_sort_cols(sort_by: str, sort_dir: str, score_agg: Any) -> list[Any]:
+def _build_sort_cols(sort_by: str, sort_dir: str, score_agg: Any | None) -> list[Any]:
     asc_dir = sort_dir == "asc"
+    if sort_by == "players":
+        col = FumenPlayPopularity.played_user_count
+        return [col.asc().nullslast() if asc_dir else col.desc().nullslast()]
+    if sort_by == "plays":
+        col = FumenPlayPopularity.total_play_count
+        return [col.asc().nullslast() if asc_dir else col.desc().nullslast()]
 
     fumen_col_map: dict[str, Any] = {
         "title": Fumen.title,
@@ -370,6 +501,22 @@ def _build_sort_cols(sort_by: str, sort_dir: str, score_agg: Any) -> list[Any]:
     return [_dummy_title_bucket(), Fumen.title.asc().nullslast()]
 
 
+def _build_text_search_sort_cols(
+    field: str,
+    q: str | None,
+    sort_by: str,
+    sort_dir: str,
+    score_agg: Any | None,
+) -> list[Any]:
+    """Return text-search ordering with popularity as the last semantic tiebreaker."""
+    cols: list[Any] = []
+    if q is not None:
+        cols.append(_basic_text_match_bucket(field, q).asc())
+    cols.extend(_build_sort_cols(sort_by, sort_dir, score_agg))
+    cols.append(FumenPlayPopularity.played_user_count.desc().nullslast())
+    return cols
+
+
 @router.get("/", response_model=FumenListResponse)
 async def list_fumens(
     field: FumenSearchField = Query("title_artist"),
@@ -377,6 +524,7 @@ async def list_fumens(
     page: int = Query(1, ge=1),
     sort_by: str = Query("title"),
     sort_dir: Literal["asc", "desc"] = Query("asc"),
+    search_mode: FumenSearchMode = Query("basic"),
     limit: int = Query(50, ge=1, le=200),
     current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
@@ -391,17 +539,23 @@ async def list_fumens(
     """
     q_clean = q.strip() if q else ""
 
+    if search_mode == "regex" and field not in _TEXT_SEARCH_FIELDS:
+        raise HTTPException(status_code=400, detail="Regex search is only available for title and artist fields")
     if q_clean and field in _SCORE_FIELDS and not current_user:
         raise HTTPException(status_code=400, detail="Authentication required for score field search")
-    if sort_by in _SCORE_FIELDS and not current_user:
+    if sort_by in _SCORE_SORT_FIELDS and not current_user:
         raise HTTPException(status_code=400, detail="Authentication required for score field sort")
 
     # Optional score aggregation subquery (for sorting/filtering by score fields)
     score_agg = None
-    if current_user and (sort_by in _SCORE_FIELDS or (q_clean and field in _AGG_SCORE_FIELDS)):
+    if current_user and (sort_by in _SCORE_SORT_FIELDS or (q_clean and field in _AGG_SCORE_FIELDS)):
         score_agg = _build_score_agg_subquery(current_user.id)
 
-    base = select(Fumen)
+    base = select(
+        Fumen,
+        func.coalesce(FumenPlayPopularity.played_user_count, 0).label("played_user_count"),
+        func.coalesce(FumenPlayPopularity.total_play_count, 0).label("total_play_count"),
+    ).outerjoin(FumenPlayPopularity, Fumen.fumen_id == FumenPlayPopularity.fumen_id)
     count_q = select(func.count()).select_from(Fumen)
 
     # LEFT JOIN score_agg for sort/filter — one aggregate row per fumen, so pagination stays stable.
@@ -411,25 +565,72 @@ async def list_fumens(
         count_q = count_q.outerjoin(score_agg, join_cond)
 
     # WHERE
-    if q_clean:
+    if q_clean and field in _TEXT_SEARCH_FIELDS and search_mode == "basic":
+        candidate_filter = _basic_text_filter(field, q_clean)
+        precision_filter = _basic_text_precision_filter(field, q_clean)
+        base = base.where(candidate_filter, precision_filter)
+        count_q = count_q.where(candidate_filter, precision_filter)
+    elif q_clean and field in _TEXT_SEARCH_FIELDS and search_mode == "regex":
+        regex_filter = _regex_text_condition(field, q_clean)
+        base = base.where(regex_filter)
+        count_q = count_q.where(regex_filter)
+    elif q_clean:
         where_cond = _build_field_condition(field, q_clean, current_user, score_agg)
         if where_cond is None:
             return FumenListResponse(items=[], total=0, page=page, limit=limit)
         base = base.where(where_cond)
         count_q = count_q.where(where_cond)
 
-    total = (await db.execute(count_q)).scalar() or 0
+    if search_mode == "regex" and q_clean:
+        await db.execute(sa.text("SET LOCAL statement_timeout = '3000'"))
+
+    try:
+        total = (await db.execute(count_q)).scalar() or 0
+    except DBAPIError as exc:
+        await db.rollback()
+        sqlstate = _db_error_sqlstate(exc)
+        if sqlstate == "2201B":
+            raise HTTPException(status_code=400, detail="Invalid regular expression") from exc
+        if sqlstate == "57014":
+            raise HTTPException(status_code=400, detail="Regex search timed out; narrow the pattern") from exc
+        raise
 
     # ORDER BY + tie-breaker
-    order_cols = _build_sort_cols(sort_by, sort_dir, score_agg)
-    base = base.order_by(
-        *order_cols,
-        Fumen.sha256.asc().nullslast(),
-        Fumen.md5.asc().nullslast(),
-    )
+    if q_clean and field in _TEXT_SEARCH_FIELDS and search_mode == "basic":
+        base = base.order_by(
+            *_build_text_search_sort_cols(field, q_clean, sort_by, sort_dir, score_agg),
+            Fumen.sha256.asc().nullslast(),
+            Fumen.md5.asc().nullslast(),
+        )
+    elif q_clean and field in _TEXT_SEARCH_FIELDS and search_mode == "regex":
+        base = base.order_by(
+            *_build_text_search_sort_cols(field, None, sort_by, sort_dir, score_agg),
+            Fumen.sha256.asc().nullslast(),
+            Fumen.md5.asc().nullslast(),
+        )
+    else:
+        base = base.order_by(
+            *_build_sort_cols(sort_by, sort_dir, score_agg),
+            Fumen.sha256.asc().nullslast(),
+            Fumen.md5.asc().nullslast(),
+        )
 
     base = base.limit(limit).offset((page - 1) * limit)
-    fumens = list((await db.execute(base)).scalars().all())
+    try:
+        rows = list((await db.execute(base)).all())
+    except DBAPIError as exc:
+        await db.rollback()
+        sqlstate = _db_error_sqlstate(exc)
+        if sqlstate == "2201B":
+            raise HTTPException(status_code=400, detail="Invalid regular expression") from exc
+        if sqlstate == "57014":
+            raise HTTPException(status_code=400, detail="Regex search timed out; narrow the pattern") from exc
+        raise
+    fumens = [row[0] for row in rows]
+    popularity_by_id = {
+        row[0].fumen_id: (int(row.played_user_count or 0), int(row.total_play_count or 0))
+        for row in rows
+    }
 
     score_map: dict = {}
     tag_map: dict = {}
@@ -442,6 +643,7 @@ async def list_fumens(
     entries_map = await _table_entries_map(db, [f.fumen_id for f in fumens], visible_table_ids, non_regular_hidden)
     items = []
     for f in fumens:
+        played_user_count, total_play_count = popularity_by_id.get(f.fumen_id, (0, 0))
         item = FumenListItem(
             fumen_id=f.fumen_id,
             md5=f.md5,
@@ -462,6 +664,8 @@ async def list_fumens(
             file_url=f.file_url,
             file_url_diff=f.file_url_diff,
             table_entries=entries_map.get(f.fumen_id, []),
+            played_user_count=played_user_count,
+            total_play_count=total_play_count,
             user_score=score_map.get(f.fumen_id),
             user_tags=tag_map.get(f.fumen_id, []),
         )
@@ -495,6 +699,90 @@ async def get_my_tags(
         .order_by(UserFumenTag.tag)
     )
     return [row[0] for row in result.all()]
+
+
+@router.get("/popular", response_model=PopularFumensResponse)
+async def get_popular_fumens(
+    range: str = Query("weekly"),
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+) -> PopularFumensResponse:
+    """Return cached popular fumens for weekly, monthly, or all-time ranges."""
+    if range not in {"weekly", "monthly", "all_time"}:
+        raise HTTPException(status_code=400, detail="Unknown popularity range")
+
+    items: list[PopularFumenRead] = []
+    as_of_value = None
+    if range == "all_time":
+        as_of_value = (
+            await db.execute(select(func.max(FumenPlayPopularity.updated_at)))
+        ).scalar_one_or_none()
+        rows = (
+            await db.execute(
+                select(Fumen, FumenPlayPopularity)
+                .join(FumenPlayPopularity, Fumen.fumen_id == FumenPlayPopularity.fumen_id)
+                .order_by(
+                    FumenPlayPopularity.played_user_count.desc(),
+                    FumenPlayPopularity.total_play_count.desc(),
+                    Fumen.fumen_id,
+                )
+                .limit(limit)
+            )
+        ).all()
+        for index, row in enumerate(rows, start=1):
+            fumen, popularity = row
+            items.append(
+                PopularFumenRead(
+                    rank=index,
+                    fumen_id=fumen.fumen_id,
+                    title=fumen.title,
+                    artist=fumen.artist,
+                    sha256=fumen.sha256,
+                    md5=fumen.md5,
+                    played_user_count=popularity.played_user_count,
+                    play_count=popularity.total_play_count,
+                )
+            )
+    else:
+        as_of_value = (
+            await db.execute(
+                select(func.max(FumenPopularityWindow.computed_at)).where(
+                    FumenPopularityWindow.window == range
+                )
+            )
+        ).scalar_one_or_none()
+        rows = (
+            await db.execute(
+                select(Fumen, FumenPopularityWindow)
+                .join(FumenPopularityWindow, Fumen.fumen_id == FumenPopularityWindow.fumen_id)
+                .where(FumenPopularityWindow.window == range)
+                .order_by(
+                    FumenPopularityWindow.played_user_count.desc(),
+                    FumenPopularityWindow.play_count.desc(),
+                    Fumen.fumen_id,
+                )
+                .limit(limit)
+            )
+        ).all()
+        for row in rows:
+            fumen, popularity = row
+            items.append(
+                PopularFumenRead(
+                    rank=popularity.rank,
+                    fumen_id=fumen.fumen_id,
+                    title=fumen.title,
+                    artist=fumen.artist,
+                    sha256=fumen.sha256,
+                    md5=fumen.md5,
+                    played_user_count=popularity.played_user_count,
+                    play_count=popularity.play_count,
+                )
+            )
+
+    return PopularFumensResponse(
+        as_of=as_of_value.isoformat() if as_of_value is not None else None,
+        items=items,
+    )
 
 
 @router.get("/by-hash/{hash_value}", response_model=FumenRead)

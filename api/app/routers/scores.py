@@ -407,14 +407,16 @@ async def get_course_row_detail(
 
         # For new_balgwang courses, also query balgwang as a level fallback
         fallback_rows: list[Any] = []
+        fallback_table_symbol: str | None = None
         if source_table_slug == "new_balgwang":
             balgwang_result = await db.execute(
-                select(DifficultyTable.id)
+                select(DifficultyTable.id, DifficultyTable.symbol)
                 .where(DifficultyTable.slug == "balgwang")
                 .limit(1)
             )
             balgwang_row = balgwang_result.first()
             if balgwang_row:
+                fallback_table_symbol = balgwang_row.symbol
                 fb_result = await db.execute(
                     select(Fumen.sha256, Fumen.md5, Fumen.title, FumenTableEntry.level)
                     .outerjoin(
@@ -430,6 +432,7 @@ async def get_course_row_detail(
     else:
         stage_rows = []
         fallback_rows = []
+        fallback_table_symbol = None
 
     return CourseRowDetailResponse(
         course_name=course.name,
@@ -441,6 +444,7 @@ async def get_course_row_detail(
                 stage_rows,
                 fallback_rows=fallback_rows or None,
                 table_symbol=source_table_symbol,
+                fallback_table_symbol=fallback_table_symbol,
             )
         ],
     )

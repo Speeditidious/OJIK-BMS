@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useLevelDisplayPrefs } from "@/hooks/use-preferences";
-import type { FumenListResponse, FumenSearchField } from "@/types";
+import type { FumenListResponse, FumenSearchField, FumenSearchMode } from "@/types";
 
 interface UseFumensListParams {
   field: FumenSearchField;
   q: string;
+  searchMode?: FumenSearchMode;
   page: number;
   sortBy?: string;
   sortDir?: "asc" | "desc";
@@ -15,6 +16,7 @@ interface UseFumensListParams {
 export function useFumensList({
   field,
   q,
+  searchMode = "basic",
   page,
   sortBy = "title",
   sortDir = "asc",
@@ -27,6 +29,7 @@ export function useFumensList({
       "fumens-list",
       field,
       q,
+      searchMode,
       page,
       sortBy,
       sortDir,
@@ -47,6 +50,7 @@ export function useFumensList({
         limit: String(limit),
         sort_by: sortBy,
         sort_dir: sortDir,
+        search_mode: searchMode,
       });
       if (q.trim()) params.set("q", q.trim());
       return api.get<FumenListResponse>(`/fumens/?${params.toString()}`);

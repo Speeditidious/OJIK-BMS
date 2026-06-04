@@ -17,6 +17,7 @@ from app.routers import (
     auth,
     client,
     custom,
+    day_notes,
     fumens,
     internal_client_updates,
     issues,
@@ -165,6 +166,7 @@ app.include_router(users.router)
 app.include_router(tables.router)
 app.include_router(scores.router)
 app.include_router(fumens.router)
+app.include_router(day_notes.router)
 app.include_router(analysis.router)
 app.include_router(custom.router)
 app.include_router(sync.router)

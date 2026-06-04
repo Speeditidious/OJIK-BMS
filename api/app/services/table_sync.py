@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -23,6 +24,8 @@ from app.services.table_import import (
     upsert_courses,
     upsert_fumens,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def canonicalize_table_url(url: str) -> str:
@@ -263,6 +266,18 @@ async def _persist_table_data(
 
             table_id = table.id
             table_name = table.name
+
+    try:
+        async with AsyncSessionLocal() as db:
+            async with db.begin():
+                from app.services.fumen_popularity import mark_fumens_dirty
+
+                await mark_fumens_dirty(db, seen_fumen_ids)
+    except Exception:
+        logger.warning(
+            "Failed to queue imported fumens for popularity refresh; counts will catch up later",
+            exc_info=True,
+        )
 
     return {
         "status": "success",

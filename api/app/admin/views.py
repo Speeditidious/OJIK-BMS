@@ -19,13 +19,21 @@ from app.models.admin_action_log import AdminActionLog, AdminActionLogLine
 from app.models.announcement import Announcement, AnnouncementTag, AnnouncementTemplate
 from app.models.client_update import ClientUpdateAnnouncement
 from app.models.course import Course
+from app.models.day_note import UserDayNote
 from app.models.difficulty_table import (
     CustomCourse,
     CustomDifficultyTable,
     DifficultyTable,
     UserFavoriteDifficultyTable,
 )
-from app.models.fumen import Fumen, FumenTableEntry, UserFumenTag
+from app.models.fumen import (
+    Fumen,
+    FumenPlayPopularity,
+    FumenPopularityDirty,
+    FumenPopularityWindow,
+    FumenTableEntry,
+    UserFumenTag,
+)
 from app.models.issue import Issue, IssueComment, IssueTag
 from app.models.notification import (
     Notification,
@@ -768,6 +776,61 @@ class FumenTableEntryAdmin(ModelView, model=FumenTableEntry):
     can_delete = False
 
 
+class FumenPlayPopularityAdmin(ModelView, model=FumenPlayPopularity):
+    name = "Fumen Play Popularity"
+    name_plural = "Fumen Play Popularity"
+    icon = "fa-solid fa-chart-simple"
+    column_list = [
+        FumenPlayPopularity.fumen_id,
+        FumenPlayPopularity.played_user_count,
+        FumenPlayPopularity.total_play_count,
+        FumenPlayPopularity.updated_at,
+    ]
+    column_sortable_list = [
+        FumenPlayPopularity.played_user_count,
+        FumenPlayPopularity.total_play_count,
+        FumenPlayPopularity.updated_at,
+    ]
+    can_create = False
+    can_edit = False
+    can_delete = False
+
+
+class FumenPopularityDirtyAdmin(ModelView, model=FumenPopularityDirty):
+    name = "Fumen Popularity Dirty"
+    name_plural = "Fumen Popularity Dirty Queue"
+    icon = "fa-solid fa-list-check"
+    column_list = [FumenPopularityDirty.fumen_id, FumenPopularityDirty.queued_at]
+    column_sortable_list = [FumenPopularityDirty.queued_at]
+    can_create = False
+    can_edit = False
+    can_delete = True
+
+
+class FumenPopularityWindowAdmin(ModelView, model=FumenPopularityWindow):
+    name = "Fumen Popularity Window"
+    name_plural = "Fumen Popularity Windows"
+    icon = "fa-solid fa-ranking-star"
+    column_list = [
+        FumenPopularityWindow.window,
+        FumenPopularityWindow.rank,
+        FumenPopularityWindow.fumen_id,
+        FumenPopularityWindow.played_user_count,
+        FumenPopularityWindow.play_count,
+        FumenPopularityWindow.computed_at,
+    ]
+    column_sortable_list = [
+        FumenPopularityWindow.window,
+        FumenPopularityWindow.rank,
+        FumenPopularityWindow.played_user_count,
+        FumenPopularityWindow.play_count,
+        FumenPopularityWindow.computed_at,
+    ]
+    can_create = False
+    can_edit = False
+    can_delete = False
+
+
 class UserScoreAdmin(ModelView, model=UserScore):
     name = "User Score"
     name_plural = "User Scores"
@@ -827,7 +890,26 @@ class UserPlayerStatsAdmin(ModelView, model=UserPlayerStats):
         UserPlayerStats.playtime,
         UserPlayerStats.synced_at,
     ]
-    column_sortable_list = [UserPlayerStats.synced_at, UserPlayerStats.playcount]
+    column_searchable_list = [
+        UserPlayerStats.id,
+        UserPlayerStats.user_id,
+        UserPlayerStats.client_type,
+        UserPlayerStats.synced_at,
+        UserPlayerStats.playcount,
+        UserPlayerStats.clearcount,
+        UserPlayerStats.playtime,
+        UserPlayerStats.judgments,
+    ]
+    column_sortable_list = [
+        UserPlayerStats.id,
+        UserPlayerStats.user_id,
+        UserPlayerStats.client_type,
+        UserPlayerStats.synced_at,
+        UserPlayerStats.playcount,
+        UserPlayerStats.clearcount,
+        UserPlayerStats.playtime,
+    ]
+    column_default_sort = [(UserPlayerStats.synced_at, True)]
     # judgments (JSONB) intentionally omitted from column_list
 
 
@@ -1365,3 +1447,14 @@ class IssueCommentAdmin(ModelView, model=IssueComment):
     column_sortable_list = [IssueComment.created_at]
     can_create = False
     can_delete = False
+
+
+class UserDayNoteAdmin(ModelView, model=UserDayNote):
+    name = "Day Note"
+    name_plural = "Day Notes"
+    icon = "fa-solid fa-note-sticky"
+    column_list = [UserDayNote.id, UserDayNote.user_id, UserDayNote.note_date, UserDayNote.content, UserDayNote.updated_at]
+    column_searchable_list = [UserDayNote.content]
+    column_sortable_list = [UserDayNote.note_date, UserDayNote.updated_at]
+    can_create = False
+    can_edit = False

@@ -19,6 +19,10 @@ interface ActivityCalendarProps {
   dataBeatoraja?: HeatmapDay[];
   courseData?: CourseActivityItem[];
   ratingUpdatesData?: Array<{ date: string; count: number }>;
+  /** Set of dates (YYYY-MM-DD) that have a note — drives the note icon. */
+  noteDates?: Set<string>;
+  /** Render the note icon/popover for a given date. Called when noteDates has the date. */
+  renderNoteIndicator?: (dateStr: string) => React.ReactNode;
 }
 
 function buildWeekdayLabels(locale: string): string[] {
@@ -91,6 +95,8 @@ export function ActivityCalendar({
   dataBeatoraja,
   courseData,
   ratingUpdatesData,
+  noteDates,
+  renderNoteIndicator,
 }: ActivityCalendarProps) {
   const { t, i18n } = useTranslation();
   const dateLocale = localeFromLanguage(i18n.language);
@@ -263,50 +269,60 @@ export function ActivityCalendar({
             courseMap[dateStr],
           );
 
-          return (
-            <button
-              key={dateStr}
-              className={[
-                "min-h-[88px] rounded-md flex flex-col items-center p-2 relative text-label transition-colors",
-                "hover:bg-accent/20",
-                updates > 0 || plays > 0 || ratingUpdates > 0 || dots.length > 0 ? "font-medium" : "text-muted-foreground",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              onClick={() => onDayClick(dateStr)}
-              title={updates > 0 || newPlays > 0 || (!cellIsFirstSync && ratingUpdates > 0) ? `${cell.day} — ${t("dashboard.activity.scoreUpdates", { count: updates })} / ${t("dashboard.activity.newPlays", { count: newPlays })}${!cellIsFirstSync && ratingUpdates > 0 ? ` / ${t("dashboard.activity.ratingUpdates", { count: ratingUpdates })}` : ""}` : plays > 0 ? `${cell.day} — ${t("dashboard.activity.plays", { count: plays })}` : String(cell.day)}
-            >
-              {/* Date number top-left — badge on today */}
-              {isToday ? (
-                <span className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-body font-bold leading-none mb-1">
-                  {cell.day}
-                </span>
-              ) : (
-                <span className="leading-none mb-1">{cell.day}</span>
-              )}
+          const hasNote = noteDates?.has(dateStr) ?? false;
 
-              {/* Dot items */}
-              {dots.length > 0 && (
-                <div className="flex flex-col gap-0.5 w-full">
-                  {dots.map((dot, di) => (
-                    <div key={di} className="flex items-center gap-0.5 min-w-0">
-                      <span
-                        className="shrink-0 text-label leading-none"
-                        style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : dot.color === "new-play" ? "hsl(var(--chart-new-play))" : dot.color === "rating" ? "hsl(var(--chart-rating))" : `hsl(var(--${dot.color}))` }}
-                      >
-                        ●
-                      </span>
-                      <span
-                        className="text-label leading-tight truncate"
-                        style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : dot.color === "new-play" ? "hsl(var(--chart-new-play))" : dot.color === "rating" ? "hsl(var(--chart-rating))" : `hsl(var(--${dot.color}))` }}
-                      >
-                        {dot.label}
-                      </span>
-                    </div>
-                  ))}
+          return (
+            <div key={dateStr} className="relative">
+              <button
+                className={[
+                  "min-h-[88px] w-full rounded-md flex flex-col items-center p-2 relative text-label transition-colors",
+                  "hover:bg-accent/20",
+                  updates > 0 || plays > 0 || ratingUpdates > 0 || dots.length > 0 ? "font-medium" : "text-muted-foreground",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                onClick={() => onDayClick(dateStr)}
+                title={updates > 0 || newPlays > 0 || (!cellIsFirstSync && ratingUpdates > 0) ? `${cell.day} — ${t("dashboard.activity.scoreUpdates", { count: updates })} / ${t("dashboard.activity.newPlays", { count: newPlays })}${!cellIsFirstSync && ratingUpdates > 0 ? ` / ${t("dashboard.activity.ratingUpdates", { count: ratingUpdates })}` : ""}` : plays > 0 ? `${cell.day} — ${t("dashboard.activity.plays", { count: plays })}` : String(cell.day)}
+              >
+                {/* Date number top-left — badge on today */}
+                {isToday ? (
+                  <span className="w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-body font-bold leading-none mb-1">
+                    {cell.day}
+                  </span>
+                ) : (
+                  <span className="leading-none mb-1">{cell.day}</span>
+                )}
+
+                {/* Dot items */}
+                {dots.length > 0 && (
+                  <div className="flex flex-col gap-0.5 w-full">
+                    {dots.map((dot, di) => (
+                      <div key={di} className="flex items-center gap-0.5 min-w-0">
+                        <span
+                          className="shrink-0 text-label leading-none"
+                          style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : dot.color === "new-play" ? "hsl(var(--chart-new-play))" : dot.color === "rating" ? "hsl(var(--chart-rating))" : `hsl(var(--${dot.color}))` }}
+                        >
+                          ●
+                        </span>
+                        <span
+                          className="text-label leading-tight truncate"
+                          style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : dot.color === "new-play" ? "hsl(var(--chart-new-play))" : dot.color === "rating" ? "hsl(var(--chart-rating))" : `hsl(var(--${dot.color}))` }}
+                        >
+                          {dot.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </button>
+
+              {/* Note icon — sibling of button to avoid nested-interactive-element issue */}
+              {hasNote && renderNoteIndicator && (
+                <div className="absolute top-1 right-1 z-10">
+                  {renderNoteIndicator(dateStr)}
                 </div>
               )}
-            </button>
+            </div>
           );
         })}
       </div>

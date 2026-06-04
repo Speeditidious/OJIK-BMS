@@ -9,6 +9,7 @@ from app.services.ranking_calculator import (
     BestScore,
     _exp_level,
     _merge_best_score_fields,
+    _song_rating,
     recalculate_table_bulk,
 )
 from app.services.ranking_config import (
@@ -186,6 +187,61 @@ def test_capture_ranks_for_targets_tracks_sparse_ranks_and_total_entries():
 
 def test_exp_level_is_capped_by_max_level():
     assert _exp_level(total_exp=100_000, exp_level_step=100, max_level=2) == 2
+
+
+def test_song_rating_ignores_unknown_level_even_when_bonus_would_score():
+    table_cfg = TableRankingConfig(
+        slug="test",
+        table_id=uuid.uuid4(),
+        display_name="Test Table",
+        display_order=1,
+        level_order=["LEVEL 1"],
+        level_weights={"LEVEL 1": 10.0},
+        base_lamp_mult={
+            "NOPLAY": 0.0,
+            "FAILED": 0.1,
+            "ASSIST": 0.1,
+            "EASY": 1.0,
+            "NORMAL": 1.0,
+            "HARD": 1.0,
+            "EXHARD": 1.0,
+            "FC": 1.0,
+            "PERFECT": 1.0,
+            "MAX": 1.0,
+        },
+        upper_lamp_bonus={
+            "NOPLAY": 0.0,
+            "FAILED": 0.0,
+            "ASSIST": 0.0,
+            "EASY": 0.0,
+            "NORMAL": 0.0,
+            "HARD": 0.0,
+            "EXHARD": 0.0,
+            "FC": 0.0,
+            "PERFECT": 0.0,
+            "MAX": 0.0,
+        },
+        rank_mult={"F": 0.0, "E": 0.1, "D": 0.3, "C": 0.5, "B": 0.8, "A": 1.0, "AA": 1.0, "AAA": 1.0},
+        bonus=BonusConfig(
+            bp_weight=1.0,
+            rate_weight=1.0,
+            bp_floor=100.0,
+            bp_slope=1.0,
+            rate_floor=0.7,
+            rate_slope=1.0,
+        ),
+        reference_20=ReferenceCondition(
+            level="LEVEL 1",
+            lamp="EASY",
+            bp=100,
+            rank="A",
+            rate=0.7,
+        ),
+        c_table=100.0,
+        top_n=20,
+    )
+
+    assert _song_rating("LEVEL DUMMY", "EASY", "AAA", 0, 1.0, table_cfg) == 0.0
 
 
 def test_compute_exp_progress_fields_marks_max_level_as_complete():

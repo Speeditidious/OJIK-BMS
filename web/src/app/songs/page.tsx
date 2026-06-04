@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { Music2, Search } from "lucide-react";
+import { Music2, Search, SlidersHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Navbar } from "@/components/layout/navbar";
@@ -13,14 +13,19 @@ import {
   Select, SelectContent,
   SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { SongListTable } from "@/components/songs/SongListTable";
+import { PopularFumensDialog } from "@/components/fumen/PopularFumens";
 import { Pagination } from "@/components/common/Pagination";
 import { useFumensList } from "@/hooks/use-fumens-list";
 import { useAuthStore } from "@/stores/auth";
 import { api } from "@/lib/api";
-import type { DifficultyTable, FumenSearchField } from "@/types";
+import type { DifficultyTable, FumenSearchField, FumenSearchMode } from "@/types";
 
 const FUMEN_FIELD_DEFS = [
+  { value: "title_artist", labelKey: "songs.fields.titleArtist", group: "fumen" },
   { value: "level",        labelKey: "songs.fields.level",   group: "fumen" },
   { value: "title",        labelKey: "songs.fields.title",   group: "fumen" },
   { value: "artist",       labelKey: "songs.fields.artist",  group: "fumen" },
@@ -36,6 +41,8 @@ const FUMEN_FIELD_DEFS = [
   { value: "notes",        labelKey: "songs.fields.notes",   group: "fumen" },
   { value: "length",       labelKey: "songs.fields.length",  group: "fumen" },
 ] as const;
+
+const TEXT_SEARCH_FIELDS = new Set<FumenSearchField>(["title_artist", "title", "artist"]);
 
 const ENUM_OPTIONS: Partial<Record<FumenSearchField, readonly string[]>> = {
   clear:  ["MAX", "PERFECT", "FC", "EXHARD", "HARD", "NORMAL", "EASY", "ASSIST", "FAILED", "NO PLAY"],
@@ -64,12 +71,16 @@ function SongsPageContent() {
   const pathname = usePathname();
 
   const [field, setField] = useState<FumenSearchField>(
-    (sp.get("field") as FumenSearchField) ?? "title"
+    (sp.get("field") as FumenSearchField) ?? "title_artist"
   );
   const [input, setInput] = useState(sp.get("q") ?? "");
+  const [searchMode, setSearchMode] = useState<FumenSearchMode>(
+    sp.get("search_mode") === "regex" ? "regex" : "basic"
+  );
   const [committed, setCommitted] = useState({
-    field: (sp.get("field") as FumenSearchField) ?? "title",
+    field: (sp.get("field") as FumenSearchField) ?? "title_artist",
     q: sp.get("q") ?? "",
+    searchMode: (sp.get("search_mode") === "regex" ? "regex" : "basic") as FumenSearchMode,
   });
   const [page, setPage] = useState(parseInt(sp.get("page") ?? "1", 10));
   const [sortBy, setSortBy] = useState<string>((sp.get("sort") ?? "title"));
@@ -80,11 +91,17 @@ function SongsPageContent() {
     const next = new URLSearchParams();
     next.set("field", committed.field);
     if (committed.q) next.set("q", committed.q);
+    if (committed.searchMode !== "basic") next.set("search_mode", committed.searchMode);
     if (page !== 1) next.set("page", String(page));
     if (sortBy !== "title") next.set("sort", sortBy);
     if (sortDir !== "asc") next.set("dir", sortDir);
     router.replace(`${pathname}?${next}`, { scroll: false });
   }, [committed, page, sortBy, sortDir, pathname, router]);
+
+  // Reset regex mode when switching to a non-text field (derived state, render-time update)
+  if (!TEXT_SEARCH_FIELDS.has(field) && searchMode === "regex") {
+    setSearchMode("basic");
+  }
 
   // All tables for symbol map
   const { data: allTables = [] } = useQuery<DifficultyTable[]>({
@@ -100,17 +117,18 @@ function SongsPageContent() {
   const { data, isLoading, isFetching } = useFumensList({
     field: committed.field,
     q: committed.q,
+    searchMode: committed.searchMode,
     page,
     sortBy,
     sortDir,
   });
 
   function commitSearch() {
-    setCommitted({ field, q: input });
+    setCommitted({ field, q: input, searchMode });
     setPage(1);
   }
 
-  function handleSort(key: FumenSearchField | "level", dir: "asc" | "desc") {
+  function handleSort(key: FumenSearchField | "level" | "players", dir: "asc" | "desc") {
     setSortBy(key);
     setSortDir(dir);
     setPage(1);
@@ -124,6 +142,10 @@ function SongsPageContent() {
   );
   const isScoreField = fumenFields.find((f) => f.value === field)?.group === "score";
   const searchDisabled = isScoreField && !isLoggedIn;
+  const regexAvailable = TEXT_SEARCH_FIELDS.has(field);
+  const placeholder = searchMode === "regex"
+    ? t("songs.search.regexPlaceholder")
+    : NUMERIC_PLACEHOLDER[field] ?? t("songs.search.placeholder");
 
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
@@ -138,6 +160,7 @@ function SongsPageContent() {
                 {t("songs.total", { count: data.total })}
               </span>
             )}
+            <PopularFumensDialog />
           </div>
           <p className="text-label text-muted-foreground ml-1">
             {t("songs.description")}
@@ -175,10 +198,29 @@ function SongsPageContent() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !searchDisabled && commitSearch()}
-              placeholder={NUMERIC_PLACEHOLDER[field] ?? t("songs.search.placeholder")}
+              placeholder={placeholder}
               className="flex-1"
             />
           )}
+
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant={searchMode === "regex" ? "default" : "outline"}
+                  onClick={() => regexAvailable && setSearchMode(searchMode === "regex" ? "basic" : "regex")}
+                  disabled={!regexAvailable}
+                >
+                  <SlidersHorizontal className="h-4 w-4 mr-1" />
+                  {t("songs.search.advanced")}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {regexAvailable ? t("songs.search.advancedTooltip") : t("songs.search.regexUnavailable")}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
 
           <Button onClick={commitSearch} disabled={searchDisabled}>
             <Search className="h-4 w-4 mr-1" /> {t("songs.search.submit")}

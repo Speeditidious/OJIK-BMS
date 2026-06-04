@@ -170,7 +170,7 @@ def _song_rating(
     cfg: TableRankingConfig,
 ) -> float:
     """spec §2 — per-chart rating = C_table × (Base + Bonus)."""
-    if lamp == "NOPLAY":
+    if lamp == "NOPLAY" or level not in cfg.level_weights:
         return 0.0
     # FC 이상은 공푸어가 있어도 BP 보너스를 최대값(bp=0)으로 계산
     effective_bp = 0.0 if lamp in _FC_OR_ABOVE else bp

@@ -27,6 +27,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ISSUE_STATUS_META, IssueStatusBadge } from "@/components/issues/IssueStatusBadge";
 import { MarkdownContent } from "@/components/common/MarkdownContent";
+import { MarkdownEditor } from "@/components/common/MarkdownEditor";
 import { AvatarImage } from "@/components/common/AvatarImage";
 import {
   useIssue,
@@ -261,7 +262,7 @@ function useMentionAutocomplete(body: string) {
   return { type, users: users ?? [], issues: issues ?? [] };
 }
 
-// ── Inline editor (reused for issue body and comment edits) ───────────────────
+// ── Inline editor (issue body and comment edits — wraps MarkdownEditor) ──────
 
 interface InlineEditorProps {
   initialBody: string;
@@ -271,15 +272,33 @@ interface InlineEditorProps {
 }
 
 function InlineEditor({ initialBody, onSave, onCancel, isSaving }: InlineEditorProps) {
-  const { t } = useTranslation();
-  const [body, setBody] = useState(initialBody);
-  const [activeTab, setActiveTab] = useState<"edit" | "preview">("edit");
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  return (
+    <MarkdownEditor
+      initialBody={initialBody}
+      onSave={onSave}
+      onCancel={onCancel}
+      isSaving={isSaving}
+      enableMentions={true}
+      renderMentionDropdown={(body, textarea, setBody) => (
+        <IssueMentionDropdown body={body} textarea={textarea} setBody={setBody} />
+      )}
+    />
+  );
+}
+
+function IssueMentionDropdown({
+  body,
+  textarea,
+  setBody,
+}: {
+  body: string;
+  textarea: HTMLTextAreaElement | null;
+  setBody: (v: string) => void;
+}) {
   const { type, users, issues } = useMentionAutocomplete(body);
 
   function insertMention(insert: string) {
-    const el = textareaRef.current;
+    const el = textarea;
     if (!el) return;
     const cursor = el.selectionStart;
     const before = body.slice(0, cursor);
@@ -290,135 +309,36 @@ function InlineEditor({ initialBody, onSave, onCancel, isSaving }: InlineEditorP
     setBody(replaced + after);
   }
 
-  const hasChanged = body.trim() !== initialBody.trim();
-
-  function handleCancelClick() {
-    if (hasChanged) {
-      setConfirmOpen(true);
-    } else {
-      onCancel();
-    }
-  }
-
   return (
     <>
-      <div className="flex-1 rounded-lg border overflow-hidden">
-        <div className="flex items-center border-b bg-muted/30">
-          <div className="flex flex-1">
-            {(["edit", "preview"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={[
-                  "px-4 py-2 text-label font-medium transition-colors",
-                  activeTab === tab
-                    ? "bg-background text-foreground border-b-2 border-primary -mb-px"
-                    : "text-muted-foreground hover:text-foreground",
-                ].join(" ")}
-              >
-                {t(tab === "edit" ? "issues.create.edit" : "issues.create.preview")}
-              </button>
-            ))}
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 mr-2 text-muted-foreground hover:text-foreground shrink-0"
-            onClick={handleCancelClick}
-            aria-label={t("issues.detail.cancelEdit")}
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <div className="relative">
-          {activeTab === "edit" ? (
-            <Textarea
-              ref={textareaRef}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              className="min-h-24 rounded-none border-0 resize-none focus-visible:ring-0"
-              rows={4}
-            />
-          ) : (
-            <div className="min-h-24 p-4">
-              {body ? (
-                <MarkdownContent>{body}</MarkdownContent>
-              ) : (
-                <p className="text-muted-foreground text-label italic">
-                  {t("issues.detail.commentPlaceholder")}
-                </p>
-              )}
-            </div>
-          )}
-
-          {type === "user" && users.length > 0 && (
-            <div className="absolute bottom-full left-0 z-50 w-64 rounded-lg border bg-popover shadow-lg mb-1">
-              {users.map((u) => (
-                <button
-                  key={u.id}
-                  type="button"
-                  className="w-full text-left px-3 py-2 text-label hover:bg-muted transition-colors"
-                  onClick={() => insertMention(`@${u.username} `)}
-                >
-                  @{u.username}
-                </button>
-              ))}
-            </div>
-          )}
-          {type === "issue" && issues.length > 0 && (
-            <div className="absolute bottom-full left-0 z-50 w-80 rounded-lg border bg-popover shadow-lg mb-1">
-              {issues.map((iss) => (
-                <button
-                  key={iss.id}
-                  type="button"
-                  className="w-full text-left px-3 py-2 text-label hover:bg-muted transition-colors"
-                  onClick={() => insertMention(`#${iss.id} `)}
-                >
-                  <span className="text-muted-foreground">#{iss.id}</span> {iss.title}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="flex justify-end p-2 border-t bg-muted/30">
-          <Button
-            size="sm"
-            disabled={!body.trim() || !hasChanged || isSaving}
-            onClick={async () => {
-              if (!body.trim() || !hasChanged) return;
-              await onSave(body.trim());
-            }}
-          >
-            {isSaving ? t("issues.detail.savingEdit") : t("issues.detail.saveEdit")}
-          </Button>
-        </div>
-      </div>
-
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("issues.detail.cancelEditConfirmTitle")}</DialogTitle>
-            <DialogDescription>{t("issues.detail.cancelEditConfirmBody")}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmOpen(false)}>
-              {t("common.actions.cancel")}
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                setConfirmOpen(false);
-                onCancel();
-              }}
+      {type === "user" && users.length > 0 && (
+        <div className="absolute bottom-full left-0 z-50 w-64 rounded-lg border bg-popover shadow-lg mb-1">
+          {users.map((u) => (
+            <button
+              key={u.id}
+              type="button"
+              className="w-full text-left px-3 py-2 text-label hover:bg-muted transition-colors"
+              onClick={() => insertMention(`@${u.username} `)}
             >
-              {t("common.actions.confirm")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              @{u.username}
+            </button>
+          ))}
+        </div>
+      )}
+      {type === "issue" && issues.length > 0 && (
+        <div className="absolute bottom-full left-0 z-50 w-80 rounded-lg border bg-popover shadow-lg mb-1">
+          {issues.map((iss) => (
+            <button
+              key={iss.id}
+              type="button"
+              className="w-full text-left px-3 py-2 text-label hover:bg-muted transition-colors"
+              onClick={() => insertMention(`#${iss.id} `)}
+            >
+              <span className="text-muted-foreground">#{iss.id}</span> {iss.title}
+            </button>
+          ))}
+        </div>
+      )}
     </>
   );
 }

@@ -6,12 +6,14 @@ from app.parsers.table_fetcher import get_default_table_configs, get_update_conf
 
 UPDATE_ALL_TABLES_TASK = "app.tasks.table_updater.update_all_difficulty_tables"
 RECALCULATE_ALL_RANKINGS_TASK = "app.tasks.ranking_calculator.recalculate_all_rankings"
+REFRESH_FUMEN_POPULARITY_TASK = "app.tasks.fumen_popularity.refresh_dirty_fumen_popularity"
+REBUILD_FUMEN_POPULARITY_WINDOWS_TASK = "app.tasks.fumen_popularity.rebuild_fumen_popularity_windows"
 
 celery_app = Celery(
     "ojik_tasks",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
-    include=["app.tasks.table_updater", "app.tasks.ranking_calculator"],
+    include=["app.tasks.table_updater", "app.tasks.ranking_calculator", "app.tasks.fumen_popularity"],
 )
 
 
@@ -58,6 +60,14 @@ def build_beat_schedule(update_config: dict, table_configs: list[dict]) -> dict:
         "recalculate-all-rankings": {
             "task": RECALCULATE_ALL_RANKINGS_TASK,
             "schedule": 86400,  # 24 hours
+        },
+        "refresh-fumen-popularity": {
+            "task": REFRESH_FUMEN_POPULARITY_TASK,
+            "schedule": 300,
+        },
+        "rebuild-fumen-popularity-windows": {
+            "task": REBUILD_FUMEN_POPULARITY_WINDOWS_TASK,
+            "schedule": 86400,
         },
         "update-user-difficulty-tables": {
             "task": UPDATE_ALL_TABLES_TASK,
