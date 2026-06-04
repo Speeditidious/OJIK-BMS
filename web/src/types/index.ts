@@ -223,6 +223,7 @@ export interface FumenListResponse {
 }
 
 export type PopularRange = "weekly" | "monthly" | "all_time";
+export type PopularSortBy = "players" | "plays";
 
 export interface PopularFumen {
   rank: number;

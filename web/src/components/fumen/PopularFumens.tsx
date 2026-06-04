@@ -17,9 +17,10 @@ import { usePopularFumens } from "@/hooks/use-popular-fumens";
 import { cn } from "@/lib/utils";
 import { songHref } from "@/lib/song-href";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
-import type { PopularRange } from "@/types";
+import type { PopularRange, PopularSortBy } from "@/types";
 
 const RANGES: PopularRange[] = ["weekly", "monthly", "all_time"];
+const SORT_OPTIONS: PopularSortBy[] = ["players", "plays"];
 const GRID = "grid-cols-[2.5rem_minmax(0,1fr)_5rem_3.5rem]";
 
 function rankClass(rank: number) {
@@ -32,7 +33,8 @@ function rankClass(rank: number) {
 export function PopularFumensDialog() {
   const { t } = useTranslation();
   const [range, setRange] = useState<PopularRange>("weekly");
-  const { data, isLoading } = usePopularFumens(range, 10);
+  const [sortBy, setSortBy] = useState<PopularSortBy>("players");
+  const { data, isLoading } = usePopularFumens(range, 10, sortBy);
   const rows = data?.items ?? [];
   const asOf = data?.as_of ?? null;
 
@@ -51,7 +53,7 @@ export function PopularFumensDialog() {
             {t("songs.popular.title", { range: t(`songs.popular.range.${range}`) })}
           </DialogTitle>
           <p className="text-caption text-muted-foreground">
-            {asOf ? t("songs.popular.asOf", { time: new Date(asOf).toLocaleString() }) : "\u00a0"}
+            {asOf ? t("songs.popular.asOf", { time: new Date(asOf).toLocaleString() }) : " "}
           </p>
         </DialogHeader>
 
@@ -64,6 +66,18 @@ export function PopularFumensDialog() {
             ))}
           </TabsList>
         </Tabs>
+
+        <div className="flex justify-center">
+          <Tabs value={sortBy} onValueChange={(v) => setSortBy(v as PopularSortBy)}>
+            <TabsList className="grid grid-cols-2 w-56">
+              {SORT_OPTIONS.map((opt) => (
+                <TabsTrigger key={opt} value={opt}>
+                  {t(`songs.popular.sortBy.${opt}`)}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
 
         <div className="rounded-lg border border-border overflow-hidden">
           <div className={cn("grid gap-2 px-3 py-2 bg-secondary/50 border-b border-border text-caption font-semibold text-muted-foreground", GRID)}>
@@ -95,8 +109,12 @@ export function PopularFumensDialog() {
                   <span className="block truncate text-label text-foreground transition-colors group-hover:text-primary">{fumenTitleText(row.title)}</span>
                   <span className="block truncate text-caption text-muted-foreground">{fumenArtistText(row.artist)}</span>
                 </span>
-                <span className="text-right tabular-nums text-label">{row.played_user_count.toLocaleString()}</span>
-                <span className="text-right tabular-nums text-label">{row.play_count.toLocaleString()}</span>
+                <span className={cn("text-right tabular-nums text-label", sortBy === "players" && "font-semibold text-foreground")}>
+                  {row.played_user_count.toLocaleString()}
+                </span>
+                <span className={cn("text-right tabular-nums text-label", sortBy === "plays" && "font-semibold text-foreground")}>
+                  {row.play_count.toLocaleString()}
+                </span>
               </Link>
             ))
           )}

@@ -705,11 +705,14 @@ async def get_my_tags(
 async def get_popular_fumens(
     range: str = Query("weekly"),
     limit: int = Query(10, ge=1, le=50),
+    sort_by: str = Query("players"),
     db: AsyncSession = Depends(get_db),
 ) -> PopularFumensResponse:
     """Return cached popular fumens for weekly, monthly, or all-time ranges."""
     if range not in {"weekly", "monthly", "all_time"}:
         raise HTTPException(status_code=400, detail="Unknown popularity range")
+    if sort_by not in {"players", "plays"}:
+        raise HTTPException(status_code=400, detail="sort_by must be 'players' or 'plays'")
 
     items: list[PopularFumenRead] = []
     as_of_value = None
@@ -717,15 +720,21 @@ async def get_popular_fumens(
         as_of_value = (
             await db.execute(select(func.max(FumenPlayPopularity.updated_at)))
         ).scalar_one_or_none()
+        primary_order = (
+            FumenPlayPopularity.played_user_count.desc()
+            if sort_by == "players"
+            else FumenPlayPopularity.total_play_count.desc()
+        )
+        secondary_order = (
+            FumenPlayPopularity.total_play_count.desc()
+            if sort_by == "players"
+            else FumenPlayPopularity.played_user_count.desc()
+        )
         rows = (
             await db.execute(
                 select(Fumen, FumenPlayPopularity)
                 .join(FumenPlayPopularity, Fumen.fumen_id == FumenPlayPopularity.fumen_id)
-                .order_by(
-                    FumenPlayPopularity.played_user_count.desc(),
-                    FumenPlayPopularity.total_play_count.desc(),
-                    Fumen.fumen_id,
-                )
+                .order_by(primary_order, secondary_order, Fumen.fumen_id)
                 .limit(limit)
             )
         ).all()
@@ -751,24 +760,30 @@ async def get_popular_fumens(
                 )
             )
         ).scalar_one_or_none()
+        primary_order = (
+            FumenPopularityWindow.played_user_count.desc()
+            if sort_by == "players"
+            else FumenPopularityWindow.play_count.desc()
+        )
+        secondary_order = (
+            FumenPopularityWindow.play_count.desc()
+            if sort_by == "players"
+            else FumenPopularityWindow.played_user_count.desc()
+        )
         rows = (
             await db.execute(
                 select(Fumen, FumenPopularityWindow)
                 .join(FumenPopularityWindow, Fumen.fumen_id == FumenPopularityWindow.fumen_id)
                 .where(FumenPopularityWindow.window == range)
-                .order_by(
-                    FumenPopularityWindow.played_user_count.desc(),
-                    FumenPopularityWindow.play_count.desc(),
-                    Fumen.fumen_id,
-                )
+                .order_by(primary_order, secondary_order, Fumen.fumen_id)
                 .limit(limit)
             )
         ).all()
-        for row in rows:
+        for index, row in enumerate(rows, start=1):
             fumen, popularity = row
             items.append(
                 PopularFumenRead(
-                    rank=popularity.rank,
+                    rank=index,
                     fumen_id=fumen.fumen_id,
                     title=fumen.title,
                     artist=fumen.artist,
