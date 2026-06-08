@@ -1060,6 +1060,80 @@ async def test_row_detail_latest_timestamp_tiebreak():
 
 
 @pytest.mark.asyncio
+async def test_row_detail_ignores_play_count_only_latest_tiebreak():
+    """A later play-count-only row must not replace the previous record detail row."""
+    fumen_id = uuid_mod.uuid4()
+    user_id = uuid_mod.uuid4()
+    fumen = _make_fumen_row(fumen_id=fumen_id, keymode=7)
+    user = _make_user_row(user_id=user_id)
+
+    previous_record = _make_user_score(
+        score_id=uuid_mod.uuid4(),
+        user_id=user_id,
+        fumen_id=fumen_id,
+        fumen_sha256="f" * 64,
+        client_type="beatoraja",
+        exscore=1500,
+        clear_type=5,
+        min_bp=10,
+        max_combo=900,
+        play_count=3,
+        options={"option": 2},
+        recorded_at=datetime(2026, 4, 21, tzinfo=timezone.utc),
+    )
+    stat_only = _make_user_score(
+        score_id=uuid_mod.uuid4(),
+        user_id=user_id,
+        fumen_id=fumen_id,
+        fumen_sha256="f" * 64,
+        client_type="beatoraja",
+        exscore=1500,
+        clear_type=5,
+        min_bp=10,
+        max_combo=900,
+        play_count=4,
+        options={"option": 0},
+        recorded_at=datetime(2026, 4, 22, tzinfo=timezone.utc),
+    )
+
+    call_idx = [0]
+
+    async def _execute(stmt, *args, **kwargs):
+        call_idx[0] += 1
+        result = MagicMock()
+        if call_idx[0] == 1:
+            result.one_or_none.return_value = fumen
+        elif call_idx[0] == 2:
+            result.scalar_one_or_none.return_value = user
+        else:
+            result.scalars.return_value.all.return_value = [stat_only, previous_record]
+        return result
+
+    mock_db = MagicMock()
+    mock_db.execute = _execute
+
+    async def override_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_current_user_optional] = lambda: None
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get(
+                f"/scores/fumen/{fumen_id}/row-detail",
+                params={"user_id": str(user_id)},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert len(data["records"]) == 1
+    assert data["records"][0]["score_id"] == str(previous_record.id)
+    assert data["records"][0]["arrangement"]["option_label"] == "RANDOM"
+
+
+@pytest.mark.asyncio
 async def test_row_detail_course_records_excluded():
     """Rows with fumen_hash_others set (course records) are excluded by the query."""
     # The endpoint passes fumen_hash_others IS NULL as a WHERE condition.

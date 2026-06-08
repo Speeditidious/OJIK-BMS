@@ -620,6 +620,7 @@ async def get_fumen_row_detail(
 
     result = await db.execute(query)
     all_scores = result.scalars().all()
+    all_scores = _filter_play_count_only_history_rows(all_scores)
 
     # 5. Pick best representative per client
     representatives = pick_best_per_client(all_scores)
