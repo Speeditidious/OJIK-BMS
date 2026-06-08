@@ -330,7 +330,7 @@ export function SongListTable({
           <table className="w-full border-collapse" style={{ tableLayout: "fixed" }}>
             <colgroup>
               <col style={{ width: 140 }} />
-              <col />
+              <col style={{ minWidth: 190 }} />
               {isLoggedIn && (
                 <>
                   <col style={{ width: 80 }} />

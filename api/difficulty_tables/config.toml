@@ -37,6 +37,12 @@ name = "第3皿"
 url = "http://minddnim.web.fc2.com/sara/3rd_hard/bms_sara_3rd_hard.html"
 
 [[default_tables]]
+slug = "starlight"
+name = "Starlight"
+url = "https://stellabms.xyz/sr/table.html"
+update_schedule = { type = "weekly", day_of_week = "mon", hour = 0, minute = 0 }
+
+[[default_tables]]
 slug = "satellite"
 name = "Satellite"
 url = "https://stellabms.xyz/sl/table.html"

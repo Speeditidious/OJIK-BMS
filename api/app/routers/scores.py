@@ -24,6 +24,7 @@ from app.services.client_aggregation import (
     aggregate_source_client,
 )
 from app.services.initial_sync import is_initial_sync_timestamp
+from app.services.score_history import is_play_count_only_update
 from app.services.score_row_detail import (
     build_course_stages,
     course_option_label,
@@ -46,6 +47,37 @@ def _compute_rate_rank(exscore: int, notes_total: int) -> tuple[float, str]:
         if exscore * 9 >= notes_total * threshold:
             return rate, rank
     return rate, "F"
+
+
+def _effective_score_ts(score: UserScore):
+    """Return the timestamp used to order score history rows."""
+    return score.recorded_at or score.synced_at
+
+
+def _history_group_key(score: UserScore) -> tuple[str | None, str]:
+    return (score.fumen_sha256 or score.fumen_md5, score.client_type)
+
+
+def _filter_play_count_only_history_rows(scores: list[UserScore]) -> list[UserScore]:
+    """Remove metadata-only play-count rows from a fumen history response."""
+    by_key: dict[tuple[str | None, str], list[UserScore]] = {}
+    for score in scores:
+        by_key.setdefault(_history_group_key(score), []).append(score)
+
+    hidden_ids: set[uuid.UUID] = set()
+    for rows in by_key.values():
+        ordered = sorted(
+            rows,
+            key=lambda score: (_effective_score_ts(score) is None, _effective_score_ts(score)),
+        )
+        prev: UserScore | None = None
+        for score in ordered:
+            if is_play_count_only_update(score, prev):
+                hidden_ids.add(score.id)
+            else:
+                prev = score
+
+    return [score for score in scores if score.id not in hidden_ids]
 
 
 class UserScoreRead(BaseModel):
@@ -218,6 +250,7 @@ async def get_scores_for_fumen(
         .order_by(func.coalesce(UserScore.recorded_at, UserScore.synced_at).desc().nullslast())
     )
     scores = result.scalars().all()
+    scores = _filter_play_count_only_history_rows(scores)
 
     # Fetch first_synced_at for is_first_sync detection
     fst_result = await db.execute(select(User.first_synced_at).where(User.id == target_user.id))

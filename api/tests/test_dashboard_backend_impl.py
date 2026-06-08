@@ -527,6 +527,155 @@ async def test_scores_for_fumen_preserves_real_recorded_at_inside_first_sync_win
     assert result[0].recorded_at == recorded_at.isoformat()
 
 
+@pytest.mark.asyncio
+async def test_scores_for_fumen_hides_play_count_only_rows(monkeypatch):
+    target_user = SimpleNamespace(
+        id=uuid.uuid4(),
+        first_synced_at={},
+        is_active=True,
+    )
+    previous = UserScore(
+        id=uuid.uuid4(),
+        user_id=target_user.id,
+        fumen_md5="d" * 32,
+        client_type="beatoraja",
+        clear_type=5,
+        exscore=1500,
+        rate=90.0,
+        rank="AA",
+        min_bp=12,
+        max_combo=900,
+        play_count=3,
+        options={"option": 2},
+        recorded_at=datetime(2026, 4, 21, 10, 0, tzinfo=UTC),
+        synced_at=datetime(2026, 4, 21, 10, 5, tzinfo=UTC),
+    )
+    stat_only = UserScore(
+        id=uuid.uuid4(),
+        user_id=target_user.id,
+        fumen_md5="d" * 32,
+        client_type="beatoraja",
+        clear_type=5,
+        exscore=1500,
+        rate=90.0,
+        rank="AA",
+        min_bp=12,
+        max_combo=900,
+        play_count=4,
+        options={"option": 0},
+        recorded_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+        synced_at=datetime(2026, 4, 22, 10, 5, tzinfo=UTC),
+    )
+    db = _QueuedSession(
+        [
+            _QueuedResult(rows=[stat_only, previous]),
+            _QueuedResult(scalar=target_user.first_synced_at),
+            _QueuedResult(row=(2000, 7)),
+        ]
+    )
+
+    async def fake_resolve_target_user(_user_id, _current_user, _db):
+        return target_user
+
+    monkeypatch.setattr("app.routers.scores._resolve_target_user", fake_resolve_target_user)
+
+    result = await get_scores_for_fumen(
+        hash_value="d" * 32,
+        current_user=target_user,
+        db=db,
+    )
+
+    assert [row.id for row in result] == [str(previous.id)]
+    assert result[0].options == {"option": 2}
+
+
+@pytest.mark.asyncio
+async def test_score_updates_uses_previous_record_detail_for_play_count_only_fumen(monkeypatch):
+    target_user = SimpleNamespace(id=uuid.uuid4(), first_synced_at={}, is_active=True)
+    fumen_id = uuid.uuid4()
+    previous = UserScore(
+        id=uuid.uuid4(),
+        user_id=target_user.id,
+        fumen_id=fumen_id,
+        fumen_sha256="e" * 64,
+        client_type="beatoraja",
+        clear_type=5,
+        exscore=1500,
+        rate=90.0,
+        rank="AA",
+        min_bp=12,
+        max_combo=900,
+        play_count=3,
+        options={"option": 2},
+        recorded_at=datetime(2026, 4, 21, 10, 0, tzinfo=UTC),
+        synced_at=datetime(2026, 4, 21, 10, 5, tzinfo=UTC),
+    )
+    stat_only = UserScore(
+        id=uuid.uuid4(),
+        user_id=target_user.id,
+        fumen_id=fumen_id,
+        fumen_sha256="e" * 64,
+        client_type="beatoraja",
+        clear_type=5,
+        exscore=1500,
+        rate=90.0,
+        rank="AA",
+        min_bp=12,
+        max_combo=900,
+        play_count=4,
+        options={"option": 0},
+        recorded_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+        synced_at=datetime(2026, 4, 22, 10, 5, tzinfo=UTC),
+    )
+    db = _QueuedSession(
+        [
+            _QueuedResult(rows=[SimpleNamespace(score_id=stat_only.id)]),
+            _QueuedResult(rows=[stat_only]),
+            _QueuedResult(rows=[
+                SimpleNamespace(
+                    fumen_id=fumen_id,
+                    sha256="e" * 64,
+                    md5=None,
+                    title="Stat Only Song",
+                    artist="Artist",
+                )
+            ]),
+            _QueuedResult(rows=[]),
+            _QueuedResult(rows=[]),
+            _QueuedResult(rows=[previous, stat_only]),
+        ]
+    )
+
+    async def fake_resolve_target_user(_user_id, _current_user, _db):
+        return target_user
+
+    async def fake_visible_table_ids(_db, _user):
+        return None
+
+    async def fake_hidden_levels(_db, _user):
+        return {}
+
+    async def fake_build_course_indexes(_db):
+        return ({}, {}, [])
+
+    monkeypatch.setattr("app.routers.analysis._resolve_target_user", fake_resolve_target_user)
+    monkeypatch.setattr("app.routers.analysis.resolve_visible_table_ids", fake_visible_table_ids)
+    monkeypatch.setattr("app.routers.analysis.resolve_non_regular_hidden_levels", fake_hidden_levels)
+    monkeypatch.setattr("app.routers.analysis._build_course_indexes", fake_build_course_indexes)
+
+    result = await get_score_updates(
+        date="2026-04-22",
+        user_id=target_user.id,
+        current_user=None,
+        db=db,
+    )
+
+    assert result["play_count_updates"][0]["detail_score_id"] == str(previous.id)
+    assert result["play_count_updates"][0]["options"] == {"option": 2}
+    assert result["play_count_updates"][0]["prev_play_count"] == 3
+    assert result["play_count_updates"][0]["new_play_count"] == 4
+
+
 class _ScoreSession:
     def __init__(self, rows):
         self._rows = rows

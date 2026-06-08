@@ -5,7 +5,7 @@ from celery.schedules import crontab
 from app.parsers.table_fetcher import get_default_table_configs, get_update_config
 from app.tasks import UPDATE_ALL_TABLES_TASK, build_beat_schedule
 
-STELLAVERSE_SLUGS = {"satellite", "stella", "solar", "supernova"}
+STELLAVERSE_SLUGS = {"starlight", "satellite", "stella", "solar", "supernova"}
 
 
 def test_difficulty_table_update_config_includes_timezone_and_schedule_overrides():

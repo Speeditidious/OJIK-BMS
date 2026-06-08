@@ -83,12 +83,13 @@ export function DayNotePopover({ userId, date, isOwner, cellTrigger = false, has
   ) : (
     <Button
       variant="ghost"
-      size="icon"
-      className={`h-8 w-8 shrink-0 hover:text-foreground ${noteExists ? "text-primary" : "text-muted-foreground"}`}
+      size="sm"
+      className={`h-9 shrink-0 gap-2 px-2 hover:text-foreground ${noteExists ? "text-primary" : "text-muted-foreground"}`}
       onClick={handleTriggerClick}
       aria-label={t("dashboard.dayDetail.note.title")}
     >
       <StickyNote className="h-6 w-6" />
+      <span className="text-2xl font-semibold leading-none tracking-tight">{t("dashboard.dayDetail.note.title")}</span>
     </Button>
   );
 

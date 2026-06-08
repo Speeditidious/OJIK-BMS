@@ -598,13 +598,13 @@ const SongVirtualList = memo(function SongVirtualList({
       {/* Scrollable table */}
       <div
         ref={parentRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden"
+        className="flex-1 overflow-y-auto overflow-x-auto"
         style={{ overscrollBehavior: "contain" }}
       >
         <table className="w-full border-collapse" style={{ tableLayout: "fixed" }} onCopy={handleTableCopy}>
           <colgroup>
             <col style={{ width: 62 }} />
-            <col />
+            <col style={{ minWidth: 190 }} />
             {hasUserScores && (
               <>
                 <col style={{ width: 80 }} />

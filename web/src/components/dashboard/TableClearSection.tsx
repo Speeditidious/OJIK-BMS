@@ -410,7 +410,7 @@ const SongTable = React.memo(function SongTable({
         <table className="w-full border-collapse" style={{ tableLayout: "fixed", minWidth: 780 }} onCopy={handleTableCopy}>
           <colgroup>
             <col style={{ width: 56 }} />
-            <col />
+            <col style={{ minWidth: 190 }} />
             <col style={{ width: 100 }} />
             <col style={{ width: 96 }} />
             <col style={{ width: 48 }} />

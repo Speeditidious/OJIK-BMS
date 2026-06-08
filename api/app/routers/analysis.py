@@ -45,6 +45,7 @@ from app.services.rating_derived_data import (
     has_fresh_user_rating_derived_data,
     has_fresh_user_table_rating_derived_data,
 )
+from app.services.score_history import is_play_count_only_update
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 _RATING_UPDATES_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
@@ -207,20 +208,7 @@ def _find_prev_row(
 
 def _is_stat_only(entry: UserScore, prev: "UserScore | None") -> bool:
     """True if only play_count changed — no clear_type/exscore/min_bp/max_combo improvement."""
-    if prev is None:
-        return False  # 신규 fumen은 갱신으로 간주
-    improved = (
-        (entry.clear_type or 0) > (prev.clear_type or 0)
-        or (entry.exscore or 0) > (prev.exscore or 0)
-        or (
-            entry.min_bp is not None
-            and (prev.min_bp is None or entry.min_bp < prev.min_bp)
-        )
-        or (entry.max_combo or 0) > (prev.max_combo or 0)
-    )
-    if improved:
-        return False
-    return (entry.play_count or 0) != (prev.play_count or 0)
+    return is_play_count_only_update(entry, prev)
 
 
 def _is_initial_sync_record(entry: UserScore, user: User) -> bool:
@@ -2352,36 +2340,38 @@ async def get_score_updates(
         meta = fumen_meta.get(hash_key or "", {})
         table_levels = _get_table_levels(hash_key)
         prev = _find_prev_row(r, prev_rows_map)
+        is_stat_only = _is_stat_only(r, prev)
+        display_row = prev if is_stat_only and prev is not None else r
         aggregate_key = _canonical_fumen_key(r.fumen_sha256, r.fumen_md5, md5_to_sha256)
         aggregate = aggregate_map.get(aggregate_key, {})
         current_state = aggregate.get("current_state", {})
         current_best_min_bp = current_state.get("min_bp")
 
         base = {
-            "detail_score_id": str(r.id),
+            "detail_score_id": str(display_row.id),
             "course_hash": None,
-            "fumen_id": str(r.fumen_id) if r.fumen_id else None,
-            "fumen_sha256": r.fumen_sha256,
-            "fumen_md5": r.fumen_md5,
+            "fumen_id": str(display_row.fumen_id) if display_row.fumen_id else None,
+            "fumen_sha256": display_row.fumen_sha256,
+            "fumen_md5": display_row.fumen_md5,
             "title": meta.get("title"),
             "artist": meta.get("artist"),
             "table_levels": table_levels,
-            "client_type": aggregate.get("client_type") if aggregate else r.client_type,
+            "client_type": aggregate.get("client_type") if aggregate else display_row.client_type,
             "recorded_at": _ts(r),
             "is_course": False,
             "is_new_play": prev is None,
             "course_name": None,
             "dan_title": None,
-            "options": aggregate.get("options") if aggregate else r.options,
+            "options": display_row.options if is_stat_only else (aggregate.get("options") if aggregate else r.options),
             "source_client": aggregate.get("source_client"),
             "source_client_detail": aggregate.get("source_client_detail"),
             "current_state": current_state if current_state else {
-                "clear_type": display_clear_type(r.clear_type, exscore=r.exscore, rate=r.rate),
-                "exscore": r.exscore,
-                "rate": r.rate,
-                "rank": r.rank,
+                "clear_type": display_clear_type(display_row.clear_type, exscore=display_row.exscore, rate=display_row.rate),
+                "exscore": display_row.exscore,
+                "rate": display_row.rate,
+                "rank": display_row.rank,
                 "min_bp": current_best_min_bp,
-                "max_combo": r.max_combo,
+                "max_combo": display_row.max_combo,
             },
         }
 

@@ -76,6 +76,7 @@ interface SectionModel {
 interface TableColumn {
   key: ContributionColumnKey;
   width?: number;
+  minWidth?: number;
   align: "left" | "center";
 }
 
@@ -94,7 +95,7 @@ type ContributionColumnKey =
 const DEFAULT_COLUMNS: TableColumn[] = [
   { key: "rank", width: 72, align: "left" },
   { key: "level", width: 84, align: "left" },
-  { key: "title", align: "left" },
+  { key: "title", minWidth: 190, align: "left" },
   { key: "recorded_at", width: 100, align: "left" },
   { key: "clear_type", width: 110, align: "left" },
   { key: "min_bp", width: 84, align: "left" },
@@ -107,7 +108,7 @@ const DEFAULT_COLUMNS: TableColumn[] = [
 const DAY_DETAIL_COLUMNS: TableColumn[] = [
   { key: "rank", width: 120, align: "left" },
   { key: "level", width: 92, align: "left" },
-  { key: "title", align: "left" },
+  { key: "title", minWidth: 190, align: "left" },
   { key: "clear_type", width: 160, align: "center" },
   { key: "min_bp", width: 140, align: "center" },
   { key: "rate", width: 200, align: "center" },
@@ -808,7 +809,7 @@ function SectionCard({
         <table className="w-full border-collapse" style={{ tableLayout: "fixed", minWidth: 960 }}>
           <colgroup>
             {columns.map((column, index) => (
-              <col key={index} style={column.width ? { width: column.width } : undefined} />
+              <col key={index} style={{ ...(column.width ? { width: column.width } : {}), ...(column.minWidth ? { minWidth: column.minWidth } : {}) }} />
             ))}
           </colgroup>
           <TableHeader allowSort={false} sortBy="value" sortDir="desc" valueLabel={valueLabel} columns={columns} t={t} />
@@ -1018,7 +1019,7 @@ export function ContributionTable({
         <table className="w-full border-collapse" style={{ tableLayout: "fixed", minWidth: 960 }}>
           <colgroup>
             {columns.map((column, index) => (
-              <col key={index} style={column.width ? { width: column.width } : undefined} />
+              <col key={index} style={{ ...(column.width ? { width: column.width } : {}), ...(column.minWidth ? { minWidth: column.minWidth } : {}) }} />
             ))}
           </colgroup>
           <TableHeader
