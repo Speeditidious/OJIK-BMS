@@ -1152,6 +1152,61 @@ def test_build_fumen_aggregate_uses_display_clear_type_for_current_state():
     assert result[("c" * 64, None)]["current_state"]["clear_type"] == 7
 
 
+def test_build_fumen_aggregate_uses_best_state_row_options():
+    rows = [
+        SimpleNamespace(
+            fumen_sha256="d" * 64,
+            fumen_md5=None,
+            client_type="beatoraja",
+            clear_type=5,
+            exscore=1000,
+            rate=70.0,
+            rank="A",
+            min_bp=30,
+            max_combo=800,
+            play_count=2,
+            options={"option": 0},
+            recorded_at=datetime(2026, 4, 20, 10, 0, tzinfo=UTC),
+            synced_at=datetime(2026, 4, 20, 10, 5, tzinfo=UTC),
+        ),
+        SimpleNamespace(
+            fumen_sha256="d" * 64,
+            fumen_md5=None,
+            client_type="beatoraja",
+            clear_type=4,
+            exscore=1500,
+            rate=90.0,
+            rank="AA",
+            min_bp=10,
+            max_combo=900,
+            play_count=3,
+            options={"option": 2},
+            recorded_at=datetime(2026, 4, 21, 10, 0, tzinfo=UTC),
+            synced_at=datetime(2026, 4, 21, 10, 5, tzinfo=UTC),
+        ),
+        SimpleNamespace(
+            fumen_sha256="d" * 64,
+            fumen_md5=None,
+            client_type="beatoraja",
+            clear_type=4,
+            exscore=1500,
+            rate=90.0,
+            rank="AA",
+            min_bp=10,
+            max_combo=900,
+            play_count=4,
+            options={"option": 0},
+            recorded_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+            synced_at=datetime(2026, 4, 22, 10, 5, tzinfo=UTC),
+        ),
+    ]
+
+    result = _build_fumen_aggregate(rows, {})
+
+    assert result[("d" * 64, None)]["options"] == {"option": 2}
+    assert result[("d" * 64, None)]["client_type"] == "beatoraja"
+
+
 @pytest.mark.asyncio
 async def test_get_ranking_history_accepts_730_day_range(monkeypatch):
     current_user = User(id=uuid.uuid4(), username="tester", is_active=True)

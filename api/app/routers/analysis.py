@@ -35,6 +35,7 @@ from app.services.ranking_dashboard import (
     compute_rating_updates,
     compute_rating_updates_aggregated,
     get_user_ranking_version,
+    resolve_best_state_row,
     resolve_best_state_timestamps,
 )
 from app.services.rating_derived_data import (
@@ -278,6 +279,8 @@ def _build_fumen_aggregate(
             "rate": row.rate,
             "rank": row.rank,
             "min_bp": row.min_bp,
+            "client_type": row.client_type,
+            "options": row.options,
             "display_recorded_at": display_recorded_at,
             "effective_ts": effective_ts,
         })
@@ -363,19 +366,26 @@ def _build_fumen_aggregate(
             )
             for client_type, entry in per_client.items()
         )
-        recorded_at, sort_recorded_at = resolve_best_state_timestamps(
-            history_by_key.get(key, []),
-            BestScore(
-                sha256=key[0],
-                md5=key[1],
-                level="",
-                clear_type=best_clear_type,
-                exscore=best_exscore,
-                rate=best_rate,
-                rank=best_rank,
-                min_bp=best_min_bp,
-            ),
+        best_state = BestScore(
+            sha256=key[0],
+            md5=key[1],
+            level="",
+            clear_type=best_clear_type,
+            exscore=best_exscore,
+            rate=best_rate,
+            rank=best_rank,
+            min_bp=best_min_bp,
         )
+        history_rows = history_by_key.get(key, [])
+        detail_row = resolve_best_state_row(history_rows, best_state)
+        recorded_at, sort_recorded_at = (
+            (detail_row.get("display_recorded_at"), detail_row.get("effective_ts"))
+            if detail_row is not None
+            else resolve_best_state_timestamps(history_rows, best_state)
+        )
+        if detail_row is not None:
+            best_client_type = detail_row.get("client_type") or best_client_type
+            options = detail_row.get("options")
         aggregated[key] = {
             "current_state": {
                 "clear_type": best_clear_type,
