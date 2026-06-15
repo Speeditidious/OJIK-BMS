@@ -1,7 +1,14 @@
 "use client";
 
+import { Satellite, Sparkle, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { BracketMeta } from "@/lib/weekly-types";
+
+const GROUP_ICONS: Record<string, typeof Star> = {
+  Starlight: Sparkle,
+  Satellite: Satellite,
+  Stella: Star,
+};
 
 interface Props {
   brackets: BracketMeta[];
@@ -51,6 +58,9 @@ function GroupPill({
   active: boolean;
   onClick: () => void;
 }) {
+  const Icon: typeof Star | undefined = GROUP_ICONS[name];
+  const iconColor = active ? "rgba(255,255,255,0.7)" : color;
+
   return (
     <button
       onClick={onClick}
@@ -60,14 +70,18 @@ function GroupPill({
           : { backgroundColor: `${color}0d`, borderColor: `${color}40` }
       }
       className={cn(
-        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-semibold transition-all",
+        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-label font-semibold transition-all",
         !active && "hover:brightness-110",
       )}
     >
-      <span
-        className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-        style={{ backgroundColor: active ? "rgba(255,255,255,0.7)" : color }}
-      />
+      {Icon ? (
+        <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: iconColor }} />
+      ) : (
+        <span
+          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+          style={{ backgroundColor: iconColor }}
+        />
+      )}
       <span style={{ color: active ? "#fff" : color }}>{name}</span>
     </button>
   );
