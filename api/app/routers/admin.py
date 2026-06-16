@@ -166,3 +166,56 @@ async def deactivate_dan_course(
     await db.commit()
 
 
+
+
+# ── Weekly admin endpoints ──────────────────────────────────────────────────
+
+class WeeklyGenerateRequest(BaseModel):
+    category_key: str | None = None
+    bracket_key: str | None = None
+    offset: int = 0
+
+
+@router.post("/weeklies/generate")
+async def admin_generate_weeklies(
+    payload: WeeklyGenerateRequest,
+    current_admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Force-(re)generate weeklies for the given scope/period (hotfix)."""
+    import random
+    from datetime import datetime
+
+    from app.services.weekly_config import WeeklyConfigError, load_weekly_config
+    from app.services.weekly_generator import generate_weekly
+    from app.services.weekly_period import period_for_offset
+
+    cfg = load_weekly_config()
+    s = cfg.settings
+    now = datetime.now(UTC)
+    period_start, period_end = period_for_offset(
+        now, payload.offset, s.rollover_day_of_week, s.rollover_hour, s.rollover_minute, s.timezone
+    )
+
+    categories = (
+        [cfg.category(payload.category_key)] if payload.category_key else list(cfg.categories)
+    )
+    rng = random.Random()
+    generated: list[str] = []
+    try:
+        for category in categories:
+            brackets = (
+                [category.bracket(payload.bracket_key)] if payload.bracket_key else list(category.brackets)
+            )
+            for bracket in brackets:
+                await generate_weekly(
+                    db, category.key, category.name, bracket,
+                    period_start, period_end, forced=True, rng=rng,
+                )
+                generated.append(f"{category.key}/{bracket.key}")
+        await db.commit()
+    except WeeklyConfigError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return {"generated": generated, "period_start": period_start.isoformat(), "count": len(generated)}

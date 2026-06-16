@@ -18,6 +18,7 @@ from app.models.issue import Issue, IssueComment, IssueTag, IssueUserMention
 from app.models.user import User
 from app.routers.auth import build_discord_avatar_url
 from app.schemas import Pagination
+from app.utils.text_normalization import normalize_loose_search_text
 
 router = APIRouter(prefix="/issues", tags=["issues"])
 
@@ -284,8 +285,8 @@ async def _resolve_tag_filter(db: AsyncSession, tag: str) -> uuid.UUID | None:
 
 
 def _normalize_issue_search_keyword(q: str) -> str:
-    """Normalize a search keyword for whitespace-insensitive substring matching."""
-    return "".join(q.lower().split())
+    """Normalize a search keyword for punctuation/whitespace-insensitive matching."""
+    return normalize_loose_search_text(q)
 
 
 def _issue_search_text_expression(search_field: IssueSearchField):
@@ -307,7 +308,7 @@ def _build_search_condition(q: str, search_field: IssueSearchField):
     if not normalized_keyword:
         return fts_condition
 
-    normalized_text = func.regexp_replace(func.lower(search_text), r"\s+", "", "g")
+    normalized_text = func.regexp_replace(func.lower(search_text), "[^[:alnum:]]+", "", "g")
     return or_(fts_condition, normalized_text.like(f"%{normalized_keyword}%"))
 
 

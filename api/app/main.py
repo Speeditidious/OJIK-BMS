@@ -28,6 +28,7 @@ from app.routers import (
     sync,
     tables,
     users,
+    weeklies,
 )
 
 
@@ -172,6 +173,7 @@ app.include_router(custom.router)
 app.include_router(sync.router)
 app.include_router(schedules.router)
 app.include_router(rankings.router)
+app.include_router(weeklies.router)
 
 
 # ── Static files ────────────────────────────────────────────────────────────

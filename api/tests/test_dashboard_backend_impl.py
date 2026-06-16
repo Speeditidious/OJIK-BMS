@@ -40,6 +40,7 @@ from app.services.ranking_config import (
 )
 from app.services.ranking_dashboard import (
     _compare_entries,
+    _matches_contribution_query,
     _resolve_best_state_timestamps,
     _resolve_date_window,
     build_user_contribution_rows,
@@ -72,6 +73,16 @@ def _compile_conditions(conditions) -> str:
         )
         for condition in conditions
     )
+
+
+def test_contribution_query_matches_symbol_separated_title() -> None:
+    """Rating contribution search should match title/artist like fumen list search."""
+    row = {"title": "GEN-GAOZO -foon mix-", "artist": "455-38B"}
+
+    assert _matches_contribution_query(row, "gengaozo") is True
+    assert _matches_contribution_query(row, "gen gaozo") is True
+    assert _matches_contribution_query(row, "45538b") is True
+    assert _matches_contribution_query(row, "missing") is False
 
 
 def test_initial_sync_exclusion_filters_apply_to_all_first_synced_clients():

@@ -334,7 +334,7 @@ const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores,
         <td className="px-2" data-title={displayTitle} data-artist={displayArtist}>
           <div className="min-w-0 overflow-hidden">
             <div className="max-w-full truncate">
-              <Link href={href} className="text-label hover:text-primary transition-colors">
+              <Link href={href} prefetch={false} className="text-label hover:text-primary transition-colors">
                 {displayTitle}
               </Link>
             </div>

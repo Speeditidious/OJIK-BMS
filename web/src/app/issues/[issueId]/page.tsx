@@ -118,6 +118,7 @@ function Avatar({
     return (
       <Link
         href={`/users/${userId}/dashboard`}
+        prefetch={false}
         aria-label={username}
         className={cn(wrapperClass, "transition-opacity hover:opacity-80")}
       >

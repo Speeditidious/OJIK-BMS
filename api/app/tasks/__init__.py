@@ -8,12 +8,18 @@ UPDATE_ALL_TABLES_TASK = "app.tasks.table_updater.update_all_difficulty_tables"
 RECALCULATE_ALL_RANKINGS_TASK = "app.tasks.ranking_calculator.recalculate_all_rankings"
 REFRESH_FUMEN_POPULARITY_TASK = "app.tasks.fumen_popularity.refresh_dirty_fumen_popularity"
 REBUILD_FUMEN_POPULARITY_WINDOWS_TASK = "app.tasks.fumen_popularity.rebuild_fumen_popularity_windows"
+GENERATE_WEEKLIES_TASK = "app.tasks.weekly_generator.generate_weeklies"
 
 celery_app = Celery(
     "ojik_tasks",
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
-    include=["app.tasks.table_updater", "app.tasks.ranking_calculator", "app.tasks.fumen_popularity"],
+    include=[
+        "app.tasks.table_updater",
+        "app.tasks.ranking_calculator",
+        "app.tasks.fumen_popularity",
+        "app.tasks.weekly_generator",
+    ],
 )
 
 
@@ -96,6 +102,18 @@ def build_beat_schedule(update_config: dict, table_configs: list[dict]) -> dict:
                 "respect_auto_update": True,
             },
         }
+
+    from app.services.weekly_config import load_weekly_config
+
+    weekly_cfg = load_weekly_config()
+    beat_schedule["generate-weeklies"] = {
+        "task": GENERATE_WEEKLIES_TASK,
+        "schedule": crontab(
+            minute=weekly_cfg.settings.rollover_minute,
+            hour=weekly_cfg.settings.rollover_hour,
+            day_of_week=weekly_cfg.settings.rollover_day_of_week,
+        ),
+    }
 
     return beat_schedule
 

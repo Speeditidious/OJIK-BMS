@@ -15,6 +15,7 @@ import type {
 } from "@/lib/ranking-types";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { getDisplayedRatingRankData } from "@/lib/rating-detail-display-core.mjs";
+import { anyTextMatchesLooseQuery } from "@/lib/text-search-core.mjs";
 import { cn } from "@/lib/utils";
 import { RankingTableSelector } from "./RankingTableSelector";
 import { RatingProfileHeader } from "./RatingProfileHeader";
@@ -118,11 +119,10 @@ export function RatingDetailSection({
     const entries = contributionQuery.data?.entries ?? [];
     if (scope !== "top" || !deferredSearch) return entries;
 
-    const normalizedQuery = deferredSearch.toLocaleLowerCase();
     return entries.filter((entry) => {
-      const title = fumenTitleText(entry.title, "").toLocaleLowerCase();
-      const artist = fumenArtistText(entry.artist).toLocaleLowerCase();
-      return title.includes(normalizedQuery) || artist.includes(normalizedQuery);
+      const title = fumenTitleText(entry.title, "");
+      const artist = fumenArtistText(entry.artist);
+      return anyTextMatchesLooseQuery([title, artist], deferredSearch);
     });
   }, [contributionQuery.data?.entries, deferredSearch, scope]);
 

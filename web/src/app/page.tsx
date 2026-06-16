@@ -37,6 +37,7 @@ function PinnedIssueRow({ issue, locale }: { issue: Issue; locale: string }) {
   return (
     <Link
       href={`/issues/${issue.id}`}
+      prefetch={false}
       className="flex items-start gap-3 p-4 bg-primary/5 hover:bg-primary/10 transition-colors group"
     >
       <div className="mt-0.5 shrink-0">

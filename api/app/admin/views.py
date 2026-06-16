@@ -50,6 +50,7 @@ from app.models.schedule import Schedule
 from app.models.score import UserPlayerStats, UserScore
 from app.models.table_import import TableImportLog, TableSourceAlias
 from app.models.user import OAuthAccount, User
+from app.models.weekly import Weekly, WeeklyFumen
 
 RESETTABLE_CLIENT_TYPES = frozenset({"lr2", "beatoraja"})
 CLIENT_UPDATE_DEFAULT_PUBLISH_DELAY = timedelta(minutes=10)
@@ -1456,5 +1457,38 @@ class UserDayNoteAdmin(ModelView, model=UserDayNote):
     column_list = [UserDayNote.id, UserDayNote.user_id, UserDayNote.note_date, UserDayNote.title, UserDayNote.content, UserDayNote.updated_at]
     column_searchable_list = [UserDayNote.title, UserDayNote.content]
     column_sortable_list = [UserDayNote.note_date, UserDayNote.updated_at]
+    can_create = False
+    can_edit = False
+
+
+class WeeklyAdmin(ModelView, model=Weekly):
+    name = "Weekly"
+    name_plural = "Weeklies"
+    icon = "fa-solid fa-calendar-week"
+    column_list = [
+        Weekly.id,
+        Weekly.category_key,
+        Weekly.bracket_key,
+        Weekly.period_start,
+        Weekly.period_end,
+        Weekly.is_forced,
+        Weekly.created_at,
+    ]
+    column_default_sort = [(Weekly.period_start, True)]
+    can_create = False
+    can_edit = False
+
+
+class WeeklyFumenAdmin(ModelView, model=WeeklyFumen):
+    name = "Weekly Fumen"
+    name_plural = "Weekly Fumens"
+    icon = "fa-solid fa-music"
+    column_list = [
+        WeeklyFumen.weekly_id,
+        WeeklyFumen.slot,
+        WeeklyFumen.fumen_id,
+        WeeklyFumen.table_symbol,
+        WeeklyFumen.level,
+    ]
     can_create = False
     can_edit = False

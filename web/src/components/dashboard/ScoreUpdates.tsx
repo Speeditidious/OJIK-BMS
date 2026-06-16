@@ -111,6 +111,7 @@ function FumenTitleCell({
         {hasHash ? (
           <Link
             href={buildSongHref(item, userId)}
+            prefetch={false}
             className="text-label hover:text-primary transition-colors"
           >
             {displayTitle}

@@ -40,6 +40,8 @@ from app.admin.views import (
     UserScoreAdmin,
     UserTableRatingCheckpointAdmin,
     UserTableRatingUpdateDailyAdmin,
+    WeeklyAdmin,
+    WeeklyFumenAdmin,
 )
 
 # Templates directory relative to this package's api/ root.
@@ -171,6 +173,8 @@ def create_admin(app, engine) -> Admin:
         UserTableRatingUpdateDailyAdmin,
         UserRatingUpdateDailyAdmin,
         UserDayNoteAdmin,
+        WeeklyAdmin,
+        WeeklyFumenAdmin,
     ]
 
     for view in all_admin_views:

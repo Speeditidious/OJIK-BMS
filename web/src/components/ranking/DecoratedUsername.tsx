@@ -168,7 +168,7 @@ export function DecoratedUsername({
     <TooltipProvider delayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="relative inline-block max-w-full align-bottom overflow-visible">
+          <span className="relative inline-block max-w-full align-middle overflow-visible">
             {danDecoration.glow_intensity !== "none" && (
               <span
                 aria-hidden="true"

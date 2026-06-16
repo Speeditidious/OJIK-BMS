@@ -191,7 +191,7 @@ const SongRow = React.memo(function SongRow({
           <div className="min-w-0 overflow-hidden">
             <div className="max-w-full truncate">
               {song.sha256 ? (
-                <Link href={songHref(song, userId)} className="text-label leading-tight hover:text-primary transition-colors">
+                <Link href={songHref(song, userId)} prefetch={false} className="text-label leading-tight hover:text-primary transition-colors">
                   {displayTitle}
                 </Link>
               ) : (

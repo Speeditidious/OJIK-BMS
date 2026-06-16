@@ -123,6 +123,7 @@ export function RankingTable({
                 )}
                 <Link
                   href={`/users/${entry.user_id}/dashboard`}
+                  prefetch={false}
                   className="min-w-0 cursor-pointer"
                 >
                   <DecoratedUsername

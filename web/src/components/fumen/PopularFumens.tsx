@@ -100,6 +100,7 @@ export function PopularFumensDialog() {
               <Link
                 key={row.fumen_id}
                 href={songHref({ sha256: row.sha256, md5: row.md5 })}
+                prefetch={false}
                 className={cn("group grid gap-2 px-3 py-2 items-center border-b border-border/50 last:border-0 transition-colors hover:bg-secondary/40", GRID)}
               >
                 <span className={cn("text-center tabular-nums font-bold", rankClass(row.rank))}>

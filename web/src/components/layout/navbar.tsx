@@ -16,6 +16,7 @@ import {
   Trophy,
   Megaphone,
   CircleDot,
+  CalendarDays,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -36,6 +37,7 @@ import {
 
 const navItems = [
   { href: "/ranking", labelKey: "common.nav.ranking", icon: Trophy },
+  { href: "/weekly", labelKey: "common.nav.weekly", icon: CalendarDays },
   { href: "/tables", labelKey: "common.nav.tables", icon: Table2 },
   { href: "/songs", labelKey: "common.nav.songs", icon: Music2 },
   { href: "/custom", labelKey: "common.nav.custom", icon: ListMusic },

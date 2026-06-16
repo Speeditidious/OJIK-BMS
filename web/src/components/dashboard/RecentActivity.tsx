@@ -80,6 +80,36 @@ export function clearText(
   );
 }
 
+const CLEAR_TEXT_COLOR: Record<number, string> = {
+  0: "hsl(var(--muted-foreground))",
+  1: "hsl(var(--clear-failed))",
+  2: "hsl(var(--clear-assist))",
+  3: "hsl(var(--clear-easy))",
+  4: "hsl(var(--clear-normal))",
+  5: "hsl(var(--clear-hard))",
+  6: "hsl(var(--clear-exhard))",
+  7: "hsl(var(--clear-fc))",
+  8: "hsl(var(--clear-perfect))",
+  9: "hsl(var(--clear-max))",
+};
+
+/** Like clearText, but the label is tinted by clear-type color (for color-less rows). */
+export function clearTextColored(
+  clearType: number | null,
+  clientType: string,
+  score?: { exscore?: number | null; rate?: number | null },
+) {
+  if (clearType === null) return null;
+  const displayType = displayClearType(clearType, score) ?? clearType;
+  const labels = getClientLabels(clientType);
+  const label = labels[displayType] ?? String(displayType);
+  return (
+    <span className="text-label font-semibold" style={{ color: CLEAR_TEXT_COLOR[displayType] ?? CLEAR_TEXT_COLOR[0] }}>
+      {label}
+    </span>
+  );
+}
+
 export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -110,6 +140,7 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
             {(u.fumen_sha256 || u.fumen_md5) ? (
               <Link
                 href={songHref({ fumen_id: u.fumen_id, sha256: u.fumen_sha256, md5: u.fumen_md5 })}
+                prefetch={false}
                 className="text-label font-medium truncate max-w-[200px] hover:text-primary transition-colors"
                 onClick={(e) => e.stopPropagation()}
               >

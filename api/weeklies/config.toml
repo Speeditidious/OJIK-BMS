@@ -1,0 +1,214 @@
+[settings]
+timezone = "Asia/Seoul"
+rollover = { day_of_week = "mon", hour = 4, minute = 0 }
+default_pick_count = 7
+
+# ─────────────────────────── 5KEYS AERY ───────────────────────────
+[[categories]]
+key = "aery"
+name = "5KEYS AERY"
+order = 0
+
+  [[categories.brackets]]
+  key = "starter"
+  order = 0
+  color = "#7FB069"
+  selectors = [ { table = "aery", level_range = ["LEVEL 1", "LEVEL 11"] } ]
+
+  [[categories.brackets]]
+  key = "novice"
+  order = 1
+  color = "#A7C957"
+  selectors = [ { table = "aery", level_range = ["LEVEL 12", "LEVEL 15"] } ]
+
+  [[categories.brackets]]
+  key = "intermediate"
+  order = 2
+  color = "#E9C46A"
+  selectors = [ { table = "aery", level_range = ["LEVEL 15+", "LEVEL 17"] } ]
+
+  [[categories.brackets]]
+  key = "advanced"
+  order = 3
+  color = "#F4A261"
+  selectors = [ { table = "aery", level_range = ["LEVEL 17+", "LEVEL 18"] } ]
+
+  [[categories.brackets]]
+  key = "expert"
+  order = 4
+  color = "#E76F51"
+  selectors = [ { table = "aery", level_range = ["LEVEL 18+", "LEVEL 19"] } ]
+
+  [[categories.brackets]]
+  key = "master"
+  order = 5
+  color = "#9B2226"
+  selectors = [ { table = "aery", level_range = ["LEVEL 19+", "LEVEL 20+"] } ]
+
+# ─────────────────────────── STELLAVERSE ───────────────────────────
+[[categories]]
+key = "stellaverse"
+name = "STELLAVERSE"
+order = 1
+
+  # Starlight (sr) — green → yellow
+  [[categories.brackets]]
+  key = "sr_traveler"
+  group = "Starlight"
+  order = 0
+  color = "#2FBF5E"
+  selectors = [ { table = "starlight", level_range = ["1", "3"] } ]
+
+  [[categories.brackets]]
+  key = "sr_explorer"
+  group = "Starlight"
+  order = 1
+  color = "#6CCB3C"
+  selectors = [ { table = "starlight", level_range = ["4", "6"] } ]
+
+  [[categories.brackets]]
+  key = "sr_navigator"
+  group = "Starlight"
+  order = 2
+  color = "#A8D724"
+  selectors = [ { table = "starlight", level_range = ["7", "9"] } ]
+
+  [[categories.brackets]]
+  key = "sr_pioneer"
+  group = "Starlight"
+  order = 3
+  color = "#E0D40E"
+  selectors = [ { table = "starlight", level_range = ["10", "12"] } ]
+
+  # Satellite (sl) — yellow → orange → red
+  [[categories.brackets]]
+  key = "sl_traveler"
+  group = "Satellite"
+  order = 4
+  color = "#F7C012"
+  selectors = [ { table = "satellite", level_range = ["0", "3"] } ]
+
+  [[categories.brackets]]
+  key = "sl_explorer"
+  group = "Satellite"
+  order = 5
+  color = "#F79A18"
+  selectors = [ { table = "satellite", level_range = ["4", "6"] } ]
+
+  [[categories.brackets]]
+  key = "sl_navigator"
+  group = "Satellite"
+  order = 6
+  color = "#F4701E"
+  selectors = [ { table = "satellite", level_range = ["7", "9"] } ]
+
+  [[categories.brackets]]
+  key = "sl_pioneer"
+  group = "Satellite"
+  order = 7
+  color = "#EF4A2A"
+  selectors = [ { table = "satellite", level_range = ["10", "12"] } ]
+
+  # Stella (st) — red → magenta → blue → purple
+  [[categories.brackets]]
+  key = "st_traveler"
+  group = "Stella"
+  order = 8
+  color = "#E5322F"
+  selectors = [ { table = "stella", level_range = ["0", "2"] } ]
+
+  [[categories.brackets]]
+  key = "st_explorer"
+  group = "Stella"
+  order = 9
+  color = "#CE1E63"
+  selectors = [ { table = "stella", level_range = ["3", "5"] } ]
+
+  [[categories.brackets]]
+  key = "st_navigator"
+  group = "Stella"
+  order = 10
+  color = "#5A4FE0"
+  selectors = [ { table = "stella", level_range = ["6", "7"] } ]
+
+  [[categories.brackets]]
+  key = "st_pioneer"
+  group = "Stella"
+  order = 11
+  color = "#7C3AED"
+  selectors = [ { table = "stella", level_range = ["8", "9"] } ]
+
+  [[categories.brackets]]
+  key = "st_wtf"
+  group = "Stella"
+  order = 12
+  color = "#9333EA"
+  selectors = [ { table = "stella", level_range = ["10", "12"] } ]
+
+# ─────────────────────────── 発狂類 ───────────────────────────
+[[categories]]
+key = "balgwang"
+name = "発狂類"
+order = 2
+
+  [[categories.brackets]]
+  key = "dirt"
+  order = 0
+  color = "#FACC15"
+  selectors = [
+    { table = "balgwang", level_range = ["1", "5"] },
+    { table = "new_balgwang", level_range = ["1", "5"] },
+  ]
+
+  [[categories.brackets]]
+  key = "stone"
+  order = 1
+  color = "#FB923C"
+  selectors = [
+    { table = "balgwang", level_range = ["6", "11"] },
+    { table = "new_balgwang", level_range = ["6", "11"] },
+  ]
+
+  [[categories.brackets]]
+  key = "iron"
+  order = 2
+  color = "#EF4444"
+  selectors = [
+    { table = "balgwang", level_range = ["12", "16"] },
+    { table = "new_balgwang", level_range = ["12", "16"] },
+  ]
+
+  [[categories.brackets]]
+  key = "gold"
+  order = 3
+  color = "#DC2626"
+  selectors = [
+    { table = "balgwang", level_range = ["17", "20"] },
+    { table = "new_balgwang", level_range = ["17", "20"] },
+  ]
+
+  [[categories.brackets]]
+  key = "diamond"
+  order = 4
+  color = "#3B82F6"
+  selectors = [
+    { table = "balgwang", level_range = ["21", "23"] },
+    { table = "new_balgwang", level_range = ["21", "23"] },
+    { table = "overjoy", level_range = ["0", "3"] },
+  ]
+
+  [[categories.brackets]]
+  key = "obsidian"
+  order = 5
+  color = "#6366F1"
+  selectors = [
+    { table = "balgwang", level_range = ["24", "25"] },
+    { table = "new_balgwang", levels = ["24"] },
+    { table = "overjoy", level_range = ["4", "5"] },
+  ]
+
+  [[categories.brackets]]
+  key = "wtf"
+  order = 6
+  color = "#9333EA"
+  selectors = [ { table = "overjoy", level_range = ["6", "8"] } ]

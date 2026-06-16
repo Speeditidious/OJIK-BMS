@@ -263,6 +263,7 @@ def test_issue_search_keyword_normalization_removes_whitespace() -> None:
 
     assert _normalize_issue_search_keyword(" 질 문 ") == "질문"
     assert _normalize_issue_search_keyword("bug report") == "bugreport"
+    assert _normalize_issue_search_keyword("[GEN-GAOZO]") == "gengaozo"
 
 
 def test_issue_search_condition_includes_whitespace_insensitive_substring_match() -> None:
@@ -280,6 +281,20 @@ def test_issue_search_condition_includes_whitespace_insensitive_substring_match(
     assert "regexp_replace" in sql
     assert "LIKE" in sql
     assert "%질문%" in compiled.params.values()
+
+
+def test_issue_search_condition_removes_symbols_for_substring_match() -> None:
+    from sqlalchemy.dialects import postgresql
+
+    from app.routers.issues import IssueSearchField, _build_search_condition
+
+    compiled = _build_search_condition("gen gaozo", IssueSearchField.all).compile(
+        dialect=postgresql.dialect()
+    )
+    sql = str(compiled)
+
+    assert "[^[:alnum:]]+" in compiled.params.values()
+    assert "%gengaozo%" in compiled.params.values()
 
 
 def test_issue_activity_notification_dedupe_key_shapes() -> None:

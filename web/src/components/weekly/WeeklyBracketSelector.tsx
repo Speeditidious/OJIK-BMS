@@ -1,6 +1,7 @@
 "use client";
 
 import { Satellite, Sparkle, Star } from "lucide-react";
+import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import type { BracketMeta } from "@/lib/weekly-types";
 
@@ -28,7 +29,7 @@ function relativeLuminance(hex: string): number {
 }
 
 /** Lighten a color that would be invisible on a dark (#12151C) background. */
-function readableColor(hex: string): string {
+function readableOnDark(hex: string): string {
   if (relativeLuminance(hex) >= 0.08) return hex;
   const n = parseInt(hex.replace("#", ""), 16);
   const [r, g, b] = [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff].map((c) =>
@@ -37,12 +38,14 @@ function readableColor(hex: string): string {
   return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
-/** True when the color is light enough that dark text must be used on top of it. */
-function needsDarkText(hex: string): boolean {
-  const L = relativeLuminance(hex);
-  const contrastWhite = 1.05 / (L + 0.05);
-  const contrastBlack = (L + 0.05) / 0.05;
-  return contrastBlack > contrastWhite;
+/** Darken a color that would be invisible on a light (white) background. */
+function readableOnLight(hex: string): string {
+  if (relativeLuminance(hex) <= 0.2) return hex;
+  const n = parseInt(hex.replace("#", ""), 16);
+  const [r, g, b] = [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff].map((c) =>
+    Math.max(0, Math.round(c * 0.45)),
+  );
+  return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
 // ── group pill ────────────────────────────────────────────────────────────────
@@ -50,27 +53,42 @@ function needsDarkText(hex: string): boolean {
 function GroupPill({
   name,
   color,
+  endColor,
   active,
+  isLightMode,
   onClick,
 }: {
   name: string;
   color: string;
+  endColor: string;
   active: boolean;
+  isLightMode: boolean;
   onClick: () => void;
 }) {
   const Icon: typeof Star | undefined = GROUP_ICONS[name];
-  const iconColor = active ? "rgba(255,255,255,0.7)" : color;
+  const accentColor = isLightMode ? readableOnLight(color) : readableOnDark(color);
+  const surfaceColor = isLightMode ? "#ffffff" : "#1E2330";
+
+  const activeStyle: React.CSSProperties = {
+    background: `linear-gradient(${surfaceColor}, ${surfaceColor}) padding-box, linear-gradient(90deg, ${color}, ${endColor}) border-box`,
+    border: "1.5px solid transparent",
+    boxShadow: `0 0 10px ${color}28`,
+  };
+  const idleStyle: React.CSSProperties = isLightMode
+    ? { border: "1.5px solid rgba(0,0,0,.12)" }
+    : { border: "1.5px solid rgba(255,255,255,.10)" };
+
+  const textColor = active
+    ? isLightMode ? "#1a1d24" : "#e9edf2"
+    : accentColor;
+  const iconColor = active ? accentColor : `${accentColor}99`;
 
   return (
     <button
       onClick={onClick}
-      style={
-        active
-          ? { backgroundColor: color, borderColor: color, boxShadow: `0 0 10px ${color}40` }
-          : { backgroundColor: `${color}0d`, borderColor: `${color}40` }
-      }
+      style={active ? activeStyle : idleStyle}
       className={cn(
-        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-label font-semibold transition-all",
+        "flex items-center gap-1.5 px-4 py-2 rounded-lg text-label font-semibold transition-all",
         !active && "hover:brightness-110",
       )}
     >
@@ -82,7 +100,7 @@ function GroupPill({
           style={{ backgroundColor: iconColor }}
         />
       )}
-      <span style={{ color: active ? "#fff" : color }}>{name}</span>
+      <span style={{ color: textColor }}>{name}</span>
     </button>
   );
 }
@@ -92,33 +110,46 @@ function GroupPill({
 function BracketChip({
   bracket,
   active,
+  isLightMode,
   onClick,
 }: {
   bracket: BracketMeta;
   active: boolean;
+  isLightMode: boolean;
   onClick: () => void;
 }) {
   const { color } = bracket;
-  const dark = needsDarkText(color);
+  const accentColor = isLightMode ? readableOnLight(color) : readableOnDark(color);
   const rangeText = bracket.display_ranges.map((r) => r.text).join(" · ") || "–";
 
-  const rangeColor = active ? (dark ? "rgba(0,0,0,0.75)" : "#fff") : readableColor(color);
-  const barColor   = active ? (dark ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.25)") : color;
+  const textColor = active
+    ? isLightMode ? "#1a1d24" : "#e9edf2"
+    : accentColor;
 
   return (
     <button
       onClick={onClick}
       style={
         active
-          ? { backgroundColor: color, borderColor: color, boxShadow: `0 0 10px ${color}40` }
-          : { backgroundColor: `${color}0e`, borderColor: `${color}48` }
+          ? {
+              backgroundColor: `${color}1e`,
+              borderColor: `${color}cc`,
+              boxShadow: `0 0 8px ${color}28`,
+            }
+          : {
+              backgroundColor: `${color}0d`,
+              borderColor: `${color}40`,
+            }
       }
       className="inline-flex items-stretch rounded-lg border transition-all hover:brightness-110 overflow-hidden"
     >
-      <span className="w-1 flex-shrink-0" style={{ backgroundColor: barColor }} />
+      <span
+        className="w-1 flex-shrink-0"
+        style={{ backgroundColor: active ? color : `${color}60` }}
+      />
       <span
         className="px-3 py-2 text-label font-bold tabular-nums whitespace-nowrap flex items-center"
-        style={{ color: rangeColor }}
+        style={{ color: textColor }}
       >
         {rangeText}
       </span>
@@ -129,6 +160,9 @@ function BracketChip({
 // ── main component ────────────────────────────────────────────────────────────
 
 export function WeeklyBracketSelector({ brackets, selected, onSelect }: Props) {
+  const { resolvedTheme } = useTheme();
+  const isLightMode = resolvedTheme !== "dark";
+
   const uniqueGroups = Array.from(
     new Set(brackets.filter((b) => b.group).map((b) => b.group!)),
   );
@@ -138,8 +172,6 @@ export function WeeklyBracketSelector({ brackets, selected, onSelect }: Props) {
     ? (brackets.find((b) => b.key === selected)?.group ?? uniqueGroups[0])
     : null;
 
-  // If selected bracket has no group (null) but groups exist, fall back to the first
-  // bracket of the active group so a chip is always visually active.
   const effectiveSelected =
     hasGroups && !brackets.find((b) => b.key === selected)?.group
       ? (brackets.find((b) => b.group === activeGroup)?.key ?? selected)
@@ -154,13 +186,17 @@ export function WeeklyBracketSelector({ brackets, selected, onSelect }: Props) {
       {hasGroups && (
         <div className="flex flex-wrap justify-center gap-2">
           {uniqueGroups.map((groupName) => {
-            const firstInGroup = brackets.find((b) => b.group === groupName)!;
+            const groupBrackets = brackets.filter((b) => b.group === groupName);
+            const firstInGroup = groupBrackets[0]!;
+            const lastInGroup = groupBrackets[groupBrackets.length - 1]!;
             return (
               <GroupPill
                 key={groupName}
                 name={groupName}
                 color={firstInGroup.color}
+                endColor={lastInGroup.color}
                 active={groupName === activeGroup}
+                isLightMode={isLightMode}
                 onClick={() => {
                   if (groupName !== activeGroup) onSelect(firstInGroup.key);
                   else if (effectiveSelected !== selected) onSelect(effectiveSelected);
@@ -177,6 +213,7 @@ export function WeeklyBracketSelector({ brackets, selected, onSelect }: Props) {
             key={b.key}
             bracket={b}
             active={b.key === effectiveSelected}
+            isLightMode={isLightMode}
             onClick={() => onSelect(b.key)}
           />
         ))}

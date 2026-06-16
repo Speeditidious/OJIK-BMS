@@ -1,0 +1,11 @@
+User-agent: *
+Disallow: /api/
+Disallow: /issues/
+Disallow: /users/
+Disallow: /songs/md5/
+Disallow: /songs/sha256/
+Disallow: /_next/
+Disallow: /*?_rsc=
+
+User-agent: bingbot
+Crawl-delay: 10

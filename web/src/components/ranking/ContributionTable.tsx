@@ -623,7 +623,7 @@ function ContributionRow({
       return (
         <div className="min-w-0 overflow-hidden">
           {songUrl ? (
-            <Link href={songUrl} className="block max-w-full truncate text-label leading-tight transition-colors hover:text-primary">
+            <Link href={songUrl} prefetch={false} className="block max-w-full truncate text-label leading-tight transition-colors hover:text-primary">
               {displayTitle}
             </Link>
           ) : (

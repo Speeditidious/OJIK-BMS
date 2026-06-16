@@ -27,6 +27,7 @@ from app.services.ranking_calculator import (
     standardize_rating,
 )
 from app.services.ranking_config import TableRankingConfig
+from app.utils.text_normalization import loose_text_matches
 
 RANK_GRADE_ORDER = {
     "F": 0,
@@ -39,6 +40,13 @@ RANK_GRADE_ORDER = {
     "AAA": 7,
     "MAX": 8,
 }
+
+
+def _matches_contribution_query(row: dict[str, Any], query: str | None) -> bool:
+    """Return whether a contribution row matches a loose title/artist query."""
+    if not query:
+        return True
+    return loose_text_matches(row.get("title"), query) or loose_text_matches(row.get("artist"), query)
 
 
 def compute_exp_progress_fields(
@@ -619,13 +627,7 @@ async def build_user_contribution_rows(
     else:
         filtered = rows
         if query:
-            normalized_query = query.strip().casefold()
-            filtered = [
-                row
-                for row in filtered
-                if normalized_query in row["title"].casefold()
-                or normalized_query in (row["artist"] or "").casefold()
-            ]
+            filtered = [row for row in filtered if _matches_contribution_query(row, query)]
         level_index = {level: idx for idx, level in enumerate(table_cfg.level_order)}
         filtered = sorted(
             filtered,
@@ -793,13 +795,7 @@ async def build_user_contribution_rows_at_date(
     else:
         filtered = rows
         if query:
-            normalized_query = query.strip().casefold()
-            filtered = [
-                row
-                for row in filtered
-                if normalized_query in row["title"].casefold()
-                or normalized_query in (row["artist"] or "").casefold()
-            ]
+            filtered = [row for row in filtered if _matches_contribution_query(row, query)]
         level_index = {level: idx for idx, level in enumerate(table_cfg.level_order)}
         filtered = sorted(
             filtered,

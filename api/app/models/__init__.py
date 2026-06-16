@@ -40,6 +40,7 @@ from app.models.schedule import Schedule
 from app.models.score import UserPlayerStats, UserScore
 from app.models.table_import import TableImportLog, TableSourceAlias
 from app.models.user import OAuthAccount, User
+from app.models.weekly import Weekly, WeeklyFumen
 
 __all__ = [
     "Base",
@@ -81,4 +82,6 @@ __all__ = [
     "UserTableRatingCheckpoint",
     "UserTableRatingUpdateDaily",
     "UserRatingUpdateDaily",
+    "Weekly",
+    "WeeklyFumen",
 ]
