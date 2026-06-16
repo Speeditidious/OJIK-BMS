@@ -736,10 +736,12 @@ from app.main import app
 
 def test_exact_score_row_detail_route_is_registered():
     """Exact row expansion must have a dedicated PK-based API route."""
-    assert any(
-        getattr(route, "path", None) == "/scores/row/{score_id}/row-detail"
-        for route in app.routes
-    )
+    from starlette.routing import NoMatchFound
+    try:
+        path = app.url_path_for("get_score_row_detail", score_id="test")
+        assert str(path) == "/scores/row/test/row-detail"
+    except NoMatchFound:
+        raise AssertionError("Route 'get_score_row_detail' is not registered in app")
 
 
 @pytest.mark.asyncio
