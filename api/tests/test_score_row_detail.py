@@ -737,7 +737,7 @@ from app.main import app
 def test_exact_score_row_detail_route_is_registered():
     """Exact row expansion must have a dedicated PK-based API route."""
     assert any(
-        route.path == "/scores/row/{score_id}/row-detail"
+        getattr(route, "path", None) == "/scores/row/{score_id}/row-detail"
         for route in app.routes
     )
 
