@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, use, useMemo } from "react";
+import { Suspense, use, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useRouter } from "next/navigation";
 import { UserCircle } from "lucide-react";
@@ -12,6 +12,7 @@ import { AboutMeCard } from "@/components/profile/AboutMeCard";
 import { useActivityHeatmap, usePlaySummary } from "@/hooks/use-analysis";
 import { useUserProfile } from "@/hooks/use-user-profile";
 import { useAuthStore } from "@/stores/auth";
+import { getInitialBrowserPathname, restoreInitialBrowserUrlIfNeeded } from "@/lib/static-route";
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -99,9 +100,13 @@ export default function UserProfilePage({
   params: Promise<{ userId: string }>;
 }) {
   const { userId: routeUserId } = use(params);
-  const pathname = typeof window === "undefined" ? "" : window.location.pathname;
+  const pathname = getInitialBrowserPathname();
   const pathnameUserId = pathname.match(/^\/users\/([^/?#]+)\/?$/)?.[1];
   const userId = pathnameUserId ?? routeUserId;
+
+  useEffect(() => {
+    restoreInitialBrowserUrlIfNeeded();
+  }, []);
 
   return (
     <Suspense

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, Suspense } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
@@ -44,6 +44,7 @@ import { useAuthStore } from "@/stores/auth";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import { getMentionAutocompleteTrigger } from "@/lib/mention-autocomplete-core.mjs";
 import { timeAgo } from "@/lib/time";
+import { getInitialBrowserPathname, restoreInitialBrowserUrlIfNeeded } from "@/lib/static-route";
 import type { IssueComment as IssueCommentType, IssuePinChangeEventPayload, IssueStatus, IssueTag } from "@/types";
 
 // Statuses where any authenticated user can still leave comments.
@@ -497,10 +498,14 @@ function BackToListLink() {
 export default function IssueDetailPage() {
   const { t, i18n } = useTranslation();
   const { issueId } = useParams<{ issueId: string }>();
-  const pathname = typeof window === "undefined" ? "" : window.location.pathname;
+  const pathname = getInitialBrowserPathname();
   const pathnameIssueId = pathname.match(/^\/issues\/([^/?#]+)/)?.[1];
   const id = Number(pathnameIssueId ?? issueId);
   const { user } = useAuthStore();
+
+  useEffect(() => {
+    restoreInitialBrowserUrlIfNeeded();
+  }, []);
 
   const { data: issue, isLoading } = useIssue(id);
   const { data: commentsData } = useIssueComments(id, 1, 100);

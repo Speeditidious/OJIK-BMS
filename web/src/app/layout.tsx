@@ -23,6 +23,12 @@ export default function RootLayout({
   return (
     <html lang={DEFAULT_LANGUAGE} suppressHydrationWarning>
       <body className={inter.className}>
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "window.__OJIK_INITIAL_URL__={pathname:location.pathname,search:location.search,hash:location.hash};",
+          }}
+        />
         <Providers initialLanguage={DEFAULT_LANGUAGE}>{children}</Providers>
       </body>
     </html>

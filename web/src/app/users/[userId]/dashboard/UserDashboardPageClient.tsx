@@ -1,7 +1,8 @@
 "use client";
 
-import { Suspense, use } from "react";
+import { Suspense, use, useEffect } from "react";
 import { UserDashboardContent } from "@/components/dashboard/UserDashboardContent";
+import { getInitialBrowserPathname, restoreInitialBrowserUrlIfNeeded } from "@/lib/static-route";
 
 export default function UserDashboardPage({
   params,
@@ -9,9 +10,13 @@ export default function UserDashboardPage({
   params: Promise<{ userId: string }>;
 }) {
   const { userId: routeUserId } = use(params);
-  const pathname = typeof window === "undefined" ? "" : window.location.pathname;
+  const pathname = getInitialBrowserPathname();
   const pathnameUserId = pathname.match(/^\/users\/([^/?#]+)\/dashboard\/?$/)?.[1];
   const userId = pathnameUserId ?? routeUserId;
+
+  useEffect(() => {
+    restoreInitialBrowserUrlIfNeeded();
+  }, []);
 
   return (
     <Suspense

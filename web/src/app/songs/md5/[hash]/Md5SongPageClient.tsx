@@ -1,7 +1,8 @@
 "use client";
 
-import { Suspense, use } from "react";
+import { Suspense, use, useEffect } from "react";
 import SongDetailPage from "../../SongDetailPage";
+import { getInitialBrowserPathname, restoreInitialBrowserUrlIfNeeded } from "@/lib/static-route";
 
 interface Md5SongPageProps {
   params: Promise<{ hash: string }>;
@@ -9,9 +10,14 @@ interface Md5SongPageProps {
 
 function Md5SongPageContent({ params }: Md5SongPageProps) {
   const { hash: routeHash } = use(params);
-  const pathname = typeof window === "undefined" ? "" : window.location.pathname;
+  const pathname = getInitialBrowserPathname();
   const pathnameHash = pathname.match(/^\/songs\/md5\/([^/?#]+)\/?$/)?.[1];
   const hash = pathnameHash ?? routeHash;
+
+  useEffect(() => {
+    restoreInitialBrowserUrlIfNeeded();
+  }, []);
+
   return <SongDetailPage params={Promise.resolve({ fumen_id: `md5=${hash}` })} />;
 }
 
