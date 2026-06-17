@@ -249,3 +249,9 @@ web/tsconfig.tsbuildinfo
 
 # Orchestry state
 .orchestry
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
