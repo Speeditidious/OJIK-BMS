@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, Suspense } from "react";
-import { useParams, usePathname, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { MessageSquare, ChevronDown, GitBranch, ArrowLeft, Pin, ShieldCheck, Pencil, X } from "lucide-react";
@@ -497,7 +497,7 @@ function BackToListLink() {
 export default function IssueDetailPage() {
   const { t, i18n } = useTranslation();
   const { issueId } = useParams<{ issueId: string }>();
-  const pathname = usePathname();
+  const pathname = typeof window === "undefined" ? "" : window.location.pathname;
   const pathnameIssueId = pathname.match(/^\/issues\/([^/?#]+)/)?.[1];
   const id = Number(pathnameIssueId ?? issueId);
   const { user } = useAuthStore();

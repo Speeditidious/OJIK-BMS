@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useEffect } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/auth";
 
 export default function DashboardDayRedirectPage({
@@ -10,7 +10,7 @@ export default function DashboardDayRedirectPage({
   params: Promise<{ date: string }>;
 }) {
   const { date: routeDate } = use(params);
-  const pathname = usePathname();
+  const pathname = typeof window === "undefined" ? "" : window.location.pathname;
   const pathnameDate = pathname.match(/^\/dashboard\/day\/([^/?#]+)\/?$/)?.[1];
   const date = pathnameDate ?? routeDate;
   const router = useRouter();

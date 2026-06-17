@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import { useParams, usePathname, useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 
 export default function UsernameRedirectPage() {
   const { username: routeUsername } = useParams<{ username: string }>();
-  const pathname = usePathname();
+  const pathname = typeof window === "undefined" ? "" : window.location.pathname;
   const pathnameUsername = pathname.match(/^\/u\/([^/?#]+)\/?$/)?.[1];
   const username = pathnameUsername ?? routeUsername;
   const router = useRouter();

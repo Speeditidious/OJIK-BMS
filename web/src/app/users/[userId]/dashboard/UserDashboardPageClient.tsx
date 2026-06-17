@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, use } from "react";
-import { usePathname } from "next/navigation";
 import { UserDashboardContent } from "@/components/dashboard/UserDashboardContent";
 
 export default function UserDashboardPage({
@@ -10,7 +9,7 @@ export default function UserDashboardPage({
   params: Promise<{ userId: string }>;
 }) {
   const { userId: routeUserId } = use(params);
-  const pathname = usePathname();
+  const pathname = typeof window === "undefined" ? "" : window.location.pathname;
   const pathnameUserId = pathname.match(/^\/users\/([^/?#]+)\/dashboard\/?$/)?.[1];
   const userId = pathnameUserId ?? routeUserId;
 

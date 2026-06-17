@@ -2,7 +2,7 @@
 
 import { Suspense, use, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { UserCircle } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
@@ -99,7 +99,7 @@ export default function UserProfilePage({
   params: Promise<{ userId: string }>;
 }) {
   const { userId: routeUserId } = use(params);
-  const pathname = usePathname();
+  const pathname = typeof window === "undefined" ? "" : window.location.pathname;
   const pathnameUserId = pathname.match(/^\/users\/([^/?#]+)\/?$/)?.[1];
   const userId = pathnameUserId ?? routeUserId;
 

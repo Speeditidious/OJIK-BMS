@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, use } from "react";
-import { usePathname } from "next/navigation";
 import SongDetailPage from "../../SongDetailPage";
 
 interface Md5SongPageProps {
@@ -10,7 +9,7 @@ interface Md5SongPageProps {
 
 function Md5SongPageContent({ params }: Md5SongPageProps) {
   const { hash: routeHash } = use(params);
-  const pathname = usePathname();
+  const pathname = typeof window === "undefined" ? "" : window.location.pathname;
   const pathnameHash = pathname.match(/^\/songs\/md5\/([^/?#]+)\/?$/)?.[1];
   const hash = pathnameHash ?? routeHash;
   return <SongDetailPage params={Promise.resolve({ fumen_id: `md5=${hash}` })} />;

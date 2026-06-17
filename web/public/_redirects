@@ -1,9 +1,9 @@
-/dashboard/day/:date /dashboard/day/__static__/index.html 200
+/dashboard/day/:date /dashboard/day/__static__/ 200
 /issues/new /issues/new/index.html 200
-/issues/:issueId /issues/__static__/index.html 200
-/songs/md5/:hash /songs/md5/__static__/index.html 200
-/songs/sha256/:hash /songs/sha256/__static__/index.html 200
-/u/:username /u/__static__/index.html 200
-/users/:userId/dashboard /users/__static__/dashboard/index.html 200
-/users/:userId /users/__static__/index.html 200
+/issues/:issueId /issues/__static__/ 200
+/songs/md5/:hash /songs/md5/__static__/ 200
+/songs/sha256/:hash /songs/sha256/__static__/ 200
+/u/:username /u/__static__/ 200
+/users/:userId/dashboard /users/__static__/dashboard/ 200
+/users/:userId /users/__static__/ 200
 /* /index.html 200
