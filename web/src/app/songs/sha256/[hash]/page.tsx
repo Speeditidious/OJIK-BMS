@@ -1,21 +1,15 @@
-"use client";
+import Sha256SongPageClient from "./Sha256SongPageClient";
 
-import { Suspense, use } from "react";
-import SongDetailPage from "../../SongDetailPage";
+export const dynamicParams = false;
 
-interface Sha256SongPageProps {
+export function generateStaticParams() {
+  return [{ hash: "__static__" }];
+}
+
+export default function Sha256SongPage({
+  params,
+}: {
   params: Promise<{ hash: string }>;
-}
-
-function Sha256SongPageContent({ params }: Sha256SongPageProps) {
-  const { hash } = use(params);
-  return <SongDetailPage params={Promise.resolve({ fumen_id: `sha256=${hash}` })} />;
-}
-
-export default function Sha256SongPage(props: Sha256SongPageProps) {
-  return (
-    <Suspense fallback={null}>
-      <Sha256SongPageContent {...props} />
-    </Suspense>
-  );
+}) {
+  return <Sha256SongPageClient params={params} />;
 }

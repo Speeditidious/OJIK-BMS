@@ -1,21 +1,15 @@
-"use client";
+import Md5SongPageClient from "./Md5SongPageClient";
 
-import { Suspense, use } from "react";
-import SongDetailPage from "../../SongDetailPage";
+export const dynamicParams = false;
 
-interface Md5SongPageProps {
+export function generateStaticParams() {
+  return [{ hash: "__static__" }];
+}
+
+export default function Md5SongPage({
+  params,
+}: {
   params: Promise<{ hash: string }>;
-}
-
-function Md5SongPageContent({ params }: Md5SongPageProps) {
-  const { hash } = use(params);
-  return <SongDetailPage params={Promise.resolve({ fumen_id: `md5=${hash}` })} />;
-}
-
-export default function Md5SongPage(props: Md5SongPageProps) {
-  return (
-    <Suspense fallback={null}>
-      <Md5SongPageContent {...props} />
-    </Suspense>
-  );
+}) {
+  return <Md5SongPageClient params={params} />;
 }
