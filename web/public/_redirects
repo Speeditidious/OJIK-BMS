@@ -1,0 +1,9 @@
+/dashboard/day/* /dashboard/day/__static__/index.html 200
+/issues/new /issues/new/index.html 200
+/issues/* /issues/__static__/index.html 200
+/songs/md5/* /songs/md5/__static__/index.html 200
+/songs/sha256/* /songs/sha256/__static__/index.html 200
+/u/* /u/__static__/index.html 200
+/users/*/dashboard /users/__static__/dashboard/index.html 200
+/users/* /users/__static__/index.html 200
+/* /index.html 200
