@@ -4,7 +4,6 @@ Data integrity rules applied here mirror the constraints in the API:
 - Best-score tables (UserScore): no create, no delete.
 - User: no delete (prevents accidental cascade wipeout).
 """
-import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -1172,22 +1171,13 @@ def _client_update_default_publish_after(now: datetime | None = None) -> datetim
 
 
 async def _trigger_revalidate() -> None:
-    """Fire-and-forget call to Next.js /api/revalidate to bust the client-release cache."""
-    from app.core.config import settings
+    """No-op after moving the frontend to Cloudflare Pages static hosting.
 
-    secret = settings.REVALIDATE_SECRET
-    frontend_url = settings.FRONTEND_URL
-    if not secret or not frontend_url:
-        return
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=5) as client:
-            await client.post(
-                f"{frontend_url}/api/revalidate",
-                headers={"x-revalidate-secret": secret},
-            )
-    except Exception:
-        logging.getLogger(__name__).warning("Failed to trigger Next.js revalidate", exc_info=True)
+    Client release metadata is fetched directly from FastAPI by the browser.
+    TanStack Query keeps a short client-side stale time, so there is no Next.js
+    cache to invalidate.
+    """
+    return None
 
 
 def _parse_uuid_pks(raw: str) -> list[uuid.UUID]:

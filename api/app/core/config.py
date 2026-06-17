@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     # Internal CI ingest token for client update draft creation
     CLIENT_UPDATE_INGEST_TOKEN: str = ""
 
-    # Secret shared with Next.js /api/revalidate endpoint
+    # Deprecated: retained for old environments that still define it.
     REVALIDATE_SECRET: str = ""
 
     # CORS
