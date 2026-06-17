@@ -225,6 +225,7 @@ docs/
 # Next.js build output & dependencies
 web/node_modules/
 web/.next/
+web/out/
 client/dist/
 client/src-tauri/target/
 client/release/
