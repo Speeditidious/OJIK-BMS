@@ -20,6 +20,12 @@ export interface CategoryMeta {
   brackets: BracketMeta[];
 }
 
+export interface WeeklyPeriodSummary {
+  weekly_id: string;
+  period_start: string;
+  period_end: string;
+}
+
 export interface WeeklyRolloverInfo {
   timezone: string;
   day_of_week: string;

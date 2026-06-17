@@ -4,6 +4,7 @@ import type {
   CategoryMeta,
   WeeklyDetail,
   WeeklyFumenRecords,
+  WeeklyPeriodSummary,
   WeeklyRolloverInfo,
 } from "@/lib/weekly-types";
 
@@ -19,6 +20,16 @@ export function useWeeklyCategories() {
   return useQuery<CategoryMeta[]>({
     queryKey: ["weeklies", "categories"],
     queryFn: () => api.get<CategoryMeta[]>("/weeklies/categories"),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useWeeklyPeriods(categoryKey: string | null, bracketKey: string | null) {
+  return useQuery<WeeklyPeriodSummary[]>({
+    queryKey: ["weeklies", "periods", categoryKey, bracketKey],
+    queryFn: () =>
+      api.get<WeeklyPeriodSummary[]>(`/weeklies/${categoryKey}/${bracketKey}/periods`),
+    enabled: !!categoryKey && !!bracketKey,
     staleTime: 5 * 60 * 1000,
   });
 }

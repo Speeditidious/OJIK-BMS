@@ -521,3 +521,67 @@ async def test_rebuild_popularity_window_replaces_cache_with_window_deltas(db_se
     assert [(r.window, r.fumen_id, r.rank, r.played_user_count, r.play_count) for r in rows] == [
         ("monthly", new_id, 1, 1, 6)
     ]
+
+
+@pytest.mark.asyncio
+async def test_rebuild_popularity_window_keeps_play_count_leaders_outside_player_top_50(
+    db_session: AsyncSession,
+):
+    high_play_id = _fid()
+    baseline_id = _fid()
+    now = datetime.now(UTC)
+    db_session.add_all(
+        [
+            Fumen(fumen_id=high_play_id, sha256="9" * 64, title="High Plays"),
+            Fumen(fumen_id=baseline_id, sha256="a" * 64, title="Baseline"),
+        ]
+    )
+    filler_ids = []
+    for index in range(51):
+        fumen_id = _fid()
+        filler_ids.append(fumen_id)
+        db_session.add(
+            Fumen(
+                fumen_id=fumen_id,
+                sha256=f"{index:064x}",
+                title=f"Many Players {index}",
+            )
+        )
+    await db_session.flush()
+
+    for fumen_id in filler_ids:
+        for _ in range(3):
+            user_id = _fid()
+            await _add_score(
+                db_session,
+                fumen_id=baseline_id,
+                user_id=user_id,
+                play_count=1,
+                synced_at=now - timedelta(days=31),
+            )
+            await _add_score(db_session, fumen_id=fumen_id, user_id=user_id, play_count=1, synced_at=now)
+    high_play_user_id = _fid()
+    await _add_score(
+        db_session,
+        fumen_id=baseline_id,
+        user_id=high_play_user_id,
+        play_count=1,
+        synced_at=now - timedelta(days=31),
+    )
+    await _add_score(db_session, fumen_id=high_play_id, user_id=high_play_user_id, play_count=99, synced_at=now)
+    await db_session.flush()
+
+    rebuilt = await rebuild_popularity_window(db_session, "monthly")
+
+    top_by_plays = (
+        await db_session.execute(
+            sa.select(FumenPopularityWindow)
+            .where(FumenPopularityWindow.window == "monthly")
+            .order_by(FumenPopularityWindow.play_count.desc())
+            .limit(1)
+        )
+    ).scalar_one()
+    assert rebuilt == 52
+    assert top_by_plays.fumen_id == high_play_id
+    assert top_by_plays.played_user_count == 1
+    assert top_by_plays.play_count == 99

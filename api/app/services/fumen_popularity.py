@@ -24,7 +24,6 @@ from app.services.initial_sync import INITIAL_SYNC_WINDOW_HOURS
 from app.services.player_stats_reliability import lr2_stats_unreliable_sql
 
 _WINDOW_DAYS = {"weekly": 7, "monthly": 30}
-_TOP_N = 50
 
 
 def _dialect_name(db: AsyncSession) -> str:
@@ -518,20 +517,22 @@ async def rebuild_popularity_window(db: AsyncSession, window: str) -> int:
         await db.execute(
             _window_delta_aggregate(window, dialect_name=_dialect_name(db))
             .order_by(sa.desc("played_user_count"), sa.desc("play_count"), sa.column("fumen_id"))
-            .limit(_TOP_N)
         )
     ).all()
     await db.execute(sa.delete(FumenPopularityWindow).where(FumenPopularityWindow.window == window))
     if rows:
-        db.add_all(
-            FumenPopularityWindow(
-                window=window,
-                fumen_id=r.fumen_id,
-                rank=index,
-                played_user_count=int(r.played_user_count),
-                play_count=int(r.play_count or 0),
-            )
-            for index, r in enumerate(rows, start=1)
+        await db.execute(
+            sa.insert(FumenPopularityWindow),
+            [
+                {
+                    "window": window,
+                    "fumen_id": r.fumen_id,
+                    "rank": index,
+                    "played_user_count": int(r.played_user_count),
+                    "play_count": int(r.play_count or 0),
+                }
+                for index, r in enumerate(rows, start=1)
+            ],
         )
     await db.flush()
     return len(rows)

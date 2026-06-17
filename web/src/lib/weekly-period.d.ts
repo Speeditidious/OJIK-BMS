@@ -1,3 +1,5 @@
+import type { WeeklyPeriodSummary } from "@/lib/weekly-types";
+
 export interface WeeklyRolloverSettings {
   timezone: string;
   day_of_week: string;
@@ -16,3 +18,13 @@ export function getWeeklyPeriodForOffset(
   offset: number,
   rollover: WeeklyRolloverSettings,
 ): WeeklyPeriodRange;
+
+export function getWeeklyValidOffsetRange(
+  periods: WeeklyPeriodSummary[],
+  currentPeriodStartIso: string,
+): { minOffset: number; maxOffset: 0 } | null;
+
+export function getWeeklyWeekNumber(
+  periods: WeeklyPeriodSummary[],
+  selectedPeriodStartIso: string,
+): number | null;

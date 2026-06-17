@@ -49,6 +49,51 @@ function localDateTimeToUtc(localMs, timezone) {
   return new Date(utcMs);
 }
 
+function normalizeIsoMs(iso) {
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+export function getWeeklyValidOffsetRange(periods, currentPeriodStartIso) {
+  const currentMs = normalizeIsoMs(currentPeriodStartIso);
+  if (currentMs === null || !Array.isArray(periods) || periods.length === 0) {
+    return null;
+  }
+
+  const oldestMs = periods.reduce((min, period) => {
+    const periodMs = normalizeIsoMs(period.period_start);
+    if (periodMs === null) return min;
+    return min === null ? periodMs : Math.min(min, periodMs);
+  }, null);
+
+  if (oldestMs === null || oldestMs > currentMs) {
+    return null;
+  }
+
+  return {
+    minOffset: Math.floor((oldestMs - currentMs) / WEEK_MS),
+    maxOffset: 0,
+  };
+}
+
+export function getWeeklyWeekNumber(periods, selectedPeriodStartIso) {
+  const selectedMs = normalizeIsoMs(selectedPeriodStartIso);
+  if (selectedMs === null || !Array.isArray(periods) || periods.length === 0) {
+    return null;
+  }
+
+  const orderedStarts = Array.from(
+    new Set(
+      periods
+        .map((period) => normalizeIsoMs(period.period_start))
+        .filter((periodMs) => periodMs !== null),
+    ),
+  ).sort((a, b) => a - b);
+
+  const index = orderedStarts.indexOf(selectedMs);
+  return index === -1 ? null : index + 1;
+}
+
 export function getWeeklyPeriodForOffset(now, offset, rollover) {
   const timezone = rollover.timezone || "Asia/Seoul";
   const rolloverDay = DAY_INDEX[rollover.day_of_week] ?? DAY_INDEX.mon;

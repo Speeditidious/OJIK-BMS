@@ -26,3 +26,19 @@ test("weekly page keeps the selected period when switching category or bracket",
   assert.doesNotMatch(pageSource, /onSelect=\{\(c\) => \{[\s\S]*offset: "0"/);
   assert.doesNotMatch(pageSource, /onSelect=\{\(b\) => updateParams\(\{ bracket: b, offset: "0" \}\)\}/);
 });
+
+test("weekly page loads generated periods for the selected category and bracket", () => {
+  assert.match(pageSource, /useWeeklyPeriods\(category,\s*bracket\)/);
+});
+
+test("weekly page clamps offsets earlier than the first generated period", () => {
+  assert.match(pageSource, /validOffsetRange/);
+  assert.match(pageSource, /offset < validOffsetRange\.minOffset/);
+  assert.match(pageSource, /updateParams\(\{ offset: String\(validOffsetRange\.minOffset\) \}\)/);
+});
+
+test("weekly page passes week number and boundary state to period nav", () => {
+  assert.match(pageSource, /weekNumber=\{weekNumber\}/);
+  assert.match(pageSource, /isAtFirstPeriod=\{isAtFirstPeriod\}/);
+  assert.match(pageSource, /onCurrentPeriodClick=\{\(\) => updateParams\(\{ offset: "0" \}\)\}/);
+});

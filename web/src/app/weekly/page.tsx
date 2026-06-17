@@ -6,13 +6,22 @@ import { CalendarDays, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Navbar } from "@/components/layout/navbar";
 import { useAuthStore } from "@/stores/auth";
-import { useWeeklyCategories, useWeeklyDetail, useWeeklyRolloverInfo } from "@/hooks/use-weeklies";
+import {
+  useWeeklyCategories,
+  useWeeklyDetail,
+  useWeeklyPeriods,
+  useWeeklyRolloverInfo,
+} from "@/hooks/use-weeklies";
 import { WeeklyCategorySelector } from "@/components/weekly/WeeklyCategorySelector";
 import { WeeklyBracketSelector } from "@/components/weekly/WeeklyBracketSelector";
 import { WeeklyPeriodNav } from "@/components/weekly/WeeklyPeriodNav";
 import { WeeklyFumenList } from "@/components/weekly/WeeklyFumenList";
 import { readLastWeekly, saveLastWeekly, resolvePosition } from "@/lib/weekly-storage";
-import { getWeeklyPeriodForOffset } from "@/lib/weekly-period.mjs";
+import {
+  getWeeklyPeriodForOffset,
+  getWeeklyValidOffsetRange,
+  getWeeklyWeekNumber,
+} from "@/lib/weekly-period.mjs";
 import { formatRollover } from "@/lib/weekly-format.mjs";
 
 function WeeklyContent() {
@@ -54,18 +63,59 @@ function WeeklyContent() {
   }, [category, bracket, user?.id]);
 
   const currentCategory = categories?.find((c) => c.key === category) ?? null;
+  const { data: periods } = useWeeklyPeriods(category, bracket);
   const { data: detail, isLoading } = useWeeklyDetail(category, bracket, offset);
   const fallbackPeriod = useMemo(
     () => (rolloverInfo ? getWeeklyPeriodForOffset(new Date(), offset, rolloverInfo) : null),
     [offset, rolloverInfo],
   );
-  const displayPeriod = detail
-    ? {
-        periodStart: detail.period_start,
-        periodEnd: detail.period_end,
-        isCurrent: detail.is_current,
-      }
-    : fallbackPeriod;
+  const currentFallbackPeriod = useMemo(
+    () => (rolloverInfo ? getWeeklyPeriodForOffset(new Date(), 0, rolloverInfo) : null),
+    [rolloverInfo],
+  );
+  const displayPeriod = useMemo(
+    () =>
+      detail
+        ? {
+            periodStart: detail.period_start,
+            periodEnd: detail.period_end,
+            isCurrent: detail.is_current,
+          }
+        : fallbackPeriod,
+    [detail, fallbackPeriod],
+  );
+
+  const validOffsetRange = useMemo(
+    () =>
+      periods && currentFallbackPeriod
+        ? getWeeklyValidOffsetRange(periods, currentFallbackPeriod.periodStart)
+        : null,
+    [periods, currentFallbackPeriod],
+  );
+  const weekNumber = useMemo(
+    () => (periods && displayPeriod ? getWeeklyWeekNumber(periods, displayPeriod.periodStart) : null),
+    [periods, displayPeriod],
+  );
+  const isAtFirstPeriod = validOffsetRange ? offset <= validOffsetRange.minOffset : false;
+
+  const handleCategorySelect = useCallback(
+    (c: string) => {
+      const firstBracket = categories?.find((x) => x.key === c)?.brackets[0]?.key ?? "";
+      updateParams({ category: c, bracket: firstBracket });
+    },
+    [categories, updateParams],
+  );
+
+  useEffect(() => {
+    if (!validOffsetRange) return;
+    if (offset < validOffsetRange.minOffset) {
+      updateParams({ offset: String(validOffsetRange.minOffset) });
+      return;
+    }
+    if (offset > validOffsetRange.maxOffset) {
+      updateParams({ offset: String(validOffsetRange.maxOffset) });
+    }
+  }, [offset, updateParams, validOffsetRange]);
 
   return (
     <div className="container max-w-4xl py-6 space-y-5">
@@ -87,10 +137,7 @@ function WeeklyContent() {
           <WeeklyCategorySelector
             categories={categories}
             selected={category ?? ""}
-            onSelect={(c) => {
-              const firstBracket = categories.find((x) => x.key === c)?.brackets[0]?.key ?? "";
-              updateParams({ category: c, bracket: firstBracket });
-            }}
+            onSelect={handleCategorySelect}
           />
           {currentCategory && (
             <WeeklyBracketSelector
@@ -107,8 +154,11 @@ function WeeklyContent() {
           periodStart={displayPeriod.periodStart}
           periodEnd={displayPeriod.periodEnd}
           isCurrent={displayPeriod.isCurrent}
+          weekNumber={weekNumber}
+          isAtFirstPeriod={isAtFirstPeriod}
           offset={offset}
           onOffsetChange={(o) => updateParams({ offset: String(o) })}
+          onCurrentPeriodClick={() => updateParams({ offset: "0" })}
         />
       )}
 
