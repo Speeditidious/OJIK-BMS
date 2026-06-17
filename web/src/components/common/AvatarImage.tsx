@@ -30,7 +30,7 @@ export function AvatarImage({ src, alt, size, fallbackText, className }: AvatarI
 
   return (
     // Small avatars are already bounded by `size`; skipping next/image avoids
-    // Vercel image optimization work with minimal user-visible impact.
+    // relying on host-specific image optimization with minimal user-visible impact.
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={src}

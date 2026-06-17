@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { Providers } from "./providers";
 import { DEFAULT_LANGUAGE } from "@/lib/i18n/languages";
@@ -25,7 +24,6 @@ export default function RootLayout({
     <html lang={DEFAULT_LANGUAGE} suppressHydrationWarning>
       <body className={inter.className}>
         <Providers initialLanguage={DEFAULT_LANGUAGE}>{children}</Providers>
-        <Analytics />
       </body>
     </html>
   );
