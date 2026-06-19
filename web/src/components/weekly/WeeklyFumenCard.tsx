@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, Star, Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useWeeklyFumenRecords } from "@/hooks/use-weeklies";
 import { useAuthStore } from "@/stores/auth";
@@ -151,16 +150,15 @@ export function WeeklyFumenCard({ weeklyId, item, myUserId }: Props) {
           </span>
 
           <div className="shrink min-w-0" onClick={(e) => e.stopPropagation()}>
-            <Link
+            <a
               href={item.sha256 ? `/songs/sha256/${item.sha256}` : `/songs/md5/${item.md5}`}
-              prefetch={false}
               className="group block"
             >
               <div className="text-sm font-semibold truncate group-hover:underline">
                 {item.title ?? "(untitled)"}
               </div>
               <div className="text-xs truncate opacity-50">{item.artist}</div>
-            </Link>
+            </a>
           </div>
 
           <div className="flex-1" />
@@ -304,17 +302,15 @@ function RecordRow({ record, isMe, isPinned, isDetailExpanded, onToggleDetail, f
         {/* User */}
         <td className="px-2 py-2 align-middle">
           <div className="flex items-center gap-2 min-w-0">
-            <Link
+            <a
               href={`/users/${record.user_id}/dashboard`}
-              prefetch={false}
               className="inline-flex shrink-0"
               onClick={(e) => e.stopPropagation()}
             >
               {avatarContent}
-            </Link>
-            <Link
+            </a>
+            <a
               href={`/users/${record.user_id}/dashboard`}
-              prefetch={false}
               className="inline-flex max-w-full min-w-0 cursor-pointer"
               onClick={(e) => e.stopPropagation()}
             >
@@ -326,7 +322,7 @@ function RecordRow({ record, isMe, isPinned, isDetailExpanded, onToggleDetail, f
                   isPinned ? "font-bold" : "font-semibold",
                 )}
               />
-            </Link>
+            </a>
           </div>
         </td>
 

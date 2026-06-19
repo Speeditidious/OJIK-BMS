@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useRef, memo, useCallback, useState, useEffect } from "react";
-import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useVirtualizer, defaultRangeExtractor } from "@tanstack/react-virtual";
@@ -334,9 +333,9 @@ const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores,
         <td className="px-2" data-title={displayTitle} data-artist={displayArtist}>
           <div className="min-w-0 overflow-hidden">
             <div className="max-w-full truncate">
-              <Link href={href} prefetch={false} className="text-label hover:text-primary transition-colors">
+              <a href={href} className="text-label hover:text-primary transition-colors">
                 {displayTitle}
-              </Link>
+              </a>
             </div>
             {displayArtist && <div className="text-caption row-muted max-w-full truncate">{displayArtist}</div>}
             {song.user_tags.length > 0 && (

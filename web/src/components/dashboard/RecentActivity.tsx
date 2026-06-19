@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, memo } from "react";
-import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronUp, ChevronRight } from "lucide-react";
 import { RecentUpdate, HeatmapDay, ClientTypeFilter } from "@/hooks/use-analysis";
@@ -138,14 +137,13 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
             )}
             {clearBadge(u.clear_type, u.client_type, { exscore: u.exscore, rate: u.rate })}
             {(u.fumen_sha256 || u.fumen_md5) ? (
-              <Link
+              <a
                 href={songHref({ fumen_id: u.fumen_id, sha256: u.fumen_sha256, md5: u.fumen_md5 })}
-                prefetch={false}
                 className="text-label font-medium truncate max-w-[200px] hover:text-primary transition-colors"
                 onClick={(e) => e.stopPropagation()}
               >
                 {songName}
-              </Link>
+              </a>
             ) : (
               <span className="text-label font-medium truncate max-w-[200px]">{songName}</span>
             )}

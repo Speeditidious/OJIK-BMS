@@ -87,9 +87,8 @@ function IssueRow({ issue, locale, backHref }: { issue: Issue; locale: string; b
     : `/issues/${issue.id}`;
 
   return (
-    <Link
+    <a
       href={detailHref}
-      prefetch={false}
       className={cn(
         "flex items-start gap-3 p-4 hover:bg-muted/50 transition-colors group",
         issue.is_pinned && "bg-primary/5 hover:bg-primary/10",
@@ -125,7 +124,7 @@ function IssueRow({ issue, locale, backHref }: { issue: Issue; locale: string; b
           {issue.comment_count}
         </div>
       )}
-    </Link>
+    </a>
   );
 }
 

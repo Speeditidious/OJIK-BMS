@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { clearText } from "@/components/dashboard/RecentActivity";
@@ -623,9 +622,9 @@ function ContributionRow({
       return (
         <div className="min-w-0 overflow-hidden">
           {songUrl ? (
-            <Link href={songUrl} prefetch={false} className="block max-w-full truncate text-label leading-tight transition-colors hover:text-primary">
+            <a href={songUrl} className="block max-w-full truncate text-label leading-tight transition-colors hover:text-primary">
               {displayTitle}
-            </Link>
+            </a>
           ) : (
             <span className="block max-w-full truncate text-label leading-tight">{displayTitle}</span>
           )}

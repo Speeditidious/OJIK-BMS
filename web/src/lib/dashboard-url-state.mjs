@@ -25,3 +25,17 @@ export function mergeDashboardParams(currentParams, updates) {
   }
   return params;
 }
+
+/**
+ * Build a dashboard URL without changing the visible dynamic route path.
+ *
+ * @param {string} pathname
+ * @param {string | URLSearchParams} currentParams
+ * @param {Record<string, string | null>} updates
+ * @returns {string}
+ */
+export function buildDashboardUrl(pathname, currentParams, updates) {
+  const params = mergeDashboardParams(currentParams, updates);
+  const search = params.toString();
+  return search ? `${pathname}?${search}` : pathname;
+}

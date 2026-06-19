@@ -3,6 +3,8 @@
  * Handles base URL, authentication headers, and token refresh.
  */
 
+import { getRefreshFailureKind } from "@/lib/auth-token-policy.mjs";
+
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 // Token storage keys
@@ -41,19 +43,32 @@ type RequestOptions = RequestInit & {
 };
 
 let _refreshPromise: Promise<boolean> | null = null;
+let _refreshStatusPromise: Promise<TokenRefreshStatus> | null = null;
+
+type TokenRefreshStatus = "success" | "invalid" | "unavailable";
 
 export async function refreshTokens(): Promise<boolean> {
   // Deduplicate concurrent refresh calls — reuse the in-flight promise.
   if (_refreshPromise) return _refreshPromise;
-  _refreshPromise = _doRefresh().finally(() => {
-    _refreshPromise = null;
-  });
+  _refreshPromise = refreshTokensStatus()
+    .then((status) => status === "success")
+    .finally(() => {
+      _refreshPromise = null;
+    });
   return _refreshPromise;
 }
 
-async function _doRefresh(): Promise<boolean> {
+async function refreshTokensStatus(): Promise<TokenRefreshStatus> {
+  if (_refreshStatusPromise) return _refreshStatusPromise;
+  _refreshStatusPromise = _doRefresh().finally(() => {
+    _refreshStatusPromise = null;
+  });
+  return _refreshStatusPromise;
+}
+
+async function _doRefresh(): Promise<TokenRefreshStatus> {
   const refreshToken = getRefreshToken();
-  if (!refreshToken) return false;
+  if (!refreshToken) return "invalid";
 
   try {
     const response = await fetch(`${BASE_URL}/auth/refresh`, {
@@ -63,16 +78,18 @@ async function _doRefresh(): Promise<boolean> {
     });
 
     if (!response.ok) {
-      clearTokens();
-      return false;
+      const failureKind = getRefreshFailureKind(response.status);
+      if (failureKind === "invalid") {
+        clearTokens();
+      }
+      return failureKind;
     }
 
     const data = await response.json();
     setTokens(data.access_token, data.refresh_token);
-    return true;
+    return "success";
   } catch {
-    clearTokens();
-    return false;
+    return "unavailable";
   }
 }
 
@@ -106,10 +123,13 @@ export async function apiFetch<T>(
     const hadRefreshToken = getRefreshToken() !== null;
     const hadAccessToken = getAccessToken() !== null;
     if (hadRefreshToken) {
-      const refreshed = await refreshTokens();
-      if (refreshed) {
+      const refreshStatus = await refreshTokensStatus();
+      if (refreshStatus === "success") {
         // Retry with new token
         return apiFetch<T>(path, { ...options, skipRefresh: true });
+      }
+      if (refreshStatus === "unavailable") {
+        throw new Error("Authentication refresh unavailable");
       }
     }
     // Only redirect to /login when the user was previously logged in

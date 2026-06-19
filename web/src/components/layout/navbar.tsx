@@ -139,11 +139,11 @@ export function Navbar() {
                     )}
                     <span className="text-label font-medium truncate">{user.username}</span>
                   </div>
-                  <DropdownMenuItem onClick={() => router.push(`/users/${user.id}/dashboard`)}>
+                  <DropdownMenuItem onClick={() => window.location.assign(`/users/${user.id}/dashboard`)}>
                     <LayoutDashboard className="h-4 w-4" />
                     {t("common.nav.dashboard")}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => router.push(`/users/${user.id}`)}>
+                  <DropdownMenuItem onClick={() => window.location.assign(`/users/${user.id}`)}>
                     <UserCircle className="h-4 w-4" />
                     {t("common.nav.profile")}
                   </DropdownMenuItem>

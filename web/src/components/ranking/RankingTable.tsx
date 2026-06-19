@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AvatarImage } from "@/components/common/AvatarImage";
@@ -121,9 +120,8 @@ export function RankingTable({
                     {entry.username.charAt(0).toUpperCase()}
                   </div>
                 )}
-                <Link
+                <a
                   href={`/users/${entry.user_id}/dashboard`}
-                  prefetch={false}
                   className="min-w-0 cursor-pointer"
                 >
                   <DecoratedUsername
@@ -131,7 +129,7 @@ export function RankingTable({
                     danDecoration={entry.dan_decoration}
                     className="text-lg sm:text-xl font-semibold leading-none tracking-[0.02em] truncate block"
                   />
-                </Link>
+                </a>
               </div>
 
               {/* Level / Rating */}

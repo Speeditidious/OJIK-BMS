@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import {
   Area,
@@ -66,11 +66,12 @@ import { ACTIVITY_CATEGORIES } from "@/lib/activity-categories";
 import type { ScoreUpdatesViewMode } from "@/components/dashboard/ScoreUpdates";
 import { pickTickResolution, formatTick, computeTicks } from "@/lib/axis-format";
 import { niceTicks, decimalsForStep } from "@/lib/axis-ticks";
-import { getDashboardRankingTable, mergeDashboardParams } from "@/lib/dashboard-url-state.mjs";
+import { buildDashboardUrl, getDashboardRankingTable, mergeDashboardParams } from "@/lib/dashboard-url-state.mjs";
 import { useAuthStore } from "@/stores/auth";
 import { formatDuration } from "@/lib/time";
 import { useMonthDayNotes } from "@/hooks/use-day-notes";
 import { DayNotePopover } from "@/components/fumen/DayNotePopover";
+import { getInitialBrowserSearch } from "@/lib/static-route";
 
 function DayStatCard({
   title,
@@ -523,10 +524,33 @@ function makeDefaultRange(days: number): DateRangeValue {
   return { preset, range: rangeFromPreset(preset === "custom" ? "month" : preset) };
 }
 
+function migrateInitialSearch(raw: string): { params: URLSearchParams; migratedSearch: string | null } {
+  const params = new URLSearchParams(raw);
+  const legacyDate = params.get("date");
+  if (!legacyDate) return { params, migratedSearch: null };
+  params.delete("date");
+  const tab = params.get("tab") ?? "activity";
+  params.set(tab === "calendar" ? "calendar_date" : "activity_date", legacyDate);
+  return { params, migratedSearch: params.toString() };
+}
+
 export function UserDashboardContent({ userId }: { userId: string }) {
   const { t } = useTranslation();
-  const searchParams = useSearchParams();
-  const router = useRouter();
+  const routeSearchParams = useSearchParams();
+  const [searchParams, setSearchParams] = useState(() => {
+    const raw = getInitialBrowserSearch() || routeSearchParams.toString();
+    return migrateInitialSearch(raw).params;
+  });
+  const [initialMigratedSearch] = useState(() => {
+    const raw = getInitialBrowserSearch() || routeSearchParams.toString();
+    return migrateInitialSearch(raw).migratedSearch;
+  });
+  const routeSearchStr = routeSearchParams.toString();
+  const [prevRouteSearch, setPrevRouteSearch] = useState(routeSearchStr);
+  if (prevRouteSearch !== routeSearchStr) {
+    setPrevRouteSearch(routeSearchStr);
+    setSearchParams(new URLSearchParams(window.location.search));
+  }
 
   const { user: currentUser, isInitialized: authInitialized } = useAuthStore();
   const isOwner = currentUser?.id === userId;
@@ -537,6 +561,23 @@ export function UserDashboardContent({ userId }: { userId: string }) {
 
   const { data: profileUser, isLoading: profileLoading, error: profileError } = useUserProfile(userId);
   const { data: rankingTables = [], isLoading: rankingTablesLoading } = useRankingTables();
+
+  useEffect(() => {
+    const syncSearchParams = () => {
+      setSearchParams(new URLSearchParams(window.location.search));
+    };
+    window.addEventListener("popstate", syncSearchParams);
+    return () => window.removeEventListener("popstate", syncSearchParams);
+  }, []);
+
+  useEffect(() => {
+    if (initialMigratedSearch === null) return;
+    window.history.replaceState(
+      window.history.state,
+      "",
+      initialMigratedSearch ? `${window.location.pathname}?${initialMigratedSearch}` : window.location.pathname,
+    );
+  }, [initialMigratedSearch]);
 
   const [clientType, setClientType] = useState<ClientTypeFilter>("all");
   const [heatmapYear, setHeatmapYear] = useState(CURRENT_YEAR);
@@ -563,24 +604,6 @@ export function UserDashboardContent({ userId }: { userId: string }) {
   const showActivityOverview = currentTab === "activity" && !activityDate;
   const showCalendarOverview = currentTab === "calendar" && !calendarDate;
   const showAnyActivityOverview = showActivityOverview || showCalendarOverview;
-
-  // Backward compatibility: migrate legacy ?date= param once on mount
-  const didMigrateRef = useRef(false);
-  useEffect(() => {
-    if (didMigrateRef.current) return;
-    const legacyDate = searchParams.get("date");
-    if (!legacyDate) return;
-    didMigrateRef.current = true;
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("date");
-    const tab = searchParams.get("tab") ?? "activity";
-    if (tab === "calendar") {
-      params.set("calendar_date", legacyDate);
-    } else {
-      params.set("activity_date", legacyDate);
-    }
-    router.replace(`/users/${userId}/dashboard?${params.toString()}`, { scroll: false });
-  }, [searchParams, router, userId]);
 
   // Compute activity bar mode from activityRange
   const activityBarMode = useMemo(() => {
@@ -668,13 +691,17 @@ export function UserDashboardContent({ userId }: { userId: string }) {
 
   const replaceParams = useCallback((updates: Record<string, string | null>) => {
     const params = mergeDashboardParams(searchParams, updates);
-    router.replace(`/users/${userId}/dashboard?${params.toString()}`, { scroll: false });
-  }, [router, searchParams, userId]);
+    const nextUrl = buildDashboardUrl(window.location.pathname, searchParams, updates);
+    window.history.replaceState(window.history.state, "", nextUrl);
+    setSearchParams(params);
+  }, [searchParams]);
 
   const updateParams = useCallback((updates: Record<string, string | null>) => {
     const params = mergeDashboardParams(searchParams, updates);
-    router.push(`/users/${userId}/dashboard?${params.toString()}`, { scroll: false });
-  }, [router, searchParams, userId]);
+    const nextUrl = buildDashboardUrl(window.location.pathname, searchParams, updates);
+    window.history.pushState(window.history.state, "", nextUrl);
+    setSearchParams(params);
+  }, [searchParams]);
 
   function handleTabChange(value: string) {
     replaceParams({ tab: value });

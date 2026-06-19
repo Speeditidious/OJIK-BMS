@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useMemo, useCallback } from "react";
-import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -109,13 +108,12 @@ function FumenTitleCell({
     <td className={className} data-title={displayTitle} data-artist={displayArtist}>
       <div className="max-w-full truncate">
         {hasHash ? (
-          <Link
+          <a
             href={buildSongHref(item, userId)}
-            prefetch={false}
             className="text-label hover:text-primary transition-colors"
           >
             {displayTitle}
-          </Link>
+          </a>
         ) : (
           <span className="text-label">{displayTitle}</span>
         )}

@@ -2,6 +2,7 @@ import {
   DEFAULT_LANGUAGE as CORE_DEFAULT_LANGUAGE,
   SUPPORTED_LANGUAGES as CORE_SUPPORTED_LANGUAGES,
   detectLanguageFromRequestParts as coreDetectLanguageFromRequestParts,
+  detectNavigatorLanguage as coreDetectNavigatorLanguage,
   languageFromCountry as coreLanguageFromCountry,
   normalizeLanguage as coreNormalizeLanguage,
   parseAcceptLanguage as coreParseAcceptLanguage,
@@ -28,6 +29,10 @@ export function normalizeLanguage(value: string | null | undefined): LanguageCod
 
 export function parseAcceptLanguage(header: string | null | undefined): LanguageCode | null {
   return coreParseAcceptLanguage(header) as LanguageCode | null;
+}
+
+export function detectNavigatorLanguage(languages: readonly string[] | null | undefined): LanguageCode | null {
+  return coreDetectNavigatorLanguage(languages ? [...languages] : null) as LanguageCode | null;
 }
 
 export function languageFromCountry(country: string | null | undefined): LanguageCode | null {

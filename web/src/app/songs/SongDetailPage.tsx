@@ -423,9 +423,9 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
     if (canonical !== pathname) {
       const qs = searchParams.toString();
       const suffix = qs ? `?${qs}` : "";
-      router.replace(`${canonical}${suffix}`);
+      window.history.replaceState(window.history.state, "", `${canonical}${suffix}`);
     }
-  }, [fumen, pathname, router, searchParams]);
+  }, [fumen, pathname, searchParams]);
 
   const { data: allTables = [] } = useQuery<DifficultyTable[]>({
     queryKey: ["tables"],

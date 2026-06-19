@@ -208,7 +208,7 @@ export default function NewIssuePage() {
     if (!tagId || !title.trim() || !body.trim()) return;
     try {
       const issue = await createIssue.mutateAsync({ tag_id: tagId, title: title.trim(), body: body.trim() });
-      router.push(`/issues/${issue.id}`);
+      window.location.assign(`/issues/${issue.id}`);
     } catch {
       // Error handled by mutation state
     }

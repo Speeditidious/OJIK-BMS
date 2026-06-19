@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, memo, useEffect, useState, useCallback } from "react";
-import Link from "next/link";
 import { useVirtualizer, defaultRangeExtractor } from "@tanstack/react-virtual";
 import { Package, FileCode, Youtube } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -124,9 +123,9 @@ const SongRow = memo(function SongRow({ item, index, tableSymbolMap, isLoggedIn,
         <td className="px-2 align-middle" data-title={displayTitle} data-artist={displayArtist}>
           <div className="min-w-0 overflow-hidden">
             <div className="max-w-full truncate">
-              <Link href={href} prefetch={false} className="text-label hover:text-primary transition-colors">
+              <a href={href} className="text-label hover:text-primary transition-colors">
                 {displayTitle}
-              </Link>
+              </a>
             </div>
             {displayArtist && <div className="text-caption row-muted max-w-full truncate">{displayArtist}</div>}
             {item.user_tags.length > 0 && (

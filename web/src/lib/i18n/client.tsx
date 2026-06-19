@@ -8,6 +8,7 @@ import {
   AUTO_LANGUAGE_COOKIE,
   DEFAULT_LANGUAGE,
   MANUAL_LANGUAGE_COOKIE,
+  detectNavigatorLanguage,
   normalizeLanguage,
   type LanguageCode,
 } from "./languages";
@@ -61,8 +62,17 @@ function detectInitialLanguage(): LanguageCode {
   const stored = normalizeLanguage(window.localStorage.getItem(LANGUAGE_STORAGE_KEY));
   const manualCookie = normalizeLanguage(readCookie(MANUAL_LANGUAGE_COOKIE));
   const autoCookie = normalizeLanguage(readCookie(AUTO_LANGUAGE_COOKIE));
+  const navigatorLanguage = detectNavigatorLanguage(
+    Array.isArray(navigator.languages) && navigator.languages.length > 0
+      ? navigator.languages
+      : [navigator.language],
+  );
 
-  return stored ?? manualCookie ?? autoCookie ?? DEFAULT_LANGUAGE;
+  if (!stored && !manualCookie && !autoCookie && navigatorLanguage) {
+    writeLanguageCookie(AUTO_LANGUAGE_COOKIE, navigatorLanguage);
+  }
+
+  return stored ?? manualCookie ?? autoCookie ?? navigatorLanguage ?? DEFAULT_LANGUAGE;
 }
 
 export function I18nProvider({

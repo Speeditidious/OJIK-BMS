@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { Flame } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -97,10 +96,9 @@ export function PopularFumensDialog() {
             </div>
           ) : (
             rows.map((row) => (
-              <Link
+              <a
                 key={row.fumen_id}
                 href={songHref({ sha256: row.sha256, md5: row.md5 })}
-                prefetch={false}
                 className={cn("group grid gap-2 px-3 py-2 items-center border-b border-border/50 last:border-0 transition-colors hover:bg-secondary/40", GRID)}
               >
                 <span className={cn("text-center tabular-nums font-bold", rankClass(row.rank))}>
@@ -116,7 +114,7 @@ export function PopularFumensDialog() {
                 <span className={cn("text-right tabular-nums text-label", sortBy === "plays" && "font-semibold text-foreground")}>
                   {row.play_count.toLocaleString()}
                 </span>
-              </Link>
+              </a>
             ))
           )}
         </div>

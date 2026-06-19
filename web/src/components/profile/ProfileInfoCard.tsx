@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { ArrowRight, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -53,11 +52,11 @@ export function ProfileInfoCard({
       </div>
 
       <Button asChild size="lg" className="w-full gap-2 shadow-sm sm:w-auto sm:shrink-0">
-        <Link href={dashboardHref}>
+        <a href={dashboardHref}>
           <LayoutDashboard className="h-5 w-5" />
           <span className="font-semibold">{t("profile.info.viewDashboard")}</span>
           <ArrowRight className="h-4 w-4" />
-        </Link>
+        </a>
       </Button>
     </section>
   );

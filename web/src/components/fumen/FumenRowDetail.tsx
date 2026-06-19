@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { songHref } from "@/lib/song-href";
@@ -470,12 +469,12 @@ function CourseStagesSection({ stages, userId }: { stages: CourseStage[]; userId
                 {levelStr}
               </span>
               {href && stage.title ? (
-                <Link
+                <a
                   href={href}
                   className="truncate hover:text-primary transition-colors"
                 >
                   {stage.title}
-                </Link>
+                </a>
               ) : (
                 <span className={cn("truncate", !stage.title && "text-muted-foreground/60")}>
                   {stage.title ?? t("fumenRowDetail.unknownStage")}

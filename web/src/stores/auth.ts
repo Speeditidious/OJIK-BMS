@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api, clearTokens, getAccessToken } from "@/lib/api";
+import { shouldClearTokensForFetchUserError } from "@/lib/auth-token-policy.mjs";
 
 export interface AuthUser {
   id: string;
@@ -33,9 +34,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const user = await api.get<AuthUser>("/users/me");
       set({ user, isLoading: false, isInitialized: true });
-    } catch {
-      clearTokens();
-      set({ user: null, isLoading: false, isInitialized: true });
+    } catch (error) {
+      if (shouldClearTokensForFetchUserError(error)) {
+        clearTokens();
+        set({ user: null, isLoading: false, isInitialized: true });
+        return;
+      }
+      set((state) => ({ user: state.user, isLoading: false, isInitialized: true }));
     }
   },
 

@@ -25,6 +25,15 @@ export function parseAcceptLanguage(header) {
     .sort((a, b) => b.q - a.q || a.index - b.index)[0]?.language ?? null;
 }
 
+export function detectNavigatorLanguage(languages) {
+  if (!Array.isArray(languages)) return null;
+  for (const language of languages) {
+    const normalized = normalizeLanguage(language);
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 export function languageFromCountry(country) {
   const normalized = typeof country === "string" ? country.trim().toUpperCase() : "";
   if (normalized === "KR") return "ko";

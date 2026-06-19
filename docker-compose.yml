@@ -62,7 +62,7 @@ services:
     build:
       context: ./web
       target: deps
-    command: sh -c "npm run dev"
+    command: sh -c "npm run preview:static:docker"
     ports:
       - "3000:3000"
     environment:

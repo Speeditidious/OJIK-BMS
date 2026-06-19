@@ -13,12 +13,12 @@ export function LoginButton() {
 
   if (isInitialized && user) {
     return (
-      <Link href={`/users/${user.id}/dashboard`}>
-        <Button size="lg" className="gap-2 px-10 py-6 text-lg hover:opacity-90 transition-opacity">
+      <Button asChild size="lg" className="gap-2 px-10 py-6 text-lg hover:opacity-90 transition-opacity">
+        <a href={`/users/${user.id}/dashboard`}>
           <LayoutDashboard className="h-6 w-6" />
           {t("home.hero.dashboardAction")}
-        </Button>
-      </Link>
+        </a>
+      </Button>
     );
   }
 

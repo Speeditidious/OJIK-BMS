@@ -154,7 +154,7 @@ function NotificationsContent() {
     if (item.type === "client_update") {
       setDialogItem(item);
     } else if (item.link_url) {
-      router.push(item.link_url);
+      window.location.assign(item.link_url);
     }
   };
 

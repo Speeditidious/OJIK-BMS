@@ -2,7 +2,6 @@
 
 import { Suspense, use, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useRouter } from "next/navigation";
 import { UserCircle } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
@@ -18,7 +17,6 @@ const CURRENT_YEAR = new Date().getFullYear();
 
 function UserProfileContent({ userId }: { userId: string }) {
   const { t } = useTranslation();
-  const router = useRouter();
   const currentUser = useAuthStore((state) => state.user);
   const isOwner = currentUser?.id === userId;
 
@@ -86,7 +84,7 @@ function UserProfileContent({ userId }: { userId: string }) {
           heatmapData={heatmapData?.data ?? []}
           ratingUpdatesByDate={heatmapRatingMap}
           firstSyncDates={firstSyncDates}
-          onDayClick={(date) => router.push(`/users/${userId}/dashboard?tab=calendar&date=${date}`)}
+          onDayClick={(date) => window.location.assign(`/users/${userId}/dashboard?tab=calendar&calendar_date=${date}`)}
           emptyMessage={isOwner ? t("dashboard.activity.noRecords") : t("common.states.noRecords")}
         />
       </main>

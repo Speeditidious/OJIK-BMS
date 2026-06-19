@@ -4,7 +4,7 @@ import React, { memo, useState, useMemo, useCallback, useDeferredValue, useRef, 
 import { useTranslation } from "react-i18next";
 import { useVirtualizer, defaultRangeExtractor } from "@tanstack/react-virtual";
 import Link from "next/link";
-import { useSearchParams, useRouter, usePathname } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { X, Search, FileSpreadsheet, Settings2 } from "lucide-react";
 import { useUserFavoriteTables, type DifficultyTableItem } from "@/hooks/use-tables";
 import { useTableClearDistribution, useCalendarActivityDots, TableClearSong, type TableClearLevel } from "@/hooks/use-analysis";
@@ -30,11 +30,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { buildDashboardUrl, mergeDashboardParams } from "@/lib/dashboard-url-state.mjs";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, levelSortIndex, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { formatRatePercent } from "@/lib/rate-format";
 import { songHref } from "@/lib/song-href";
 import { shouldToggleFumenRow } from "@/lib/fumen-row-toggle-core.mjs";
+import { getInitialBrowserSearch } from "@/lib/static-route";
 
 function getClearLabel(clientType: string | null, clearType: number): string {
   if (clientType === "lr2") return LR2_CLEAR_TYPE_LABELS[clearType] ?? String(clearType);
@@ -191,9 +193,9 @@ const SongRow = React.memo(function SongRow({
           <div className="min-w-0 overflow-hidden">
             <div className="max-w-full truncate">
               {song.sha256 ? (
-                <Link href={songHref(song, userId)} prefetch={false} className="text-label leading-tight hover:text-primary transition-colors">
+                <a href={songHref(song, userId)} className="text-label leading-tight hover:text-primary transition-colors">
                   {displayTitle}
-                </Link>
+                </a>
               ) : (
                 <span className="text-label leading-tight">{displayTitle}</span>
               )}
@@ -726,9 +728,22 @@ export function TableClearSection({
     authInitialized && viewerUserId ? viewerUserId : undefined,
   );
 
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const pathname = usePathname();
+  const routeSearchParams = useSearchParams();
+  const [searchParams, setSearchParams] = useState(
+    () => new URLSearchParams(getInitialBrowserSearch() || routeSearchParams.toString()),
+  );
+
+  useEffect(() => {
+    setSearchParams(new URLSearchParams(window.location.search));
+  }, [routeSearchParams]);
+
+  useEffect(() => {
+    const syncSearchParams = () => {
+      setSearchParams(new URLSearchParams(window.location.search));
+    };
+    window.addEventListener("popstate", syncSearchParams);
+    return () => window.removeEventListener("popstate", syncSearchParams);
+  }, []);
 
   // Read state from URL
   const selectedTableId = searchParams.get(P_TBL);
@@ -750,12 +765,11 @@ export function TableClearSection({
 
   // URL update helper (preserves existing params)
   const updateParams = useCallback((updates: Record<string, string | null>) => {
-    const params = new URLSearchParams(searchParams.toString());
-    for (const [k, v] of Object.entries(updates)) {
-      if (v) params.set(k, v); else params.delete(k);
-    }
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  }, [searchParams, router, pathname]);
+    const nextParams = mergeDashboardParams(searchParams, updates);
+    const nextUrl = buildDashboardUrl(window.location.pathname, searchParams, updates);
+    window.history.replaceState(window.history.state, "", nextUrl);
+    setSearchParams(nextParams);
+  }, [searchParams]);
 
   // Calendar state for snapshot date picker
   const [visibleCalendarFrom, setVisibleCalendarFrom] = useState<string | null>(null);

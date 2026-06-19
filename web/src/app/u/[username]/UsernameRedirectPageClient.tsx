@@ -18,7 +18,7 @@ export default function UsernameRedirectPage() {
     api
       .get<{ id: string }>(`/users/${encodeURIComponent(username)}`)
       .then((user) => {
-        router.replace(`/users/${user.id}/dashboard`);
+        window.location.replace(`/users/${user.id}/dashboard`);
       })
       .catch(() => {
         router.replace("/");

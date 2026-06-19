@@ -136,7 +136,7 @@ export function NotificationBell({ enabled, userId }: NotificationBellProps) {
     if (item.type === "client_update") {
       setDialogItem(item);
     } else {
-      router.push(item.link_url ?? "/notifications");
+      window.location.assign(item.link_url ?? "/notifications");
     }
   };
 

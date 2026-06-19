@@ -117,14 +117,13 @@ function Avatar({
 
   if (userId) {
     return (
-      <Link
+      <a
         href={`/users/${userId}/dashboard`}
-        prefetch={false}
         aria-label={username}
         className={cn(wrapperClass, "transition-opacity hover:opacity-80")}
       >
         {inner}
-      </Link>
+      </a>
     );
   }
 
@@ -483,13 +482,13 @@ function BackToListLink() {
   const back = searchParams.get("back");
   const href = back ? decodeURIComponent(back) : "/issues";
   return (
-    <Link
+    <a
       href={href}
       className="inline-flex items-center gap-1.5 text-label text-muted-foreground hover:text-foreground transition-colors"
     >
       <ArrowLeft className="h-3.5 w-3.5" />
       {t("issues.detail.backToList")}
-    </Link>
+    </a>
   );
 }
 

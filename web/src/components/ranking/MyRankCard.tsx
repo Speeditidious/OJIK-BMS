@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AvatarImage } from "@/components/common/AvatarImage";
@@ -180,7 +179,7 @@ export function MyRankCard({
 
         {/* Header: user identity */}
         <div className="min-w-0 flex justify-center">
-          <Link
+          <a
             href={`/users/${user.id}/dashboard`}
             className="group flex flex-col items-center gap-3.5 min-w-0 w-fit max-w-full text-center"
           >
@@ -204,7 +203,7 @@ export function MyRankCard({
                 className="font-bold text-xl sm:text-2xl leading-none tracking-[0.03em] truncate block transition-opacity group-hover:opacity-90"
               />
             </div>
-          </Link>
+          </a>
         </div>
 
         {/* Body: rank/score block */}

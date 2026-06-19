@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   detectLanguageFromRequestParts,
+  detectNavigatorLanguage,
   normalizeLanguage,
   parseAcceptLanguage,
 } from "./language-core.mjs";
@@ -33,4 +34,10 @@ test("detectLanguageFromRequestParts falls through to region then Korean fallbac
   assert.equal(detectLanguageFromRequestParts({ country: "US" }), "en");
   assert.equal(detectLanguageFromRequestParts({ country: "FR" }), "en");
   assert.equal(detectLanguageFromRequestParts({}), "ko");
+});
+
+test("detectNavigatorLanguage uses the first supported browser language", () => {
+  assert.equal(detectNavigatorLanguage(["fr-FR", "ja-JP", "en-US"]), "ja");
+  assert.equal(detectNavigatorLanguage(["en-US", "ko-KR"]), "en");
+  assert.equal(detectNavigatorLanguage(["fr-FR", "de-DE"]), null);
 });
