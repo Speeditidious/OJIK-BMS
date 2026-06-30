@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 
-import { getDisplayedRatingRankData } from "./rating-detail-display-core.mjs";
+import {
+  formatRatingContributionCardRankLabel,
+  getDisplayedRatingRankData,
+} from "./rating-detail-display-core.mjs";
 
 const currentRank = {
   table_slug: "stella",
@@ -57,3 +60,7 @@ const historicalSummary = {
   assert.equal(displayed.dan_decoration, currentRank.dan_decoration);
   assert.equal(displayed.exp, 1000);
 }
+
+assert.equal(formatRatingContributionCardRankLabel("MAX-", 17), "MAX-");
+assert.equal(formatRatingContributionCardRankLabel("AAA", 17), "AAA");
+assert.equal(formatRatingContributionCardRankLabel(null, 17), null);

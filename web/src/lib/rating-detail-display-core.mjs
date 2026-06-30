@@ -1,4 +1,18 @@
 /**
+ * Format the rank shown inside day-stat rating contribution cards.
+ *
+ * Rating-change cards intentionally show the grade label only. Score-update
+ * sections use `MAX-{n}` when the max-minus gap is available.
+ *
+ * @param {string | null | undefined} rank
+ * @param {number | null | undefined} _maxMinusScore
+ * @returns {string | null}
+ */
+export function formatRatingContributionCardRankLabel(rank, _maxMinusScore) {
+  return rank ?? null;
+}
+
+/**
  * Adapt the current rank payload for the rating detail header.
  *
  * Historical views must not fall back to the current dan decoration. If the

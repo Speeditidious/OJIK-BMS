@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { RankingContributionEntry } from "@/lib/ranking-types";
-import { formatScoreRankLabel } from "@/lib/score-rank-display-core.mjs";
+import { formatRatingContributionCardRankLabel } from "@/lib/rating-detail-display-core.mjs";
 import { formatRatePercent } from "@/lib/rate-format";
 import { fumenTitleText, fumenArtistText } from "@/lib/fumen-display";
 import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
@@ -72,7 +72,7 @@ function ContributionCard({ entry }: ContributionCardProps) {
 
   const title = fumenTitleText(entry.title, t("common.states.noData"));
   const artist = fumenArtistText(entry.artist);
-  const rankLabel = formatScoreRankLabel(entry.rank_grade, entry.max_minus_score ?? null);
+  const rankLabel = formatRatingContributionCardRankLabel(entry.rank_grade, entry.max_minus_score ?? null);
 
   const lampColor = clearTypeColor(entry.clear_type);
   const lampAbbr = LAMP_ABBR[entry.clear_type] ?? String(entry.clear_type);

@@ -15,8 +15,11 @@ export const RANK_SORT_ORDER = {
   F: 7,
 };
 
-export function formatScoreRankLabel(rank, _maxMinusScore) {
+export function formatScoreRankLabel(rank, maxMinusScore) {
   if (rank == null) return null;
+  if (rank === "MAX-" && typeof maxMinusScore === "number" && Number.isFinite(maxMinusScore)) {
+    return `MAX-${maxMinusScore}`;
+  }
   return rank;
 }
 
