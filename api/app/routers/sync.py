@@ -1,6 +1,5 @@
 """Local agent synchronization endpoints."""
 import logging
-import math
 from datetime import UTC, datetime
 from datetime import date as date_cls
 from typing import Any
@@ -16,6 +15,7 @@ from app.core.security import get_current_user
 from app.models.fumen import Fumen
 from app.models.score import UserPlayerStats, UserScore
 from app.models.user import User
+from app.utils.score_rank import rank_from_exscore, rate_from_exscore
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 logger = logging.getLogger(__name__)
@@ -42,13 +42,9 @@ def _compute_score_fields(
     max_ex = notes * 2
     if max_ex <= 0:
         return exscore, None, None
-    rate = math.floor(exscore / max_ex * 10000) / 100
-    # Rank thresholds use notes (not max_ex):
-    #   exscore * 9 >= notes * 16 → AAA (≥ 8/9 of max)
-    for rank, threshold in [("AAA", 16), ("AA", 14), ("A", 12), ("B", 10), ("C", 8), ("D", 6), ("E", 4)]:
-        if exscore * 9 >= notes * threshold:
-            return exscore, rate, rank
-    return exscore, rate, "F"
+    rate = rate_from_exscore(exscore, notes)
+    rank = rank_from_exscore(exscore, notes)
+    return exscore, rate, rank
 
 
 class ScoreSyncItem(BaseModel):
@@ -182,6 +178,65 @@ async def _resolve_fumen_id_map(
             out[(row.sha256, None)] = row.fumen_id
         if row.md5:
             out[(None, row.md5)] = row.fumen_id
+    return out
+
+
+async def _resolve_course_notes_map(
+    items: list[ScoreSyncItem],
+    db: AsyncSession,
+) -> dict[str, int]:
+    """Resolve course hash -> summed member notes from incoming course song hashes."""
+    course_items = [item for item in items if item.fumen_hash_others and item.song_hashes]
+    md5s = {
+        str(song_hash.get("song_md5"))
+        for item in course_items
+        for song_hash in item.song_hashes
+        if song_hash.get("song_md5")
+    }
+    sha256s = {
+        str(song_hash.get("song_sha256"))
+        for item in course_items
+        for song_hash in item.song_hashes
+        if song_hash.get("song_sha256")
+    }
+    if not md5s and not sha256s:
+        return {}
+
+    conditions = []
+    if md5s:
+        conditions.append(Fumen.md5.in_(md5s))
+    if sha256s:
+        conditions.append(Fumen.sha256.in_(sha256s))
+    combined = conditions[0]
+    for condition in conditions[1:]:
+        combined = combined | condition
+
+    result = await db.execute(select(Fumen.md5, Fumen.sha256, Fumen.notes_total).where(combined))
+    notes_by_md5: dict[str, int] = {}
+    notes_by_sha256: dict[str, int] = {}
+    for row in result.all():
+        if row.notes_total is None:
+            continue
+        if row.md5:
+            notes_by_md5[row.md5] = int(row.notes_total)
+        if row.sha256:
+            notes_by_sha256[row.sha256] = int(row.notes_total)
+
+    out: dict[str, int] = {}
+    for item in course_items:
+        md5_values = [
+            notes_by_md5.get(str(song_hash.get("song_md5")))
+            for song_hash in item.song_hashes
+            if song_hash.get("song_md5")
+        ]
+        sha256_values = [
+            notes_by_sha256.get(str(song_hash.get("song_sha256")))
+            for song_hash in item.song_hashes
+            if song_hash.get("song_sha256")
+        ]
+        values = sha256_values or md5_values
+        if values and len(values) == len(item.song_hashes) and all(value is not None for value in values):
+            out[item.fumen_hash_others or ""] = sum(int(value or 0) for value in values)
     return out
 
 
@@ -558,6 +613,7 @@ async def sync_data(
     same_day_map: dict[tuple, UserScore] = {}
     existing_scorehashes: set[ScorehashIdentityKey] = set()
     resolved_fumen_ids: dict[tuple[str | None, str | None], Any] = {}
+    course_notes_map: dict[str, int] = {}
     if syncable_scores:
         sha256s = {item.fumen_sha256 for item in syncable_scores if item.fumen_sha256}
         md5s = {item.fumen_md5 for item in syncable_scores if item.fumen_md5}
@@ -566,6 +622,7 @@ async def sync_data(
         client_types = {item.client_type for item in syncable_scores}
         scorehashes = {item.scorehash for item in syncable_scores if item.scorehash}
         resolved_fumen_ids = await _resolve_fumen_id_map(db, sha256s, md5s)
+        course_notes_map = await _resolve_course_notes_map(syncable_scores, db)
         current_bests = await _fetch_current_bests(
             current_user.id, sha256s, md5s_for_best, hash_others, client_types, db
         )
@@ -603,12 +660,18 @@ async def sync_data(
                         if old_key in current_bests:
                             current_bests[new_key] = current_bests.pop(old_key)
 
+                notes_for_score = item.notes
+                if notes_for_score is None and item.fumen_hash_others:
+                    notes_for_score = course_notes_map.get(item.fumen_hash_others)
                 exscore, rate, rank = _compute_score_fields(
-                    item.client_type, item.judgments, item.notes
+                    item.client_type, item.judgments, notes_for_score
                 )
                 # Fall back to client-supplied exscore when judgments/notes are unavailable
                 if exscore is None and item.exscore is not None:
                     exscore = item.exscore
+                    if notes_for_score is not None:
+                        rate = rate_from_exscore(exscore, notes_for_score)
+                        rank = rank_from_exscore(exscore, notes_for_score)
 
                 is_course = bool(item.fumen_hash_others)
                 resolved_fumen_id = None

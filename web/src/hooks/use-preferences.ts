@@ -340,3 +340,132 @@ export function useUpdateLevelDisplayPrefs() {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Day Stat Sheet preferences
+// ---------------------------------------------------------------------------
+
+export type UpdateSectionKey = "clear" | "score" | "bp" | "combo";
+export type RatingSubKey = "exp_info" | "rating_info";
+
+export interface DayStatSheetPrefs {
+  /** Selected table slugs. null = auto-detect (all tables where bms_force ≠ 0). */
+  day_sheet_tables: string[] | null;
+  day_sheet_show_exp_info: boolean;
+  /** Show the entire TableRatingChangeSection block. */
+  day_sheet_show_rating_section: boolean;
+  /** Show TOP N rating + BMSFORCE delta tiles in the rating summary card. */
+  day_sheet_show_rating_info: boolean;
+  day_sheet_show_record_section: boolean;
+  day_sheet_update_visible: { clear: boolean; score: boolean; bp: boolean; combo: boolean };
+  day_sheet_update_order: UpdateSectionKey[];
+  /** Section keys that render full-width (not in 2-col grid). */
+  day_sheet_update_fullwidth: UpdateSectionKey[];
+  /** User-defined display order for dan badges (display_text values). null = auto (table order). */
+  day_sheet_dan_order: string[] | null;
+  /** Display order of rating sub-sections: exp_info / rating_info. */
+  day_sheet_rating_order: RatingSubKey[];
+  /** Show the day-note memo in the sheet header. */
+  day_sheet_show_note: boolean;
+}
+
+export const DEFAULT_DAY_SHEET_PREFS: DayStatSheetPrefs = {
+  day_sheet_tables: null,
+  day_sheet_show_exp_info: true,
+  day_sheet_show_rating_section: true,
+  day_sheet_show_rating_info: true,
+  day_sheet_show_record_section: true,
+  day_sheet_update_visible: { clear: true, score: true, bp: false, combo: false },
+  day_sheet_update_order: ["clear", "score", "bp", "combo"],
+  day_sheet_update_fullwidth: [],
+  day_sheet_dan_order: null,
+  day_sheet_rating_order: ["exp_info", "rating_info"],
+  day_sheet_show_note: true,
+};
+
+function normalizeDaySheetPrefs(raw: unknown): DayStatSheetPrefs {
+  const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const vis = obj.day_sheet_update_visible;
+  const visObj = vis && typeof vis === "object" ? (vis as Record<string, unknown>) : {};
+  const order = Array.isArray(obj.day_sheet_update_order)
+    ? (obj.day_sheet_update_order as UpdateSectionKey[])
+    : DEFAULT_DAY_SHEET_PREFS.day_sheet_update_order;
+  const fullwidth = Array.isArray(obj.day_sheet_update_fullwidth)
+    ? (obj.day_sheet_update_fullwidth as UpdateSectionKey[])
+    : [];
+  return {
+    day_sheet_tables:
+      Array.isArray(obj.day_sheet_tables)
+        ? (obj.day_sheet_tables as string[])
+        : null,
+    day_sheet_show_exp_info:
+      typeof obj.day_sheet_show_exp_info === "boolean"
+        ? obj.day_sheet_show_exp_info
+        : true,
+    day_sheet_show_rating_section:
+      typeof obj.day_sheet_show_rating_section === "boolean"
+        ? obj.day_sheet_show_rating_section
+        : true,
+    day_sheet_show_rating_info:
+      typeof obj.day_sheet_show_rating_info === "boolean"
+        ? obj.day_sheet_show_rating_info
+        : true,
+    day_sheet_show_record_section:
+      typeof obj.day_sheet_show_record_section === "boolean"
+        ? obj.day_sheet_show_record_section
+        : true,
+    day_sheet_update_visible: {
+      clear: typeof visObj.clear === "boolean" ? visObj.clear : true,
+      score: typeof visObj.score === "boolean" ? visObj.score : true,
+      bp: typeof visObj.bp === "boolean" ? visObj.bp : false,
+      combo: typeof visObj.combo === "boolean" ? visObj.combo : false,
+    },
+    day_sheet_update_order: order,
+    day_sheet_update_fullwidth: fullwidth,
+    day_sheet_dan_order:
+      Array.isArray(obj.day_sheet_dan_order) ? (obj.day_sheet_dan_order as string[]) : null,
+    day_sheet_rating_order:
+      Array.isArray(obj.day_sheet_rating_order) && (obj.day_sheet_rating_order as string[]).every((k) => k === "exp_info" || k === "rating_info")
+        ? (obj.day_sheet_rating_order as RatingSubKey[])
+        : DEFAULT_DAY_SHEET_PREFS.day_sheet_rating_order,
+    day_sheet_show_note:
+      typeof obj.day_sheet_show_note === "boolean" ? obj.day_sheet_show_note : true,
+  };
+}
+
+export function useDayStatSheetPrefs(): DayStatSheetPrefs {
+  const { isInitialized, user } = useAuthStore();
+  const { data } = useQuery({
+    queryKey: prefsQueryKey(user?.id),
+    queryFn: () => api.get<{ preferences: Record<string, unknown> }>("/users/me/preferences"),
+    staleTime: 10 * 60 * 1000,
+    enabled: isInitialized && !!user,
+  });
+  return normalizeDaySheetPrefs(data?.preferences?.day_sheet_prefs ?? {});
+}
+
+export function useUpdateDayStatSheetPrefs() {
+  const queryClient = useQueryClient();
+  const { user } = useAuthStore();
+  const key = prefsQueryKey(user?.id);
+  return useMutation({
+    mutationFn: (nextPrefs: Partial<DayStatSheetPrefs>) =>
+      api.patch<{ preferences: Record<string, unknown> }>("/users/me/preferences", {
+        preferences: { day_sheet_prefs: nextPrefs },
+      }),
+    onMutate: async (nextPrefs) => {
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<{ preferences: Record<string, unknown> }>(key);
+      queryClient.setQueryData(key, (old: { preferences: Record<string, unknown> } | undefined) => ({
+        preferences: { ...(old?.preferences ?? {}), day_sheet_prefs: { ...(old?.preferences?.day_sheet_prefs as Record<string, unknown>), ...nextPrefs } },
+      }));
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous !== undefined) queryClient.setQueryData(key, context.previous);
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(key, data);
+    },
+  });
+}

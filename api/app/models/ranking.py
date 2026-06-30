@@ -84,6 +84,24 @@ class UserTableRatingUpdateDaily(Base):
     update_count: Mapped[int] = mapped_column(SmallInteger, nullable=False)
 
 
+class UserTableRatingUpdateKey(Base):
+    __tablename__ = "user_table_rating_update_keys"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    table_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("difficulty_tables.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    effective_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    fumen_sha256: Mapped[str] = mapped_column(String(64), primary_key=True, server_default="")
+    fumen_md5: Mapped[str] = mapped_column(String(32), primary_key=True, server_default="")
+
+
 class UserRatingUpdateDaily(Base):
     __tablename__ = "user_rating_update_daily"
 
@@ -94,3 +112,24 @@ class UserRatingUpdateDaily(Base):
     )
     effective_date: Mapped[date] = mapped_column(Date, primary_key=True)
     update_count: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+
+
+class UserRatingDerivedState(Base):
+    __tablename__ = "user_rating_derived_state"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    table_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("difficulty_tables.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    config_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    last_rebuilt_effective_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    rebuilt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )

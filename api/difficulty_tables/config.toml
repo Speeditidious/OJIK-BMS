@@ -40,36 +40,42 @@ url = "http://minddnim.web.fc2.com/sara/3rd_hard/bms_sara_3rd_hard.html"
 slug = "starlight"
 name = "Starlight"
 url = "https://stellabms.xyz/sr/table.html"
+site = "https://stellabms.xyz/"
 update_schedule = { type = "weekly", day_of_week = "mon", hour = 0, minute = 0 }
 
 [[default_tables]]
 slug = "satellite"
 name = "Satellite"
 url = "https://stellabms.xyz/sl/table.html"
+site = "https://stellabms.xyz/"
 update_schedule = { type = "weekly", day_of_week = "mon", hour = 0, minute = 0 }
 
 [[default_tables]]
 slug = "stella"
 name = "Stella"
 url = "https://stellabms.xyz/st/table.html"
+site = "https://stellabms.xyz/"
 update_schedule = { type = "weekly", day_of_week = "mon", hour = 0, minute = 0 }
 
 [[default_tables]]
 slug = "solar"
 name = "Solar"
 url = "https://stellabms.xyz/so/table.html"
+site = "https://stellabms.xyz/"
 update_schedule = { type = "weekly", day_of_week = "mon", hour = 0, minute = 0 }
 
 [[default_tables]]
 slug = "supernova"
 name = "Supernova"
 url = "https://stellabms.xyz/sn/table.html"
+site = "https://stellabms.xyz/"
 update_schedule = { type = "weekly", day_of_week = "mon", hour = 0, minute = 0 }
 
 [[default_tables]]
 slug = "aery"
 name = "Aery"
 url = "https://asumatoki.kr/table/aery/header.json"
+site = "https://asumatoki.kr/"
 
 [[default_tables]]
 slug = "codestream"

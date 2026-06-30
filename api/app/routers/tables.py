@@ -38,12 +38,22 @@ router = APIRouter(prefix="/tables", tags=["tables"])
 
 # ── Pydantic schemas ─────────────────────────────────────────────────────────
 
+def _representative_site_url(site: str | None) -> str | None:
+    """Return a public representative-site URL only when it is web-link shaped."""
+    value = (site or "").strip()
+    if value.startswith(("http://", "https://")):
+        return value
+    return None
+
+
 class DifficultyTableRead(BaseModel):
     id: uuid.UUID
     name: str
     symbol: str | None
     slug: str | None
     source_url: str | None
+    site: str | None = None
+    representative_site_url: str | None = None
     is_default: bool
     updated_at: datetime | None = None
     song_count: int | None = None
@@ -58,6 +68,8 @@ class DifficultyTableRead(BaseModel):
             symbol=table.symbol,
             slug=table.slug,
             source_url=table.source_url,
+            site=table.site,
+            representative_site_url=_representative_site_url(table.site),
             is_default=table.is_default,
             updated_at=table.updated_at,
             song_count=count,

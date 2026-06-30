@@ -16,7 +16,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { GripVertical, Plus, Star, StarOff } from "lucide-react";
+import { ExternalLink, GripVertical, Plus, Star, StarOff } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
@@ -92,6 +92,19 @@ function SortableTableRow({
           <span className="text-label text-muted-foreground shrink-0">{table.song_count}</span>
         )}
       </div>
+      {table.representative_site_url && (
+        <a
+          href={table.representative_site_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+          title={t("tables.sidebar.representativeSiteTitle")}
+          aria-label={t("tables.sidebar.representativeSiteTitle")}
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      )}
       {isLoggedIn && (
         <button
           onClick={(e) => onToggleFavorite(table, e)}
@@ -138,6 +151,19 @@ function StaticTableRow({
         )}
         <span className="truncate text-body">{table.name}</span>
       </div>
+      {table.representative_site_url && (
+        <a
+          href={table.representative_site_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+          title={t("tables.sidebar.representativeSiteTitle")}
+          aria-label={t("tables.sidebar.representativeSiteTitle")}
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      )}
       {isLoggedIn && (
         <button
           onClick={(e) => onToggleFavorite(table, e)}

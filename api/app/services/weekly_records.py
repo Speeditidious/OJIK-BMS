@@ -58,13 +58,18 @@ class UserRecord:
     best_play_count: int | None
     best_options: dict | None
     best_client_type: str | None
+    weekly_score_id: str | None
+    weekly_play_count: int | None
+    weekly_options: dict | None
+    weekly_client_type: str | None
     baseline: RecordSnapshot | None
     weekly_best: RecordSnapshot
     improvement: RecordImprovement
     improved: bool
 
 
-_RANK_ORDER = {"F": 0, "E": 1, "D": 2, "C": 3, "B": 4, "A": 5, "AA": 6, "AAA": 7, "MAX": 8}
+_RANK_ORDER = {"F": 0, "E": 1, "D": 2, "C": 3, "B": 4, "A": 5, "AA": 6, "AAA": 7, "MAX-": 8}
+CANDIDATE_SORT_KEYS = {"clear", "bp", "rate", "score", "plays"}
 
 
 def _score_key(row) -> tuple:
@@ -178,6 +183,14 @@ def evaluate_user_records(
             best_play_count=getattr(best_row, "play_count", None),
             best_options=getattr(best_row, "options", None),
             best_client_type=getattr(best_row, "client_type", None),
+            weekly_score_id=(
+                str(weekly_best_row.id)
+                if getattr(weekly_best_row, "id", None) is not None
+                else None
+            ),
+            weekly_play_count=getattr(weekly_best_row, "play_count", None),
+            weekly_options=getattr(weekly_best_row, "options", None),
+            weekly_client_type=getattr(weekly_best_row, "client_type", None),
             baseline=baseline,
             weekly_best=weekly_best,
             improvement=improvement,
@@ -211,6 +224,8 @@ async def fetch_fumen_candidate_user_ids(
     *,
     limit: int,
     offset: int,
+    sort_key: str = "score",
+    sort_dir: str = "desc",
 ) -> list[uuid.UUID]:
     """Fetch a leaderboard page of users who played this fumen in [start, end)."""
     identity = _fumen_identity_conditions(fumen_sha256, fumen_md5, fumen_id)
@@ -235,12 +250,18 @@ async def fetch_fumen_candidate_user_ids(
             UserScore.user_id.label("user_id"),
             UserScore.clear_type.label("best_clear_type"),
             UserScore.exscore.label("best_exscore"),
+            UserScore.min_bp.label("best_min_bp"),
+            UserScore.rate.label("best_rate"),
+            UserScore.play_count.label("best_play_count"),
             func.row_number()
             .over(
                 partition_by=UserScore.user_id,
                 order_by=(
                     UserScore.clear_type.desc().nullslast(),
                     UserScore.exscore.desc().nullslast(),
+                    UserScore.min_bp.asc().nullslast(),
+                    UserScore.rate.desc().nullslast(),
+                    effective_ts.desc().nullslast(),
                 ),
             )
             .label("rn"),
@@ -249,13 +270,27 @@ async def fetch_fumen_candidate_user_ids(
         .where(UserScore.fumen_hash_others.is_(None), or_(*identity))
         .cte("ranked_scores")
     )
+    sort_columns = {
+        "clear": ranked_scores.c.best_clear_type,
+        "bp": ranked_scores.c.best_min_bp,
+        "score": ranked_scores.c.best_exscore,
+        "rate": ranked_scores.c.best_rate,
+        "plays": ranked_scores.c.best_play_count,
+    }
+    primary_sort = sort_columns.get(sort_key, ranked_scores.c.best_exscore)
+    primary_order = (
+        primary_sort.asc().nullslast()
+        if sort_dir == "asc"
+        else primary_sort.desc().nullslast()
+    )
 
     query = (
         select(ranked_scores.c.user_id)
         .where(ranked_scores.c.rn == 1)
         .order_by(
-            ranked_scores.c.best_clear_type.desc().nullslast(),
+            primary_order,
             ranked_scores.c.best_exscore.desc().nullslast(),
+            ranked_scores.c.best_clear_type.desc().nullslast(),
             ranked_scores.c.user_id,
         )
         .limit(limit)

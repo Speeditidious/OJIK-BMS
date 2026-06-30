@@ -18,6 +18,7 @@ import {
 } from "@/components/charts/ClearDistributionChart";
 import { displayClearType } from "@/lib/clear-type-display";
 import { formatRatePercent } from "@/lib/rate-format";
+import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
 import { songHref } from "@/lib/song-href";
 import { formatRelativeDate } from "@/lib/time";
 import { localeFromLanguage } from "@/lib/i18n/locale";
@@ -156,7 +157,7 @@ export const UpdateRow = memo(function UpdateRow({ u }: { u: RecentUpdate }) {
                   key={i}
                   className="inline-flex items-center rounded px-1.5 py-0 text-caption font-medium border border-primary/40 text-primary bg-primary/10"
                 >
-                  {symbol}{level}
+                  {formatTableLevelWithSymbolForDisplay({ tableSymbol: symbol, level })}
                 </span>
               ))}
             </div>

@@ -76,6 +76,8 @@ export interface DifficultyTable {
   symbol: string | null;
   slug: string | null;
   source_url: string | null;
+  site: string | null;
+  representative_site_url: string | null;
   is_default: boolean;
   updated_at: string;
   song_count: number | null;
@@ -404,6 +406,7 @@ export interface ScoreUpdateBase {
   dan_title: string | null;
   source_client?: string | null;
   source_client_detail?: Record<string, string | null> | null;
+  previous_state?: CurrentState | null;
   current_state: CurrentState;
   options: Record<string, unknown> | null;
 }
@@ -421,6 +424,8 @@ export interface ExscoreUpdateItem extends ScoreUpdateBase {
   new_rank: string | null;
   prev_rate: number | null;
   new_rate: number | null;
+  prev_max_minus_score: number | null;
+  new_max_minus_score: number | null;
   best_min_bp: number | null;
 }
 

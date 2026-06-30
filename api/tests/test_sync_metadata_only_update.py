@@ -6,6 +6,7 @@ Tests 3 & 4 are pure unit tests for the helper functions.
 """
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,6 +18,7 @@ from app.core.security import get_current_user
 from app.main import app
 from app.models.score import UserScore
 from app.routers import sync as sync_module
+from app.utils.course_notes import course_notes_total
 
 SYNCED_AT_OLD = datetime(2026, 5, 3, 10, 0, 0, tzinfo=UTC)
 _ORIG_JUDGMENTS = {"perfect": 100, "great": 50, "good": 10, "bad": 5, "poor": 2}
@@ -171,6 +173,59 @@ def test_misclassified_lr2_record_detector(client_type, judgments, recorded_at, 
     )
 
     assert sync_module._is_misclassified_lr2_record(item) is expected
+
+
+@pytest.mark.parametrize(
+    ("client_type", "judgments"),
+    [
+        ("lr2", {"perfect": 945, "great": 0, "good": 55, "bad": 0, "poor": 0}),
+        ("beatoraja", {"epg": 945, "lpg": 0, "egr": 0, "lgr": 0}),
+    ],
+)
+def test_compute_score_fields_returns_max_minus_above_8_5_over_9(client_type, judgments):
+    """Fresh client syncs should store MAX- when the score meets the new threshold."""
+    exscore, rate, rank = sync_module._compute_score_fields(client_type, judgments, 1000)
+
+    assert exscore == 1890
+    assert rate == 94.5
+    assert rank == "MAX-"
+
+
+def test_compute_score_fields_keeps_aaa_below_max_minus_threshold():
+    """AAA remains distinct for scores below 8.5/9 of MAX."""
+    exscore, rate, rank = sync_module._compute_score_fields(
+        "lr2",
+        {"perfect": 944, "great": 0, "good": 56, "bad": 0, "poor": 0},
+        1000,
+    )
+
+    assert exscore == 1888
+    assert rate == 94.4
+    assert rank == "AAA"
+
+
+def test_course_notes_total_sums_all_member_fumens():
+    course = SimpleNamespace(
+        md5_list=["a" * 32, "b" * 32, "c" * 32, "d" * 32],
+        sha256_list=None,
+    )
+
+    assert course_notes_total(
+        course,
+        {
+            "a" * 32: 1000,
+            "b" * 32: 2000,
+            "c" * 32: 3000,
+            "d" * 32: 5687,
+        },
+        {},
+    ) == 11687
+
+
+def test_course_notes_total_requires_every_member_note_count():
+    course = SimpleNamespace(md5_list=["a" * 32, "b" * 32], sha256_list=None)
+
+    assert course_notes_total(course, {"a" * 32: 1000}, {}) is None
 
 
 @pytest.mark.asyncio

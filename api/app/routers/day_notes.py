@@ -112,12 +112,13 @@ async def upsert_day_note(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DayNoteRead | None:
-    """Upsert a day note. Empty content after strip = delete. Max 2000 chars."""
+    """Upsert a day note. Empty title AND content after strip = delete. A
+    title-only note (empty content) is allowed. Max 2000 chars."""
     note_date = _parse_date(date_str)
     content = payload.content.strip()
     title = (payload.title or "").strip() or None
 
-    if not content:
+    if not content and not title:
         await db.execute(
             delete(UserDayNote).where(
                 and_(

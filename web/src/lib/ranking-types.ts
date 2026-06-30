@@ -118,6 +118,8 @@ export interface RankingContributionEntry {
   previous_rate?: number | null;
   rank_grade: string | null;
   previous_rank_grade?: string | null;
+  max_minus_score?: number | null;
+  previous_max_minus_score?: number | null;
   exscore: number | null;
   previous_exscore?: number | null;
   value: number;

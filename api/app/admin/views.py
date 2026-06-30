@@ -41,9 +41,11 @@ from app.models.notification import (
 )
 from app.models.ranking import (
     UserRanking,
+    UserRatingDerivedState,
     UserRatingUpdateDaily,
     UserTableRatingCheckpoint,
     UserTableRatingUpdateDaily,
+    UserTableRatingUpdateKey,
 )
 from app.models.schedule import Schedule
 from app.models.score import UserPlayerStats, UserScore
@@ -513,6 +515,8 @@ class DifficultyTableAdmin(ModelView, model=DifficultyTable):
         DifficultyTable.name,
         DifficultyTable.symbol,
         DifficultyTable.slug,
+        DifficultyTable.source_url,
+        DifficultyTable.site,
         DifficultyTable.is_default,
         DifficultyTable.display_level_order,
         DifficultyTable.non_regular_level_order,
@@ -525,6 +529,7 @@ class DifficultyTableAdmin(ModelView, model=DifficultyTable):
         DifficultyTable.symbol,
         DifficultyTable.slug,
         DifficultyTable.source_url,
+        DifficultyTable.site,
         DifficultyTable.is_default,
         DifficultyTable.default_order,
         DifficultyTable.level_order,
@@ -1380,6 +1385,37 @@ class UserTableRatingUpdateDailyAdmin(ModelView, model=UserTableRatingUpdateDail
     can_delete = False
 
 
+class UserTableRatingUpdateKeyAdmin(ModelView, model=UserTableRatingUpdateKey):
+    name = "Rating Update Keys By Table"
+    name_plural = "Rating Update Keys By Table"
+    icon = "fa-solid fa-key"
+    column_list = [
+        UserTableRatingUpdateKey.user_id,
+        UserTableRatingUpdateKey.table_id,
+        UserTableRatingUpdateKey.effective_date,
+        UserTableRatingUpdateKey.fumen_sha256,
+        UserTableRatingUpdateKey.fumen_md5,
+    ]
+    column_searchable_list = [
+        UserTableRatingUpdateKey.user_id,
+        UserTableRatingUpdateKey.table_id,
+        UserTableRatingUpdateKey.effective_date,
+        UserTableRatingUpdateKey.fumen_sha256,
+        UserTableRatingUpdateKey.fumen_md5,
+    ]
+    column_sortable_list = [
+        UserTableRatingUpdateKey.user_id,
+        UserTableRatingUpdateKey.table_id,
+        UserTableRatingUpdateKey.effective_date,
+        UserTableRatingUpdateKey.fumen_sha256,
+        UserTableRatingUpdateKey.fumen_md5,
+    ]
+    column_default_sort = [(UserTableRatingUpdateKey.effective_date, True)]
+    can_create = False
+    can_edit = False
+    can_delete = False
+
+
 class UserRatingUpdateDailyAdmin(ModelView, model=UserRatingUpdateDaily):
     name = "Rating Updates Aggregated"
     name_plural = "Rating Updates Aggregated"
@@ -1399,6 +1435,36 @@ class UserRatingUpdateDailyAdmin(ModelView, model=UserRatingUpdateDaily):
         UserRatingUpdateDaily.update_count,
     ]
     column_default_sort = [(UserRatingUpdateDaily.effective_date, True)]
+    can_create = False
+    can_edit = False
+    can_delete = False
+
+
+class UserRatingDerivedStateAdmin(ModelView, model=UserRatingDerivedState):
+    name = "Rating Derived State"
+    name_plural = "Rating Derived State"
+    icon = "fa-solid fa-clock-rotate-left"
+    column_list = [
+        UserRatingDerivedState.user_id,
+        UserRatingDerivedState.table_id,
+        UserRatingDerivedState.schema_version,
+        UserRatingDerivedState.config_fingerprint,
+        UserRatingDerivedState.last_rebuilt_effective_date,
+        UserRatingDerivedState.rebuilt_at,
+    ]
+    column_searchable_list = [
+        UserRatingDerivedState.user_id,
+        UserRatingDerivedState.table_id,
+        UserRatingDerivedState.config_fingerprint,
+    ]
+    column_sortable_list = [
+        UserRatingDerivedState.user_id,
+        UserRatingDerivedState.table_id,
+        UserRatingDerivedState.schema_version,
+        UserRatingDerivedState.last_rebuilt_effective_date,
+        UserRatingDerivedState.rebuilt_at,
+    ]
+    column_default_sort = [(UserRatingDerivedState.rebuilt_at, True)]
     can_create = False
     can_edit = False
     can_delete = False

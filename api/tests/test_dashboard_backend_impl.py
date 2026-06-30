@@ -17,6 +17,7 @@ from app.models.user import User
 from app.routers.analysis import (
     _build_fumen_aggregate,
     _build_activity_subquery,
+    _fetch_aggregated_rating_update_rows,
     _get_daily_plays,
     _get_day_stats,
     _initial_sync_exclusion_filters,
@@ -24,6 +25,7 @@ from app.routers.analysis import (
     _split_table_level_order,
     _resolve_activity_window,
     _resolve_rating_update_window,
+    get_rating_update_status,
     get_play_summary,
     get_score_updates,
 )
@@ -225,6 +227,38 @@ def test_level_overrides_affect_rating_but_not_saved_display_level():
     assert result.exp_top_contributions[0]["level"] == "12"
 
 
+def test_max_minus_uses_aaa_rank_multiplier_for_rating():
+    song_sha256 = "c" * 64
+    table_cfg = _make_level_override_table(song_sha256)
+    table_cfg.rank_mult["AAA"] = 1.08
+    max_minus_score = BestScore(
+        sha256=song_sha256,
+        md5=None,
+        level="12",
+        clear_type=5,
+        exscore=1900,
+        rate=95.0,
+        rank="MAX-",
+        min_bp=1,
+    )
+    aaa_score = BestScore(
+        sha256=song_sha256,
+        md5=None,
+        level="12",
+        clear_type=5,
+        exscore=1900,
+        rate=95.0,
+        rank="AAA",
+        min_bp=1,
+    )
+
+    assert compute_ranking(table_cfg, exp_level_step=100.0, scores=[max_minus_score]).rating == compute_ranking(
+        table_cfg,
+        exp_level_step=100.0,
+        scores=[aaa_score],
+    ).rating
+
+
 @pytest.mark.asyncio
 async def test_contribution_rows_display_original_level_with_level_override(monkeypatch):
     song_sha256 = "b" * 64
@@ -410,6 +444,81 @@ async def test_score_updates_uses_target_user_for_initial_sync_flag(monkeypatch)
 
     assert result["play_count_updates"][0]["is_initial_sync"] is True
     assert result["play_count_updates"][0]["detail_score_id"] == str(score.id)
+
+
+@pytest.mark.asyncio
+async def test_score_updates_includes_course_min_bp_improvements(monkeypatch):
+    target_user = SimpleNamespace(id=uuid.uuid4(), first_synced_at={}, is_active=True)
+    course_hash = "course-bp-hash"
+    previous = UserScore(
+        id=uuid.uuid4(),
+        user_id=target_user.id,
+        fumen_hash_others=course_hash,
+        client_type="beatoraja",
+        clear_type=5,
+        exscore=1500,
+        rate=80.0,
+        rank="A",
+        min_bp=12,
+        recorded_at=datetime(2026, 4, 21, 10, 0, tzinfo=UTC),
+        synced_at=datetime(2026, 4, 21, 10, 5, tzinfo=UTC),
+    )
+    current = UserScore(
+        id=uuid.uuid4(),
+        user_id=target_user.id,
+        fumen_hash_others=course_hash,
+        client_type="beatoraja",
+        clear_type=5,
+        exscore=1500,
+        rate=80.0,
+        rank="A",
+        min_bp=8,
+        recorded_at=datetime(2026, 4, 22, 10, 0, tzinfo=UTC),
+        synced_at=datetime(2026, 4, 22, 10, 5, tzinfo=UTC),
+    )
+    db = _QueuedSession(
+        [
+            _QueuedResult(rows=[SimpleNamespace(score_id=current.id)]),
+            _QueuedResult(rows=[current]),
+            _QueuedResult(rows=[]),
+            _QueuedResult(rows=[previous, current]),
+        ]
+    )
+
+    async def fake_resolve_target_user(_user_id, _current_user, _db):
+        return target_user
+
+    async def fake_build_course_indexes(_db):
+        return ({}, {}, [])
+
+    monkeypatch.setattr("app.routers.analysis._resolve_target_user", fake_resolve_target_user)
+    monkeypatch.setattr("app.routers.analysis._build_course_indexes", fake_build_course_indexes)
+    monkeypatch.setattr(
+        "app.routers.analysis._match_course_from_indexes",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            name="Test Course",
+            dan_title="Test Dan",
+            md5_list=[],
+            sha256_list=[],
+        ),
+    )
+
+    result = await get_score_updates(
+        date="2026-04-22",
+        user_id=target_user.id,
+        current_user=None,
+        db=db,
+    )
+
+    assert len(result["min_bp_updates"]) == 1
+    update = result["min_bp_updates"][0]
+    assert update["is_course"] is True
+    assert update["course_hash"] == course_hash
+    assert update["course_name"] == "Test Course"
+    assert update["previous_state"]["clear_type"] == 5
+    assert update["current_state"]["clear_type"] == 5
+    assert update["prev_min_bp"] == 12
+    assert update["new_min_bp"] == 8
 
 
 @pytest.mark.asyncio
@@ -936,6 +1045,67 @@ def test_resolve_activity_window_rejects_partial_range():
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "both 'from' and 'to' must be provided"
+
+
+@pytest.mark.asyncio
+async def test_aggregated_rating_update_rows_return_pending_without_legacy_fallback(monkeypatch):
+    target_user = SimpleNamespace(id=uuid.uuid4(), first_synced_at={})
+    table_cfg = _make_rating_table()
+
+    async def fake_has_fresh(_user_id, _table_ids, _db):
+        return False
+
+    async def forbidden_legacy(**_kwargs):
+        raise AssertionError("stale overview must not run legacy rating-update sweep")
+
+    monkeypatch.setattr("app.routers.analysis.has_fresh_user_rating_derived_data", fake_has_fresh)
+    monkeypatch.setattr("app.routers.analysis.compute_rating_updates_aggregated", forbidden_legacy)
+
+    rows, pending = await _fetch_aggregated_rating_update_rows(
+        target_user=target_user,
+        ranking_tables=[table_cfg],
+        from_date=date(2026, 4, 1),
+        to_date=date(2026, 4, 30),
+        db=object(),
+    )
+
+    assert rows == []
+    assert pending is True
+
+
+@pytest.mark.asyncio
+async def test_rating_update_status_returns_stored_rows_when_ready(monkeypatch):
+    user_id = uuid.uuid4()
+    target_user = SimpleNamespace(id=user_id, first_synced_at={})
+    table_cfg = _make_rating_table()
+    stored_rows = [{"date": "2026-04-22", "count": 3}]
+
+    async def fake_resolve_target_user(_user_id, _current_user, _db):
+        return target_user
+
+    async def fake_has_fresh(_user_id, table_ids, _db):
+        assert table_ids == [table_cfg.table_id]
+        return True
+
+    async def fake_fetch(_user_id, from_date, to_date, _db):
+        assert from_date == date(2026, 4, 1)
+        assert to_date == date(2026, 4, 30)
+        return stored_rows
+
+    monkeypatch.setattr("app.routers.analysis._resolve_target_user", fake_resolve_target_user)
+    monkeypatch.setattr("app.routers.analysis.get_ranking_config", lambda: SimpleNamespace(tables=[table_cfg]))
+    monkeypatch.setattr("app.routers.analysis.has_fresh_user_rating_derived_data", fake_has_fresh)
+    monkeypatch.setattr("app.routers.analysis.fetch_user_rating_update_daily", fake_fetch)
+
+    response = await get_rating_update_status(
+        from_=date(2026, 4, 1),
+        to=date(2026, 4, 30),
+        user_id=user_id,
+        current_user=None,
+        db=object(),
+    )
+
+    assert response == {"pending": False, "data": stored_rows}
 
 
 def test_resolve_rating_update_window_rejects_multiple_modes():

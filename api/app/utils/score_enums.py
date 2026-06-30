@@ -13,7 +13,7 @@ CLEAR_TYPE_VALUES: dict[str, int] = {
     "NO PLAY": 0,
 }
 
-RANK_VALUES: tuple[str, ...] = ("AAA", "AA", "A", "B", "C", "D", "E", "F")
+RANK_VALUES: tuple[str, ...] = ("MAX-", "AAA", "AA", "A", "B", "C", "D", "E", "F")
 
 # Maps display kanji → internal arrangement name (mirrors fumen-table-utils.ts ARRANGEMENT_KANJI)
 ARRANGEMENT_KANJI_REV: dict[str, str] = {

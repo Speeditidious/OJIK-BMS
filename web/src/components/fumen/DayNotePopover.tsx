@@ -11,17 +11,30 @@ import { MarkdownEditor } from "@/components/common/MarkdownEditor";
 import { useDayNote, useUpsertDayNote, useDeleteDayNote } from "@/hooks/use-day-notes";
 import { timeAgo } from "@/lib/time";
 
+/**
+ * - `button` (default): large labeled "메모" button (record detail header,
+ *   also reused in the day-sheet branding row).
+ * - `cell`: plain icon for calendar cells; stop-propagation is applied.
+ */
+type DayNoteTriggerVariant = "button" | "cell";
+
 interface DayNotePopoverProps {
   userId: string;
   date: string;
   isOwner: boolean;
-  /** When true the trigger is a plain icon (calendar cell). Stop-propagation is applied. */
-  cellTrigger?: boolean;
+  /** Trigger appearance. Defaults to the large labeled button. */
+  triggerVariant?: DayNoteTriggerVariant;
+  /**
+   * Custom trigger element. When provided it replaces the built-in trigger and
+   * Radix toggles the popover on click. Must be a single element that accepts a
+   * ref (e.g. a native element), since it is rendered via `asChild`.
+   */
+  customTrigger?: React.ReactNode;
   /** Pre-known note presence for initial icon color (before the note is lazily fetched). */
   hasNote?: boolean;
 }
 
-export function DayNotePopover({ userId, date, isOwner, cellTrigger = false, hasNote }: DayNotePopoverProps) {
+export function DayNotePopover({ userId, date, isOwner, triggerVariant = "button", customTrigger, hasNote }: DayNotePopoverProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -54,12 +67,20 @@ export function DayNotePopover({ userId, date, isOwner, cellTrigger = false, has
   }
 
   function handleTriggerClick(e: React.MouseEvent) {
-    if (cellTrigger) e.stopPropagation();
+    if (triggerVariant === "cell") e.stopPropagation();
     setOpen((prev) => !prev);
   }
 
   async function handleSave(content: string) {
-    await upsert.mutateAsync({ date, title: editingTitle.trim() || null, content });
+    const title = editingTitle.trim();
+    const body = content.trim();
+    // Saving with both title and body empty deletes the note; a title-only
+    // note (empty body) is kept.
+    if (!title && !body) {
+      await remove.mutateAsync(date);
+    } else {
+      await upsert.mutateAsync({ date, title: title || null, content: body });
+    }
     setEditing(false);
   }
 
@@ -71,7 +92,10 @@ export function DayNotePopover({ userId, date, isOwner, cellTrigger = false, has
 
   const displayTitle = note?.title || t("dashboard.dayDetail.note.title");
 
-  const trigger = cellTrigger ? (
+  const trigger = customTrigger ? (
+    // Caller-supplied trigger; Radix wires the open toggle via PopoverTrigger.
+    customTrigger
+  ) : triggerVariant === "cell" ? (
     <button
       type="button"
       onClick={handleTriggerClick}
@@ -162,6 +186,7 @@ export function DayNotePopover({ userId, date, isOwner, cellTrigger = false, has
                 placeholder={t("dashboard.dayDetail.note.placeholder")}
                 maxLength={2000}
                 hasExternalChanges={editingTitle.trim() !== (note?.title ?? "")}
+                allowEmpty
               />
             </div>
           ) : note ? (

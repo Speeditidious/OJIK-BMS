@@ -32,6 +32,11 @@ export interface MarkdownEditorProps {
   ) => React.ReactNode;
   /** When true, save is enabled even if body is unchanged (e.g. only a title changed). */
   hasExternalChanges?: boolean;
+  /**
+   * When true, an empty body can be saved (the caller decides what an empty
+   * save means — e.g. deleting the record). Default: false (empty blocks save).
+   */
+  allowEmpty?: boolean;
 }
 
 export function MarkdownEditor({
@@ -44,6 +49,7 @@ export function MarkdownEditor({
   enableMentions = false,
   renderMentionDropdown,
   hasExternalChanges = false,
+  allowEmpty = false,
 }: MarkdownEditorProps) {
   const { t } = useTranslation();
   const [body, setBody] = useState(initialBody);
@@ -130,9 +136,9 @@ export function MarkdownEditor({
           )}
           <Button
             size="sm"
-            disabled={!body.trim() || !hasChanged || isSaving || overLimit}
+            disabled={(!allowEmpty && !body.trim()) || !hasChanged || isSaving || overLimit}
             onClick={async () => {
-              if (!body.trim() || !hasChanged || overLimit) return;
+              if ((!allowEmpty && !body.trim()) || !hasChanged || overLimit) return;
               await onSave(body.trim());
             }}
           >

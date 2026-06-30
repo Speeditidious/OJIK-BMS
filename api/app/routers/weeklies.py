@@ -413,7 +413,7 @@ async def get_weekly_detail(
                 if rec is not None:
                     my_record = MyRecord(
                         dan_decoration=my_dan_decoration,
-                        score_id=rec.best_score_id,
+                        score_id=rec.weekly_score_id,
                         clear_type=display_clear_type(rec.best_clear_type, exscore=rec.best_exscore, rate=rec.best_rate),
                         exscore=rec.best_exscore, rate=rec.best_rate, rank=rec.best_rank,
                         min_bp=rec.best_min_bp,
@@ -450,6 +450,8 @@ async def get_weekly_fumen_records(
     fumen_id: uuid.UUID,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    sort_key: str = Query("score", pattern="^(clear|bp|rate|score|plays)$"),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
 ) -> WeeklyFumenRecords:
     weekly = (await db.execute(select(Weekly).where(Weekly.id == weekly_id))).scalar_one_or_none()
@@ -482,6 +484,8 @@ async def get_weekly_fumen_records(
         weekly.period_end,
         limit=limit + 1,
         offset=offset,
+        sort_key=sort_key,
+        sort_dir=sort_dir,
     )
     has_more = len(candidate_user_ids) > limit
     candidate_user_ids = candidate_user_ids[:limit]
@@ -523,7 +527,11 @@ async def get_weekly_fumen_records(
     )
 
     records: list[PlayerRecord] = []
-    for uid, rec in evaluated.items():
+    for user_id in candidate_user_ids:
+        uid = str(user_id)
+        rec = evaluated.get(uid)
+        if rec is None:
+            continue
         u = user_map.get(uid)
         if u is None:
             continue
@@ -538,7 +546,7 @@ async def get_weekly_fumen_records(
                     u.discord_avatar_url,
                 ),
                 dan_decoration=decorations.get(uid),
-                score_id=rec.best_score_id,
+                score_id=rec.weekly_score_id,
                 clear_type=display_clear_type(rec.best_clear_type, exscore=rec.best_exscore, rate=rec.best_rate),
                 exscore=rec.best_exscore, rate=rec.best_rate, rank=rec.best_rank,
                 min_bp=rec.best_min_bp,
@@ -550,7 +558,6 @@ async def get_weekly_fumen_records(
             )
         )
 
-    records.sort(key=lambda r: (r.clear_type or -1, r.exscore or -1), reverse=True)
     return WeeklyFumenRecords(
         weekly_id=str(weekly_id),
         fumen_id=str(fumen_id),

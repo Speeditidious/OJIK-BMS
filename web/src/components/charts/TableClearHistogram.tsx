@@ -23,6 +23,7 @@ import {
 } from "@/components/charts/ClearDistributionChart";
 import { useChartWidth } from "@/hooks/use-chart-size";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { formatTableLevelForDisplay, formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
 
 // All internal clear types. Bars are declared highest → lowest so the
 // highest tier (MAX/PERFECT/FC) renders on the left in stacked bars.
@@ -115,7 +116,7 @@ const CustomTooltip = memo(function CustomTooltip({ active, payload, label, tabl
     <div style={cardStyles}>
       {(() => {
         const displayLevel =
-          String(label).startsWith("LEVEL ") ? String(label).slice(6) : String(label);
+          formatTableLevelForDisplay({ tableSymbol, level: String(label) });
         return (
           <div className="font-semibold text-foreground mb-1">
             {tableSymbol ? `${tableSymbol}${displayLevel}` : displayLevel}
@@ -203,8 +204,7 @@ const YAxisTick = memo(function YAxisTick({
 }) {
   const val = String(payload?.value ?? "");
   if (val.startsWith(SPACER_LEVEL_PREFIX)) return <g />;
-  const label = val.startsWith("LEVEL ") ? val.slice(6) : val;
-  const displayLabel = tableSymbol ? `${tableSymbol}${label}` : label;
+  const displayLabel = formatTableLevelWithSymbolForDisplay({ tableSymbol, level: val });
   const isClickable = !!onLevelSelect;
   return (
     <g transform={`translate(${x},${y})`}>

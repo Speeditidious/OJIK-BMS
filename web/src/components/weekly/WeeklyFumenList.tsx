@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { WeeklyFumenCard } from "./WeeklyFumenCard";
+import { formatTableLevelForDisplay } from "@/lib/table-level-display";
 import type { WeeklyFumenItem } from "@/lib/weekly-types";
 
 interface Props {
@@ -10,8 +11,8 @@ interface Props {
   myUserId: string | null;
 }
 
-function extractLevelNum(level: string): number {
-  const stripped = level.replace(/^LEVEL\s+/i, "");
+function extractLevelNum(item: WeeklyFumenItem): number {
+  const stripped = formatTableLevelForDisplay({ tableSymbol: item.table_symbol, level: item.level });
   const match = stripped.match(/([\d.]+)(\+?)/);
   if (!match) return 0;
   return parseFloat(match[1]) + (match[2] === "+" ? 0.5 : 0);
@@ -35,7 +36,7 @@ function compareFumens(a: WeeklyFumenItem, b: WeeklyFumenItem): number {
   if (aOvj !== bOvj) return aOvj ? 1 : -1;
 
   // Within same group: sort by level number ascending
-  const diff = extractLevelNum(a.level) - extractLevelNum(b.level);
+  const diff = extractLevelNum(a) - extractLevelNum(b);
   if (diff !== 0) return diff;
 
   // Same level: ★ before ▼

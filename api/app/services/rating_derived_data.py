@@ -1,19 +1,24 @@
 """Build and query sparse derived data for rating overview screens."""
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ranking import (
     UserRanking,
+    UserRatingDerivedState,
     UserRatingUpdateDaily,
     UserTableRatingCheckpoint,
     UserTableRatingUpdateDaily,
+    UserTableRatingUpdateKey,
 )
 from app.models.score import UserScore
 from app.models.user import User
@@ -33,6 +38,98 @@ from app.services.ranking_dashboard import (
 )
 
 _INSERT_CHUNK_SIZE = 1000
+RATING_DERIVED_SCHEMA_VERSION = 1
+
+
+def _ranking_config_fingerprint(config: RankingConfig) -> str:
+    """Return a stable fingerprint for rating-derived calculation inputs."""
+    payload = {
+        "exp_level_step": config.exp_level_step,
+        "tables": [
+            {
+                "slug": table.slug,
+                "table_id": str(table.table_id),
+                "top_n": table.top_n,
+                "max_level": table.max_level,
+                "level_weights": table.level_weights,
+                "base_lamp_mult": table.base_lamp_mult,
+                "upper_lamp_bonus": table.upper_lamp_bonus,
+                "rank_mult": table.rank_mult,
+                "bonus": getattr(table.bonus, "__dict__", str(table.bonus)),
+                "level_overrides": [getattr(override, "__dict__", str(override)) for override in table.level_overrides],
+                "c_table": table.c_table,
+            }
+            for table in config.tables
+        ],
+    }
+    encoded = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _requires_full_rating_derived_rebuild(
+    state: UserRatingDerivedState | Any | None,
+    *,
+    schema_version: int,
+    config_fingerprint: str,
+) -> bool:
+    """Return whether stored rating-derived rows cannot be incrementally trusted."""
+    if state is None:
+        return True
+    return (
+        getattr(state, "schema_version", None) != schema_version
+        or getattr(state, "config_fingerprint", None) != config_fingerprint
+    )
+
+
+async def select_user_rating_derived_rebuild_scope(
+    user_id: uuid.UUID,
+    config: RankingConfig,
+    db: AsyncSession,
+) -> tuple[set[uuid.UUID] | None, date | None]:
+    """Return affected table IDs and earliest effective date, or ``None`` for full rebuild."""
+    config_fingerprint = _ranking_config_fingerprint(config)
+    state_rows = await db.execute(
+        select(UserRatingDerivedState).where(UserRatingDerivedState.user_id == user_id)
+    )
+    states_by_table = {row.table_id: row for row in state_rows.scalars().all()}
+    if len(states_by_table) != len(config.tables):
+        return None, None
+    for table_cfg in config.tables:
+        if _requires_full_rating_derived_rebuild(
+            states_by_table.get(table_cfg.table_id),
+            schema_version=RATING_DERIVED_SCHEMA_VERSION,
+            config_fingerprint=config_fingerprint,
+        ):
+            return None, None
+
+    affected_table_ids: set[uuid.UUID] = set()
+    earliest: date | None = None
+    for table_cfg in config.tables:
+        state = states_by_table[table_cfg.table_id]
+        result = await db.execute(
+            text("""
+                SELECT MIN(COALESCE(us.recorded_at, us.synced_at)::date) AS start_date
+                FROM user_scores us
+                JOIN fumen_table_entries fte ON fte.fumen_id = us.fumen_id
+                WHERE us.user_id = :user_id
+                  AND us.fumen_hash_others IS NULL
+                  AND fte.table_id = :table_id
+                  AND us.synced_at > :rebuilt_at
+            """),
+            {
+                "user_id": str(user_id),
+                "table_id": str(table_cfg.table_id),
+                "rebuilt_at": state.rebuilt_at,
+            },
+        )
+        table_start = result.scalar_one_or_none()
+        if table_start is None:
+            continue
+        affected_table_ids.add(table_cfg.table_id)
+        if earliest is None or table_start < earliest:
+            earliest = table_start
+
+    return affected_table_ids, earliest
 
 
 def _rating_update_excluded_dates(first_synced_at: dict[str, str] | None) -> set[date]:
@@ -180,26 +277,82 @@ async def rebuild_user_rating_derived_data(
     user_id: uuid.UUID,
     config: RankingConfig,
     db: AsyncSession,
+    *,
+    affected_table_ids: set[uuid.UUID] | None = None,
+    start_date: date | None = None,
 ) -> None:
-    """Rebuild every sparse rating-derived table for one user."""
+    """Rebuild sparse rating-derived tables for one user.
+
+    When ``affected_table_ids`` and ``start_date`` are provided, only those
+    table-scoped rows from ``start_date`` onward are replaced. Aggregated daily
+    rows are then rebuilt from stored per-table fumen keys for the same date
+    range, preserving cross-table dedupe.
+    """
     user = await db.get(User, user_id)
     excluded_dates = _rating_update_excluded_dates(user.first_synced_at if user is not None else None)
+    config_fingerprint = _ranking_config_fingerprint(config)
+
+    state_rows = await db.execute(
+        select(UserRatingDerivedState).where(UserRatingDerivedState.user_id == user_id)
+    )
+    states_by_table = {row.table_id: row for row in state_rows.scalars().all()}
+    requested_partial = affected_table_ids is not None and start_date is not None
+    if requested_partial:
+        for table_cfg in config.tables:
+            state = states_by_table.get(table_cfg.table_id)
+            if _requires_full_rating_derived_rebuild(
+                state,
+                schema_version=RATING_DERIVED_SCHEMA_VERSION,
+                config_fingerprint=config_fingerprint,
+            ):
+                requested_partial = False
+                break
+
+    target_tables = [
+        table_cfg for table_cfg in config.tables
+        if not requested_partial or table_cfg.table_id in (affected_table_ids or set())
+    ]
 
     checkpoint_rows: list[dict[str, Any]] = []
     table_daily_rows: list[dict[str, Any]] = []
+    table_key_rows: list[dict[str, Any]] = []
     aggregated_sets: dict[date, set[tuple[str | None, str | None]]] = defaultdict(set)
 
-    for table_cfg in config.tables:
+    for table_cfg in target_tables:
         table_checkpoints, table_daily, updated_keys_by_date = await _build_user_table_rating_derived_rows(
             user_id=user_id,
             table_cfg=table_cfg,
             db=db,
             excluded_dates=excluded_dates,
         )
+        if requested_partial and start_date is not None:
+            table_checkpoints = [
+                row for row in table_checkpoints
+                if row["effective_date"] >= start_date
+            ]
+            table_daily = [
+                row for row in table_daily
+                if row["effective_date"] >= start_date
+            ]
+            updated_keys_by_date = {
+                effective_date: keys
+                for effective_date, keys in updated_keys_by_date.items()
+                if effective_date >= start_date
+            }
         checkpoint_rows.extend(table_checkpoints)
         table_daily_rows.extend(table_daily)
         for effective_date, keys in updated_keys_by_date.items():
             aggregated_sets[effective_date].update(keys)
+            for sha256, md5 in keys:
+                table_key_rows.append(
+                    {
+                        "user_id": user_id,
+                        "table_id": table_cfg.table_id,
+                        "effective_date": effective_date,
+                        "fumen_sha256": sha256 or "",
+                        "fumen_md5": md5 or "",
+                    }
+                )
 
     aggregated_daily_rows = [
         {
@@ -211,13 +364,84 @@ async def rebuild_user_rating_derived_data(
         if keys
     ]
 
-    await db.execute(delete(UserTableRatingCheckpoint).where(UserTableRatingCheckpoint.user_id == user_id))
-    await db.execute(delete(UserTableRatingUpdateDaily).where(UserTableRatingUpdateDaily.user_id == user_id))
-    await db.execute(delete(UserRatingUpdateDaily).where(UserRatingUpdateDaily.user_id == user_id))
+    if requested_partial and start_date is not None and affected_table_ids:
+        await db.execute(
+            delete(UserTableRatingCheckpoint).where(
+                UserTableRatingCheckpoint.user_id == user_id,
+                UserTableRatingCheckpoint.table_id.in_(affected_table_ids),
+                UserTableRatingCheckpoint.effective_date >= start_date,
+            )
+        )
+        await db.execute(
+            delete(UserTableRatingUpdateDaily).where(
+                UserTableRatingUpdateDaily.user_id == user_id,
+                UserTableRatingUpdateDaily.table_id.in_(affected_table_ids),
+                UserTableRatingUpdateDaily.effective_date >= start_date,
+            )
+        )
+        await db.execute(
+            delete(UserTableRatingUpdateKey).where(
+                UserTableRatingUpdateKey.user_id == user_id,
+                UserTableRatingUpdateKey.table_id.in_(affected_table_ids),
+                UserTableRatingUpdateKey.effective_date >= start_date,
+            )
+        )
+        await db.execute(
+            delete(UserRatingUpdateDaily).where(
+                UserRatingUpdateDaily.user_id == user_id,
+                UserRatingUpdateDaily.effective_date >= start_date,
+            )
+        )
+    else:
+        await db.execute(delete(UserTableRatingCheckpoint).where(UserTableRatingCheckpoint.user_id == user_id))
+        await db.execute(delete(UserTableRatingUpdateDaily).where(UserTableRatingUpdateDaily.user_id == user_id))
+        await db.execute(delete(UserTableRatingUpdateKey).where(UserTableRatingUpdateKey.user_id == user_id))
+        await db.execute(delete(UserRatingUpdateDaily).where(UserRatingUpdateDaily.user_id == user_id))
+        await db.execute(delete(UserRatingDerivedState).where(UserRatingDerivedState.user_id == user_id))
 
     await _insert_chunked(db, UserTableRatingCheckpoint.__table__, checkpoint_rows)
     await _insert_chunked(db, UserTableRatingUpdateDaily.__table__, table_daily_rows)
-    await _insert_chunked(db, UserRatingUpdateDaily.__table__, aggregated_daily_rows)
+    await _insert_chunked(db, UserTableRatingUpdateKey.__table__, table_key_rows)
+
+    if requested_partial and start_date is not None:
+        await db.execute(
+            text("""
+                INSERT INTO user_rating_update_daily (user_id, effective_date, update_count)
+                SELECT user_id, effective_date, COUNT(DISTINCT (fumen_sha256, fumen_md5))::smallint
+                FROM user_table_rating_update_keys
+                WHERE user_id = :user_id
+                  AND effective_date >= :start_date
+                GROUP BY user_id, effective_date
+            """),
+            {"user_id": str(user_id), "start_date": start_date},
+        )
+    else:
+        await _insert_chunked(db, UserRatingUpdateDaily.__table__, aggregated_daily_rows)
+
+    state_rows_to_upsert = [
+        {
+            "user_id": user_id,
+            "table_id": table_cfg.table_id,
+            "schema_version": RATING_DERIVED_SCHEMA_VERSION,
+            "config_fingerprint": config_fingerprint,
+            "last_rebuilt_effective_date": date.max,
+            "rebuilt_at": datetime.now(UTC),
+        }
+        for table_cfg in target_tables
+    ]
+    if state_rows_to_upsert:
+        stmt = insert(UserRatingDerivedState).values(state_rows_to_upsert)
+        await db.execute(
+            stmt.on_conflict_do_update(
+                index_elements=["user_id", "table_id"],
+                set_={
+                    "schema_version": stmt.excluded.schema_version,
+                    "config_fingerprint": stmt.excluded.config_fingerprint,
+                    "last_rebuilt_effective_date": stmt.excluded.last_rebuilt_effective_date,
+                    "rebuilt_at": stmt.excluded.rebuilt_at,
+                },
+            )
+        )
 
 
 async def has_fresh_user_table_rating_derived_data(

@@ -9,6 +9,7 @@ import { useCourseRowDetail } from "@/hooks/use-course-row-detail";
 import { UnavailableValue } from "@/components/common/UnavailableValue";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ARRANGEMENT_KANJI } from "@/lib/fumen-table-utils";
+import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
 import {
   JUDGMENT_STYLE,
   ARRANGEMENT_REASON_I18N_KEY,
@@ -453,9 +454,10 @@ function CourseStagesSection({ stages, userId }: { stages: CourseStage[]; userId
           const sha256 = stage.fumen_sha256;
           const md5 = stage.fumen_md5;
           const levelStr = stage.level
-            ? (stage.table_symbol
-                ? `${stage.table_symbol}${stage.level.replace(stage.table_symbol, "")}`
-                : stage.level)
+            ? formatTableLevelWithSymbolForDisplay({
+                tableSymbol: stage.table_symbol,
+                level: stage.level,
+              })
             : "--";
           const href = (sha256 || md5)
             ? songHref({ sha256, md5 }, userId ?? undefined)

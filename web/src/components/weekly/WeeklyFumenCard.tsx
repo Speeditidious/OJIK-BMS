@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, Star, Check } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, Star, Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { useWeeklyFumenRecords } from "@/hooks/use-weeklies";
@@ -14,6 +14,7 @@ import { formatRatePercent } from "@/lib/rate-format";
 import { clearTextColored } from "@/components/dashboard/RecentActivity";
 import { parseArrangement, ARRANGEMENT_KANJI, CLEAR_ROW_CLASS } from "@/lib/fumen-table-utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { formatTableLevelForDisplay } from "@/lib/table-level-display";
 import type { PlayerRecord, WeeklyFumenItem } from "@/lib/weekly-types";
 
 interface Props {
@@ -22,8 +23,8 @@ interface Props {
   myUserId: string | null;
 }
 
-function displayLevel(level: string): string {
-  return level.replace(/^LEVEL\s+/i, "");
+function displayLevel(level: string, tableSymbol: string | null): string {
+  return formatTableLevelForDisplay({ tableSymbol, level });
 }
 
 const WEEKLY_RECORD_COLGROUP = [
@@ -38,6 +39,9 @@ const WEEKLY_RECORD_COLGROUP = [
   32,
 ] as const;
 
+type WeeklyRecordSortKey = "clear" | "bp" | "rate" | "score" | "plays";
+type WeeklyRecordSortDir = "asc" | "desc";
+
 function WeeklyRecordColgroup() {
   return (
     <colgroup>
@@ -51,11 +55,35 @@ function WeeklyRecordColgroup() {
 function WeeklyRecordHeader({
   firstLabel,
   isPinned = false,
+  sortKey,
+  sortDir,
+  onSort,
 }: {
   firstLabel: string;
   isPinned?: boolean;
+  sortKey?: WeeklyRecordSortKey;
+  sortDir?: WeeklyRecordSortDir;
+  onSort?: (key: WeeklyRecordSortKey) => void;
 }) {
   const { t } = useTranslation();
+  const columns: Array<{
+    key: "clear" | "bp" | "rate" | "rank" | "score" | "plays" | "option";
+    sortKey?: WeeklyRecordSortKey;
+  }> = [
+    { key: "clear", sortKey: "clear" },
+    { key: "bp", sortKey: "bp" },
+    { key: "rate", sortKey: "rate" },
+    { key: "rank" },
+    { key: "score", sortKey: "score" },
+    { key: "plays", sortKey: "plays" },
+    { key: "option" },
+  ];
+
+  const sortIcon = (key: WeeklyRecordSortKey) => {
+    if (sortKey !== key) return <ArrowUpDown className="h-3 w-3 text-muted-foreground/45" />;
+    return sortDir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
+  };
+
   return (
     <thead>
       <tr>
@@ -69,17 +97,30 @@ function WeeklyRecordHeader({
         >
           {firstLabel}
         </th>
-        {(["clear", "bp", "rate", "rank", "score", "plays", "option"] as const).map((key) => (
-          <th
-            key={key}
-            className={cn(
-              "px-2 py-1.5 text-xs font-medium text-foreground/60 dark:text-foreground/70 text-left border-b",
-              isPinned ? "bg-primary/[0.08] border-primary/20" : "bg-secondary/30 border-border",
-            )}
-          >
-            {t(`dashboard.scoreUpdates.${key}`)}
-          </th>
-        ))}
+        {columns.map(({ key, sortKey: columnSortKey }) => {
+          const sortable = !isPinned && columnSortKey && onSort;
+          return (
+            <th
+              key={key}
+              className={cn(
+                "px-2 py-1.5 text-xs font-medium text-foreground/60 dark:text-foreground/70 text-left border-b",
+                sortable && "cursor-pointer select-none hover:text-foreground transition-colors",
+                isPinned ? "bg-primary/[0.08] border-primary/20" : "bg-secondary/30 border-border",
+              )}
+              onClick={sortable ? () => onSort(columnSortKey) : undefined}
+              aria-sort={
+                sortable && sortKey === columnSortKey
+                  ? sortDir === "asc" ? "ascending" : "descending"
+                  : undefined
+              }
+            >
+              <span className="inline-flex items-center gap-1">
+                {t(`dashboard.scoreUpdates.${key}`)}
+                {sortable ? sortIcon(columnSortKey) : null}
+              </span>
+            </th>
+          );
+        })}
         <th className={cn("w-8 border-b", isPinned ? "bg-primary/[0.08] border-primary/20" : "bg-secondary/30 border-border")} />
       </tr>
     </thead>
@@ -93,8 +134,25 @@ export function WeeklyFumenCard({ weeklyId, item, myUserId }: Props) {
   const [recordsOffset, setRecordsOffset] = useState(0);
   const [pages, setPages] = useState<PlayerRecord[]>([]);
   const [expandedDetailKey, setExpandedDetailKey] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<WeeklyRecordSortKey>("score");
+  const [sortDir, setSortDir] = useState<WeeklyRecordSortDir>("desc");
 
-  const { data, isLoading } = useWeeklyFumenRecords(weeklyId, item.fumen_id, expanded, recordsOffset, 50);
+  const { data, isLoading } = useWeeklyFumenRecords(
+    weeklyId,
+    item.fumen_id,
+    expanded,
+    recordsOffset,
+    50,
+    sortKey,
+    sortDir,
+  );
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRecordsOffset(0);
+    setPages([]);
+    setExpandedDetailKey(null);
+  }, [weeklyId, item.fumen_id, sortKey, sortDir]);
 
   useEffect(() => {
     if (!data) return;
@@ -134,6 +192,15 @@ export function WeeklyFumenCard({ weeklyId, item, myUserId }: Props) {
     setExpandedDetailKey((prev) => (prev === rowKey ? null : rowKey));
   }
 
+  function handleSort(nextKey: WeeklyRecordSortKey) {
+    if (nextKey === sortKey) {
+      setSortDir((dir) => (dir === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(nextKey);
+      setSortDir(nextKey === "bp" ? "asc" : "desc");
+    }
+  }
+
   return (
     <TooltipProvider delayDuration={150}>
       <div className="rounded-lg border border-border bg-card overflow-hidden">
@@ -146,7 +213,7 @@ export function WeeklyFumenCard({ weeklyId, item, myUserId }: Props) {
           onClick={() => setExpanded((v) => !v)}
         >
           <span className="text-xs font-bold shrink-0 tabular-nums opacity-70">
-            {item.table_symbol}{displayLevel(item.level)}
+            {item.table_symbol}{displayLevel(item.level, item.table_symbol)}
           </span>
 
           <div className="shrink min-w-0" onClick={(e) => e.stopPropagation()}>
@@ -218,7 +285,12 @@ export function WeeklyFumenCard({ weeklyId, item, myUserId }: Props) {
             <div className="mt-2 overflow-x-auto">
               <table className="w-full border-collapse" style={{ tableLayout: "fixed", minWidth: 720 }}>
                 <WeeklyRecordColgroup />
-                <WeeklyRecordHeader firstLabel={t("ranking.nickname")} />
+                <WeeklyRecordHeader
+                  firstLabel={t("ranking.nickname")}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={handleSort}
+                />
                 <tbody>
                   {isLoading && pages.length === 0 ? (
                     <tr>

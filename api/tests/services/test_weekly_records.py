@@ -1,7 +1,8 @@
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
+import uuid
 
-from app.services.weekly_records import evaluate_user_records
+from app.services.weekly_records import CANDIDATE_SORT_KEYS, evaluate_user_records
 
 
 START = datetime(2026, 6, 8, 0, 0, tzinfo=timezone.utc)
@@ -12,6 +13,8 @@ def _row(clear_type, exscore, ts, play_count=1, min_bp=None, rate=None, rank=Non
     return SimpleNamespace(
         clear_type=clear_type, exscore=exscore, min_bp=min_bp, rate=rate, rank=rank,
         play_count=play_count, client_type="beatoraja",
+        id=None,
+        options=None,
         recorded_at=ts, synced_at=ts,
     )
 
@@ -145,3 +148,52 @@ def test_user_record_carries_score_id_options_client_type_play_count():
     assert rec.best_play_count == 7
     assert rec.best_options == {"op_best": 12}
     assert rec.best_client_type == "lr2"
+
+
+def test_user_record_separates_display_best_from_weekly_detail_record():
+    """Detail rows should open the score achieved during the weekly period."""
+    older_best_id = uuid.uuid4()
+    weekly_id = uuid.uuid4()
+    rows = {
+        "u1": [
+            SimpleNamespace(
+                id=older_best_id,
+                clear_type=6,
+                exscore=1900,
+                min_bp=10,
+                rate=0.95,
+                rank="AAA",
+                play_count=20,
+                options={"op": "old-best"},
+                client_type="beatoraja",
+                recorded_at=START - timedelta(days=3),
+                synced_at=None,
+            ),
+            SimpleNamespace(
+                id=weekly_id,
+                clear_type=5,
+                exscore=1850,
+                min_bp=12,
+                rate=0.925,
+                rank="AA",
+                play_count=8,
+                options={"op": "weekly-lr2"},
+                client_type="lr2",
+                recorded_at=START + timedelta(days=2),
+                synced_at=None,
+            ),
+        ]
+    }
+
+    rec = evaluate_user_records(rows, START, END)["u1"]
+
+    assert rec.best_score_id == str(older_best_id)
+    assert rec.best_clear_type == 6
+    assert rec.weekly_score_id == str(weekly_id)
+    assert rec.weekly_client_type == "lr2"
+    assert rec.weekly_options == {"op": "weekly-lr2"}
+
+
+def test_candidate_sort_keys_include_bp():
+    """Weekly record pages should expose BP as a server-side sort key."""
+    assert "bp" in CANDIDATE_SORT_KEYS

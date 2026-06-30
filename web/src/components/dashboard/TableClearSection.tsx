@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 import { buildDashboardUrl, mergeDashboardParams } from "@/lib/dashboard-url-state.mjs";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement, levelSortIndex, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
+import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
 import { formatRatePercent } from "@/lib/rate-format";
 import { songHref } from "@/lib/song-href";
 import { shouldToggleFumenRow } from "@/lib/fumen-row-toggle-core.mjs";
@@ -46,14 +47,13 @@ function getClearLabel(clientType: string | null, clearType: number): string {
 
 /** Format a raw level string the same way as the histogram Y-axis. */
 function formatLevel(level: string, tableSymbol?: string): string {
-  const label = level.startsWith("LEVEL ") ? level.slice(6) : level;
-  return tableSymbol ? `${tableSymbol}${label}` : label;
+  return formatTableLevelWithSymbolForDisplay({ tableSymbol, level });
 }
 
 type SortKey = "level" | "title" | "recorded_at" | "ex_score" | "rate" | "rank" | "min_bp" | "clear_type" | "plays" | "option";
 type SortDir = "asc" | "desc";
 const RANK_ORDER: Record<string, number> = {
-  MAX: 9, AAA: 8, AA: 7, A: 6, B: 5, C: 4, D: 3, E: 2, F: 1,
+  "MAX-": 9, AAA: 8, AA: 7, A: 6, B: 5, C: 4, D: 3, E: 2, F: 1,
 };
 
 // BMS title sort convention:
@@ -155,6 +155,7 @@ const SongRow = React.memo(function SongRow({
   song,
   index,
   userId,
+  tableSymbol,
   getDisplayClearType,
   isExpanded,
   onToggle,
@@ -163,6 +164,7 @@ const SongRow = React.memo(function SongRow({
   song: TableClearSong;
   index: number;
   userId: string;
+  tableSymbol?: string;
   getDisplayClearType?: (ct: number) => number;
   isExpanded: boolean;
   onToggle: () => void;
@@ -188,7 +190,7 @@ const SongRow = React.memo(function SongRow({
         className={cn("border-b border-border/30 cursor-pointer", rowClass || "hover:bg-secondary/50")}
         onClick={handleRowClick}
       >
-        <td className="px-2 text-label">{song.level}</td>
+        <td className="px-2 text-label">{formatLevel(song.level, tableSymbol)}</td>
         <td className="px-2" data-title={displayTitle} data-artist={displayArtist}>
           <div className="min-w-0 overflow-hidden">
             <div className="max-w-full truncate">
@@ -239,12 +241,14 @@ const SongTable = React.memo(function SongTable({
   songs,
   levelOrder,
   userId,
+  tableSymbol,
   getDisplayClearType,
   asOf,
 }: {
   songs: TableClearSong[];
   levelOrder: string[];
   userId: string;
+  tableSymbol?: string;
   getDisplayClearType?: (ct: number) => number;
   asOf?: string | null;
 }) {
@@ -381,7 +385,7 @@ const SongTable = React.memo(function SongTable({
             const data = sorted.map((song) => {
               const arrangementName = parseArrangement(song.options, song.client_type);
               return {
-                level: song.level,
+                level: formatLevel(song.level, tableSymbol),
                 title: fumenTitleText(song.title, ""),
                 artist: fumenArtistText(song.artist),
                 recorded_at: song.recorded_at ?? "",
@@ -453,6 +457,7 @@ const SongTable = React.memo(function SongTable({
                   song={sorted[virtualRow.index]}
                   index={virtualRow.index}
                   userId={userId}
+                  tableSymbol={tableSymbol}
                   getDisplayClearType={getDisplayClearType}
                   isExpanded={expandedRows.has(sorted[virtualRow.index].fumen_id)}
                   onToggle={() => toggleRow(sorted[virtualRow.index].fumen_id)}
@@ -1082,7 +1087,7 @@ export function TableClearSection({
             </div>
 
             {/* Song table */}
-            <SongTable songs={filteredSongs} levelOrder={orderedLevels} userId={userId} getDisplayClearType={getDisplayClearType} asOf={asOf} />
+            <SongTable songs={filteredSongs} levelOrder={orderedLevels} userId={userId} tableSymbol={tableSymbol} getDisplayClearType={getDisplayClearType} asOf={asOf} />
           </>
         )}
       </div>

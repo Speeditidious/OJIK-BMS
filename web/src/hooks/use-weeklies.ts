@@ -53,12 +53,14 @@ export function useWeeklyFumenRecords(
   enabled: boolean,
   offset = 0,
   limit = 50,
+  sortKey = "score",
+  sortDir = "desc",
 ) {
   return useQuery<WeeklyFumenRecords>({
-    queryKey: ["weeklies", "records", weeklyId, fumenId, offset, limit],
+    queryKey: ["weeklies", "records", weeklyId, fumenId, offset, limit, sortKey, sortDir],
     queryFn: () =>
       api.get<WeeklyFumenRecords>(
-        `/weeklies/${weeklyId}/fumen/${fumenId}/records?limit=${limit}&offset=${offset}`,
+        `/weeklies/${weeklyId}/fumen/${fumenId}/records?limit=${limit}&offset=${offset}&sort_key=${sortKey}&sort_dir=${sortDir}`,
       ),
     enabled: enabled && !!weeklyId && !!fumenId,
   });

@@ -28,9 +28,16 @@ import { UnavailableValue } from "@/components/common/UnavailableValue";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { compareTitles } from "@/lib/bms-sort";
 import { formatRateDelta, formatRatePercent } from "@/lib/rate-format";
-import { useScoreUpdatesPrefs, useUpdateScoreUpdatesPrefs } from "@/hooks/use-preferences";
+import { useScoreUpdatesPrefs, useUpdateScoreUpdatesPrefs, useDayStatSheetPrefs, useUpdateDayStatSheetPrefs } from "@/hooks/use-preferences";
 import { useAuthStore } from "@/stores/auth";
+import { UpdateSections } from "@/components/dashboard/UpdateSections";
 import { songHref } from "@/lib/song-href";
+import {
+  RANK_SORT_ORDER,
+  formatScoreRankLabel,
+  rankClassToken,
+} from "@/lib/score-rank-display-core.mjs";
+import { resolveCourseClearDisplay } from "@/lib/course-update-clear-core.mjs";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -48,16 +55,10 @@ export function clearTdClass(clearType: number | null | undefined, dim = false):
 
 /** Returns CSS class for a rank-based <td> (references globals.css rank-cell-*) */
 export function rankTdClass(rank: string | null | undefined, dim = false): string {
-  const r = rank ?? "F";
+  const r = rankClassToken(rank);
   // F is already dimmed — no dim variant needed
   return (dim && r !== "F") ? `rank-cell-${r}-dim` : `rank-cell-${r}`;
 }
-
-
-
-const RANK_SORT_ORDER: Record<string, number> = {
-  MAX: -1, AAA: 0, AA: 1, A: 2, B: 3, C: 4, D: 5, E: 6, F: 7,
-};
 
 function formatDate(ts: string | null): string {
   if (!ts) return "";
@@ -132,7 +133,14 @@ interface MergedCourseUpdate {
   dan_title: string | null;
   client_type: string;
   recorded_at: string | null;
-  currentClearType?: number | null;
+  previousState?: {
+    clear_type: number | null;
+    exscore: number | null;
+    rate: number | null;
+    rank: string | null;
+    min_bp: number | null;
+    max_combo: number | null;
+  } | null;
   currentState?: {
     clear_type: number | null;
     exscore: number | null;
@@ -143,8 +151,16 @@ interface MergedCourseUpdate {
   } | null;
   options?: Record<string, unknown> | null;
   clear?: { prev: number | null; new: number | null };
-  score?: { prev: number | null; new: number | null; prev_rank: string | null; new_rank: string | null };
+  score?: {
+    prev: number | null;
+    new: number | null;
+    prev_rank: string | null;
+    new_rank: string | null;
+    prev_max_minus_score: number | null;
+    new_max_minus_score: number | null;
+  };
   rate?: { prev: number | null; new: number | null };
+  bp?: { prev: number | null; new: number | null };
   playCount?: { prev: number | null; new: number | null };
 }
 
@@ -153,7 +169,7 @@ function isFirstClear(prevClear: number | null | undefined, newClear: number | n
   return (prevClear == null || prevClear < 3) && (newClear != null && newClear >= 3);
 }
 
-function buildMergedCourses(data: ScoreUpdatesResponse): MergedCourseUpdate[] {
+export function buildMergedCourses(data: ScoreUpdatesResponse): MergedCourseUpdate[] {
   const map = new Map<string, MergedCourseUpdate>();
 
   function getOrCreateCourse(item: ScoreUpdateBase): MergedCourseUpdate {
@@ -166,7 +182,7 @@ function buildMergedCourses(data: ScoreUpdatesResponse): MergedCourseUpdate[] {
         dan_title: item.dan_title,
         client_type: item.client_type,
         recorded_at: item.recorded_at,
-        currentClearType: item.current_state?.clear_type ?? null,
+        previousState: item.previous_state ?? null,
         currentState: item.current_state ?? null,
         options: item.options,
       });
@@ -181,8 +197,19 @@ function buildMergedCourses(data: ScoreUpdatesResponse): MergedCourseUpdate[] {
   for (const item of data.exscore_updates) {
     if (!item.is_course) continue;
     const entry = getOrCreateCourse(item);
-    entry.score = { prev: item.prev_exscore, new: item.new_exscore, prev_rank: item.prev_rank, new_rank: item.new_rank };
+    entry.score = {
+      prev: item.prev_exscore,
+      new: item.new_exscore,
+      prev_rank: item.prev_rank,
+      new_rank: item.new_rank,
+      prev_max_minus_score: item.prev_max_minus_score,
+      new_max_minus_score: item.new_max_minus_score,
+    };
     entry.rate = { prev: item.prev_rate, new: item.new_rate };
+  }
+  for (const item of data.min_bp_updates) {
+    if (!item.is_course) continue;
+    getOrCreateCourse(item).bp = { prev: item.prev_min_bp, new: item.new_min_bp };
   }
   for (const item of data.play_count_updates) {
     if (!item.is_course) continue;
@@ -191,7 +218,7 @@ function buildMergedCourses(data: ScoreUpdatesResponse): MergedCourseUpdate[] {
   return Array.from(map.values());
 }
 
-function CourseSectionTable({
+export function CourseSectionTable({
   title,
   count,
   children,
@@ -204,7 +231,11 @@ function CourseSectionTable({
   const thCls = "px-2 py-2 font-medium whitespace-nowrap text-left";
   return (
     <div className="border border-border/40 rounded-lg overflow-hidden">
-      <div className="px-3 py-2 bg-muted/30 border-b border-border/40">
+      <div
+        data-day-sheet-split-block
+        data-day-sheet-keep-with-next
+        className="px-3 py-2 bg-muted/30 border-b border-border/40"
+      >
         <p className="text-body font-semibold text-foreground">
           {title}{" "}
           <span className="text-muted-foreground font-normal text-label">({count})</span>
@@ -243,17 +274,21 @@ function CourseSectionTable({
   );
 }
 
-function CourseTableRow({ item, userId, asOf }: { item: MergedCourseUpdate; userId?: string; asOf?: string }) {
+export function CourseTableRow({ item, userId, asOf }: { item: MergedCourseUpdate; userId?: string; asOf?: string }) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const newClearCls = item.clear ? clearTdClass(item.clear.new) : "";
+  const clearDisplay = resolveCourseClearDisplay({
+    clear: item.clear ?? null,
+    previousState: item.previousState ?? null,
+    currentState: item.currentState ?? null,
+  });
+  const hasClearDisplay = clearDisplay.previous != null || clearDisplay.current != null;
+  const previousClearCls = hasClearDisplay ? clearTdClass(clearDisplay.previous, true) : "";
+  const currentClearCls = clearDisplay.current != null ? clearTdClass(clearDisplay.current) : "";
+  const rowColorCls = currentClearCls;
 
-  const isPlayOnly = !item.clear && !item.score;
-  const playOnlyCt = isPlayOnly ? (item.currentClearType ?? null) : null;
-  const playOnlyClearCls = isPlayOnly ? clearTdClass(playOnlyCt) : "";
-  const rowColorCls = item.clear ? newClearCls : isPlayOnly ? playOnlyClearCls : "";
-
-  // BP — display currentState as-is (same as FumenRow)
-  const bp = item.currentState?.min_bp ?? null;
+  const bp = item.bp ?? null;
+  const bpCurrent = item.currentState?.min_bp ?? null;
+  const bpDiff = bp?.prev != null && bp.new != null ? bp.prev - bp.new : null;
 
   // Rate — same pattern as FumenRow: prefer dedicated rate field, fall back to currentState
   const rateVal = item.currentState?.rate ?? null;
@@ -262,6 +297,8 @@ function CourseTableRow({ item, userId, asOf }: { item: MergedCourseUpdate; user
   // Rank — same pattern as FumenRow
   const rankNew = item.score?.new_rank ?? item.currentState?.rank ?? null;
   const rankPrev = item.score?.prev_rank ?? null;
+  const rankNewLabel = formatScoreRankLabel(rankNew, item.score?.new_max_minus_score);
+  const rankPrevLabel = formatScoreRankLabel(rankPrev, item.score?.prev_max_minus_score);
 
   // Score — same pattern as FumenRow
   const scoreNew = item.score?.new ?? item.currentState?.exscore ?? null;
@@ -285,23 +322,18 @@ function CourseTableRow({ item, userId, asOf }: { item: MergedCourseUpdate; user
   return (
     <>
     <tr
+      data-day-sheet-split-block
       className={cn(canExpand && "cursor-pointer")}
       onClick={handleRowClick}
     >
       {/* Prev */}
       <td className={cn(
         "px-2 py-2 whitespace-nowrap text-center",
-        item.clear ? clearTdClass(item.clear.prev, true)
-          : isPlayOnly ? clearTdClass(playOnlyCt, true)
-          : "",
+        previousClearCls,
       )}>
-        {item.clear ? (
+        {hasClearDisplay ? (
           <span className="text-label row-prev">
-            {CLEAR_TYPE_LABELS_SIMPLE[item.clear.prev ?? 0] ?? "?"}
-          </span>
-        ) : isPlayOnly ? (
-          <span className="text-label row-prev">
-            {CLEAR_TYPE_LABELS_SIMPLE[playOnlyCt ?? 0] ?? "?"}
+            {CLEAR_TYPE_LABELS_SIMPLE[clearDisplay.previous ?? 0] ?? "?"}
           </span>
         ) : (
           <span className="text-label row-muted">—</span>
@@ -309,14 +341,10 @@ function CourseTableRow({ item, userId, asOf }: { item: MergedCourseUpdate; user
       </td>
 
       {/* Current */}
-      <td className={cn("px-2 py-2 whitespace-nowrap text-center", item.clear ? newClearCls : isPlayOnly ? playOnlyClearCls : "")}>
-        {item.clear ? (
+      <td className={cn("px-2 py-2 whitespace-nowrap text-center", currentClearCls)}>
+        {clearDisplay.current != null ? (
           <span className="text-label font-semibold">
-            {clearText(item.clear.new, item.client_type)}
-          </span>
-        ) : isPlayOnly ? (
-          <span className="text-label font-semibold">
-            {clearText(playOnlyCt, item.client_type)}
+            {clearText(clearDisplay.current, item.client_type)}
           </span>
         ) : (
           <span className="row-muted">—</span>
@@ -337,7 +365,19 @@ function CourseTableRow({ item, userId, asOf }: { item: MergedCourseUpdate; user
 
       {/* BP */}
       <td className={cn("px-2 py-2 whitespace-nowrap text-center", rowColorCls)}>
-        {bp != null ? <span className="text-label">{bp}</span> : <span className="row-muted">—</span>}
+        {bp?.prev != null ? (
+          <div className="flex items-baseline gap-1 justify-center">
+            <span className="text-label row-prev">{bp.prev} →</span>
+            <span className="text-label font-semibold">{bp.new ?? "?"}</span>
+            {bpDiff != null && bpDiff > 0 && (
+              <span className="text-label font-bold opacity-75">▼{bpDiff}</span>
+            )}
+          </div>
+        ) : bp?.new != null ? (
+          <span className="text-label">{bp.new}</span>
+        ) : bpCurrent != null ? (
+          <span className="text-label">{bpCurrent}</span>
+        ) : <span className="row-muted">—</span>}
       </td>
 
       {/* Rate — same pattern as FumenRow */}
@@ -360,16 +400,16 @@ function CourseTableRow({ item, userId, asOf }: { item: MergedCourseUpdate; user
       {/* Rank */}
       <td className={cn("px-2 py-2 whitespace-nowrap text-center", rowColorCls)}>
         {item.score?.new_rank ? (
-          rankPrev ? (
+          rankPrevLabel ? (
             <span className="text-label">
-              <span className="row-prev">{rankPrev} → </span>
-              <span className="font-semibold">{item.score.new_rank}</span>
+              <span className="row-prev">{rankPrevLabel} → </span>
+              <span className="font-semibold">{rankNewLabel}</span>
             </span>
           ) : (
-            <span className="text-label">{item.score.new_rank}</span>
+            <span className="text-label">{rankNewLabel}</span>
           )
         ) : rankNew ? (
-          <span className="text-label">{rankNew}</span>
+          <span className="text-label">{rankNewLabel}</span>
         ) : <span className="row-muted">—</span>}
       </td>
 
@@ -428,12 +468,14 @@ function CourseTableRow({ item, userId, asOf }: { item: MergedCourseUpdate; user
 const handleSectionTableCopy = makeTableCopyHandler(3, "tbody tr"); // col 0=Prev, 1=Current, 2=Level, 3=Title/Artist
 const handleFumenTableCopy = makeTableCopyHandler(1, "tbody tr");   // col 0=Level, 1=Title/Artist
 
-function SectionTable({
+export function SectionTable({
   title,
   count,
   showNewPlays,
   onToggleNewPlays,
   colWidths = ["110px", "120px", "100px", undefined],
+  fullWidth,
+  onToggleFullWidth,
   children,
 }: {
   title: string;
@@ -442,28 +484,42 @@ function SectionTable({
   onToggleNewPlays?: () => void;
   /** [Prev, Current, Level, Title] — undefined = auto */
   colWidths?: [string?, string?, string?, string?];
+  fullWidth?: boolean;
+  onToggleFullWidth?: () => void;
   children: React.ReactNode;
 }) {
   const { t } = useTranslation();
   const thCls = "px-2 py-2 font-medium whitespace-nowrap text-left";
   return (
     <div className="border border-border/40 rounded-lg overflow-hidden">
-      <div className="px-3 py-2 bg-muted/30 border-b border-border/40 flex items-center justify-between gap-2">
+      <div
+        data-day-sheet-split-block
+        data-day-sheet-keep-with-next
+        className="px-3 py-2 bg-muted/30 border-b border-border/40 flex items-center justify-between gap-2 flex-wrap"
+      >
         <p className="text-body font-semibold text-foreground">
           {title}{" "}
           <span className="text-muted-foreground font-normal text-label">({count})</span>
         </p>
-        {onToggleNewPlays !== undefined && (
-          <label className="flex items-center gap-1.5 cursor-pointer text-label text-muted-foreground select-none shrink-0">
-            <input
-              type="checkbox"
-              checked={showNewPlays ?? true}
-              onChange={onToggleNewPlays}
-              className="accent-primary"
-            />
-            {t("dashboard.scoreUpdates.includeNewPlays")}
-          </label>
-        )}
+        <div className="flex items-center gap-3 flex-wrap" data-export-exclude>
+          {onToggleFullWidth !== undefined && (
+            <label className="flex items-center gap-1.5 cursor-pointer text-label text-muted-foreground select-none shrink-0">
+              <input type="checkbox" checked={fullWidth ?? false} onChange={onToggleFullWidth} className="accent-primary" />
+              {t("dashboard.daySheet.fullWidth")}
+            </label>
+          )}
+          {onToggleNewPlays !== undefined && (
+            <label className="flex items-center gap-1.5 cursor-pointer text-label text-muted-foreground select-none shrink-0">
+              <input
+                type="checkbox"
+                checked={showNewPlays ?? true}
+                onChange={onToggleNewPlays}
+                className="accent-primary"
+              />
+              {t("dashboard.scoreUpdates.includeNewPlays")}
+            </label>
+          )}
+        </div>
       </div>
       <div className="overflow-auto">
         <table className="w-full table-fixed text-label" onCopy={handleSectionTableCopy}>
@@ -513,6 +569,7 @@ function SummaryFumenRow({
   return (
     <>
       <tr
+        data-day-sheet-split-block
         className={cn("transition-all", canExpand && "cursor-pointer hover:bg-secondary/30", className)}
         onClick={handleRowClick}
       >
@@ -531,7 +588,7 @@ function SummaryFumenRow({
   );
 }
 
-function LampUpgradeRow({ item, userId, asOf }: { item: ClearTypeUpdateItem; userId?: string; asOf?: string }) {
+export function LampUpgradeRow({ item, userId, asOf }: { item: ClearTypeUpdateItem; userId?: string; asOf?: string }) {
   const newCls = clearTdClass(item.new_clear_type);
   return (
     <SummaryFumenRow item={item} userId={userId} asOf={asOf}>
@@ -552,7 +609,7 @@ function LampUpgradeRow({ item, userId, asOf }: { item: ClearTypeUpdateItem; use
 }
 
 
-function ScoreUpgradeRow({ item, userId, asOf }: { item: ExscoreUpdateItem; userId?: string; asOf?: string }) {
+export function ScoreUpgradeRow({ item, userId, asOf }: { item: ExscoreUpdateItem; userId?: string; asOf?: string }) {
   const scoreDiff =
     item.prev_exscore != null && item.new_exscore != null
       ? item.new_exscore - item.prev_exscore
@@ -566,14 +623,18 @@ function ScoreUpgradeRow({ item, userId, asOf }: { item: ExscoreUpdateItem; user
           <span className="text-label row-prev">NO PLAY</span>
         ) : (
           <div className="flex flex-col items-center gap-0.5">
-            <span className="text-label row-prev">{item.prev_rank}</span>
+            <span className="text-label row-prev">
+              {formatScoreRankLabel(item.prev_rank, item.prev_max_minus_score)}
+            </span>
             <span className="text-label row-prev">{item.prev_exscore ?? "–"}</span>
           </div>
         )}
       </td>
       <td className={cn("px-2 py-2 whitespace-nowrap text-center", newCls)}>
         <div className="flex flex-col items-center gap-0.5">
-          <span className="text-label font-semibold">{item.new_rank ?? "–"}</span>
+          <span className="text-label font-semibold">
+            {formatScoreRankLabel(item.new_rank, item.new_max_minus_score) ?? "–"}
+          </span>
           <div className="flex items-baseline gap-1">
             <span className="text-label font-semibold">{item.new_exscore ?? "–"}</span>
             {scoreDiff != null && scoreDiff > 0 && (
@@ -590,7 +651,7 @@ function ScoreUpgradeRow({ item, userId, asOf }: { item: ExscoreUpdateItem; user
   );
 }
 
-function BPUpgradeRow({ item, userId, asOf }: { item: MinBPUpdateItem; userId?: string; asOf?: string }) {
+export function BPUpgradeRow({ item, userId, asOf }: { item: MinBPUpdateItem; userId?: string; asOf?: string }) {
   const prev = item.prev_min_bp;
   const next = item.new_min_bp;
   const diff = prev != null && next != null ? prev - next : null;
@@ -625,7 +686,7 @@ function BPUpgradeRow({ item, userId, asOf }: { item: MinBPUpdateItem; userId?: 
   );
 }
 
-function ComboUpgradeRow({ item, userId, asOf }: { item: MaxComboUpdateItem; userId?: string; asOf?: string }) {
+export function ComboUpgradeRow({ item, userId, asOf }: { item: MaxComboUpdateItem; userId?: string; asOf?: string }) {
   const prev = item.prev_max_combo;
   const next = item.new_max_combo;
   const diff = prev != null && next != null ? next - prev : null;
@@ -663,152 +724,20 @@ function ComboUpgradeRow({ item, userId, asOf }: { item: MaxComboUpdateItem; use
 // ── Category tab ───────────────────────────────────────────────────────────────
 
 function CategoryTab({ data, userId, asOf }: { data: ScoreUpdatesResponse; userId?: string; asOf?: string }) {
-  const { t } = useTranslation();
-  const prefs = useScoreUpdatesPrefs();
-  const { mutate: updatePrefs } = useUpdateScoreUpdatesPrefs();
+  const prefs = useDayStatSheetPrefs();
+  const { mutate: updatePrefs } = useUpdateDayStatSheetPrefs();
   const { user, isInitialized } = useAuthStore();
-  const canPersistPrefs = isInitialized && !!user;
-
-  const mergedCourses = useMemo(() => buildMergedCourses(data), [data]);
-
-  const lampAll = useMemo(() =>
-    [...data.clear_type_updates]
-      .filter((u) => !u.is_course)
-      .sort((a, b) => {
-        const ct = (b.new_clear_type ?? 0) - (a.new_clear_type ?? 0);
-        return ct !== 0 ? ct : compareByTableLevels(a.table_levels, b.table_levels);
-      }),
-  [data]);
-
-  const scoreAll = useMemo(() =>
-    [...data.exscore_updates]
-      .filter((u) => !u.is_course)
-      .sort((a, b) => {
-        const ra = RANK_SORT_ORDER[a.new_rank ?? "F"] ?? 99;
-        const rb = RANK_SORT_ORDER[b.new_rank ?? "F"] ?? 99;
-        const rank = ra - rb;
-        return rank !== 0 ? rank : compareByTableLevels(a.table_levels, b.table_levels);
-      }),
-  [data]);
-
-  const bpAll = useMemo(() =>
-    [...data.min_bp_updates].sort((a, b) => {
-      const aDiff = a.prev_min_bp != null && a.new_min_bp != null ? a.prev_min_bp - a.new_min_bp : -1;
-      const bDiff = b.prev_min_bp != null && b.new_min_bp != null ? b.prev_min_bp - b.new_min_bp : -1;
-      const diff = bDiff - aDiff;
-      return diff !== 0 ? diff : compareByTableLevels(a.table_levels, b.table_levels);
-    }),
-  [data]);
-
-  const comboAll = useMemo(() =>
-    [...data.max_combo_updates].sort((a, b) => {
-      const aDiff = a.prev_max_combo != null && a.new_max_combo != null ? a.new_max_combo - a.prev_max_combo : -1;
-      const bDiff = b.prev_max_combo != null && b.new_max_combo != null ? b.new_max_combo - b.prev_max_combo : -1;
-      const diff = bDiff - aDiff;
-      return diff !== 0 ? diff : compareByTableLevels(a.table_levels, b.table_levels);
-    }),
-  [data]);
-
-  const lamp = useMemo(
-    () => prefs.score_updates_lamp_include_new_plays ? lampAll : lampAll.filter((u) => !u.is_new_play),
-    [lampAll, prefs.score_updates_lamp_include_new_plays],
-  );
-  const score = useMemo(
-    () => prefs.score_updates_score_include_new_plays ? scoreAll : scoreAll.filter((u) => !u.is_new_play),
-    [scoreAll, prefs.score_updates_score_include_new_plays],
-  );
-  const bp = useMemo(
-    () => prefs.score_updates_bp_include_new_plays ? bpAll : bpAll.filter((u) => !u.is_new_play),
-    [bpAll, prefs.score_updates_bp_include_new_plays],
-  );
-  const combo = useMemo(
-    () => prefs.score_updates_combo_include_new_plays ? comboAll : comboAll.filter((u) => !u.is_new_play),
-    [comboAll, prefs.score_updates_combo_include_new_plays],
-  );
-
-  // Summary tab: show only improved records (exclude playCount-only)
-  const summaryCourses = useMemo(
-    () => mergedCourses.filter((c) => c.clear || c.score),
-    [mergedCourses],
-  );
-
-  const empty =
-    summaryCourses.length === 0 &&
-    lampAll.length === 0 &&
-    scoreAll.length === 0 &&
-    bpAll.length === 0 &&
-    comboAll.length === 0;
-
-  if (empty) {
-    return (
-      <p className="text-body text-muted-foreground text-center py-8">
-        {t("dashboard.scoreUpdates.noUpdates")}
-      </p>
-    );
-  }
+  const canPersist = isInitialized && !!user;
 
   return (
-    <div className="space-y-3">
-      {/* Course records */}
-      {summaryCourses.length > 0 && (
-        <CourseSectionTable title={t("dashboard.scoreUpdates.courseRecords")} count={summaryCourses.length}>
-          {summaryCourses.map((c, i) => (
-            <CourseTableRow key={i} item={c} userId={userId} asOf={asOf} />
-          ))}
-        </CourseSectionTable>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {lampAll.length > 0 && (
-          <SectionTable
-            title={t("dashboard.scoreUpdates.updateSection", { label: t("dashboard.scoreUpdates.clear") })}
-            count={lamp.length}
-            showNewPlays={prefs.score_updates_lamp_include_new_plays}
-            onToggleNewPlays={canPersistPrefs
-              ? () => updatePrefs({ score_updates_lamp_include_new_plays: !prefs.score_updates_lamp_include_new_plays })
-              : undefined}
-          >
-            {lamp.map((item, i) => <LampUpgradeRow key={i} item={item} userId={userId} asOf={asOf} />)}
-          </SectionTable>
-        )}
-        {scoreAll.length > 0 && (
-          <SectionTable
-            title={t("dashboard.scoreUpdates.updateSection", { label: t("dashboard.scoreUpdates.score") })}
-            count={score.length}
-            showNewPlays={prefs.score_updates_score_include_new_plays}
-            onToggleNewPlays={canPersistPrefs
-              ? () => updatePrefs({ score_updates_score_include_new_plays: !prefs.score_updates_score_include_new_plays })
-              : undefined}
-          >
-            {score.map((item, i) => <ScoreUpgradeRow key={i} item={item} userId={userId} asOf={asOf} />)}
-          </SectionTable>
-        )}
-        {bpAll.length > 0 && (
-          <SectionTable
-            title={t("dashboard.scoreUpdates.updateSection", { label: t("dashboard.scoreUpdates.bp") })}
-            count={bp.length}
-            showNewPlays={prefs.score_updates_bp_include_new_plays}
-            onToggleNewPlays={canPersistPrefs
-              ? () => updatePrefs({ score_updates_bp_include_new_plays: !prefs.score_updates_bp_include_new_plays })
-              : undefined}
-          >
-            {bp.map((item, i) => <BPUpgradeRow key={i} item={item} userId={userId} asOf={asOf} />)}
-          </SectionTable>
-        )}
-        {comboAll.length > 0 && (
-          <SectionTable
-            title={t("dashboard.scoreUpdates.maxComboUpdates")}
-            count={combo.length}
-            showNewPlays={prefs.score_updates_combo_include_new_plays}
-            onToggleNewPlays={canPersistPrefs
-              ? () => updatePrefs({ score_updates_combo_include_new_plays: !prefs.score_updates_combo_include_new_plays })
-              : undefined}
-          >
-            {combo.map((item, i) => <ComboUpgradeRow key={i} item={item} userId={userId} asOf={asOf} />)}
-          </SectionTable>
-        )}
-      </div>
-    </div>
+    <UpdateSections
+      data={data}
+      userId={userId}
+      asOf={asOf}
+      prefs={prefs}
+      onPrefsChange={canPersist ? (p) => updatePrefs(p) : undefined}
+      variant="tab"
+    />
   );
 }
 
@@ -828,7 +757,14 @@ interface MergedFumenUpdate {
   recorded_at: string | null;
   options: Record<string, unknown> | null;
   clear?: { prev: number | null; new: number | null };
-  score?: { prev: number | null; new: number | null; prev_rank: string | null; new_rank: string | null };
+  score?: {
+    prev: number | null;
+    new: number | null;
+    prev_rank: string | null;
+    new_rank: string | null;
+    prev_max_minus_score: number | null;
+    new_max_minus_score: number | null;
+  };
   rate?: { prev: number | null; new: number | null };
   bp?: { prev: number | null; new: number | null };
   combo?: { prev: number | null; new: number | null };
@@ -894,7 +830,14 @@ function buildMergedFumens(data: ScoreUpdatesResponse): MergedFumenUpdate[] {
   for (const item of data.exscore_updates) {
     if (item.is_course) continue;
     const entry = getOrCreate(item.detail_score_id, item.fumen_id, item.fumen_sha256, item.fumen_md5, item.title, item.artist, item.table_levels, item.client_type, item.recorded_at, item.options, item.source_client, item.source_client_detail, item.current_state);
-    entry.score = { prev: item.prev_exscore, new: item.new_exscore, prev_rank: item.prev_rank, new_rank: item.new_rank };
+    entry.score = {
+      prev: item.prev_exscore,
+      new: item.new_exscore,
+      prev_rank: item.prev_rank,
+      new_rank: item.new_rank,
+      prev_max_minus_score: item.prev_max_minus_score,
+      new_max_minus_score: item.new_max_minus_score,
+    };
     entry.rate = { prev: item.prev_rate, new: item.new_rate };
     if (entry.bp == null && item.best_min_bp != null) {
       entry.bp = { prev: null, new: item.best_min_bp };
@@ -1257,7 +1200,7 @@ function FumenTab({ data, userId, asOf }: { data: ScoreUpdatesResponse; userId?:
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export type ScoreUpdatesViewMode = "summary" | "rating" | "all";
+export type ScoreUpdatesViewMode = "daySheet" | "summary" | "rating" | "all";
 
 interface ScoreUpdatesProps {
   clientType?: ClientTypeFilter;
@@ -1272,6 +1215,8 @@ interface ScoreUpdatesProps {
   onViewModeChange?: (v: ScoreUpdatesViewMode) => void;
   /** Rendered in the card header right side — used for the day-note popover icon. */
   noteSlot?: React.ReactNode;
+  /** Rendered in the daySheet tab — pass <DayStatSheet /> from parent. */
+  daySheetSlot?: React.ReactNode;
 }
 
 export function ScoreUpdates({
@@ -1284,6 +1229,7 @@ export function ScoreUpdates({
   viewMode: viewModeProp,
   onViewModeChange,
   noteSlot,
+  daySheetSlot,
 }: ScoreUpdatesProps) {
   const { t } = useTranslation();
   const { data, isLoading } = useScoreUpdates(clientType, date, limit, userId);
@@ -1320,6 +1266,9 @@ export function ScoreUpdates({
           >
             <div className="flex justify-center mb-4">
               <TabsList>
+                {daySheetSlot !== undefined && (
+                  <TabsTrigger value="daySheet">{t("dashboard.scoreUpdates.dayStatSheetTab")}</TabsTrigger>
+                )}
                 <TabsTrigger value="summary">{t("dashboard.scoreUpdates.summaryTab")}</TabsTrigger>
                 {ratingSlot !== undefined && (
                   <TabsTrigger value="rating">
@@ -1334,6 +1283,9 @@ export function ScoreUpdates({
                 <TabsTrigger value="all">{t("dashboard.scoreUpdates.allTab")}</TabsTrigger>
               </TabsList>
             </div>
+            {daySheetSlot !== undefined && (
+              <TabsContent value="daySheet">{daySheetSlot}</TabsContent>
+            )}
             <TabsContent value="summary">
               <CategoryTab data={data} userId={userId} asOf={date} />
             </TabsContent>

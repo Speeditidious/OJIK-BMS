@@ -47,6 +47,8 @@ from app.services.rating_derived_data import (
     has_fresh_user_table_rating_derived_data,
 )
 from app.services.score_history import is_play_count_only_update
+from app.utils.course_notes import course_notes_total
+from app.utils.score_rank import max_minus_score, notes_from_judgments
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 _RATING_UPDATES_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
@@ -119,22 +121,16 @@ async def _fetch_aggregated_rating_update_rows(
     from_date: date_cls,
     to_date: date_cls,
     db: AsyncSession,
-) -> list[dict[str, Any]]:
-    """Return overview rating-update rows from derived data or legacy fallback."""
+) -> tuple[list[dict[str, Any]], bool]:
+    """Return overview rating-update rows and whether derived data is pending."""
     table_ids = [table.table_id for table in ranking_tables]
+    if not table_ids:
+        return [], False
     use_derived = await has_fresh_user_rating_derived_data(target_user.id, table_ids, db)
     if use_derived:
-        return await fetch_user_rating_update_daily(target_user.id, from_date, to_date, db)
+        return await fetch_user_rating_update_daily(target_user.id, from_date, to_date, db), False
 
-    legacy = await compute_rating_updates_aggregated(
-        user_id=target_user.id,
-        ranking_tables=ranking_tables,
-        db=db,
-        from_date=from_date,
-        to_date=to_date,
-        excluded_dates=_rating_update_excluded_dates(target_user),
-    )
-    return legacy.get("dates", [])
+    return [], True
 
 
 async def _resolve_target_user(
@@ -866,7 +862,7 @@ async def get_activity_heatmap(
     )
     try:
         ranking_cfg = get_ranking_config()
-        rating_rows = await _fetch_aggregated_rating_update_rows(
+        rating_rows, rating_updates_pending = await _fetch_aggregated_rating_update_rows(
             target_user,
             ranking_cfg.tables,
             start.date(),
@@ -875,11 +871,13 @@ async def get_activity_heatmap(
         )
     except RuntimeError:
         rating_rows = []
+        rating_updates_pending = False
     rating_map = _rating_count_map(rating_rows)
 
     all_dates = sorted(set(updates_by_day) | set(new_plays_by_day) | set(plays_by_day) | set(rating_map))
     return {
         "year": target_year,
+        "rating_updates_pending": rating_updates_pending,
         "data": [
             {
                 "date": d,
@@ -942,7 +940,7 @@ async def get_activity_bar(
     )
     try:
         ranking_cfg = get_ranking_config()
-        rating_rows = await _fetch_aggregated_rating_update_rows(
+        rating_rows, rating_updates_pending = await _fetch_aggregated_rating_update_rows(
             target_user,
             ranking_cfg.tables,
             from_date,
@@ -951,11 +949,13 @@ async def get_activity_bar(
         )
     except RuntimeError:
         rating_rows = []
+        rating_updates_pending = False
     rating_map = _rating_count_map(rating_rows)
 
     all_dates = sorted(set(updates_by_day) | set(new_plays_by_day) | set(plays_by_day) | set(rating_map))
     return {
         **window_meta,
+        "rating_updates_pending": rating_updates_pending,
         "data": [
             {
                 "date": d,
@@ -967,6 +967,35 @@ async def get_activity_bar(
             for d in all_dates
         ],
     }
+
+
+@router.get("/rating-update-status")
+async def get_rating_update_status(
+    from_: date_cls = Query(..., alias="from", description="Inclusive start date"),
+    to: date_cls = Query(..., description="Inclusive end date"),
+    user_id: uuid.UUID | None = Query(None, description="Target user ID"),
+    current_user: User | None = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Return lightweight aggregated rating-update status for polling UIs."""
+    if to < from_:
+        raise HTTPException(status_code=400, detail="'to' must be on or after 'from'")
+
+    target_user = await _resolve_target_user(user_id, current_user, db)
+    try:
+        ranking_cfg = get_ranking_config()
+    except RuntimeError:
+        return {"pending": False, "data": []}
+
+    table_ids = [table.table_id for table in ranking_cfg.tables]
+    if not table_ids:
+        return {"pending": False, "data": []}
+    use_derived = await has_fresh_user_rating_derived_data(target_user.id, table_ids, db)
+    if not use_derived:
+        return {"pending": True, "data": []}
+
+    rows = await fetch_user_rating_update_daily(target_user.id, from_, to, db)
+    return {"pending": False, "data": rows}
 
 
 @router.get("/rating-updates")
@@ -2107,21 +2136,31 @@ async def get_score_updates(
     md5_to_sha256: dict[str, str] = {}
     if sha256s:
         rows = await db.execute(
-            select(Fumen.fumen_id, Fumen.sha256, Fumen.md5, Fumen.title, Fumen.artist)
+            select(Fumen.fumen_id, Fumen.sha256, Fumen.md5, Fumen.title, Fumen.artist, Fumen.notes_total)
             .where(Fumen.sha256.in_(sha256s))
         )
         for r in rows.all():
-            fumen_meta[r.sha256] = {"title": r.title, "artist": r.artist, "table_entries": []}
+            fumen_meta[r.sha256] = {
+                "title": r.title,
+                "artist": r.artist,
+                "notes_total": getattr(r, "notes_total", None),
+                "table_entries": [],
+            }
             fumen_id_to_keys.setdefault(r.fumen_id, []).append(r.sha256)
             if r.md5 and r.sha256:
                 md5_to_sha256[r.md5] = r.sha256
     if md5s:
         rows = await db.execute(
-            select(Fumen.fumen_id, Fumen.md5, Fumen.sha256, Fumen.title, Fumen.artist)
+            select(Fumen.fumen_id, Fumen.md5, Fumen.sha256, Fumen.title, Fumen.artist, Fumen.notes_total)
             .where(Fumen.md5.in_(md5s))
         )
         for r in rows.all():
-            fumen_meta[r.md5] = {"title": r.title, "artist": r.artist, "table_entries": []}
+            fumen_meta[r.md5] = {
+                "title": r.title,
+                "artist": r.artist,
+                "notes_total": getattr(r, "notes_total", None),
+                "table_entries": [],
+            }
             fumen_id_to_keys.setdefault(r.fumen_id, []).append(r.md5)
             if r.md5 and r.sha256:
                 md5_to_sha256[r.md5] = r.sha256
@@ -2253,6 +2292,28 @@ async def get_score_updates(
 
     # ── 7. Course index ────────────────────────────────────────────────────────
     lr2_idx, bea_idx, _ = await _build_course_indexes(db)
+    course_notes_by_md5: dict[str, int | None] = {}
+    course_notes_by_sha256: dict[str, int | None] = {}
+    course_md5s: set[str] = set()
+    course_sha256s: set[str] = set()
+    for course in set(lr2_idx.values()) | set(bea_idx.values()):
+        course_md5s.update(str(md5) for md5 in (course.md5_list or []) if md5)
+        course_sha256s.update(str(sha256) for sha256 in (course.sha256_list or []) if sha256)
+    if course_md5s or course_sha256s:
+        note_conditions = []
+        if course_md5s:
+            note_conditions.append(Fumen.md5.in_(course_md5s))
+        if course_sha256s:
+            note_conditions.append(Fumen.sha256.in_(course_sha256s))
+        note_filter = note_conditions[0]
+        for condition in note_conditions[1:]:
+            note_filter = note_filter | condition
+        note_rows = await db.execute(select(Fumen.md5, Fumen.sha256, Fumen.notes_total).where(note_filter))
+        for note_row in note_rows.all():
+            if note_row.md5:
+                course_notes_by_md5[note_row.md5] = note_row.notes_total
+            if note_row.sha256:
+                course_notes_by_sha256[note_row.sha256] = note_row.notes_total
 
     # ── 8. Build output lists ─────────────────────────────────────────────────
     clear_type_updates: list[dict] = []
@@ -2265,7 +2326,23 @@ async def get_score_updates(
         ts = row.recorded_at or row.synced_at
         return ts.isoformat() if ts else None
 
-    # Course updates (is_course=True) — clear_type / exscore / play_count
+    def _max_minus_for_row(
+        row: UserScore | None,
+        hash_key: str | None = None,
+        course: Any | None = None,
+    ) -> int | None:
+        if row is None:
+            return None
+        notes = None
+        if course is not None:
+            notes = course_notes_total(course, course_notes_by_md5, course_notes_by_sha256)
+        if hash_key:
+            notes = fumen_meta.get(hash_key, {}).get("notes_total")
+        if notes is None:
+            notes = notes_from_judgments(row.client_type, row.judgments)
+        return max_minus_score(row.exscore, notes)
+
+    # Course updates (is_course=True) — clear_type / exscore / min_bp / play_count
     for r in course_best:
         if r.clear_type is None and r.exscore is None and r.play_count is None:
             continue
@@ -2307,6 +2384,14 @@ async def get_score_updates(
             "options": r.options,
             "source_client": CLIENT_LABEL.get(r.client_type or "", (r.client_type or "").upper()) if r.client_type else None,
             "source_client_detail": None,
+            "previous_state": {
+                "clear_type": display_clear_type(cprev.clear_type, exscore=cprev.exscore, rate=cprev.rate) if cprev else None,
+                "exscore": cprev.exscore if cprev else None,
+                "rate": cprev.rate if cprev else None,
+                "rank": cprev.rank if cprev else None,
+                "min_bp": cprev.min_bp if cprev else None,
+                "max_combo": cprev.max_combo if cprev else None,
+            },
             "current_state": {
                 "clear_type": best_clear,
                 "exscore": best_exscore,
@@ -2326,7 +2411,22 @@ async def get_score_updates(
             prev_rank = cprev.rank if cprev else None
             prev_rate = cprev.rate if cprev else None
             if (r.exscore or 0) > (prev_ex or 0):
-                exscore_updates.append({**course_base, "prev_exscore": prev_ex, "new_exscore": r.exscore, "prev_rank": prev_rank, "new_rank": r.rank, "prev_rate": prev_rate, "new_rate": r.rate, "best_min_bp": r.min_bp})
+                exscore_updates.append({
+                    **course_base,
+                    "prev_exscore": prev_ex,
+                    "new_exscore": r.exscore,
+                    "prev_rank": prev_rank,
+                    "new_rank": r.rank,
+                    "prev_rate": prev_rate,
+                    "new_rate": r.rate,
+                    "prev_max_minus_score": _max_minus_for_row(cprev, course=course),
+                    "new_max_minus_score": _max_minus_for_row(r, course=course),
+                    "best_min_bp": r.min_bp,
+                })
+        if r.min_bp is not None:
+            prev_bp = cprev.min_bp if cprev else None
+            if prev_bp is None or r.min_bp < prev_bp:
+                min_bp_updates.append({**course_base, "prev_min_bp": prev_bp, "new_min_bp": r.min_bp})
         if r.play_count is not None:
             prev_pc = cprev.play_count if cprev else None
             if prev_pc is None or r.play_count > prev_pc:
@@ -2398,7 +2498,18 @@ async def get_score_updates(
             prev_rank = prev.rank if prev else None
             prev_rate = prev.rate if prev else None
             if (r.exscore or 0) > (prev_ex or 0):
-                exscore_updates.append({**base, "prev_exscore": prev_ex, "new_exscore": r.exscore, "prev_rank": prev_rank, "new_rank": r.rank, "prev_rate": prev_rate, "new_rate": r.rate, "best_min_bp": current_best_min_bp})
+                exscore_updates.append({
+                    **base,
+                    "prev_exscore": prev_ex,
+                    "new_exscore": r.exscore,
+                    "prev_rank": prev_rank,
+                    "new_rank": r.rank,
+                    "prev_rate": prev_rate,
+                    "new_rate": r.rate,
+                    "prev_max_minus_score": _max_minus_for_row(prev, hash_key),
+                    "new_max_minus_score": _max_minus_for_row(r, hash_key),
+                    "best_min_bp": current_best_min_bp,
+                })
 
         if r.max_combo is not None and fk not in processed_mc:
             processed_mc.add(fk)

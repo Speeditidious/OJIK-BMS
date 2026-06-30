@@ -20,9 +20,11 @@ from app.services.ranking_config import (
 )
 from app.services.ranking_dashboard import (
     _capture_ranks_for_targets,
+    _ordered_top_keys_from_values,
     _query_table_score_history,
     compute_exp_progress_fields,
 )
+from app.services.rating_derived_data import _requires_full_rating_derived_rebuild
 
 
 def test_merge_best_score_fields_preserves_existing_clear_when_exscore_only_improves():
@@ -183,6 +185,42 @@ def test_capture_ranks_for_targets_tracks_sparse_ranks_and_total_entries():
     assert total_entries == 4
     assert rank_map[("sha-2", None)] == 2
     assert rank_map[("sha-4", None)] == 4
+
+
+def test_ordered_top_keys_from_values_matches_full_sort_tiebreaks():
+    targets_by_key = {
+        ("sha-z", None): {"title": "Zulu"},
+        ("sha-a", None): {"title": "Alpha"},
+        ("sha-b", None): {"title": "Alpha"},
+        ("sha-n", None): {"title": "No Score"},
+    }
+    values = {
+        ("sha-z", None): 100.0,
+        ("sha-a", None): 100.0,
+        ("sha-b", None): 100.0,
+        ("sha-n", None): 0.0,
+    }
+
+    assert _ordered_top_keys_from_values(values, targets_by_key, 2) == [
+        ("sha-a", None),
+        ("sha-b", None),
+    ]
+
+
+def test_rating_derived_state_requires_full_rebuild_on_version_or_config_mismatch():
+    state = type(
+        "State",
+        (),
+        {
+            "schema_version": 1,
+            "config_fingerprint": "old",
+        },
+    )()
+
+    assert _requires_full_rating_derived_rebuild(state, schema_version=2, config_fingerprint="old") is True
+    assert _requires_full_rating_derived_rebuild(state, schema_version=1, config_fingerprint="new") is True
+    assert _requires_full_rating_derived_rebuild(state, schema_version=1, config_fingerprint="old") is False
+    assert _requires_full_rating_derived_rebuild(None, schema_version=1, config_fingerprint="old") is True
 
 
 def test_exp_level_is_capped_by_max_level():

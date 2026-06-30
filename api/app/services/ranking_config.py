@@ -246,7 +246,7 @@ def _validate_table(slug: str, cfg_raw: dict, level_weights: dict, base_lamp: di
     if missing_upper:
         raise RankingConfigError(f"[{slug}] upper_lamp_bonus missing keys: {missing_upper}")
 
-    # 3) All 8 rank keys must exist
+    # 3) All rank keys must exist
     missing_rank = set(ALL_RANK_KEYS) - set(rank_mult.keys())
     if missing_rank:
         raise RankingConfigError(f"[{slug}] rank_mult missing keys: {missing_rank}")

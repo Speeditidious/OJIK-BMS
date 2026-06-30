@@ -19,6 +19,7 @@ import type {
 } from "@/lib/ranking-types";
 import { formatRateDelta, formatRatePercent } from "@/lib/rate-format";
 import { songHref } from "@/lib/song-href";
+import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
 import { cn } from "@/lib/utils";
 import { shouldToggleFumenRow } from "@/lib/fumen-row-toggle-core.mjs";
 
@@ -34,7 +35,7 @@ const RANK_GRADE_ORDER: Record<string, number> = {
   A: 5,
   AA: 6,
   AAA: 7,
-  MAX: 8,
+  "MAX-": 8,
 };
 
 interface ContributionTableProps {
@@ -616,7 +617,7 @@ function ContributionRow({
       return <RankCell entry={entry} section={section} presentation={presentation} />;
     }
     if (column.key === "level") {
-      return <>{entry.symbol}{entry.level}</>;
+      return <>{formatTableLevelWithSymbolForDisplay({ tableSymbol: entry.symbol, level: entry.level })}</>;
     }
     if (column.key === "title") {
       return (

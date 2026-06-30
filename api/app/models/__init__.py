@@ -32,9 +32,11 @@ from app.models.notification import (
 )
 from app.models.ranking import (
     UserRanking,
+    UserRatingDerivedState,
     UserRatingUpdateDaily,
     UserTableRatingCheckpoint,
     UserTableRatingUpdateDaily,
+    UserTableRatingUpdateKey,
 )
 from app.models.schedule import Schedule
 from app.models.score import UserPlayerStats, UserScore
@@ -81,7 +83,9 @@ __all__ = [
     "UserRanking",
     "UserTableRatingCheckpoint",
     "UserTableRatingUpdateDaily",
+    "UserTableRatingUpdateKey",
     "UserRatingUpdateDaily",
+    "UserRatingDerivedState",
     "Weekly",
     "WeeklyFumen",
 ]

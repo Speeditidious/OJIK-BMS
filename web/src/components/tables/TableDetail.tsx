@@ -17,6 +17,7 @@ import { compareTitles } from "@/lib/bms-sort";
 import { formatBpm, formatNotes, formatLength } from "@/lib/bms-format";
 import { CLEAR_ROW_CLASS, parseArrangement, levelSortIndex, ARRANGEMENT_KANJI, exportToExcel, makeTableCopyHandler } from "@/lib/fumen-table-utils";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
+import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
 import { formatRatePercent } from "@/lib/rate-format";
 import { displayClearType } from "@/lib/clear-type-display";
 import { songHref } from "@/lib/song-href";
@@ -38,7 +39,7 @@ interface TableDetailProps {
 const handleTableCopy = makeTableCopyHandler(1); // col 0=Level, col 1=Title/Artist
 
 const RANK_ORDER: Record<string, number> = {
-  MAX: 9, AAA: 8, AA: 7, A: 6, B: 5, C: 4, D: 3, E: 2, F: 1,
+  "MAX-": 9, AAA: 8, AA: 7, A: 6, B: 5, C: 4, D: 3, E: 2, F: 1,
 };
 
 export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange }: TableDetailProps) {
@@ -188,16 +189,28 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
             )}
             <h2 className="text-xl font-bold truncate">{table.name}</h2>
           </div>
-          {table.source_url && (
-            <div className="mt-1">
-              <a
-                href={table.source_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-label text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {t("tables.detail.tableLink")} <ExternalLink className="h-3 w-3" />
-              </a>
+          {(table.source_url || table.representative_site_url) && (
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+              {table.source_url && (
+                <a
+                  href={table.source_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex w-fit items-center gap-1 text-label text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {t("tables.detail.tableLink")} <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+              {table.representative_site_url && (
+                <a
+                  href={table.representative_site_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex w-fit items-center gap-1 text-label text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {t("tables.detail.representativeSite")} <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
             </div>
           )}
         </div>
@@ -248,7 +261,12 @@ export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange 
                   onClick={() => onLevelChange(level)}
                 >
                   <span>
-                    {table.symbol}{level.replace(table.symbol ?? "", "")}
+                    {formatTableLevelWithSymbolForDisplay({
+                      tableSlug: table.slug,
+                      tableName: table.name,
+                      tableSymbol: table.symbol,
+                      level,
+                    })}
                   </span>
                   {count != null && (
                     <span className="text-label opacity-60">{count}</span>
@@ -293,17 +311,24 @@ interface SongRowProps {
   song: TableFumen;
   index: number;
   tableSymbol: string | undefined;
+  tableSlug: string | null | undefined;
+  tableName: string | undefined;
   hasUserScores: boolean;
   isExpanded: boolean;
   onToggle: () => void;
   colCount: number;
 }
 
-const SongRow = memo(function SongRow({ song, index, tableSymbol, hasUserScores, isExpanded, onToggle, colCount }: SongRowProps) {
+const SongRow = memo(function SongRow({ song, index, tableSymbol, tableSlug, tableName, hasUserScores, isExpanded, onToggle, colCount }: SongRowProps) {
   const { t } = useTranslation();
   const s = song.user_score;
   const href = songHref(song);
-  const levelLabel = `${tableSymbol ?? ""}${song.level.replace(tableSymbol ?? "", "")}`;
+  const levelLabel = formatTableLevelWithSymbolForDisplay({
+    tableSlug,
+    tableName,
+    tableSymbol,
+    level: song.level,
+  });
   const { total: notesTotal, detail: notesDetail } = formatNotes(
     song.notes_total, song.notes_n, song.notes_ln, song.notes_s, song.notes_ls
   );
@@ -570,7 +595,12 @@ const SongVirtualList = memo(function SongVirtualList({
               const s = song.user_score;
               const arrangement = s ? parseArrangement(s.options, s.client_type) : null;
               return {
-                level: `${table.symbol ?? ""}${song.level.replace(table.symbol ?? "", "")}`,
+                level: formatTableLevelWithSymbolForDisplay({
+                  tableSlug: table.slug,
+                  tableName: table.name,
+                  tableSymbol: table.symbol,
+                  level: song.level,
+                }),
                 title: fumenTitleText(song.title, ""),
                 artist: fumenArtistText(song.artist),
                 lamp: s ? (CLEAR_TYPE_LABELS[s.best_clear_type ?? 0] ?? "") : "",
@@ -658,6 +688,8 @@ const SongVirtualList = memo(function SongVirtualList({
                   song={songs[virtualRow.index]}
                   index={virtualRow.index}
                   tableSymbol={table.symbol ?? undefined}
+                  tableSlug={table.slug}
+                  tableName={table.name}
                   hasUserScores={hasUserScores}
                   isExpanded={expandedRows.has(songs[virtualRow.index].fumen_id)}
                   onToggle={() => toggleRow(songs[virtualRow.index].fumen_id)}

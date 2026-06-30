@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  compareByTableLevelsCore,
+  sortTableLevelsCore,
+} from "@/lib/table-level-sort-core.mjs";
+import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
+
 export interface TableLevelRef {
   symbol: string;
   slug: string;
@@ -7,15 +13,7 @@ export interface TableLevelRef {
 }
 
 export function compareByTableLevels(a: TableLevelRef[], b: TableLevelRef[]): number {
-  const len = Math.max(a.length, b.length);
-  for (let i = 0; i < len; i++) {
-    if (i >= a.length) return 1;
-    if (i >= b.length) return -1;
-    const aLv = parseFloat(a[i].level) || 0;
-    const bLv = parseFloat(b[i].level) || 0;
-    if (aLv !== bLv) return bLv - aLv;
-  }
-  return 0;
+  return compareByTableLevelsCore(a, b);
 }
 
 interface Props {
@@ -25,9 +23,14 @@ interface Props {
 
 export function TableLevelBadges({ levels, maxVisible = 3 }: Props) {
   if (levels.length === 0) return <span className="text-label row-muted">-</span>;
-  const visible = levels.slice(0, maxVisible);
-  const rest = levels.length - visible.length;
-  const text = visible.map(({ symbol, level }) => `${symbol}${level}`).join(", ");
+  const sortedLevels = sortTableLevelsCore(levels) as TableLevelRef[];
+  const visible = sortedLevels.slice(0, maxVisible);
+  const rest = sortedLevels.length - visible.length;
+  const text = visible
+    .map(({ symbol, slug, level }) => (
+      formatTableLevelWithSymbolForDisplay({ tableSlug: slug, tableSymbol: symbol, level })
+    ))
+    .join(", ");
   return (
     <span className="text-label">
       {text}

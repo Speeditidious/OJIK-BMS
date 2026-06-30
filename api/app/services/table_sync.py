@@ -27,6 +27,15 @@ from app.services.table_import import (
 
 logger = logging.getLogger(__name__)
 
+_MISSING = object()
+
+
+def site_from_config(cfg: dict[str, Any]) -> object:
+    """Return trimmed site string when config explicitly provides the key; else _MISSING."""
+    if "site" not in cfg:
+        return _MISSING
+    return str(cfg.get("site") or "").strip()
+
 
 def canonicalize_table_url(url: str) -> str:
     """Normalize admin-provided table URLs for source_url matching."""
@@ -116,6 +125,7 @@ async def sync_table_by_url(
     configured_slug: str | None = None,
     configured_name: str | None = None,
     symbol_fallback: str | None = None,
+    configured_site: object = _MISSING,
     default_order: int | None = None,
     save_disk_cache: bool = True,
     log_id: uuid.UUID | None = None,
@@ -134,6 +144,7 @@ async def sync_table_by_url(
             configured_slug=configured_slug,
             configured_name=configured_name,
             symbol_fallback=symbol_fallback,
+            configured_site=configured_site,
             default_order=default_order,
             save_disk_cache=save_disk_cache,
             log_id=log_id,
@@ -180,9 +191,12 @@ async def sync_table_by_id(
             return {"status": "skipped_too_recent", "table_id": str(table_id), "name": table.name}
 
     cfg_symbol = None
+    cfg_site: object = _MISSING
     if table.slug:
         cfg_map = {config["slug"]: config for config in get_default_table_configs()}
-        cfg_symbol = cfg_map.get(table.slug, {}).get("symbol")
+        table_cfg = cfg_map.get(table.slug, {})
+        cfg_symbol = table_cfg.get("symbol")
+        cfg_site = site_from_config(table_cfg)
 
     return await sync_table_by_url(
         table.source_url,
@@ -190,6 +204,7 @@ async def sync_table_by_id(
         configured_slug=table.slug,
         configured_name=table.name,
         symbol_fallback=cfg_symbol or table.symbol,
+        configured_site=cfg_site,
         default_order=table.default_order,
         save_disk_cache=True,
         log_id=log_id,
@@ -204,6 +219,7 @@ async def _persist_table_data(
     configured_slug: str | None,
     configured_name: str | None,
     symbol_fallback: str | None,
+    configured_site: object = _MISSING,
     default_order: int | None,
     save_disk_cache: bool,
     log_id: uuid.UUID | None,
@@ -234,6 +250,7 @@ async def _persist_table_data(
                     symbol=effective_symbol,
                     slug=slug,
                     source_url=canonical_url,
+                    site=None if configured_site is _MISSING else configured_site,
                     is_default=is_default,
                     default_order=default_order,
                     level_order=db_level_order,
@@ -254,6 +271,8 @@ async def _persist_table_data(
                 if default_order is not None:
                     table.default_order = default_order
                 table.level_order = db_level_order
+                if configured_site is not _MISSING:
+                    table.site = configured_site
                 table.updated_at = datetime.now(UTC)
                 db_status = "updated"
 

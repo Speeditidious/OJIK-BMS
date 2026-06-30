@@ -27,6 +27,7 @@ from app.services.ranking_calculator import (
     standardize_rating,
 )
 from app.services.ranking_config import TableRankingConfig
+from app.utils.score_rank import max_minus_score
 from app.utils.text_normalization import loose_text_matches
 
 RANK_GRADE_ORDER = {
@@ -38,7 +39,7 @@ RANK_GRADE_ORDER = {
     "A": 5,
     "AA": 6,
     "AAA": 7,
-    "MAX": 8,
+    "MAX-": 8,
 }
 
 
@@ -143,6 +144,7 @@ async def query_target_fumen_details(
                 f.md5,
                 {title_select}
                 {artist_select}
+                f.notes_total,
                 fte.level AS level
             FROM fumen_table_entries fte
             JOIN fumens f ON f.fumen_id = fte.fumen_id
@@ -176,6 +178,12 @@ def _contribution_value(
         table_cfg,
     )
     return value, resolved_level
+
+
+def _max_minus_for_score(score: BestScore | None, target: dict[str, Any]) -> int | None:
+    if score is None or score.rank != "MAX-":
+        return None
+    return max_minus_score(score.exscore, target.get("notes_total"))
 
 
 def _display_whole_metric_value(value: float | None) -> int:
@@ -579,6 +587,7 @@ async def build_user_contribution_rows(
                 "min_bp": score.min_bp if score is not None else None,
                 "rate": score.rate if score is not None else None,
                 "rank_grade": score.rank if score is not None else None,
+                "max_minus_score": _max_minus_for_score(score, target),
                 "exscore": score.exscore if score is not None else None,
                 "raw_value": raw_value,
                 "recorded_at": recorded_at,
@@ -659,6 +668,7 @@ async def build_user_contribution_rows(
                 "min_bp": row["min_bp"],
                 "rate": row["rate"],
                 "rank_grade": row["rank_grade"],
+                "max_minus_score": row.get("max_minus_score"),
                 "exscore": row["exscore"],
                 "value": round(row["value"], 3),
                 "is_in_top_n": row["is_in_top_n"],
@@ -762,6 +772,7 @@ async def build_user_contribution_rows_at_date(
                 "min_bp": score.min_bp if score is not None else None,
                 "rate": score.rate if score is not None else None,
                 "rank_grade": score.rank if score is not None else None,
+                "max_minus_score": _max_minus_for_score(score, target),
                 "exscore": score.exscore if score is not None else None,
                 "raw_value": raw_value,
                 "value": raw_value,
@@ -836,6 +847,7 @@ async def build_user_contribution_rows_at_date(
                 "min_bp": row["min_bp"],
                 "rate": row["rate"],
                 "rank_grade": row["rank_grade"],
+                "max_minus_score": row.get("max_minus_score"),
                 "exscore": row["exscore"],
                 "value": round(row["value"], 3),
                 "is_in_top_n": row["is_in_top_n"],
@@ -1066,12 +1078,46 @@ def _ordered_positive_keys(
     )
 
 
+def _rating_order_key(
+    key: tuple[str | None, str | None],
+    current_values: dict[tuple[str | None, str | None], float],
+    targets_by_key: dict[tuple[str | None, str | None], dict[str, Any]],
+) -> tuple[float, Any, str]:
+    """Return the stable rating contribution order key used by dashboard displays."""
+    return (
+        -current_values.get(key, 0.0),
+        title_sort_key(targets_by_key[key].get("title")),
+        key[0] or key[1] or "",
+    )
+
+
+def _ordered_top_keys_from_values(
+    current_values: dict[tuple[str | None, str | None], float],
+    targets_by_key: dict[tuple[str | None, str | None], dict[str, Any]],
+    top_n: int,
+) -> list[tuple[str | None, str | None]]:
+    """Return top-N positive keys without sorting every positive contribution."""
+    if top_n <= 0:
+        return []
+    candidates = [
+        key for key, value in current_values.items()
+        if value > 0 and key in targets_by_key
+    ]
+    if len(candidates) <= top_n:
+        return sorted(candidates, key=lambda key: _rating_order_key(key, current_values, targets_by_key))
+    return heapq.nsmallest(
+        top_n,
+        candidates,
+        key=lambda key: _rating_order_key(key, current_values, targets_by_key),
+    )
+
+
 def _top_keys_from_values(
     current_values: dict[tuple[str | None, str | None], float],
     targets_by_key: dict[tuple[str | None, str | None], dict[str, Any]],
     top_n: int,
 ) -> set[tuple[str | None, str | None]]:
-    return set(_ordered_positive_keys(current_values, targets_by_key)[:top_n])
+    return set(_ordered_top_keys_from_values(current_values, targets_by_key, top_n))
 
 
 def _capture_ranks_for_targets(
@@ -1465,6 +1511,8 @@ def _build_breakdown_entry(
         "previous_rate": previous_score.rate if previous_score is not None else None,
         "rank_grade": current_score.rank if current_score is not None else None,
         "previous_rank_grade": previous_score.rank if previous_score is not None else None,
+        "max_minus_score": _max_minus_for_score(current_score, target),
+        "previous_max_minus_score": _max_minus_for_score(previous_score, target),
         "exscore": current_score.exscore if current_score is not None else None,
         "previous_exscore": previous_score.exscore if previous_score is not None else None,
         "value": round(value, 3),

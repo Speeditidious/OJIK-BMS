@@ -41,7 +41,7 @@ CLEAR_TYPE_TO_LAMP_NAME: dict[int | None, str] = {
     9:    "MAX",
 }
 
-RANK_ORDER = ["F", "E", "D", "C", "B", "A", "AA", "AAA"]
+RANK_ORDER = ["F", "E", "D", "C", "B", "A", "AA", "AAA", "MAX-"]
 
 
 # ── Core data structures ──────────────────────────────────────────────────────
@@ -113,9 +113,10 @@ def _base(level: str, lamp: str, rank: str, cfg: TableRankingConfig) -> float:
     level_weight = cfg.level_weights.get(level)
     if level_weight is None:
         return 0.0
+    rank_multiplier_key = "AAA" if rank == "MAX-" else rank
     return (
         cfg.base_lamp_mult[lamp]
-        * cfg.rank_mult.get(rank, 0.0)
+        * cfg.rank_mult.get(rank_multiplier_key, 0.0)
         * (level_weight + cfg.upper_lamp_bonus[lamp])
     )
 
@@ -823,7 +824,12 @@ async def recalculate_user(
     db: AsyncSession,
 ) -> None:
     """Recalculate all table rankings for a single user."""
-    from app.services.rating_derived_data import rebuild_user_rating_derived_data
+    from app.services.rating_derived_data import (
+        rebuild_user_rating_derived_data,
+        select_user_rating_derived_rebuild_scope,
+    )
+
+    affected_table_ids, derived_start_date = await select_user_rating_derived_rebuild_scope(user_id, config, db)
 
     for table_cfg in config.tables:
         user_scores_map = await bulk_query_best_scores(table_cfg.table_id, db, user_id=user_id)
@@ -835,7 +841,15 @@ async def recalculate_user(
 
         await upsert_user_ranking(result, table_cfg.table_id, db)
 
-    await rebuild_user_rating_derived_data(user_id, config, db)
+    if affected_table_ids == set():
+        return
+    await rebuild_user_rating_derived_data(
+        user_id,
+        config,
+        db,
+        affected_table_ids=affected_table_ids,
+        start_date=derived_start_date,
+    )
 
 
 async def batch_check_dan_clearance(

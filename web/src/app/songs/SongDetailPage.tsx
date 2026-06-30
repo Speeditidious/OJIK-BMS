@@ -26,6 +26,7 @@ import { displayClearType } from "@/lib/clear-type-display";
 import { cn } from "@/lib/utils";
 import { CLEAR_ROW_CLASS, ARRANGEMENT_KANJI, parseArrangement } from "@/lib/fumen-table-utils";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
+import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
 import { buildFumenExternalLinkGroups, type ExternalHashType, type FumenExternalLink } from "@/lib/fumen-external-links";
 import { shouldToggleFumenRow } from "@/lib/fumen-row-toggle-core.mjs";
 import { arrangementColumnLabel } from "@/lib/score-row-detail-core.mjs";
@@ -433,7 +434,7 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
     staleTime: 5 * 60 * 1000,
   });
 
-  const tableSymbolMap = Object.fromEntries(allTables.map((t) => [t.id, t.symbol ?? ""]));
+  const tableMetaMap = Object.fromEntries(allTables.map((t) => [t.id, t]));
 
   const { data: targetProfile } = useUserProfile(targetUserId ?? "");
 
@@ -588,8 +589,14 @@ export default function SongDetailPage({ params }: SongDetailPageProps) {
                 <h2 className="text-body font-semibold mb-2 text-muted-foreground uppercase tracking-wide">{t("fumen.detail.tables")}</h2>
                 <div className="flex flex-wrap gap-2">
                   {tableEntries.map((entry, i) => {
-                    const symbol = tableSymbolMap[entry.table_id] ?? "";
-                    const levelLabel = `${symbol}${entry.level.replace(symbol, "")}`;
+                    const tableMeta = tableMetaMap[entry.table_id];
+                    const symbol = tableMeta?.symbol ?? "";
+                    const levelLabel = formatTableLevelWithSymbolForDisplay({
+                      tableSlug: tableMeta?.slug,
+                      tableName: tableMeta?.name,
+                      tableSymbol: symbol,
+                      level: entry.level,
+                    });
                     const tableHref = `/tables?t=${encodeURIComponent(entry.table_id)}&l=${encodeURIComponent(entry.level)}`;
                     return (
                       <Link key={i} href={tableHref}>

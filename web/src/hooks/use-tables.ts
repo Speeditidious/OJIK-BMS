@@ -8,6 +8,8 @@ export interface DifficultyTableItem {
   symbol: string | null;
   slug: string | null;
   source_url: string | null;
+  site: string | null;
+  representative_site_url: string | null;
   is_default: boolean;
   updated_at: string;
   song_count: number | null;

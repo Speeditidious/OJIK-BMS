@@ -93,6 +93,9 @@ async def _seed_default_tables() -> None:
                     table_data.get("symbol") if table_data else None
                 )
 
+                has_site = "site" in cfg
+                site_value = str(cfg.get("site") or "").strip() if has_site else None
+
                 result = await db.execute(
                     select(DifficultyTable).where(DifficultyTable.source_url == url)
                 )
@@ -104,6 +107,8 @@ async def _seed_default_tables() -> None:
                     existing.slug = slug
                     existing.is_default = True
                     existing.default_order = default_order
+                    if has_site:
+                        existing.site = site_value
                     continue  # already seeded
 
                 table = DifficultyTable(
@@ -111,6 +116,7 @@ async def _seed_default_tables() -> None:
                     symbol=effective_symbol,
                     slug=slug,
                     source_url=url,
+                    site=site_value if has_site else None,
                     is_default=True,
                     default_order=default_order,
                 )

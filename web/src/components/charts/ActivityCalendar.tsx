@@ -19,6 +19,7 @@ interface ActivityCalendarProps {
   dataBeatoraja?: HeatmapDay[];
   courseData?: CourseActivityItem[];
   ratingUpdatesData?: Array<{ date: string; count: number }>;
+  ratingUpdatesPending?: boolean;
   /** Set of dates (YYYY-MM-DD) that have a note — drives the note icon. */
   noteDates?: Set<string>;
   /** Render the note icon/popover for a given date. Called when noteDates has the date. */
@@ -95,6 +96,7 @@ export function ActivityCalendar({
   dataBeatoraja,
   courseData,
   ratingUpdatesData,
+  ratingUpdatesPending = false,
   noteDates,
   renderNoteIndicator,
 }: ActivityCalendarProps) {
@@ -237,6 +239,12 @@ export function ActivityCalendar({
           </div>
         ))}
       </div>
+
+      {ratingUpdatesPending && (
+        <p className="text-label text-muted-foreground">
+          {t("dashboard.activity.ratingUpdatesPending")}
+        </p>
+      )}
 
       {/* Date grid */}
       <div className="grid grid-cols-7 gap-1">

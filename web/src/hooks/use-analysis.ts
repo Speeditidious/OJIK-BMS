@@ -22,12 +22,26 @@ export interface HeatmapDay {
   rating_updates?: number;
 }
 
+export interface ActivityHeatmapResponse {
+  year: number;
+  rating_updates_pending?: boolean;
+  data: HeatmapDay[];
+}
+
 export interface ActivityDay {
   date: string;
   updates: number;   // rows where at least one metric improved vs previous play (rn > 1)
   new_plays: number; // first-ever plays for a fumen (rn == 1), separate from updates
   plays: number;     // UserPlayerStats.playcount LAG delta sum; first-sync rows = 0
   rating_updates?: number;
+}
+
+export interface ActivityBarResponse {
+  days?: number;
+  from?: string;
+  to?: string;
+  rating_updates_pending?: boolean;
+  data: ActivityDay[];
 }
 
 export interface RecentUpdate {
@@ -123,6 +137,11 @@ export interface AggregatedRatingUpdatesResponse {
   tables?: AggregatedRatingUpdateTable[];
 }
 
+export interface RatingUpdateStatusResponse {
+  pending: boolean;
+  data: AggregatedRatingUpdateDay[];
+}
+
 export interface GradeDistributionItem {
   clear_type: number | null;
   count: number;
@@ -200,7 +219,7 @@ export function useActivityHeatmap(
       const params = new URLSearchParams({ year: String(year) });
       if (clientType !== "all") params.set("client_type", clientType);
       if (userId) params.set("user_id", userId);
-      return api.get<{ year: number; data: HeatmapDay[] }>(`/analysis/heatmap?${params}`);
+      return api.get<ActivityHeatmapResponse>(`/analysis/heatmap?${params}`);
     },
     enabled,
     staleTime: 30 * 60 * 1000, // 30 min — historical data
@@ -243,7 +262,7 @@ export function useActivityBar(argsOrDays: ActivityBarArgs | number = {}, client
       }
       if (clientType !== "all") params.set("client_type", clientType);
       if (userId) params.set("user_id", userId);
-      return api.get<{ days?: number; from?: string; to?: string; data: ActivityDay[] }>(`/analysis/activity?${params}`);
+      return api.get<ActivityBarResponse>(`/analysis/activity?${params}`);
     },
     enabled,
     staleTime: 60 * 1000, // 1 min
@@ -270,6 +289,29 @@ export function useRecentUpdates(
       return api.get<RecentUpdatesResponse>(`/analysis/recent-updates?${params}`);
     },
     staleTime: 2 * 60 * 1000, // 2 min — more volatile
+  });
+}
+
+export function useRatingUpdateStatus(
+  from: string,
+  to: string,
+  userId?: string,
+  enabled: boolean = true,
+) {
+  return useQuery({
+    queryKey: ["analysis", "rating-update-status", from, to, userId ?? null],
+    queryFn: () => {
+      const params = new URLSearchParams({ from, to });
+      if (userId) params.set("user_id", userId);
+      return api.get<RatingUpdateStatusResponse>(`/analysis/rating-update-status?${params}`);
+    },
+    enabled,
+    refetchInterval: (query) => {
+      const data = query.state.data as RatingUpdateStatusResponse | undefined;
+      return data?.pending ? 3000 : false;
+    },
+    staleTime: 0,
+    gcTime: 5 * 60 * 1000,
   });
 }
 

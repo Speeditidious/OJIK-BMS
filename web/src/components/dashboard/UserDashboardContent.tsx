@@ -14,19 +14,14 @@ import {
 import {
   CalendarDays,
   ChevronLeft,
-  Clock,
-  Hammer,
-  HelpCircle,
   LayoutDashboard,
-  Music2,
-  Sparkles,
-  TrendingUp,
-  Trophy,
 } from "lucide-react";
 import { Navbar } from "@/components/layout/navbar";
 import { StatsGrid } from "@/components/dashboard/StatsGrid";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { ScoreUpdates } from "@/components/dashboard/ScoreUpdates";
+import { DayStatGrid } from "@/components/dashboard/DayStatGrid";
+import { DayStatSheet } from "@/components/dashboard/DayStatSheet";
 import { TableClearSection } from "@/components/dashboard/TableClearSection";
 import { DashboardUserHeader } from "@/components/dashboard/DashboardUserHeader";
 import { ActivityHeatmap } from "@/components/charts/ActivityHeatmap";
@@ -40,13 +35,13 @@ import { DateRangePicker, type DateRangeValue } from "@/components/common/DateRa
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChartWidth } from "@/hooks/use-chart-size";
 import {
   useActivityBar,
   useActivityHeatmap,
   useCourseActivity,
   usePlaySummary,
+  useRatingUpdateStatus,
   useRecentUpdates,
   useScoreUpdates,
   type ClientTypeFilter,
@@ -59,7 +54,6 @@ import type {
   RatingHistoryMetric,
 } from "@/lib/ranking-types";
 import type { ClearVisibilitySource } from "@/hooks/use-dashboard-clear-visibility";
-import { cn } from "@/lib/utils";
 import { formatRatingMetric, formatCompactNumber } from "@/lib/rating-format";
 import { rangeFromPreset, daysInRange } from "@/lib/date-range";
 import { ACTIVITY_CATEGORIES } from "@/lib/activity-categories";
@@ -68,62 +62,9 @@ import { pickTickResolution, formatTick, computeTicks } from "@/lib/axis-format"
 import { niceTicks, decimalsForStep } from "@/lib/axis-ticks";
 import { buildDashboardUrl, getDashboardRankingTable, mergeDashboardParams } from "@/lib/dashboard-url-state.mjs";
 import { useAuthStore } from "@/stores/auth";
-import { formatDuration } from "@/lib/time";
 import { useMonthDayNotes } from "@/hooks/use-day-notes";
 import { DayNotePopover } from "@/components/fumen/DayNotePopover";
 import { getInitialBrowserSearch } from "@/lib/static-route";
-
-function DayStatCard({
-  title,
-  value,
-  sub,
-  icon: Icon,
-  uncertain,
-  uncertainTooltip,
-  valueClassName,
-  accentVar,
-}: {
-  title: string;
-  value: string;
-  sub: string;
-  icon: React.ElementType;
-  uncertain?: boolean;
-  uncertainTooltip?: string;
-  valueClassName?: string;
-  /** CSS variable for value color, e.g. "var(--warning)". Overrides valueClassName color. */
-  accentVar?: string;
-}) {
-  const numericValue = parseFloat(value);
-  const isZero = !isNaN(numericValue) && numericValue === 0;
-  const valueStyle = accentVar && !isZero ? { color: `hsl(${accentVar})` } : undefined;
-
-  return (
-    <Card className="border-dashed">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 px-4 pb-1 pt-3">
-        <p className="text-label font-medium">{title}</p>
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-      </CardHeader>
-      <CardContent className="px-4 pb-3">
-        <div className={cn("text-stat font-bold", isZero ? "text-muted-foreground" : valueClassName)} style={valueStyle}>
-          {uncertain && uncertainTooltip ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex cursor-help items-center gap-1 text-muted-foreground">
-                  <span className="underline decoration-dashed underline-offset-2">-</span>
-                  <HelpCircle className="h-3.5 w-3.5" />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs text-label">
-                {uncertainTooltip}
-              </TooltipContent>
-            </Tooltip>
-          ) : value}
-        </div>
-        <p className="text-caption text-muted-foreground">{sub}</p>
-      </CardContent>
-    </Card>
-  );
-}
 
 type RatingHistoryMetricLocal = RatingHistoryMetric;
 
@@ -332,6 +273,8 @@ function CalendarDayDetail({
   backLabel,
   isOwner,
   hasNote,
+  username,
+  avatarUrl,
   rankingTables,
   selectedRankingTable,
   onSelectRankingTable,
@@ -347,6 +290,8 @@ function CalendarDayDetail({
   backLabel?: string;
   isOwner: boolean;
   hasNote?: boolean;
+  username: string;
+  avatarUrl?: string | null;
   rankingTables: Array<{
     slug: string;
     table_id: string;
@@ -422,68 +367,7 @@ function CalendarDayDetail({
       </div>
 
       {data?.day_summary && (
-        <TooltipProvider>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-            <DayStatCard
-              title={t("dashboard.dayDetail.updates")}
-              value={`${data.day_summary.total_updates}`}
-              sub={t("dashboard.dayDetail.updatesSub")}
-              icon={TrendingUp}
-              accentVar="var(--warning)"
-            />
-            <DayStatCard
-              title={t("dashboard.dayDetail.newPlays")}
-              value={`${data.day_summary.new_plays ?? 0}`}
-              sub={t("dashboard.dayDetail.newPlaysSub")}
-              icon={Sparkles}
-              accentVar="var(--primary)"
-            />
-            <DayStatCard
-              title={t("dashboard.dayDetail.ratingUpdates")}
-              value={`${data.day_summary.rating_updates ?? 0}`}
-              sub={t("dashboard.dayDetail.ratingUpdatesSub")}
-              icon={Trophy}
-              accentVar="var(--chart-rating)"
-            />
-            <DayStatCard
-              title={t("dashboard.dayDetail.playCount")}
-              value={`${data.day_summary.total_play_count ?? 0}`}
-              sub={t("dashboard.dayDetail.playCountSub")}
-              icon={Music2}
-              uncertain={data.day_summary.player_stats_unreliable || data.day_summary.play_count_uncertain}
-              uncertainTooltip={
-                data.day_summary.player_stats_unreliable
-                  ? t("dashboard.dayDetail.playerStatsUnreliable")
-                  : t("dashboard.dayDetail.playCountUncertain")
-              }
-              accentVar="var(--chart-play)"
-            />
-            <DayStatCard
-              title={t("dashboard.dayDetail.playTime")}
-              value={formatDuration(data.day_summary.total_playtime ?? 0, t)}
-              sub={t("dashboard.dayDetail.playTimeSub")}
-              icon={Clock}
-              uncertain={data.day_summary.player_stats_unreliable || data.day_summary.playtime_uncertain}
-              uncertainTooltip={
-                data.day_summary.player_stats_unreliable
-                  ? t("dashboard.dayDetail.playerStatsUnreliable")
-                  : t("dashboard.dayDetail.playTimeUncertain")
-              }
-            />
-            <DayStatCard
-              title={t("dashboard.dayDetail.notesHit")}
-              value={`${(data.day_summary.total_notes_hit ?? 0).toLocaleString()}`}
-              sub={t("dashboard.dayDetail.notesHitSub")}
-              icon={Hammer}
-              uncertain={data.day_summary.player_stats_unreliable || data.day_summary.notes_hit_uncertain}
-              uncertainTooltip={
-                data.day_summary.player_stats_unreliable
-                  ? t("dashboard.dayDetail.playerStatsUnreliable")
-                  : t("dashboard.dayDetail.notesHitUncertain")
-              }
-            />
-          </div>
-        </TooltipProvider>
+        <DayStatGrid daySummary={data.day_summary} />
       )}
 
       <ScoreUpdates
@@ -495,6 +379,26 @@ function CalendarDayDetail({
         onViewModeChange={onDayViewChange}
         noteSlot={
           <DayNotePopover userId={userId} date={date} isOwner={isOwner} hasNote={hasNote} />
+        }
+        daySheetSlot={
+          <DayStatSheet
+            userId={userId}
+            date={date}
+            clientType={clientType}
+            isOwner={isOwner}
+            username={username}
+            avatarUrl={avatarUrl}
+            rankingTables={rankingTables.map((t) => ({
+              slug: t.slug,
+              table_id: t.table_id,
+              display_name: t.display_name,
+              display_order: t.display_order,
+              symbol: t.slug,
+              has_bmsforce: t.has_bmsforce,
+            }))}
+            daySummary={data?.day_summary}
+            scoreUpdatesData={scoreUpdates.data ?? null}
+          />
         }
         ratingSlot={rankingTables.length > 0 ? (
           <RatingChangeTabContent
@@ -598,7 +502,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
   const ratingSort = ((searchParams.get("rating_sort") as RatingContributionSortBy | null) ?? "value");
   const ratingDir = ((searchParams.get("rating_dir") as "asc" | "desc" | null) ?? "desc");
   // URL-controlled state for CalendarDayDetail tabs — preserved on navigation back from /songs/[hash]
-  const dayView = (searchParams.get("day_view") as ScoreUpdatesViewMode | null) ?? "summary";
+  const dayView = (searchParams.get("day_view") as ScoreUpdatesViewMode | null) ?? "daySheet";
   const ratingMetricParam = (searchParams.get("rating_metric") as RatingHistoryMetric | null) ?? "rating";
   const showRatingOverview = currentTab === "rating";
   const showActivityOverview = currentTab === "activity" && !activityDate;
@@ -627,6 +531,12 @@ export function UserDashboardContent({ userId }: { userId: string }) {
   const { data: calHeatmapData } = useActivityHeatmap(calYear, clientType, userId, showCalendarOverview);
   const { data: calLr2Data } = useActivityHeatmap(calYear, "lr2", userId, showCalendarOverview);
   const { data: calBeatorajaData } = useActivityHeatmap(calYear, "beatoraja", userId, showCalendarOverview);
+  const calRatingStatus = useRatingUpdateStatus(
+    `${calYear}-01-01`,
+    `${calYear}-12-31`,
+    userId,
+    showCalendarOverview && Boolean(calHeatmapData?.rating_updates_pending),
+  );
 
   const { data: monthNotes } = useMonthDayNotes(
     currentTab === "calendar" ? userId : null,
@@ -688,6 +598,15 @@ export function UserDashboardContent({ userId }: { userId: string }) {
     () => Object.fromEntries((heatmapData?.data ?? []).map((item) => [item.date, item.rating_updates ?? 0])),
     [heatmapData?.data],
   );
+  const calendarRatingUpdatesData = useMemo(() => {
+    const statusRows = calRatingStatus.data?.pending === false ? calRatingStatus.data.data : null;
+    return (statusRows ?? (calHeatmapData?.data ?? [])
+      .filter((item) => (item.rating_updates ?? 0) > 0)
+      .map((item) => ({ date: item.date, count: item.rating_updates ?? 0 })))
+      .filter((item) => item.count > 0);
+  }, [calHeatmapData?.data, calRatingStatus.data]);
+  const calendarRatingUpdatesPending =
+    Boolean(calHeatmapData?.rating_updates_pending) && calRatingStatus.data?.pending !== false;
 
   const replaceParams = useCallback((updates: Record<string, string | null>) => {
     const params = mergeDashboardParams(searchParams, updates);
@@ -840,6 +759,8 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 backLabel={t("dashboard.dayDetail.backToActivity")}
                 isOwner={isOwner}
                 hasNote={noteDatesSet.has(activityDate)}
+                username={profileUser.username}
+                avatarUrl={profileUser.avatar_url}
                 rankingTables={rankingTables}
                 selectedRankingTable={selectedRankingTable}
                 onSelectRankingTable={(slug) => updateParams({ ranking_table: slug })}
@@ -1024,6 +945,8 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                 backLabel={t("dashboard.calendar.back")}
                 isOwner={isOwner}
                 hasNote={noteDatesSet.has(calendarDate)}
+                username={profileUser.username}
+                avatarUrl={profileUser.avatar_url}
                 rankingTables={rankingTables}
                 selectedRankingTable={selectedRankingTable}
                 onSelectRankingTable={(slug) => updateParams({ ranking_table: slug })}
@@ -1052,16 +975,15 @@ export function UserDashboardContent({ userId }: { userId: string }) {
                     dataLr2={clientType === "all" ? calLr2Data?.data : undefined}
                     dataBeatoraja={clientType === "all" ? calBeatorajaData?.data : undefined}
                     courseData={calCourseData ?? []}
-                    ratingUpdatesData={(calHeatmapData?.data ?? [])
-                      .filter((item) => (item.rating_updates ?? 0) > 0)
-                      .map((item) => ({ date: item.date, count: item.rating_updates ?? 0 }))}
+                    ratingUpdatesData={calendarRatingUpdatesData}
+                    ratingUpdatesPending={calendarRatingUpdatesPending}
                     noteDates={noteDatesSet}
                     renderNoteIndicator={(dateStr) => (
                       <DayNotePopover
                         userId={userId}
                         date={dateStr}
                         isOwner={isOwner}
-                        cellTrigger
+                        triggerVariant="cell"
                       />
                     )}
                   />
