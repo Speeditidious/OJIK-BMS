@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useRatingBreakdown } from "@/hooks/use-analysis";
 import { RatingExpProgressBar } from "@/components/ranking/RatingExpProgressBar";
 import { RatingContributionGrid } from "@/components/ranking/RatingContributionGrid";
+import { shouldShowRatingChangeTable } from "@/lib/day-stat-sheet-export-core.mjs";
 import { cn } from "@/lib/utils";
 
 function formatSigned(v: number, decimals = 3): string {
@@ -58,7 +59,11 @@ export function TableRatingChangeSection({
   const hasExpChange = Math.abs(expDelta) > 1e-9;
   const hasRatingChange = Math.abs(ratingDelta) > 1e-9;
   const hasBmsforceChange = bmsforceChanged;
-  const hasAnyChange = hasRatingChange || hasBmsforceChange || (showExpInfo && hasExpChange);
+  const hasAnyChange = shouldShowRatingChangeTable({
+    expDelta,
+    ratingDelta,
+    bmsforceDelta: bmsforce.total,
+  });
 
   if (!hasAnyChange) return null;
 

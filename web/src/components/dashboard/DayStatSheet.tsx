@@ -23,7 +23,11 @@ import { useRatingBreakdown } from "@/hooks/use-analysis";
 import { useAuthStore } from "@/stores/auth";
 import { captureNodeToPng } from "@/lib/capture-utils";
 import { getCaptureErrorMessage } from "@/lib/capture-utils-core.mjs";
-import { getHeightSplitRanges, getSectionSplitGroups } from "@/lib/day-stat-sheet-export-core.mjs";
+import {
+  getHeightSplitRanges,
+  getSectionSplitGroups,
+  shouldShowRatingChangeArea,
+} from "@/lib/day-stat-sheet-export-core.mjs";
 import type { ScoreUpdatesResponse } from "@/types";
 import type { ClientTypeFilter } from "@/hooks/use-analysis";
 import type { DanDecoration } from "@/lib/ranking-types";
@@ -47,6 +51,8 @@ interface TableHeaderSlotData {
 interface TableBmsforceChangeData {
   slug: string;
   delta: number | null;
+  hasRatingChange: boolean;
+  hasBmsforceChange: boolean;
 }
 
 interface DayStatSheetProps {
@@ -117,7 +123,13 @@ function TableBmsforceChangeLoader({
   useEffect(() => {
     if (data) {
       const total = data.bmsforce_breakdown?.total ?? 0;
-      onData({ slug: table.slug, delta: Math.abs(total) > 1e-9 ? total : null });
+      const ratingDelta = data.current.rating - data.previous.rating;
+      onData({
+        slug: table.slug,
+        delta: Math.abs(total) > 1e-9 ? total : null,
+        hasRatingChange: Math.abs(ratingDelta) > 1e-9,
+        hasBmsforceChange: Math.abs(total) > 1e-9,
+      });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
@@ -313,6 +325,15 @@ export function DayStatSheet({
     [selectedTables, tableDataMap, bmsforceChangeMap],
   );
 
+  const showRatingChangeArea = useMemo(
+    () =>
+      shouldShowRatingChangeArea({
+        selectedTableSlugs: selectedTables.map((table) => table.slug),
+        tableChangesBySlug: bmsforceChangeMap,
+      }),
+    [selectedTables, bmsforceChangeMap],
+  );
+
   // display_texts of dan badges available for ordering in toolbar
   const availableDans = useMemo(() => danBadges.map((d) => d.display_text), [danBadges]);
 
@@ -473,7 +494,7 @@ export function DayStatSheet({
           </div>
         )}
 
-        {prefs.day_sheet_show_rating_section && selectedTables.length > 0 && (
+        {prefs.day_sheet_show_rating_section && showRatingChangeArea && (
           <div data-day-sheet-section="rating" className="space-y-6">
             {/* Section header */}
             <div data-day-sheet-split-block data-day-sheet-keep-with-next className="mt-4 flex items-center gap-3">

@@ -1,7 +1,10 @@
 /**
  * @typedef {{ id: string, top: number, bottom: number, keepWithNext?: boolean }} ExportBlock
  * @typedef {{ top: number, bottom: number }} ExportRange
+ * @typedef {{ hasRatingChange?: boolean, hasBmsforceChange?: boolean }} RatingChangeState
  */
+
+const CHANGE_EPSILON = 1e-9;
 
 /**
  * Builds the two section-based export groups.
@@ -78,4 +81,35 @@ export function getHeightSplitRanges(blocks, options) {
     index = nextIndex;
   }
   return ranges;
+}
+
+/**
+ * Returns true when a table has a visible rating-related change.
+ * EXP-only movement is intentionally ignored for the day-stat rating section.
+ *
+ * @param {{ expDelta?: number | null, ratingDelta?: number | null, bmsforceDelta?: number | null }} change
+ * @returns {boolean}
+ */
+export function shouldShowRatingChangeTable(change) {
+  return (
+    Math.abs(change.ratingDelta ?? 0) > CHANGE_EPSILON ||
+    Math.abs(change.bmsforceDelta ?? 0) > CHANGE_EPSILON
+  );
+}
+
+/**
+ * Keeps the rating area visible while data is loading, then hides it when every
+ * selected table has no rating-related movement.
+ *
+ * @param {{ selectedTableSlugs: string[], tableChangesBySlug: Record<string, RatingChangeState | undefined> }} args
+ * @returns {boolean}
+ */
+export function shouldShowRatingChangeArea({ selectedTableSlugs, tableChangesBySlug }) {
+  if (selectedTableSlugs.length === 0) return false;
+
+  return selectedTableSlugs.some((slug) => {
+    const state = tableChangesBySlug[slug];
+    if (!state) return true;
+    return Boolean(state.hasRatingChange || state.hasBmsforceChange);
+  });
 }

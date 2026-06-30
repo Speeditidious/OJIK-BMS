@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   getHeightSplitRanges,
   getSectionSplitGroups,
+  shouldShowRatingChangeArea,
+  shouldShowRatingChangeTable,
 } from "./day-stat-sheet-export-core.mjs";
 
 test("getSectionSplitGroups returns rating and record groups with profile included in both", () => {
@@ -89,5 +91,60 @@ test("getHeightSplitRanges avoids cutting through staggered two-column rows", ()
     [
       { top: 0, bottom: 270 },
     ],
+  );
+});
+
+test("rating change table hides EXP-only movement", () => {
+  assert.equal(
+    shouldShowRatingChangeTable({
+      expDelta: 120,
+      ratingDelta: 0,
+      bmsforceDelta: 0,
+    }),
+    false,
+  );
+});
+
+test("rating change table shows rating or BMSFORCE movement", () => {
+  assert.equal(
+    shouldShowRatingChangeTable({
+      expDelta: 0,
+      ratingDelta: 12,
+      bmsforceDelta: 0,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldShowRatingChangeTable({
+      expDelta: 0,
+      ratingDelta: 0,
+      bmsforceDelta: 0.125,
+    }),
+    true,
+  );
+});
+
+test("rating change area stays visible while table data is pending", () => {
+  assert.equal(
+    shouldShowRatingChangeArea({
+      selectedTableSlugs: ["satellite", "stella"],
+      tableChangesBySlug: {
+        satellite: { hasRatingChange: false, hasBmsforceChange: false },
+      },
+    }),
+    true,
+  );
+});
+
+test("rating change area hides after every selected table is EXP-only", () => {
+  assert.equal(
+    shouldShowRatingChangeArea({
+      selectedTableSlugs: ["satellite", "stella"],
+      tableChangesBySlug: {
+        satellite: { hasRatingChange: false, hasBmsforceChange: false },
+        stella: { hasRatingChange: false, hasBmsforceChange: false },
+      },
+    }),
+    false,
   );
 });
