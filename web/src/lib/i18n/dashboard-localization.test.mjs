@@ -69,3 +69,26 @@ test("dashboard record detail labels are translated instead of hardcoded", () =>
     );
   }
 });
+
+test("day stat sheet labels use the current report wording", () => {
+  assert.equal(
+    resources.en.translation.dashboard.scoreUpdates.dayStatSheetTab,
+    "Daily Report",
+  );
+  assert.equal(
+    resources.en.translation.dashboard.scoreUpdates.imagePreviewTitle,
+    "Daily Report Preview",
+  );
+  assert.equal(
+    resources.ja.translation.dashboard.scoreUpdates.dayStatSheetTab,
+    "デイリーレポート",
+  );
+  assert.equal(
+    resources.ja.translation.dashboard.scoreUpdates.imagePreviewTitle,
+    "デイリーレポートプレビュー",
+  );
+  assert.equal(
+    resources.ja.translation.dashboard.daySheet.reportTitle,
+    "デイリーレポート",
+  );
+});
