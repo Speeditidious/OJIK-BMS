@@ -19,7 +19,8 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { ChevronDown, ChevronUp, GripVertical, ImageDown, RotateCcw, Settings } from "lucide-react";
 import type { DayStatSheetPrefs, RatingSubKey, UpdateSectionKey } from "@/hooks/use-preferences";
-import { DEFAULT_DAY_SHEET_PREFS } from "@/hooks/use-preferences";
+import { DEFAULT_DAY_SHEET_PREFS, HIDEABLE_CLEAR_TYPES } from "@/hooks/use-preferences";
+import { RANK_SORT_ORDER } from "@/lib/score-rank-display-core.mjs";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -93,6 +94,45 @@ function SortableHorizontalPill({
     </div>
   );
 }
+
+// ── Non-sortable toggle chip (detail filters) ──────────────────────────────────
+
+function FilterChip({
+  label,
+  checked,
+  onToggle,
+  disabled,
+}: {
+  label: string;
+  checked: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-label select-none",
+        checked
+          ? "border-primary/60 bg-primary/10 text-primary font-medium"
+          : "border-border/30 bg-background text-muted-foreground/40",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+const CLEAR_TYPE_FILTER_LABELS: Record<number, string> = {
+  9: "MAX", 8: "PERFECT", 7: "FULL COMBO", 6: "EXHARD",
+  5: "HARD", 4: "NORMAL", 3: "EASY", 2: "ASSIST", 1: "FAILED",
+};
+
+const RANK_FILTER_ORDER: string[] = Object.keys(RANK_SORT_ORDER).sort(
+  (a, b) => RANK_SORT_ORDER[a] - RANK_SORT_ORDER[b],
+);
 
 // ── Category header with SquareCheck icon toggle ───────────────────────────────
 
@@ -231,6 +271,22 @@ export function DayStatSheetToolbar({
     });
   }
 
+  function toggleClearType(ct: number) {
+    const current = prefs.day_sheet_clear_type_hidden ?? [];
+    const next = current.includes(ct)
+      ? current.filter((v) => v !== ct)
+      : [...current, ct];
+    onPrefsChange({ day_sheet_clear_type_hidden: next });
+  }
+
+  function toggleRank(rank: string) {
+    const current = prefs.day_sheet_score_rank_hidden ?? [];
+    const next = current.includes(rank)
+      ? current.filter((v) => v !== rank)
+      : [...current, rank];
+    onPrefsChange({ day_sheet_score_rank_hidden: next });
+  }
+
   function sectionLabel(key: UpdateSectionKey): string {
     switch (key) {
       case "clear": return t("dashboard.daySheet.sectionClear");
@@ -355,6 +411,30 @@ export function DayStatSheetToolbar({
                 onPrefsChange({ day_sheet_show_rating_section: !prefs.day_sheet_show_rating_section })
               }
             />
+            <div className={cn("flex flex-wrap items-center gap-3", ratingOff && "pointer-events-none opacity-40")}>
+              <span className="text-label text-muted-foreground/75 shrink-0">
+                {t("dashboard.daySheet.ratingModeLabel")}
+              </span>
+              {(["rating", "bmsforce", "exp"] as const).map((mode) => (
+                <label key={mode} className="flex cursor-pointer select-none items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="day-sheet-rating-mode"
+                    checked={prefs.day_sheet_rating_display_mode === mode}
+                    onChange={() => onPrefsChange({ day_sheet_rating_display_mode: mode })}
+                    disabled={ratingOff}
+                    className="accent-primary"
+                  />
+                  <span className="text-label text-muted-foreground">
+                    {mode === "rating"
+                      ? t("dashboard.daySheet.ratingModeRating")
+                      : mode === "bmsforce"
+                      ? t("dashboard.daySheet.ratingModeBmsforce")
+                      : t("dashboard.daySheet.ratingModeExp")}
+                  </span>
+                </label>
+              ))}
+            </div>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleRatingDragEnd}>
               <SortableContext items={prefs.day_sheet_rating_order} strategy={horizontalListSortingStrategy}>
                 <div className={cn("flex flex-wrap gap-1.5", ratingOff && "pointer-events-none opacity-40")}>
@@ -398,6 +478,38 @@ export function DayStatSheetToolbar({
                 </div>
               </SortableContext>
             </DndContext>
+
+            {/* Clear-type detail filter */}
+            <div className={cn("flex flex-wrap items-center gap-1.5 pt-1", recordOff && "pointer-events-none opacity-40")}>
+              <span className="mr-1 text-label text-muted-foreground/75 shrink-0">
+                {t("dashboard.daySheet.filterClearTypes")}
+              </span>
+              {HIDEABLE_CLEAR_TYPES.map((ct) => (
+                <FilterChip
+                  key={ct}
+                  label={CLEAR_TYPE_FILTER_LABELS[ct] ?? String(ct)}
+                  checked={!(prefs.day_sheet_clear_type_hidden ?? []).includes(ct)}
+                  onToggle={() => toggleClearType(ct)}
+                  disabled={recordOff}
+                />
+              ))}
+            </div>
+
+            {/* Rank detail filter */}
+            <div className={cn("flex flex-wrap items-center gap-1.5", recordOff && "pointer-events-none opacity-40")}>
+              <span className="mr-1 text-label text-muted-foreground/75 shrink-0">
+                {t("dashboard.daySheet.filterRanks")}
+              </span>
+              {RANK_FILTER_ORDER.map((rank) => (
+                <FilterChip
+                  key={rank}
+                  label={rank}
+                  checked={!(prefs.day_sheet_score_rank_hidden ?? []).includes(rank)}
+                  onToggle={() => toggleRank(rank)}
+                  disabled={recordOff}
+                />
+              ))}
+            </div>
 
             {/* Memo lives in the header, so it stays toggleable even when the record section is off. */}
             <label className="flex w-fit cursor-pointer select-none items-center gap-1.5 pt-1">

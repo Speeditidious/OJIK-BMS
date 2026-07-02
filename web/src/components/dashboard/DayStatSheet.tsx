@@ -51,6 +51,7 @@ interface TableHeaderSlotData {
 interface TableBmsforceChangeData {
   slug: string;
   delta: number | null;
+  hasExpChange: boolean;
   hasRatingChange: boolean;
   hasBmsforceChange: boolean;
 }
@@ -124,9 +125,11 @@ function TableBmsforceChangeLoader({
     if (data) {
       const total = data.bmsforce_breakdown?.total ?? 0;
       const ratingDelta = data.current.rating - data.previous.rating;
+      const expDelta = data.current.exp - data.previous.exp;
       onData({
         slug: table.slug,
         delta: Math.abs(total) > 1e-9 ? total : null,
+        hasExpChange: Math.abs(expDelta) > 1e-9,
         hasRatingChange: Math.abs(ratingDelta) > 1e-9,
         hasBmsforceChange: Math.abs(total) > 1e-9,
       });
@@ -273,7 +276,13 @@ export function DayStatSheet({
   }, []);
 
   const prefs = useDayStatSheetPrefs();
-  const { mutate: updatePrefs } = useUpdateDayStatSheetPrefs();
+  const { mutate: updatePrefsRaw } = useUpdateDayStatSheetPrefs();
+  // Always send the full merged prefs so the server's shallow merge
+  // doesn't overwrite unrelated day_sheet_prefs fields.
+  const updatePrefs = useCallback(
+    (partial: Partial<typeof prefs>) => updatePrefsRaw({ ...prefs, ...partial }),
+    [prefs, updatePrefsRaw],
+  );
   const { user, isInitialized } = useAuthStore();
   const canPersist = isInitialized && !!user;
 
@@ -330,8 +339,9 @@ export function DayStatSheet({
       shouldShowRatingChangeArea({
         selectedTableSlugs: selectedTables.map((table) => table.slug),
         tableChangesBySlug: bmsforceChangeMap,
+        mode: prefs.day_sheet_rating_display_mode,
       }),
-    [selectedTables, bmsforceChangeMap],
+    [selectedTables, bmsforceChangeMap, prefs.day_sheet_rating_display_mode],
   );
 
   // display_texts of dan badges available for ordering in toolbar
@@ -546,6 +556,7 @@ export function DayStatSheet({
                 showExpInfo={prefs.day_sheet_show_exp_info}
                 showRatingInfo={prefs.day_sheet_show_rating_info}
                 ratingOrder={prefs.day_sheet_rating_order}
+                displayMode={prefs.day_sheet_rating_display_mode}
               />
             ))}
           </div>

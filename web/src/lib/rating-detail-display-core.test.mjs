@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   formatRatingContributionCardRankLabel,
+  getDayStatRatingContributionEntries,
   getDisplayedRatingRankData,
 } from "./rating-detail-display-core.mjs";
 
@@ -64,3 +65,53 @@ const historicalSummary = {
 assert.equal(formatRatingContributionCardRankLabel("MAX-", 17), "MAX-");
 assert.equal(formatRatingContributionCardRankLabel("AAA", 17), "AAA");
 assert.equal(formatRatingContributionCardRankLabel(null, 17), null);
+assert.equal(formatRatingContributionCardRankLabel("MAX-", 0, 9), null);
+
+{
+  const visible = getDayStatRatingContributionEntries([
+    {
+      title: "Low",
+      value: 200,
+      delta_rating: 10,
+      is_in_top_n: true,
+      was_in_top_n: true,
+    },
+    {
+      title: "High",
+      value: 350,
+      delta_rating: 3,
+      is_in_top_n: true,
+      was_in_top_n: true,
+    },
+    {
+      title: "Entered",
+      value: 250,
+      delta_rating: 0,
+      is_in_top_n: true,
+      was_in_top_n: false,
+    },
+    {
+      title: "Dropped",
+      value: 500,
+      delta_rating: 0,
+      is_in_top_n: false,
+      was_in_top_n: true,
+    },
+  ]);
+
+  assert.deepEqual(visible.map((entry) => entry.title), ["High", "Entered", "Low"]);
+}
+
+{
+  const visible = getDayStatRatingContributionEntries([
+    {
+      title: "Dropped Only",
+      value: 500,
+      delta_rating: 0,
+      is_in_top_n: false,
+      was_in_top_n: true,
+    },
+  ]);
+
+  assert.deepEqual(visible, []);
+}

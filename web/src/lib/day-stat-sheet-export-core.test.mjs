@@ -148,3 +148,53 @@ test("rating change area hides after every selected table is EXP-only", () => {
     false,
   );
 });
+
+test("shouldShowRatingChangeTable respects bmsforce mode", () => {
+  // rating-only movement is hidden in bmsforce mode
+  assert.equal(
+    shouldShowRatingChangeTable({ expDelta: 0, ratingDelta: 12, bmsforceDelta: 0 }, "bmsforce"),
+    false,
+  );
+  assert.equal(
+    shouldShowRatingChangeTable({ expDelta: 0, ratingDelta: 0, bmsforceDelta: 0.5 }, "bmsforce"),
+    true,
+  );
+});
+
+test("shouldShowRatingChangeTable respects exp mode", () => {
+  // exp-only movement is shown in exp mode
+  assert.equal(
+    shouldShowRatingChangeTable({ expDelta: 120, ratingDelta: 0, bmsforceDelta: 0 }, "exp"),
+    true,
+  );
+  assert.equal(
+    shouldShowRatingChangeTable({ expDelta: 0, ratingDelta: 0, bmsforceDelta: 0 }, "exp"),
+    false,
+  );
+});
+
+test("shouldShowRatingChangeArea bmsforce mode hides rating-only tables", () => {
+  assert.equal(
+    shouldShowRatingChangeArea({
+      selectedTableSlugs: ["satellite"],
+      tableChangesBySlug: {
+        satellite: { hasExpChange: false, hasRatingChange: true, hasBmsforceChange: false },
+      },
+      mode: "bmsforce",
+    }),
+    false,
+  );
+});
+
+test("shouldShowRatingChangeArea exp mode shows exp-only tables", () => {
+  assert.equal(
+    shouldShowRatingChangeArea({
+      selectedTableSlugs: ["satellite"],
+      tableChangesBySlug: {
+        satellite: { hasExpChange: true, hasRatingChange: false, hasBmsforceChange: false },
+      },
+      mode: "exp",
+    }),
+    true,
+  );
+});

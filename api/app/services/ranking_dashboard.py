@@ -196,11 +196,11 @@ def _display_whole_metric_delta(previous_value: float | None, current_value: flo
     return _display_whole_metric_value(current_value) - _display_whole_metric_value(previous_value)
 
 
-def _display_top_n_contribution_value(value: float | None, is_in_top_n: bool) -> int:
-    """Return the displayed Top-N contribution value for one chart."""
+def _raw_top_n_contribution_value(value: float | None, is_in_top_n: bool) -> float:
+    """Return the raw Top-N contribution value for update/card detection."""
     if not is_in_top_n:
-        return 0
-    return _display_whole_metric_value(value)
+        return 0.0
+    return float(value or 0.0)
 
 
 def _rating_update_countable_top_keys(
@@ -209,18 +209,39 @@ def _rating_update_countable_top_keys(
     previous_top_keys: set[tuple[str | None, str | None]],
     current_top_keys: set[tuple[str | None, str | None]],
 ) -> set[tuple[str | None, str | None]]:
-    """Return top-N entries with changed displayed contribution, excluding pure drops."""
+    """Return top-N entries with changed raw contribution, excluding pure drops."""
     return {
         key
         for key in current_top_keys
-        if _display_top_n_contribution_value(
-            previous_values.get(key, 0.0),
-            key in previous_top_keys,
-        ) != _display_top_n_contribution_value(
-            current_values.get(key, 0.0),
-            True,
-        )
+        if abs(
+            _raw_top_n_contribution_value(
+                previous_values.get(key, 0.0),
+                key in previous_top_keys,
+            )
+            - _raw_top_n_contribution_value(
+                current_values.get(key, 0.0),
+                True,
+            )
+        ) > 1e-9
     }
+
+
+def _top_n_contribution_changed(
+    previous_value: float | None,
+    current_value: float | None,
+    was_in_top_n: bool,
+    is_in_top_n: bool,
+) -> bool:
+    """Return whether a chart's raw Top-N contribution changed."""
+    return abs(
+        _raw_top_n_contribution_value(previous_value, was_in_top_n)
+        - _raw_top_n_contribution_value(current_value, is_in_top_n)
+    ) > 1e-9
+
+
+def _display_rating_delta(previous_value: float | None, current_value: float | None) -> float:
+    """Return the raw rating delta used by rating-change detail cards."""
+    return float(current_value or 0.0) - float(previous_value or 0.0)
 
 
 def _compare_nullable(a: Any, b: Any) -> int:
@@ -1687,11 +1708,14 @@ async def compute_rating_breakdown(
             continue
         prev_rating_value = prev_values.get(key, 0.0)
         curr_rating_value = curr_values.get(key, 0.0)
-        previous_top_n_display = _display_top_n_contribution_value(prev_rating_value, key in previous_top_keys)
-        current_top_n_display = _display_top_n_contribution_value(curr_rating_value, key in current_top_keys)
-        if previous_top_n_display == current_top_n_display:
+        if not _top_n_contribution_changed(
+            previous_value=prev_rating_value,
+            current_value=curr_rating_value,
+            was_in_top_n=key in previous_top_keys,
+            is_in_top_n=key in current_top_keys,
+        ):
             continue
-        delta_rating = _display_whole_metric_delta(prev_rating_value, curr_rating_value)
+        delta_rating = _display_rating_delta(prev_rating_value, curr_rating_value)
         rating_day_rows = day_rows_by_key.get(key, [])
         if rating_day_rows:
             source_client, source_client_detail = aggregate_source_client(rating_day_rows)

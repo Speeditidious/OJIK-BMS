@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { mergeDayStatSheetPrefs } from "@/lib/day-stat-sheet-preferences-core.mjs";
 import { useAuthStore } from "@/stores/auth";
 
 export interface ScoreUpdatesNewPlayPrefs {
@@ -63,7 +64,7 @@ export function useUpdateScoreUpdatesPrefs() {
 // ---------------------------------------------------------------------------
 
 /** Clear types that can be hidden (MAX=9 … ASSIST=2). FAILED(1) and NO PLAY(0) are always shown. */
-export const HIDEABLE_CLEAR_TYPES = [9, 8, 7, 6, 5, 4, 3, 2] as const;
+export const HIDEABLE_CLEAR_TYPES = [9, 8, 7, 6, 5, 4, 3, 2, 1] as const;
 
 /** Clear types not present in LR2. Excluded from the LR2 bucket UI. */
 export const LR2_MISSING_CLEAR_TYPES: ReadonlySet<number> = new Set([2, 6]);
@@ -347,6 +348,7 @@ export function useUpdateLevelDisplayPrefs() {
 
 export type UpdateSectionKey = "clear" | "score" | "bp" | "combo";
 export type RatingSubKey = "exp_info" | "rating_info";
+export type RatingDisplayMode = "rating" | "bmsforce" | "exp";
 
 export interface DayStatSheetPrefs {
   /** Selected table slugs. null = auto-detect (all tables where bms_force ≠ 0). */
@@ -367,6 +369,12 @@ export interface DayStatSheetPrefs {
   day_sheet_rating_order: RatingSubKey[];
   /** Show the day-note memo in the sheet header. */
   day_sheet_show_note: boolean;
+  /** Rating-change section display threshold. */
+  day_sheet_rating_display_mode: RatingDisplayMode;
+  /** Clear types hidden from the record section (sheet only). Empty = all shown. */
+  day_sheet_clear_type_hidden: number[];
+  /** Score ranks hidden from the record section (sheet only). Empty = all shown. */
+  day_sheet_score_rank_hidden: string[];
 }
 
 export const DEFAULT_DAY_SHEET_PREFS: DayStatSheetPrefs = {
@@ -381,6 +389,9 @@ export const DEFAULT_DAY_SHEET_PREFS: DayStatSheetPrefs = {
   day_sheet_dan_order: null,
   day_sheet_rating_order: ["exp_info", "rating_info"],
   day_sheet_show_note: true,
+  day_sheet_rating_display_mode: "rating",
+  day_sheet_clear_type_hidden: [],
+  day_sheet_score_rank_hidden: [],
 };
 
 function normalizeDaySheetPrefs(raw: unknown): DayStatSheetPrefs {
@@ -430,6 +441,24 @@ function normalizeDaySheetPrefs(raw: unknown): DayStatSheetPrefs {
         : DEFAULT_DAY_SHEET_PREFS.day_sheet_rating_order,
     day_sheet_show_note:
       typeof obj.day_sheet_show_note === "boolean" ? obj.day_sheet_show_note : true,
+    day_sheet_rating_display_mode:
+      obj.day_sheet_rating_display_mode === "bmsforce" ||
+      obj.day_sheet_rating_display_mode === "exp" ||
+      obj.day_sheet_rating_display_mode === "rating"
+        ? (obj.day_sheet_rating_display_mode as RatingDisplayMode)
+        : "rating",
+    day_sheet_clear_type_hidden:
+      Array.isArray(obj.day_sheet_clear_type_hidden)
+        ? (obj.day_sheet_clear_type_hidden as unknown[]).filter(
+            (v): v is number => typeof v === "number",
+          )
+        : [],
+    day_sheet_score_rank_hidden:
+      Array.isArray(obj.day_sheet_score_rank_hidden)
+        ? (obj.day_sheet_score_rank_hidden as unknown[]).filter(
+            (v): v is string => typeof v === "string",
+          )
+        : [],
   };
 }
 
@@ -448,16 +477,26 @@ export function useUpdateDayStatSheetPrefs() {
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
   const key = prefsQueryKey(user?.id);
+  const getCurrentDaySheetPrefs = () => {
+    const cached = queryClient.getQueryData<{ preferences: Record<string, unknown> }>(key);
+    return normalizeDaySheetPrefs(cached?.preferences?.day_sheet_prefs ?? {});
+  };
   return useMutation({
-    mutationFn: (nextPrefs: Partial<DayStatSheetPrefs>) =>
-      api.patch<{ preferences: Record<string, unknown> }>("/users/me/preferences", {
-        preferences: { day_sheet_prefs: nextPrefs },
-      }),
+    mutationFn: (nextPrefs: Partial<DayStatSheetPrefs>) => {
+      const daySheetPrefs = mergeDayStatSheetPrefs(getCurrentDaySheetPrefs(), nextPrefs);
+      return api.patch<{ preferences: Record<string, unknown> }>("/users/me/preferences", {
+        preferences: { day_sheet_prefs: daySheetPrefs },
+      });
+    },
     onMutate: async (nextPrefs) => {
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<{ preferences: Record<string, unknown> }>(key);
+      const daySheetPrefs = mergeDayStatSheetPrefs(
+        normalizeDaySheetPrefs(previous?.preferences?.day_sheet_prefs ?? {}),
+        nextPrefs,
+      );
       queryClient.setQueryData(key, (old: { preferences: Record<string, unknown> } | undefined) => ({
-        preferences: { ...(old?.preferences ?? {}), day_sheet_prefs: { ...(old?.preferences?.day_sheet_prefs as Record<string, unknown>), ...nextPrefs } },
+        preferences: { ...(old?.preferences ?? {}), day_sheet_prefs: daySheetPrefs },
       }));
       return { previous };
     },

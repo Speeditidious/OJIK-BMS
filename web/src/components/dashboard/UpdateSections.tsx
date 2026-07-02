@@ -188,6 +188,34 @@ export function UpdateSections({
       .map(([rank, items]) => ({ rank, items }));
   }, [score]);
 
+  // Clear-type / rank detail filters apply to the day-stat sheet only.
+  const applyDetailFilter = variant === "sheet";
+  const hiddenClearTypes = useMemo(
+    () => new Set(applyDetailFilter ? prefs.day_sheet_clear_type_hidden ?? [] : []),
+    [applyDetailFilter, prefs.day_sheet_clear_type_hidden],
+  );
+  const hiddenRanks = useMemo(
+    () => new Set(applyDetailFilter ? prefs.day_sheet_score_rank_hidden ?? [] : []),
+    [applyDetailFilter, prefs.day_sheet_score_rank_hidden],
+  );
+
+  const lampByTypeVisible = useMemo(
+    () => lampByType.filter((g) => !hiddenClearTypes.has(g.ct)),
+    [lampByType, hiddenClearTypes],
+  );
+  const scoreByRankVisible = useMemo(
+    () => scoreByRank.filter((g) => !hiddenRanks.has(g.rank)),
+    [scoreByRank, hiddenRanks],
+  );
+  const lampVisibleCount = useMemo(
+    () => lampByTypeVisible.reduce((sum, g) => sum + g.items.length, 0),
+    [lampByTypeVisible],
+  );
+  const scoreVisibleCount = useMemo(
+    () => scoreByRankVisible.reduce((sum, g) => sum + g.items.length, 0),
+    [scoreByRankVisible],
+  );
+
   // --- Visibility & ordering ---
   const order = prefs.day_sheet_update_order ?? ["clear", "score", "bp", "combo"];
   const visible = prefs.day_sheet_update_visible ?? { clear: true, score: true, bp: false, combo: false };
@@ -199,8 +227,8 @@ export function UpdateSections({
   );
 
   const visibleSections = order.filter((key) => {
-    if (key === "clear") return lampAll.length > 0 && (visible.clear !== false);
-    if (key === "score") return scoreAll.length > 0 && (visible.score !== false);
+    if (key === "clear") return lampByTypeVisible.length > 0 && (visible.clear !== false);
+    if (key === "score") return scoreByRankVisible.length > 0 && (visible.score !== false);
     if (key === "bp") return bpAll.length > 0 && visible.bp;
     if (key === "combo") return comboAll.length > 0 && visible.combo;
     return false;
@@ -224,12 +252,12 @@ export function UpdateSections({
   // Render a section by key
   function renderSection(key: UpdateSectionKey): React.ReactNode {
     const isFullWidth = fullwidth.has(key);
-    if (key === "clear" && lampAll.length > 0) {
+    if (key === "clear" && lampByTypeVisible.length > 0) {
       return (
         <SectionTable
           key="clear"
           title={t("dashboard.scoreUpdates.updateSection", { label: sectionLabel("clear") })}
-          count={lamp.length}
+          count={lampVisibleCount}
           showNewPlays={newPlayPrefs.score_updates_lamp_include_new_plays}
           onToggleNewPlays={
             canPersist && onPrefsChange
@@ -248,7 +276,7 @@ export function UpdateSections({
               : undefined
           }
         >
-          {lampByType.map(({ ct, items }) => (
+          {lampByTypeVisible.map(({ ct, items }) => (
             <React.Fragment key={ct}>
               <ClearTypeGroupHeader label={CLEAR_TYPE_LABELS_SIMPLE[ct] ?? String(ct)} count={items.length} ct={ct} />
               {items.map((item, i) => <LampUpgradeRow key={i} item={item} userId={userId} asOf={asOf} />)}
@@ -258,12 +286,12 @@ export function UpdateSections({
       );
     }
 
-    if (key === "score" && scoreAll.length > 0 && visible.score !== false) {
+    if (key === "score" && scoreByRankVisible.length > 0 && visible.score !== false) {
       return (
         <SectionTable
           key="score"
           title={t("dashboard.scoreUpdates.updateSection", { label: sectionLabel("score") })}
-          count={score.length}
+          count={scoreVisibleCount}
           showNewPlays={newPlayPrefs.score_updates_score_include_new_plays}
           onToggleNewPlays={
             canPersist && onPrefsChange
@@ -282,7 +310,7 @@ export function UpdateSections({
               : undefined
           }
         >
-          {scoreByRank.map(({ rank, items }) => (
+          {scoreByRankVisible.map(({ rank, items }) => (
             <React.Fragment key={rank}>
               <RankGroupHeader label={rank} count={items.length} rank={rank} />
               {items.map((item, i) => <ScoreUpgradeRow key={i} item={item} userId={userId} asOf={asOf} />)}

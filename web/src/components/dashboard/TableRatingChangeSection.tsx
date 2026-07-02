@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useRatingBreakdown } from "@/hooks/use-analysis";
 import { RatingExpProgressBar } from "@/components/ranking/RatingExpProgressBar";
 import { RatingContributionGrid } from "@/components/ranking/RatingContributionGrid";
+import { getDayStatRatingContributionEntries } from "@/lib/rating-detail-display-core.mjs";
 import { shouldShowRatingChangeTable } from "@/lib/day-stat-sheet-export-core.mjs";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +21,7 @@ interface TableRatingChangeSectionProps {
   showExpInfo: boolean;
   showRatingInfo?: boolean;
   ratingOrder?: ("exp_info" | "rating_info")[];
+  displayMode?: "rating" | "bmsforce" | "exp";
   enabled?: boolean;
 }
 
@@ -31,6 +33,7 @@ export function TableRatingChangeSection({
   showExpInfo,
   showRatingInfo = true,
   ratingOrder = ["exp_info", "rating_info"],
+  displayMode = "rating",
   enabled = true,
 }: TableRatingChangeSectionProps) {
   const { t } = useTranslation();
@@ -59,13 +62,20 @@ export function TableRatingChangeSection({
   const hasExpChange = Math.abs(expDelta) > 1e-9;
   const hasRatingChange = Math.abs(ratingDelta) > 1e-9;
   const hasBmsforceChange = bmsforceChanged;
-  const hasAnyChange = shouldShowRatingChangeTable({
-    expDelta,
-    ratingDelta,
-    bmsforceDelta: bmsforce.total,
-  });
+  const hasAnyChange = shouldShowRatingChangeTable(
+    { expDelta, ratingDelta, bmsforceDelta: bmsforce.total },
+    displayMode,
+  );
 
   if (!hasAnyChange) return null;
+
+  const visibleRatingContributions = getDayStatRatingContributionEntries(data.rating_contributions);
+  // In exp mode we still render the summary (EXP) card for an exp-only change,
+  // even when there are no rating-change contribution cards. Other modes keep
+  // the original behaviour of hiding a table with no visible contributions.
+  const showSummaryCardBase = showExpInfo || showRatingInfo;
+  const keepForExpOnly = displayMode === "exp" && hasExpChange && showSummaryCardBase;
+  if (visibleRatingContributions.length === 0 && !keepForExpOnly) return null;
 
   // Rating + BMSFORCE delta tiles. `numberCls` tunes the headline size so the
   // block height can be matched to the EXP block when shown side-by-side.
@@ -106,7 +116,7 @@ export function TableRatingChangeSection({
   // Summary card. Rendered as the floated leading slot so the rating-change cards
   // flow beside and below it. With EXP shown: EXP on the left, deltas on the right
   // (side-by-side, equal height). Without EXP: deltas fill the card at full size.
-  const showSummaryCard = showExpInfo || showRatingInfo;
+  const showSummaryCard = showSummaryCardBase;
 
   const expBlock = (
     <div className={cn("flex flex-col justify-center gap-2", showRatingInfo ? "lg:w-1/2" : "w-full")}>
@@ -158,7 +168,7 @@ export function TableRatingChangeSection({
       </h4>
 
       {/* Summary card (floated) + contribution cards flowing beside / below */}
-      <RatingContributionGrid entries={data.rating_contributions} leadingSlot={summaryCard} />
+      <RatingContributionGrid entries={visibleRatingContributions} leadingSlot={summaryCard} />
     </div>
   );
 }

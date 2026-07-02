@@ -2058,7 +2058,7 @@ async def test_rating_derived_daily_rows_do_not_count_top_n_drops(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_display_rounded_exp_and_rating_changes_gate_breakdown_and_counts(monkeypatch):
+async def test_raw_rating_changes_create_breakdown_entries_and_counts(monkeypatch):
     table_cfg = _make_rating_table(top_n=1)
     target_date = date(2026, 4, 22)
     song_a = "a" * 64
@@ -2143,8 +2143,10 @@ async def test_display_rounded_exp_and_rating_changes_gate_breakdown_and_counts(
     )
 
     assert breakdown["exp_contributions"] == []
-    assert breakdown["rating_contributions"] == []
-    assert updates["count"] == 0
+    assert len(breakdown["rating_contributions"]) == 1
+    assert breakdown["rating_contributions"][0]["sha256"] == song_a
+    assert breakdown["rating_contributions"][0]["delta_rating"] == 0.1
+    assert updates["count"] == 1
 
 
 @pytest.mark.asyncio
@@ -2222,8 +2224,8 @@ async def test_rating_updates_skip_excluded_first_sync_date_but_keep_later_basel
 
     assert excluded_day["count"] == 0
     assert excluded_day["entries"] == []
-    assert next_day["count"] == 0
-    assert next_day["entries"] == []
+    assert next_day["count"] == 1
+    assert [entry["sha256"] for entry in next_day["entries"]] == [song_a]
 
 
 @pytest.mark.asyncio

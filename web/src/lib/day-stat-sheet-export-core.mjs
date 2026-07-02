@@ -1,7 +1,7 @@
 /**
  * @typedef {{ id: string, top: number, bottom: number, keepWithNext?: boolean }} ExportBlock
  * @typedef {{ top: number, bottom: number }} ExportRange
- * @typedef {{ hasRatingChange?: boolean, hasBmsforceChange?: boolean }} RatingChangeState
+ * @typedef {{ hasExpChange?: boolean, hasRatingChange?: boolean, hasBmsforceChange?: boolean }} RatingChangeState
  */
 
 const CHANGE_EPSILON = 1e-9;
@@ -84,32 +84,36 @@ export function getHeightSplitRanges(blocks, options) {
 }
 
 /**
- * Returns true when a table has a visible rating-related change.
- * EXP-only movement is intentionally ignored for the day-stat rating section.
+ * Returns true when a table has a change that qualifies for display under `mode`.
  *
  * @param {{ expDelta?: number | null, ratingDelta?: number | null, bmsforceDelta?: number | null }} change
+ * @param {"rating" | "bmsforce" | "exp"} [mode]
  * @returns {boolean}
  */
-export function shouldShowRatingChangeTable(change) {
-  return (
-    Math.abs(change.ratingDelta ?? 0) > CHANGE_EPSILON ||
-    Math.abs(change.bmsforceDelta ?? 0) > CHANGE_EPSILON
-  );
+export function shouldShowRatingChangeTable(change, mode = "rating") {
+  const exp = Math.abs(change.expDelta ?? 0) > CHANGE_EPSILON;
+  const rating = Math.abs(change.ratingDelta ?? 0) > CHANGE_EPSILON;
+  const bmsforce = Math.abs(change.bmsforceDelta ?? 0) > CHANGE_EPSILON;
+  if (mode === "bmsforce") return bmsforce;
+  if (mode === "exp") return exp || rating || bmsforce;
+  return rating || bmsforce;
 }
 
 /**
- * Keeps the rating area visible while data is loading, then hides it when every
- * selected table has no rating-related movement.
+ * Keeps the rating area visible while data is loading, then hides it when no
+ * selected table qualifies under `mode`.
  *
- * @param {{ selectedTableSlugs: string[], tableChangesBySlug: Record<string, RatingChangeState | undefined> }} args
+ * @param {{ selectedTableSlugs: string[], tableChangesBySlug: Record<string, RatingChangeState | undefined>, mode?: "rating" | "bmsforce" | "exp" }} args
  * @returns {boolean}
  */
-export function shouldShowRatingChangeArea({ selectedTableSlugs, tableChangesBySlug }) {
+export function shouldShowRatingChangeArea({ selectedTableSlugs, tableChangesBySlug, mode = "rating" }) {
   if (selectedTableSlugs.length === 0) return false;
 
   return selectedTableSlugs.some((slug) => {
     const state = tableChangesBySlug[slug];
     if (!state) return true;
+    if (mode === "bmsforce") return Boolean(state.hasBmsforceChange);
+    if (mode === "exp") return Boolean(state.hasExpChange || state.hasRatingChange || state.hasBmsforceChange);
     return Boolean(state.hasRatingChange || state.hasBmsforceChange);
   });
 }
