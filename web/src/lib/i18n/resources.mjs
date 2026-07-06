@@ -227,11 +227,7 @@ export const resources = {
         title: "기여자",
         description: "기여해주신 모든 분들께 감사합니다.",
         developer: "개발자",
-        keyContributors: "핵심 기여자",
         betaTesters: "베타 테스터",
-        roles: {
-          ratingSystem: "레이팅 시스템",
-        },
       },
       custom: {
         title: "커스텀 테이블 / 코스",
@@ -1294,11 +1290,7 @@ export const resources = {
         title: "Contributors",
         description: "Thank you to everyone who has contributed.",
         developer: "Developer",
-        keyContributors: "Key Contributors",
         betaTesters: "Beta Testers",
-        roles: {
-          ratingSystem: "Rating system",
-        },
       },
       custom: {
         title: "Custom Tables / Courses",
@@ -2361,11 +2353,7 @@ export const resources = {
         title: "貢献者",
         description: "ご協力いただいたすべての方に感謝します。",
         developer: "開発者",
-        keyContributors: "主な貢献者",
         betaTesters: "ベータテスター",
-        roles: {
-          ratingSystem: "レーティングシステム",
-        },
       },
       custom: {
         title: "カスタム表 / コース",
