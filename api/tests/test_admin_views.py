@@ -7,8 +7,13 @@ from pathlib import Path
 import pytest
 
 from app.admin.views import (
+    AnnouncementAdmin,
+    AnnouncementTemplateAdmin,
     ClientUpdateAnnouncementAdmin,
     DifficultyTableAdmin,
+    IssueAdmin,
+    IssueCommentAdmin,
+    OAuthAccountAdmin,
     UserAdmin,
     UserPlayerStatsAdmin,
     UserScoreAdmin,
@@ -77,6 +82,33 @@ def test_user_admin_exposes_per_client_reset_actions() -> None:
     assert actions["reset_beatoraja_play_data"]._label == "Beatoraja 플레이 데이터 초기화"
     assert actions["reset_lr2_play_data"]._add_in_list is True
     assert actions["reset_beatoraja_play_data"]._add_in_detail is True
+
+
+def test_editable_admin_forms_do_not_include_relationship_fields() -> None:
+    """Edit forms should use scalar fields only to avoid sqladmin relationship loaders."""
+    admin_views = [
+        UserAdmin(),
+        OAuthAccountAdmin(),
+        AnnouncementTemplateAdmin(),
+        AnnouncementAdmin(),
+        IssueAdmin(),
+        IssueCommentAdmin(),
+    ]
+
+    relationship_fields = {
+        view.__class__.__name__: view._form_relation_names
+        for view in admin_views
+        if view.can_edit and view._form_relation_names
+    }
+
+    assert relationship_fields == {}
+
+
+def test_sqladmin_boolean_widget_is_compatible_with_wtforms_32() -> None:
+    """sqladmin boolean checkboxes should render under WTForms 3.2."""
+    from sqladmin.forms import BooleanField
+
+    assert BooleanField.widget.validation_attrs == ["required", "disabled"]
 
 
 def test_client_update_admin_exposes_version_batch_publish_action() -> None:

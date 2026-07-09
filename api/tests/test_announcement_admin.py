@@ -14,21 +14,21 @@ def _contains_identity(items, target) -> bool:
 
 
 def test_announcement_admin_form_does_not_accept_system_timestamps():
-    form_fields = set(AnnouncementAdmin.form_columns)
+    form_fields = AnnouncementAdmin.form_columns
 
-    assert Announcement.created_at not in form_fields
-    assert Announcement.updated_at not in form_fields
+    assert not _contains_identity(form_fields, Announcement.created_at)
+    assert not _contains_identity(form_fields, Announcement.updated_at)
 
 
 def test_announcement_admin_has_publish_action():
     assert callable(getattr(AnnouncementAdmin, "publish_announcements", None))
 
 
-def test_announcement_admin_uses_tag_relationship_for_selection():
+def test_announcement_admin_uses_scalar_tag_id_in_form():
     assert _contains_identity(AnnouncementAdmin.column_list, Announcement.tag)
     assert not _contains_identity(AnnouncementAdmin.column_list, Announcement.tag_id)
-    assert _contains_identity(AnnouncementAdmin.form_columns, Announcement.tag)
-    assert not _contains_identity(AnnouncementAdmin.form_columns, Announcement.tag_id)
+    assert _contains_identity(AnnouncementAdmin.form_columns, Announcement.tag_id)
+    assert not _contains_identity(AnnouncementAdmin.form_columns, Announcement.tag)
 
 
 def test_announcement_tag_displays_name_in_admin_choices():
@@ -50,8 +50,8 @@ def test_announcement_template_admin_excludes_timestamps_from_form() -> None:
     """AnnouncementTemplate admin form must not expose system-managed timestamps."""
     excluded = AnnouncementTemplateAdmin.form_excluded_columns
 
-    assert AnnouncementTemplate.created_at in excluded
-    assert AnnouncementTemplate.updated_at in excluded
+    assert _contains_identity(excluded, AnnouncementTemplate.created_at)
+    assert _contains_identity(excluded, AnnouncementTemplate.updated_at)
 
 
 def test_announcement_template_admin_column_list_includes_tag_relationship() -> None:

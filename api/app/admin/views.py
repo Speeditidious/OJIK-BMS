@@ -57,6 +57,17 @@ RESETTABLE_CLIENT_TYPES = frozenset({"lr2", "beatoraja"})
 CLIENT_UPDATE_DEFAULT_PUBLISH_DELAY = timedelta(minutes=10)
 
 
+def _patch_sqladmin_boolean_widget_validation_attrs() -> None:
+    """Keep sqladmin boolean widgets compatible with WTForms 3.2."""
+    from sqladmin.forms import BooleanField
+
+    if not hasattr(BooleanField.widget, "validation_attrs"):
+        BooleanField.widget.validation_attrs = ["required", "disabled"]
+
+
+_patch_sqladmin_boolean_widget_validation_attrs()
+
+
 def _admin_user_id(request: Request) -> uuid.UUID | None:
     raw = request.session.get("admin_user_id")
     if not raw:
@@ -161,6 +172,7 @@ class UserAdmin(ModelView, model=User):
     column_list = [User.id, User.username, User.is_active, User.is_admin, User.created_at]
     column_searchable_list = [User.username]
     column_sortable_list = [User.username, User.created_at, User.is_active, User.is_admin]
+    form_excluded_columns = [User.oauth_accounts]
     can_delete = False  # Deleting a user triggers cascades across all score tables
 
     @action(
@@ -283,6 +295,7 @@ class OAuthAccountAdmin(ModelView, model=OAuthAccount):
     ]
     column_searchable_list = [OAuthAccount.provider_username, OAuthAccount.provider_account_id]
     column_sortable_list = [OAuthAccount.provider, OAuthAccount.provider_username]
+    form_excluded_columns = [OAuthAccount.user]
 
 
 class AdminActionLogAdmin(ModelView, model=AdminActionLog):
@@ -375,7 +388,11 @@ class AnnouncementTemplateAdmin(ModelView, model=AnnouncementTemplate):
         AnnouncementTemplate.title_template,
         AnnouncementTemplate.updated_at,
     ]
-    form_excluded_columns = [AnnouncementTemplate.created_at, AnnouncementTemplate.updated_at]
+    form_excluded_columns = [
+        AnnouncementTemplate.tag,
+        AnnouncementTemplate.created_at,
+        AnnouncementTemplate.updated_at,
+    ]
 
 
 class AnnouncementAdmin(ModelView, model=Announcement):
@@ -394,7 +411,7 @@ class AnnouncementAdmin(ModelView, model=Announcement):
     column_searchable_list = [Announcement.title, Announcement.title_en, Announcement.title_ja, Announcement.body, Announcement.body_en, Announcement.body_ja]
     column_sortable_list = [Announcement.published_at, Announcement.updated_at, Announcement.is_published]
     form_columns = [
-        Announcement.tag,
+        Announcement.tag_id,
         Announcement.title,
         Announcement.title_en,
         Announcement.title_ja,
@@ -1490,7 +1507,18 @@ class IssueAdmin(ModelView, model=Issue):
     column_list = [Issue.id, Issue.title, Issue.tag, Issue.status, Issue.is_pinned, Issue.author, Issue.comment_count, Issue.last_activity_at]
     column_searchable_list = [Issue.title, Issue.body]
     column_sortable_list = [Issue.id, Issue.status, Issue.is_pinned, Issue.pinned_at, Issue.comment_count, Issue.last_activity_at, Issue.created_at]
-    form_excluded_columns = [Issue.created_at, Issue.updated_at, Issue.comment_count, Issue.last_activity_at, Issue.pinned_at]
+    form_excluded_columns = [
+        Issue.author,
+        Issue.closed_by,
+        Issue.pinned_by,
+        Issue.tag,
+        Issue.comments,
+        Issue.created_at,
+        Issue.updated_at,
+        Issue.comment_count,
+        Issue.last_activity_at,
+        Issue.pinned_at,
+    ]
     can_create = False
     can_delete = False
 
@@ -1502,6 +1530,7 @@ class IssueCommentAdmin(ModelView, model=IssueComment):
     column_list = [IssueComment.id, IssueComment.issue_id, IssueComment.author, IssueComment.created_at]
     column_searchable_list = [IssueComment.body]
     column_sortable_list = [IssueComment.created_at]
+    form_excluded_columns = [IssueComment.issue, IssueComment.author]
     can_create = False
     can_delete = False
 
