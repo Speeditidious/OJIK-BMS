@@ -49,6 +49,7 @@ export interface UserScore {
   is_first_sync: boolean;
   judgment_detail: import("@/lib/score-row-detail-types").JudgmentDetail | null;
   arrangement: import("@/lib/score-row-detail-types").ArrangementDetail | null;
+  long_note_mode: string | null;
 }
 
 /** Per-field best score aggregated from each client's latest row — used by GET /scores/me/{sha256}. */

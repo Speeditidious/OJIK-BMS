@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { songHref } from "@/lib/song-href";
@@ -26,6 +27,21 @@ function SectionLabel({ label }: { label: string }) {
     <p className="text-caption text-muted-foreground/70 text-center uppercase tracking-widest mb-1.5">
       {label}
     </p>
+  );
+}
+
+function DetailInfoBlock({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <SectionLabel label={label} />
+      {children}
+    </div>
   );
 }
 
@@ -241,9 +257,24 @@ function ClientSection({ record }: { record: RowDetailRecord }) {
       : record.client_type.toUpperCase();
 
   return (
-    <div className="flex flex-col items-center gap-1.5">
-      <SectionLabel label={t("fumenRowDetail.client")} />
-      <span className="text-label font-semibold text-foreground">{label}</span>
+    <div
+      className={cn(
+        "h-full justify-items-center",
+        record.long_note_mode
+          ? "grid grid-rows-2 items-start"
+          : "flex flex-col items-center",
+      )}
+    >
+      <DetailInfoBlock label={t("fumenRowDetail.client")}>
+        <span className="text-label font-semibold text-foreground">{label}</span>
+      </DetailInfoBlock>
+      {record.long_note_mode && (
+        <DetailInfoBlock label={t("fumenRowDetail.longNoteMode")}>
+          <span className="text-label font-semibold tracking-wide text-foreground">
+            {record.long_note_mode}
+          </span>
+        </DetailInfoBlock>
+      )}
     </div>
   );
 }
@@ -363,6 +394,7 @@ function CourseRecordCard({ record }: { record: CourseRowDetailRecord }) {
     play_count: null,
     judgment_detail: record.judgment_detail,
     arrangement: null,
+    long_note_mode: null,
   };
 
   const clientLabel =
@@ -505,6 +537,7 @@ export function FumenHistoryRowDetail({ score }: { score: UserScore }) {
     play_count: score.play_count,
     judgment_detail: score.judgment_detail,
     arrangement: score.arrangement,
+    long_note_mode: score.long_note_mode,
   };
 
   if (record.judgment_detail === null && record.arrangement === null) return null;

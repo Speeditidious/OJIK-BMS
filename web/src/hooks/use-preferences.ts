@@ -363,6 +363,8 @@ export interface DayStatSheetPrefs {
   day_sheet_update_order: UpdateSectionKey[];
   /** Section keys that render full-width (not in 2-col grid). */
   day_sheet_update_fullwidth: UpdateSectionKey[];
+  /** Section keys (clear/score only) that hide the Prev/Current columns, showing just Level + Title/Artist. */
+  day_sheet_update_hide_prev: UpdateSectionKey[];
   /** User-defined display order for dan badges (display_text values). null = auto (table order). */
   day_sheet_dan_order: string[] | null;
   /** Display order of rating sub-sections: exp_info / rating_info. */
@@ -386,6 +388,7 @@ export const DEFAULT_DAY_SHEET_PREFS: DayStatSheetPrefs = {
   day_sheet_update_visible: { clear: true, score: true, bp: false, combo: false },
   day_sheet_update_order: ["clear", "score", "bp", "combo"],
   day_sheet_update_fullwidth: [],
+  day_sheet_update_hide_prev: [],
   day_sheet_dan_order: null,
   day_sheet_rating_order: ["exp_info", "rating_info"],
   day_sheet_show_note: true,
@@ -403,6 +406,9 @@ function normalizeDaySheetPrefs(raw: unknown): DayStatSheetPrefs {
     : DEFAULT_DAY_SHEET_PREFS.day_sheet_update_order;
   const fullwidth = Array.isArray(obj.day_sheet_update_fullwidth)
     ? (obj.day_sheet_update_fullwidth as UpdateSectionKey[])
+    : [];
+  const hidePrev = Array.isArray(obj.day_sheet_update_hide_prev)
+    ? (obj.day_sheet_update_hide_prev as UpdateSectionKey[])
     : [];
   return {
     day_sheet_tables:
@@ -433,6 +439,7 @@ function normalizeDaySheetPrefs(raw: unknown): DayStatSheetPrefs {
     },
     day_sheet_update_order: order,
     day_sheet_update_fullwidth: fullwidth,
+    day_sheet_update_hide_prev: hidePrev,
     day_sheet_dan_order:
       Array.isArray(obj.day_sheet_dan_order) ? (obj.day_sheet_dan_order as string[]) : null,
     day_sheet_rating_order:

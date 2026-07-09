@@ -220,6 +220,29 @@ def test_issue_order_by_prioritizes_pinned_before_selected_sort() -> None:
     assert "issues.id" in order_columns[2]
 
 
+def test_issue_activity_updates_preserve_body_updated_at() -> None:
+    """Activity metadata updates must not make the issue body look edited."""
+    from sqlalchemy import update
+    from sqlalchemy.dialects import postgresql
+
+    from app.models.issue import Issue
+    from app.routers.issues import _issue_activity_update_values
+
+    statement = (
+        update(Issue)
+        .where(Issue.id == 1)
+        .values(
+            **_issue_activity_update_values(
+                comment_count=Issue.comment_count + 1,
+                last_activity_at=Issue.last_activity_at,
+            )
+        )
+    )
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+
+    assert "updated_at=issues.updated_at" in sql
+
+
 def test_issue_pin_update_schema_exists() -> None:
     from app.routers.issues import IssuePinUpdate
 

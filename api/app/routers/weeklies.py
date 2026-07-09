@@ -186,7 +186,7 @@ def _improvement_model(rec: UserRecord) -> RecordImprovementModel | None:
 
 def _weekly_dan_table_slugs(category_key: str, bracket_key: str) -> list[str]:
     category_dan_tables = {
-        "aery": ["aery"],
+        "5aery": ["5aery"],
         "stellaverse": ["satellite", "stella"],
         "balgwang": ["balgwang", "new_balgwang", "overjoy"],
     }

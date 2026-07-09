@@ -72,6 +72,7 @@ export interface DaySummary {
   new_plays: number;             // first-ever plays for a fumen on this day
   total_play_count: number | null;  // null = cannot aggregate (includes first-sync records)
   play_count_uncertain: boolean;
+  play_count_uncertain_reason?: "first_sync" | "unsynced_date" | string | null;
   stat_only_count: number;
   total_playtime: number | null;        // seconds; from PlayerStats LAG delta
   total_notes_hit: number | null;       // notes hit; from PlayerStats judgments LAG delta

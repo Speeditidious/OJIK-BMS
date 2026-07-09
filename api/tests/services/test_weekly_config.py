@@ -6,27 +6,27 @@ def test_load_returns_categories_in_order():
     cfg = load_weekly_config()
     keys = [c.key for c in cfg.categories]
     assert keys == sorted(keys, key=lambda k: {c.key: c.order for c in cfg.categories}[k])
-    assert "aery" in keys
+    assert "5aery" in keys
     assert "stellaverse" in keys
     assert "balgwang" in keys
 
 
 def test_bracket_pick_count_defaults():
     cfg = load_weekly_config()
-    aery = cfg.category("aery")
-    starter = aery.bracket("starter")
+    five_aery = cfg.category("5aery")
+    starter = five_aery.bracket("starter")
     assert starter.pick_count == 7
 
 
 def test_aery_level_ranges_match_imported_level_labels():
     cfg = load_weekly_config()
-    aery = cfg.category("aery")
-    assert aery.bracket("starter").selectors[0].level_range == ("LEVEL 1", "LEVEL 11")
-    assert aery.bracket("novice").selectors[0].level_range == ("LEVEL 12", "LEVEL 15")
-    assert aery.bracket("intermediate").selectors[0].level_range == ("LEVEL 15+", "LEVEL 17")
-    assert aery.bracket("advanced").selectors[0].level_range == ("LEVEL 17+", "LEVEL 18")
-    assert aery.bracket("expert").selectors[0].level_range == ("LEVEL 18+", "LEVEL 19")
-    assert aery.bracket("master").selectors[0].level_range == ("LEVEL 19+", "LEVEL 20+")
+    five_aery = cfg.category("5aery")
+    assert five_aery.bracket("starter").selectors[0].level_range == ("LEVEL 1", "LEVEL 11")
+    assert five_aery.bracket("novice").selectors[0].level_range == ("LEVEL 12", "LEVEL 15")
+    assert five_aery.bracket("intermediate").selectors[0].level_range == ("LEVEL 15+", "LEVEL 17")
+    assert five_aery.bracket("advanced").selectors[0].level_range == ("LEVEL 17+", "LEVEL 18")
+    assert five_aery.bracket("expert").selectors[0].level_range == ("LEVEL 18+", "LEVEL 19")
+    assert five_aery.bracket("master").selectors[0].level_range == ("LEVEL 19+", "LEVEL 20+")
 
 
 def test_multi_table_bracket_has_multiple_selectors():
@@ -60,7 +60,7 @@ def test_unknown_category_raises():
 
 
 def test_weekly_dan_tables_follow_category_dan_systems():
-    assert _weekly_dan_table_slugs("aery", "starter") == ["aery"]
+    assert _weekly_dan_table_slugs("5aery", "starter") == ["5aery"]
     assert _weekly_dan_table_slugs("stellaverse", "sr_traveler") == ["satellite", "stella"]
     assert _weekly_dan_table_slugs("stellaverse", "sl_traveler") == ["satellite", "stella"]
     assert _weekly_dan_table_slugs("stellaverse", "st_traveler") == ["satellite", "stella"]

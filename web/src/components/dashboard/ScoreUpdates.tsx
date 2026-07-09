@@ -466,7 +466,14 @@ export function CourseTableRow({ item, userId, asOf }: { item: MergedCourseUpdat
 // ── Shared section table wrapper ───────────────────────────────────────────────
 
 const handleSectionTableCopy = makeTableCopyHandler(3, "tbody tr"); // col 0=Prev, 1=Current, 2=Level, 3=Title/Artist
+const handleSectionTableCopyHidePrev = makeTableCopyHandler(1, "tbody tr"); // col 0=Level, 1=Title/Artist
 const handleFumenTableCopy = makeTableCopyHandler(1, "tbody tr");   // col 0=Level, 1=Title/Artist
+
+/** Scales a "Npx" width string by 1.5x; other formats (e.g. undefined) pass through unchanged. */
+function widenPxWidth(width: string | undefined): string | undefined {
+  const match = width?.match(/^(\d+(?:\.\d+)?)px$/);
+  return match ? `${parseFloat(match[1]) * 1.5}px` : width;
+}
 
 export function SectionTable({
   title,
@@ -476,6 +483,8 @@ export function SectionTable({
   colWidths = ["110px", "120px", "100px", undefined],
   fullWidth,
   onToggleFullWidth,
+  hidePrev,
+  onToggleHidePrev,
   children,
 }: {
   title: string;
@@ -486,10 +495,14 @@ export function SectionTable({
   colWidths?: [string?, string?, string?, string?];
   fullWidth?: boolean;
   onToggleFullWidth?: () => void;
+  /** Hide the Prev/Current columns, showing just Level + Title/Artist. */
+  hidePrev?: boolean;
+  onToggleHidePrev?: () => void;
   children: React.ReactNode;
 }) {
   const { t } = useTranslation();
   const thCls = "px-2 py-2 font-medium whitespace-nowrap text-left";
+  const visibleColWidths = hidePrev ? [widenPxWidth(colWidths[2]), colWidths[3]] : colWidths;
   return (
     <div className="border border-border/40 rounded-lg overflow-hidden">
       <div
@@ -519,19 +532,37 @@ export function SectionTable({
               {t("dashboard.scoreUpdates.includeNewPlays")}
             </label>
           )}
+          {onToggleHidePrev !== undefined && (
+            <label className="flex items-center gap-1.5 cursor-pointer text-label text-muted-foreground select-none shrink-0">
+              <input
+                type="checkbox"
+                checked={hidePrev ?? false}
+                onChange={onToggleHidePrev}
+                className="accent-primary"
+              />
+              {t("dashboard.scoreUpdates.hidePrev")}
+            </label>
+          )}
         </div>
       </div>
       <div className="overflow-auto">
-        <table className="w-full table-fixed text-label" onCopy={handleSectionTableCopy}>
+        <table
+          className="w-full table-fixed text-label"
+          onCopy={hidePrev ? handleSectionTableCopyHidePrev : handleSectionTableCopy}
+        >
           <colgroup>
-            {colWidths.map((w, i) => (
+            {visibleColWidths.map((w, i) => (
               <col key={i} style={w ? { width: w } : undefined} />
             ))}
           </colgroup>
           <thead className="sticky top-0 z-10 bg-background text-foreground border-b border-border/50">
             <tr>
-              <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.prev")}</th>
-              <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.current")}</th>
+              {!hidePrev && (
+                <>
+                  <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.prev")}</th>
+                  <th className={cn(thCls, "text-center")}>{t("dashboard.scoreUpdates.current")}</th>
+                </>
+              )}
               <th className={thCls}>{t("dashboard.scoreUpdates.level")}</th>
               <th className={thCls}>{t("common.fields.titleArtist")}</th>
             </tr>
@@ -551,12 +582,14 @@ function SummaryFumenRow({
   asOf,
   children,
   className,
+  colSpan = 4,
 }: {
   item: ScoreUpdateBase;
   userId?: string;
   asOf?: string;
   children: React.ReactNode;
   className?: string;
+  colSpan?: number;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const canExpand = !!item.fumen_id;
@@ -577,7 +610,7 @@ function SummaryFumenRow({
       </tr>
       {isExpanded && (
         <tr>
-          <td colSpan={4} className="p-0 border-b border-border/20">
+          <td colSpan={colSpan} className="p-0 border-b border-border/20">
             <div className="border-t border-primary/20 bg-primary/5">
               <FumenRowDetail fumenId={item.fumen_id} scoreId={item.detail_score_id} userId={userId} asOf={asOf} />
             </div>
@@ -588,20 +621,34 @@ function SummaryFumenRow({
   );
 }
 
-export function LampUpgradeRow({ item, userId, asOf }: { item: ClearTypeUpdateItem; userId?: string; asOf?: string }) {
+export function LampUpgradeRow({
+  item,
+  userId,
+  asOf,
+  hidePrev,
+}: {
+  item: ClearTypeUpdateItem;
+  userId?: string;
+  asOf?: string;
+  hidePrev?: boolean;
+}) {
   const newCls = clearTdClass(item.new_clear_type);
   return (
-    <SummaryFumenRow item={item} userId={userId} asOf={asOf}>
-      <td className={cn("px-2 py-2 whitespace-nowrap text-center", clearTdClass(item.prev_clear_type, true))}>
-        <span className="text-label row-prev">
-          {CLEAR_TYPE_LABELS_SIMPLE[item.prev_clear_type ?? 0] ?? "?"}
-        </span>
-      </td>
-      <td className={cn("px-2 py-2 whitespace-nowrap text-center font-semibold", newCls)}>
-        {clearText(item.new_clear_type, item.client_type)}
-      </td>
+    <SummaryFumenRow item={item} userId={userId} asOf={asOf} colSpan={hidePrev ? 2 : 4}>
+      {!hidePrev && (
+        <>
+          <td className={cn("px-2 py-2 whitespace-nowrap text-center", clearTdClass(item.prev_clear_type, true))}>
+            <span className="text-label row-prev">
+              {CLEAR_TYPE_LABELS_SIMPLE[item.prev_clear_type ?? 0] ?? "?"}
+            </span>
+          </td>
+          <td className={cn("px-2 py-2 whitespace-nowrap text-center font-semibold", newCls)}>
+            {clearText(item.new_clear_type, item.client_type)}
+          </td>
+        </>
+      )}
       <td className={cn("px-2 py-2", newCls)}>
-        <TableLevelBadges levels={item.table_levels} />
+        <TableLevelBadges levels={item.table_levels} className="font-bold" />
       </td>
       <FumenTitleCell item={item} userId={userId} className={cn("px-2 py-2", newCls)} />
     </SummaryFumenRow>
@@ -609,7 +656,17 @@ export function LampUpgradeRow({ item, userId, asOf }: { item: ClearTypeUpdateIt
 }
 
 
-export function ScoreUpgradeRow({ item, userId, asOf }: { item: ExscoreUpdateItem; userId?: string; asOf?: string }) {
+export function ScoreUpgradeRow({
+  item,
+  userId,
+  asOf,
+  hidePrev,
+}: {
+  item: ExscoreUpdateItem;
+  userId?: string;
+  asOf?: string;
+  hidePrev?: boolean;
+}) {
   const scoreDiff =
     item.prev_exscore != null && item.new_exscore != null
       ? item.new_exscore - item.prev_exscore
@@ -617,34 +674,38 @@ export function ScoreUpgradeRow({ item, userId, asOf }: { item: ExscoreUpdateIte
   const newCls = rankTdClass(item.new_rank);
 
   return (
-    <SummaryFumenRow item={item} userId={userId} asOf={asOf}>
-      <td className={cn("px-2 py-2 whitespace-nowrap text-center", rankTdClass(item.prev_rank, true))}>
-        {item.prev_rank == null ? (
-          <span className="text-label row-prev">NO PLAY</span>
-        ) : (
-          <div className="flex flex-col items-center gap-0.5">
-            <span className="text-label row-prev">
-              {formatScoreRankLabel(item.prev_rank, item.prev_max_minus_score)}
-            </span>
-            <span className="text-label row-prev">{item.prev_exscore ?? "–"}</span>
-          </div>
-        )}
-      </td>
-      <td className={cn("px-2 py-2 whitespace-nowrap text-center", newCls)}>
-        <div className="flex flex-col items-center gap-0.5">
-          <span className="text-label font-semibold">
-            {formatScoreRankLabel(item.new_rank, item.new_max_minus_score) ?? "–"}
-          </span>
-          <div className="flex items-baseline gap-1">
-            <span className="text-label font-semibold">{item.new_exscore ?? "–"}</span>
-            {scoreDiff != null && scoreDiff > 0 && (
-              <span className="text-label font-bold opacity-75">▲{scoreDiff}</span>
+    <SummaryFumenRow item={item} userId={userId} asOf={asOf} colSpan={hidePrev ? 2 : 4}>
+      {!hidePrev && (
+        <>
+          <td className={cn("px-2 py-2 whitespace-nowrap text-center", rankTdClass(item.prev_rank, true))}>
+            {item.prev_rank == null ? (
+              <span className="text-label row-prev">NO PLAY</span>
+            ) : (
+              <div className="flex flex-col items-center gap-0.5">
+                <span className="text-label row-prev">
+                  {formatScoreRankLabel(item.prev_rank, item.prev_max_minus_score)}
+                </span>
+                <span className="text-label row-prev">{item.prev_exscore ?? "–"}</span>
+              </div>
             )}
-          </div>
-        </div>
-      </td>
+          </td>
+          <td className={cn("px-2 py-2 whitespace-nowrap text-center", newCls)}>
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-label font-semibold">
+                {formatScoreRankLabel(item.new_rank, item.new_max_minus_score) ?? "–"}
+              </span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-label font-semibold">{item.new_exscore ?? "–"}</span>
+                {scoreDiff != null && scoreDiff > 0 && (
+                  <span className="text-label font-bold opacity-75">▲{scoreDiff}</span>
+                )}
+              </div>
+            </div>
+          </td>
+        </>
+      )}
       <td className={cn("px-2 py-2", newCls)}>
-        <TableLevelBadges levels={item.table_levels} />
+        <TableLevelBadges levels={item.table_levels} className="font-bold" />
       </td>
       <FumenTitleCell item={item} userId={userId} className={cn("px-2 py-2", newCls)} />
     </SummaryFumenRow>
@@ -674,7 +735,7 @@ export function BPUpgradeRow({ item, userId, asOf }: { item: MinBPUpdateItem; us
         </div>
       </td>
       <td className="px-2 py-2">
-        <TableLevelBadges levels={item.table_levels} />
+        <TableLevelBadges levels={item.table_levels} className="font-bold" />
       </td>
       <FumenTitleCell
         item={item}
@@ -709,7 +770,7 @@ export function ComboUpgradeRow({ item, userId, asOf }: { item: MaxComboUpdateIt
         </div>
       </td>
       <td className="px-2 py-2">
-        <TableLevelBadges levels={item.table_levels} />
+        <TableLevelBadges levels={item.table_levels} className="font-bold" />
       </td>
       <FumenTitleCell
         item={item}
@@ -900,7 +961,7 @@ function FumenRow({
       <tr className={cn("transition-all cursor-pointer", rowClass || "hover:bg-secondary/50")} onClick={handleRowClick}>
         {/* Level */}
         <td className="px-2 py-2 align-top">
-          <TableLevelBadges levels={fumen.table_levels} />
+          <TableLevelBadges levels={fumen.table_levels} className="font-bold" />
         </td>
 
         {/* Title + Artist */}

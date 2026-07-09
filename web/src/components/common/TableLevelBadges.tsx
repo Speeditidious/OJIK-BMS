@@ -5,6 +5,7 @@ import {
   sortTableLevelsCore,
 } from "@/lib/table-level-sort-core.mjs";
 import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
+import { cn } from "@/lib/utils";
 
 export interface TableLevelRef {
   symbol: string;
@@ -19,10 +20,11 @@ export function compareByTableLevels(a: TableLevelRef[], b: TableLevelRef[]): nu
 interface Props {
   levels: TableLevelRef[];
   maxVisible?: number;
+  className?: string;
 }
 
-export function TableLevelBadges({ levels, maxVisible = 3 }: Props) {
-  if (levels.length === 0) return <span className="text-label row-muted">-</span>;
+export function TableLevelBadges({ levels, maxVisible = 3, className }: Props) {
+  if (levels.length === 0) return <span className={cn("text-label row-muted", className)}>-</span>;
   const sortedLevels = sortTableLevelsCore(levels) as TableLevelRef[];
   const visible = sortedLevels.slice(0, maxVisible);
   const rest = sortedLevels.length - visible.length;
@@ -32,7 +34,7 @@ export function TableLevelBadges({ levels, maxVisible = 3 }: Props) {
     ))
     .join(", ");
   return (
-    <span className="text-label">
+    <span className={cn("text-label", className)}>
       {text}
       {rest > 0 && <span className="text-caption row-muted"> +{rest}</span>}
     </span>

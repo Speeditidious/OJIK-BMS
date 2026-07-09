@@ -36,6 +36,11 @@ class IssueStatus(StrEnum):
 _COMMENTABLE_STATUSES: frozenset[str] = frozenset({"open", "work_in_progress"})
 
 
+def _issue_activity_update_values(**values: Any) -> dict[str, Any]:
+    """Build Issue UPDATE values that keep body edit timestamps unchanged."""
+    return {**values, "updated_at": Issue.updated_at}
+
+
 class IssueSearchField(StrEnum):
     all = "all"
     title = "title"
@@ -656,7 +661,12 @@ async def create_comment(
     await db.execute(
         update(Issue)
         .where(Issue.id == issue_id)
-        .values(comment_count=Issue.comment_count + 1, last_activity_at=now)
+        .values(
+            **_issue_activity_update_values(
+                comment_count=Issue.comment_count + 1,
+                last_activity_at=now,
+            )
+        )
     )
 
     await persist_issue_references(
@@ -727,14 +737,22 @@ async def update_issue_status(
         return _issue_to_read(issue)
 
     now = datetime.now(UTC)
-    issue.status = new_status
-    issue.last_activity_at = now
+    update_values: dict[str, Any] = {
+        "status": new_status,
+        "last_activity_at": now,
+    }
     if new_status in _COMMENTABLE_STATUSES:
-        issue.closed_at = None
-        issue.closed_by_id = None
+        update_values["closed_at"] = None
+        update_values["closed_by_id"] = None
     else:
-        issue.closed_at = now
-        issue.closed_by_id = current_admin.id
+        update_values["closed_at"] = now
+        update_values["closed_by_id"] = current_admin.id
+
+    await db.execute(
+        update(Issue)
+        .where(Issue.id == issue_id)
+        .values(**_issue_activity_update_values(**update_values))
+    )
 
     # System event row appears in the comment timeline but does not count toward
     # comment_count and carries no body.
@@ -800,10 +818,18 @@ async def update_issue_pin(
         return _issue_to_read(issue)
 
     now = datetime.now(UTC)
-    issue.is_pinned = data.is_pinned
-    issue.pinned_at = now if data.is_pinned else None
-    issue.pinned_by_id = current_admin.id if data.is_pinned else None
-    issue.last_activity_at = now
+    await db.execute(
+        update(Issue)
+        .where(Issue.id == issue_id)
+        .values(
+            **_issue_activity_update_values(
+                is_pinned=data.is_pinned,
+                pinned_at=now if data.is_pinned else None,
+                pinned_by_id=current_admin.id if data.is_pinned else None,
+                last_activity_at=now,
+            )
+        )
+    )
 
     pin_event = IssueComment(
         issue_id=issue_id,

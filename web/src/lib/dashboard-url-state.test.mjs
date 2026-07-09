@@ -6,7 +6,7 @@ import { buildDashboardUrl, getDashboardRankingTable, mergeDashboardParams } fro
 test("ranking table fallback is kept out of the URL", () => {
   const params = new URLSearchParams("tab=calendar");
 
-  assert.equal(getDashboardRankingTable(params, "aery"), "aery");
+  assert.equal(getDashboardRankingTable(params, "5aery"), "5aery");
   assert.equal(params.toString(), "tab=calendar");
 });
 

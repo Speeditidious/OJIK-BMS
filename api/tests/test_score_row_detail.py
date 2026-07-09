@@ -1340,6 +1340,7 @@ async def test_row_detail_compact_columns_no_full_history():
         rate=91.23,
         rank="AA",
         play_count=42,
+        options={"mode": 1},
     )
 
     call_idx = [0]
@@ -1387,6 +1388,7 @@ async def test_row_detail_compact_columns_no_full_history():
     assert "play_count" in record
     assert "judgment_detail" in record
     assert "arrangement" in record
+    assert "long_note_mode" in record
 
     # No full history or raw hash fields
     assert "fumen_sha256" not in record
@@ -1396,6 +1398,7 @@ async def test_row_detail_compact_columns_no_full_history():
 
     assert record["exscore"] == 2345
     assert record["play_count"] == 42
+    assert record["long_note_mode"] == "CN"
 
 
 @pytest.mark.asyncio

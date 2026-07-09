@@ -33,11 +33,11 @@ const RANK_COLOR: Record<string, string> = {
   AA: "hsl(220 15% 72%)", AAA: "hsl(46 80% 60%)", "MAX-": "hsl(330 65% 78%)",
 };
 
-function ClearTypeGroupHeader({ label, count, ct }: { label: string; count: number; ct: number }) {
+function ClearTypeGroupHeader({ label, count, ct, colSpan = 4 }: { label: string; count: number; ct: number; colSpan?: number }) {
   const color = CLEAR_TYPE_COLOR[ct] ?? "hsl(var(--clear-no-play))";
   return (
     <tr data-day-sheet-split-block data-day-sheet-keep-with-next>
-      <td colSpan={4} className="px-4 py-2 text-center bg-muted/20 border-y-2" style={{ borderColor: color }}>
+      <td colSpan={colSpan} className="px-4 py-2 text-center bg-muted/20 border-y-2" style={{ borderColor: color }}>
         <span className="text-base font-bold" style={{ color }}>{label}</span>
         <span className="text-base font-normal text-muted-foreground ml-2">{count}건</span>
       </td>
@@ -45,11 +45,11 @@ function ClearTypeGroupHeader({ label, count, ct }: { label: string; count: numb
   );
 }
 
-function RankGroupHeader({ label, count, rank }: { label: string; count: number; rank: string }) {
+function RankGroupHeader({ label, count, rank, colSpan = 4 }: { label: string; count: number; rank: string; colSpan?: number }) {
   const color = RANK_COLOR[rank] ?? "hsl(var(--clear-no-play))";
   return (
     <tr data-day-sheet-split-block data-day-sheet-keep-with-next>
-      <td colSpan={4} className="px-4 py-2 text-center bg-muted/20 border-y-2" style={{ borderColor: color }}>
+      <td colSpan={colSpan} className="px-4 py-2 text-center bg-muted/20 border-y-2" style={{ borderColor: color }}>
         <span className="text-base font-bold" style={{ color }}>{label}</span>
         <span className="text-base font-normal text-muted-foreground ml-2">{count}건</span>
       </td>
@@ -220,6 +220,7 @@ export function UpdateSections({
   const order = prefs.day_sheet_update_order ?? ["clear", "score", "bp", "combo"];
   const visible = prefs.day_sheet_update_visible ?? { clear: true, score: true, bp: false, combo: false };
   const fullwidth = new Set(prefs.day_sheet_update_fullwidth ?? []);
+  const hidePrevSet = new Set(prefs.day_sheet_update_hide_prev ?? []);
 
   const summaryCourses = useMemo(
     () => mergedCourses.filter((c) => c.clear || c.score || c.bp),
@@ -253,6 +254,7 @@ export function UpdateSections({
   function renderSection(key: UpdateSectionKey): React.ReactNode {
     const isFullWidth = fullwidth.has(key);
     if (key === "clear" && lampByTypeVisible.length > 0) {
+      const hidePrev = hidePrevSet.has("clear");
       return (
         <SectionTable
           key="clear"
@@ -275,11 +277,22 @@ export function UpdateSections({
                 }
               : undefined
           }
+          hidePrev={hidePrev}
+          onToggleHidePrev={
+            canPersist && onPrefsChange
+              ? () => {
+                  const next = hidePrev
+                    ? (prefs.day_sheet_update_hide_prev ?? []).filter((k) => k !== "clear")
+                    : [...(prefs.day_sheet_update_hide_prev ?? []), "clear" as UpdateSectionKey];
+                  onPrefsChange({ day_sheet_update_hide_prev: next });
+                }
+              : undefined
+          }
         >
           {lampByTypeVisible.map(({ ct, items }) => (
             <React.Fragment key={ct}>
-              <ClearTypeGroupHeader label={CLEAR_TYPE_LABELS_SIMPLE[ct] ?? String(ct)} count={items.length} ct={ct} />
-              {items.map((item, i) => <LampUpgradeRow key={i} item={item} userId={userId} asOf={asOf} />)}
+              <ClearTypeGroupHeader label={CLEAR_TYPE_LABELS_SIMPLE[ct] ?? String(ct)} count={items.length} ct={ct} colSpan={hidePrev ? 2 : 4} />
+              {items.map((item, i) => <LampUpgradeRow key={i} item={item} userId={userId} asOf={asOf} hidePrev={hidePrev} />)}
             </React.Fragment>
           ))}
         </SectionTable>
@@ -287,6 +300,7 @@ export function UpdateSections({
     }
 
     if (key === "score" && scoreByRankVisible.length > 0 && visible.score !== false) {
+      const hidePrev = hidePrevSet.has("score");
       return (
         <SectionTable
           key="score"
@@ -309,11 +323,22 @@ export function UpdateSections({
                 }
               : undefined
           }
+          hidePrev={hidePrev}
+          onToggleHidePrev={
+            canPersist && onPrefsChange
+              ? () => {
+                  const next = hidePrev
+                    ? (prefs.day_sheet_update_hide_prev ?? []).filter((k) => k !== "score")
+                    : [...(prefs.day_sheet_update_hide_prev ?? []), "score" as UpdateSectionKey];
+                  onPrefsChange({ day_sheet_update_hide_prev: next });
+                }
+              : undefined
+          }
         >
           {scoreByRankVisible.map(({ rank, items }) => (
             <React.Fragment key={rank}>
-              <RankGroupHeader label={rank} count={items.length} rank={rank} />
-              {items.map((item, i) => <ScoreUpgradeRow key={i} item={item} userId={userId} asOf={asOf} />)}
+              <RankGroupHeader label={rank} count={items.length} rank={rank} colSpan={hidePrev ? 2 : 4} />
+              {items.map((item, i) => <ScoreUpgradeRow key={i} item={item} userId={userId} asOf={asOf} hidePrev={hidePrev} />)}
             </React.Fragment>
           ))}
         </SectionTable>

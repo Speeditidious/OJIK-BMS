@@ -5,7 +5,7 @@ default_pick_count = 7
 
 # ─────────────────────────── 5KEYS AERY ───────────────────────────
 [[categories]]
-key = "aery"
+key = "5aery"
 name = "5KEYS AERY"
 order = 0
 
@@ -13,37 +13,37 @@ order = 0
   key = "starter"
   order = 0
   color = "#7FB069"
-  selectors = [ { table = "aery", level_range = ["LEVEL 1", "LEVEL 11"] } ]
+  selectors = [ { table = "5aery", level_range = ["LEVEL 1", "LEVEL 11"] } ]
 
   [[categories.brackets]]
   key = "novice"
   order = 1
   color = "#A7C957"
-  selectors = [ { table = "aery", level_range = ["LEVEL 12", "LEVEL 15"] } ]
+  selectors = [ { table = "5aery", level_range = ["LEVEL 12", "LEVEL 15"] } ]
 
   [[categories.brackets]]
   key = "intermediate"
   order = 2
   color = "#E9C46A"
-  selectors = [ { table = "aery", level_range = ["LEVEL 15+", "LEVEL 17"] } ]
+  selectors = [ { table = "5aery", level_range = ["LEVEL 15+", "LEVEL 17"] } ]
 
   [[categories.brackets]]
   key = "advanced"
   order = 3
   color = "#F4A261"
-  selectors = [ { table = "aery", level_range = ["LEVEL 17+", "LEVEL 18"] } ]
+  selectors = [ { table = "5aery", level_range = ["LEVEL 17+", "LEVEL 18"] } ]
 
   [[categories.brackets]]
   key = "expert"
   order = 4
   color = "#E76F51"
-  selectors = [ { table = "aery", level_range = ["LEVEL 18+", "LEVEL 19"] } ]
+  selectors = [ { table = "5aery", level_range = ["LEVEL 18+", "LEVEL 19"] } ]
 
   [[categories.brackets]]
   key = "master"
   order = 5
   color = "#9B2226"
-  selectors = [ { table = "aery", level_range = ["LEVEL 19+", "LEVEL 20+"] } ]
+  selectors = [ { table = "5aery", level_range = ["LEVEL 19+", "LEVEL 20+"] } ]
 
 # ─────────────────────────── STELLAVERSE ───────────────────────────
 [[categories]]

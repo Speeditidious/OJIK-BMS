@@ -80,6 +80,18 @@ def _filter_play_count_only_history_rows(scores: list[UserScore]) -> list[UserSc
     return [score for score in scores if score.id not in hidden_ids]
 
 
+def long_note_mode_label(client_type: str, options: dict | None) -> str | None:
+    """Return the Beatoraja long-note mode label stored in score options."""
+    if client_type != "beatoraja" or not isinstance(options, dict):
+        return None
+    raw_mode = options.get("mode")
+    try:
+        mode = int(raw_mode)
+    except (TypeError, ValueError):
+        return None
+    return {0: "LN", 1: "CN", 2: "HCN"}.get(mode)
+
+
 class UserScoreRead(BaseModel):
     id: str
     user_id: str
@@ -102,6 +114,7 @@ class UserScoreRead(BaseModel):
     is_first_sync: bool = False
     judgment_detail: dict | None = None
     arrangement: dict | None = None
+    long_note_mode: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -180,6 +193,7 @@ async def get_my_scores(
             options=s.options,
             recorded_at=s.recorded_at.isoformat() if s.recorded_at else None,
             synced_at=s.synced_at.isoformat() if s.synced_at else None,
+            long_note_mode=long_note_mode_label(s.client_type, s.options),
         )
         for s in scores
     ]
@@ -303,6 +317,7 @@ async def get_scores_for_fumen(
             is_first_sync=_is_first_sync(s),
             judgment_detail=normalize_judgments(s.client_type, s.judgments),
             arrangement=decode_arrangement(s.client_type, s.options, fumen_keymode),
+            long_note_mode=long_note_mode_label(s.client_type, s.options),
         ))
     return out
 
@@ -320,6 +335,7 @@ class RowDetailRecord(BaseModel):
     play_count: int | None
     judgment_detail: dict | None
     arrangement: dict | None
+    long_note_mode: str | None = None
 
 
 class FumenRowDetailResponse(BaseModel):
@@ -504,6 +520,7 @@ def _build_fumen_row_detail_record(
         play_count=score.play_count,
         judgment_detail=normalize_judgments(score.client_type, score.judgments),
         arrangement=decode_arrangement(score.client_type, score.options, keymode),
+        long_note_mode=long_note_mode_label(score.client_type, score.options),
     )
 
 

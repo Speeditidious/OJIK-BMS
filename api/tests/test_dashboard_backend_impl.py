@@ -2414,6 +2414,35 @@ async def test_day_stats_excludes_unreliable_lr2_rows():
 
 
 @pytest.mark.asyncio
+async def test_day_stats_marks_first_sync_playcount_uncertainty_reason():
+    """First-sync player-stat rows should keep the first-sync tooltip reason."""
+    user = SimpleNamespace(id=uuid.uuid4(), first_synced_at={})
+    db = _CaptureSession(
+        row_overrides={
+            0: _QueuedResult(
+                rows=[
+                    SimpleNamespace(
+                        client_type="beatoraja",
+                        delta_pc=0,
+                        delta_pt=0,
+                        judgments={"epg": 10},
+                        prev_judgments=None,
+                    )
+                ]
+            ),
+            1: _QueuedResult(
+                row=SimpleNamespace(has_unreliable=False, has_reliable_lr2=False)
+            ),
+        }
+    )
+
+    result = await _get_day_stats(user, None, "2026-01-15", db)
+
+    assert result["playcount_uncertain"] is True
+    assert result["playcount_uncertain_reason"] == "first_sync"
+
+
+@pytest.mark.asyncio
 async def test_day_stats_returns_unreliable_flag_when_lr2_is_self_inconsistent():
     """_get_day_stats returns player_stats_unreliable=True when only unreliable LR2 rows exist."""
     user = SimpleNamespace(id=uuid.uuid4(), first_synced_at={})

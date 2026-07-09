@@ -72,9 +72,15 @@ site = "https://stellabms.xyz/"
 update_schedule = { type = "weekly", day_of_week = "mon", hour = 0, minute = 0 }
 
 [[default_tables]]
-slug = "aery"
-name = "Aery"
+slug = "5aery"
+name = "5KEYS AERY"
 url = "https://asumatoki.kr/table/aery/header.json"
+site = "https://asumatoki.kr/"
+
+[[default_tables]]
+slug = "7aery"
+name = "7KEYS AERY"
+url = "https://asumatoki.kr/table/aery7/header.json"
 site = "https://asumatoki.kr/"
 
 [[default_tables]]

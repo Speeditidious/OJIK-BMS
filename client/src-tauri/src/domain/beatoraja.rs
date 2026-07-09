@@ -78,8 +78,10 @@ pub fn parse_scores(
     let mut where_parts = Vec::new();
     let mut params = Vec::new();
     if available.contains("mode") {
-        where_parts.push("(mode = ? OR length(sha256) > 64)".to_string());
+        where_parts.push("(mode IN (?, ?, ?) OR length(sha256) > 64)".to_string());
         params.push(0_i64);
+        params.push(1_i64);
+        params.push(2_i64);
     }
     if available.contains("player") {
         where_parts.push("player = ?".to_string());
@@ -273,8 +275,10 @@ pub fn parse_score_log(
     let mut params = Vec::new();
     let mut where_parts = Vec::new();
     if has_mode {
-        where_parts.push("(mode = ? OR length(sha256) > 64)".to_string());
+        where_parts.push("(mode IN (?, ?, ?) OR length(sha256) > 64)".to_string());
         params.push(0_i64);
+        params.push(1_i64);
+        params.push(2_i64);
     }
     if has_player {
         where_parts.push("player = ?".to_string());
@@ -289,8 +293,9 @@ pub fn parse_score_log(
     } else {
         format!("WHERE {}", where_parts.join(" AND "))
     };
+    let mode_select = if has_mode { ", mode" } else { "" };
     let sql = format!(
-        "SELECT sha256, clear, {score_col}, {combo_col}, minbp, date FROM scorelog {where_clause} ORDER BY date ASC"
+        "SELECT sha256, clear, {score_col}, {combo_col}, minbp, date{mode_select} FROM scorelog {where_clause} ORDER BY date ASC"
     );
 
     let mut history = Vec::new();
@@ -322,6 +327,7 @@ pub fn parse_score_log(
             continue;
         }
         let clear = normalize_max_clear_type(raw_clear_type, exscore, None);
+        let row_mode = has_mode.then(|| get_i64(row, Some("mode")).unwrap_or(0));
         if sha256.len() > 64 {
             history.push(ScoreItem {
                 fumen_hash_others: Some(sha256),
@@ -356,7 +362,7 @@ pub fn parse_score_log(
                 fumen_hash_others: None,
                 notes: None,
                 judgments: None,
-                options: None,
+                options: row_mode.map(|mode| json!({ "mode": mode })),
                 play_count: None,
                 clear_count: None,
                 song_hashes: Vec::new(),
@@ -648,8 +654,10 @@ fn score_db_pairs(data_path: &Path) -> HashSet<(String, i64)> {
     let mut params = Vec::new();
     let mut where_parts = Vec::new();
     if columns.contains("mode") {
-        where_parts.push("(mode = ? OR length(sha256) > 64)".to_string());
+        where_parts.push("(mode IN (?, ?, ?) OR length(sha256) > 64)".to_string());
         params.push(0_i64);
+        params.push(1_i64);
+        params.push(2_i64);
     }
     if columns.contains("player") {
         where_parts.push("player = ?".to_string());
@@ -937,13 +945,13 @@ mod tests {
         let (scores, courses, stats) =
             parse_scores(dir.to_str().unwrap()).expect("parse beatoraja scores");
 
-        assert_eq!(scores.len(), 1);
+        assert_eq!(scores.len(), 2);
         assert!(courses.is_empty());
         assert_eq!(stats.db_total, 4);
-        assert_eq!(stats.query_result_count, 3);
+        assert_eq!(stats.query_result_count, 4);
         assert_eq!(stats.skipped_lr2, 1);
         assert_eq!(stats.skipped_no_play, 1);
-        assert_eq!(stats.parsed, 1);
+        assert_eq!(stats.parsed, 2);
         let expected_sha256 = "c".repeat(64);
         let score = scores
             .iter()
@@ -960,6 +968,11 @@ mod tests {
         assert_eq!(score.min_bp, Some(3));
         assert_eq!(score.play_count, Some(15));
         assert_eq!(score.judgments.as_ref().unwrap()["epg"], 500);
+        let cn_score = scores
+            .iter()
+            .find(|score| score.fumen_sha256.as_deref() == Some(&"d".repeat(64)))
+            .expect("mode 1 CN score included");
+        assert_eq!(cn_score.options.as_ref().unwrap()["mode"], 1);
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -1052,12 +1065,16 @@ mod tests {
         let (scores, courses, stats) =
             parse_scores(dir.to_str().unwrap()).expect("parse beatoraja scores");
 
-        assert_eq!(scores.len(), 1);
+        assert_eq!(scores.len(), 2);
         assert_eq!(courses.len(), 1);
         assert_eq!(stats.db_total, 4);
-        assert_eq!(stats.query_result_count, 3);
+        assert_eq!(stats.query_result_count, 4);
         assert_eq!(stats.skipped_no_play, 1);
+        assert_eq!(stats.parsed, 2);
         assert_eq!(stats.parsed_courses, 1);
+        assert!(scores
+            .iter()
+            .any(|score| score.fumen_sha256.as_deref() == Some(&"h".repeat(64))));
         let course = &courses[0];
         assert_eq!(
             course.fumen_hash_others.as_deref(),
@@ -1124,16 +1141,23 @@ mod tests {
         insert_scorelog(&dir, &history_course, 10000, 0, 5, 2222, 333, 4, 1755002700);
         insert_scorelog(&dir, &("m".repeat(64)), 0, 0, 4, 1500, 900, 10, 1700000001);
         insert_scorelog(&dir, &("n".repeat(64)), 1, 0, 7, 1800, 1200, 2, 1700000002);
+        insert_scorelog(&dir, &("h".repeat(64)), 2, 0, 6, 1700, 1100, 3, 1700000004);
         insert_scorelog(&dir, &("z".repeat(64)), 0, 0, 0, 9999, 999, 0, 1700000003);
 
         let (history, stats) = parse_score_log(dir.to_str().unwrap(), None);
 
-        assert_eq!(history.len(), 2);
-        assert_eq!(stats.total_queried, 4);
+        assert_eq!(history.len(), 4);
+        assert_eq!(stats.total_queried, 6);
         assert_eq!(stats.skipped_duplicate, 1);
         assert_eq!(stats.skipped_no_play, 1);
-        assert_eq!(stats.parsed, 1);
+        assert_eq!(stats.parsed, 3);
         assert_eq!(stats.parsed_courses, 1);
+        assert!(history
+            .iter()
+            .any(|item| item.fumen_sha256.as_deref() == Some(&"n".repeat(64))));
+        assert!(history
+            .iter()
+            .any(|item| item.fumen_sha256.as_deref() == Some(&"h".repeat(64))));
         let course = history
             .iter()
             .find(|item| item.fumen_hash_others.is_some())

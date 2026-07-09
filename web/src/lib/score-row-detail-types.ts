@@ -40,6 +40,7 @@ export interface RowDetailRecord {
   play_count: number | null;
   judgment_detail: JudgmentDetail | null;
   arrangement: ArrangementDetail | null;
+  long_note_mode: string | null;
 }
 
 /** Response from GET /scores/fumen/{fumen_id}/row-detail */

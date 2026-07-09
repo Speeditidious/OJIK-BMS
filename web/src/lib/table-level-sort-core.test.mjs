@@ -55,8 +55,17 @@ assert.deepEqual(
 assert.deepEqual(
   sortLabels([
     level("st", "stella", "12"),
-    level("LEVEL ", "aery", "1"),
+    level("LEVEL ", "5aery", "1"),
     level("★★", "overjoy", "7"),
   ]),
   ["LEVEL 1", "st12", "★★7"],
+);
+
+assert.deepEqual(
+  sortLabels([
+    level("⑦", "7aery", "1"),
+    level("⑤", "5aery", "1"),
+    level("st", "stella", "12"),
+  ]),
+  ["⑤1", "⑦1", "st12"],
 );

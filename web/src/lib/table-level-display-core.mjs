@@ -1,5 +1,12 @@
 function isAeryTable({ tableSlug, tableName, tableSymbol } = {}) {
-  return tableSlug === "aery" || tableName === "5KEYS AERY" || tableSymbol === "⑤";
+  return (
+    tableSlug === "5aery"
+    || tableSlug === "7aery"
+    || tableName === "5KEYS AERY"
+    || tableName === "7KEYS AERY"
+    || tableSymbol === "⑤"
+    || tableSymbol === "⑦"
+  );
 }
 
 export function formatTableLevelForDisplay({ tableSlug, tableName, tableSymbol, level }) {

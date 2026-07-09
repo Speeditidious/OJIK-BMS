@@ -16,6 +16,7 @@ export interface DaySummaryData {
   total_notes_hit?: number | null;
   player_stats_unreliable?: boolean;
   play_count_uncertain?: boolean;
+  play_count_uncertain_reason?: "first_sync" | "unsynced_date" | string | null;
   playtime_uncertain?: boolean;
   notes_hit_uncertain?: boolean;
 }
@@ -81,6 +82,11 @@ interface DayStatGridProps {
 
 export function DayStatGrid({ daySummary, className }: DayStatGridProps) {
   const { t } = useTranslation();
+  const playCountUncertainTooltip =
+    daySummary.play_count_uncertain_reason === "unsynced_date"
+      ? t("dashboard.dayDetail.playCountUnsyncedDate")
+      : t("dashboard.dayDetail.playCountUncertain");
+
   return (
     <TooltipProvider>
       <div className={cn("grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6", className)}>
@@ -110,7 +116,7 @@ export function DayStatGrid({ daySummary, className }: DayStatGridProps) {
           uncertainTooltip={
             daySummary.player_stats_unreliable
               ? t("dashboard.dayDetail.playerStatsUnreliable")
-              : t("dashboard.dayDetail.playCountUncertain")
+              : playCountUncertainTooltip
           }
           accentVar="var(--chart-play)"
         />

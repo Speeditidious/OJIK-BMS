@@ -777,6 +777,7 @@ async def _get_day_stats(
     playcount_uncertain = has_first_sync_row
     playtime_uncertain = has_first_sync_row
     notes_hit_uncertain = has_first_sync_row
+    uncertain_reason = "first_sync" if has_first_sync_row else None
 
     # Detect if this date has only unreliable LR2 rows (corruption from LR2ALT bug).
     # An unreliable date = there exists an unreliable LR2 row for this user on this UTC
@@ -801,6 +802,7 @@ async def _get_day_stats(
     return {
         "playcount": total_playcount,
         "playcount_uncertain": playcount_uncertain,
+        "playcount_uncertain_reason": uncertain_reason,
         "playtime": total_playtime,
         "notes_hit": total_notes_hit,
         "playtime_uncertain": playtime_uncertain,
@@ -1428,6 +1430,13 @@ async def get_recent_updates(
             "play_count_uncertain": (
                 False if is_player_stats_unreliable
                 else (day_stats["playcount_uncertain"] or no_stats_but_has_records)
+            ),
+            "play_count_uncertain_reason": (
+                None if is_player_stats_unreliable
+                else (
+                    day_stats.get("playcount_uncertain_reason")
+                    or ("unsynced_date" if no_stats_but_has_records else None)
+                )
             ),
             "stat_only_count": len(stat_only_ids),
             "total_playtime": None if is_player_stats_unreliable else day_stats["playtime"],
