@@ -77,7 +77,9 @@ export interface DaySummary {
   total_playtime: number | null;        // seconds; from PlayerStats LAG delta
   total_notes_hit: number | null;       // notes hit; from PlayerStats judgments LAG delta
   playtime_uncertain: boolean;   // true when first-sync row caused delta=0
+  playtime_uncertain_reason?: "first_sync" | "unsynced_date" | string | null;
   notes_hit_uncertain: boolean;  // true when first-sync row caused delta=0
+  notes_hit_uncertain_reason?: "first_sync" | "unsynced_date" | string | null;
   player_stats_unreliable: boolean;     // true when LR2ALT player stats are corrupted
   player_stats_unreliable_reason: string | null;  // e.g. "lr2_player_stats_self_inconsistent"
   rating_updates?: number;

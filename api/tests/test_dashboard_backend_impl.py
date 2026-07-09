@@ -2440,6 +2440,10 @@ async def test_day_stats_marks_first_sync_playcount_uncertainty_reason():
 
     assert result["playcount_uncertain"] is True
     assert result["playcount_uncertain_reason"] == "first_sync"
+    assert result["playtime_uncertain"] is True
+    assert result["playtime_uncertain_reason"] == "first_sync"
+    assert result["notes_hit_uncertain"] is True
+    assert result["notes_hit_uncertain_reason"] == "first_sync"
 
 
 @pytest.mark.asyncio

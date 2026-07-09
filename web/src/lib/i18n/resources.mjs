@@ -769,9 +769,13 @@ export const resources = {
           playTime: "플레이 시간",
           playTimeSub: "이 날짜의 플레이 시간",
           playTimeUncertain: "첫 동기화 당일 혹은 그 이전 기록의 플레이 시간은 확인할 수 없습니다.",
+          playTimeUnsyncedDate:
+            "동기화하지 않은 날짜의 플레이 시간은 확인할 수 없습니다. 해당 기간의 플레이 시간은 다음 동기화 날짜에 누적되어 표시될 수 있습니다.",
           notesHit: "격파한 노트 수",
           notesHitSub: "이 날짜에 격파한 노트 수",
           notesHitUncertain: "첫 동기화 당일 혹은 그 이전 기록의 격파한 노트 수는 확인할 수 없습니다.",
+          notesHitUnsyncedDate:
+            "동기화하지 않은 날짜의 격파한 노트 수는 확인할 수 없습니다. 해당 기간의 격파한 노트 수는 다음 동기화 날짜에 누적되어 표시될 수 있습니다.",
           playerStatsUnreliable: "대체 IR의 일시적인 오류로 정확한 플레이 통계를 계산할 수 없습니다. 이 날짜의 플레이 통계는 집계에서 제외됩니다.",
           note: {
             title: "메모",
@@ -1836,9 +1840,13 @@ export const resources = {
           playTime: "Play Time",
           playTimeSub: "Play time this day",
           playTimeUncertain: "Play time for records on or before the first sync date cannot be determined.",
+          playTimeUnsyncedDate:
+            "Play time cannot be determined for dates that were not synced. Play time from that period may be accumulated and shown on the next sync date.",
           notesHit: "Notes Hit",
           notesHitSub: "Notes hit this day",
           notesHitUncertain: "Notes hit for records on or before the first sync date cannot be determined.",
+          notesHitUnsyncedDate:
+            "Notes hit cannot be determined for dates that were not synced. Notes from that period may be accumulated and shown on the next sync date.",
           playerStatsUnreliable: "Play statistics cannot be calculated accurately due to a temporary alternative IR issue. Play statistics for this date are excluded from aggregation.",
           note: {
             title: "Note",
@@ -2903,9 +2911,13 @@ export const resources = {
           playTime: "プレイ時間",
           playTimeSub: "この日のプレイ時間",
           playTimeUncertain: "初回同期日以前の記録はプレイ時間を確認できません。",
+          playTimeUnsyncedDate:
+            "同期していない日のプレイ時間は確認できません。その期間のプレイ時間は、次に同期した日にまとめて表示される場合があります。",
           notesHit: "撃破ノーツ数",
           notesHitSub: "この日に撃破したノーツ数",
           notesHitUncertain: "初回同期日以前の記録は撃破ノーツ数を確認できません。",
+          notesHitUnsyncedDate:
+            "同期していない日の撃破ノーツ数は確認できません。その期間の撃破ノーツ数は、次に同期した日にまとめて表示される場合があります。",
           playerStatsUnreliable: "代替IRの一時的な不具合により、正確なプレイ統計を計算できません。この日のプレイ統計は集計から除外されます。",
           note: {
             title: "メモ",

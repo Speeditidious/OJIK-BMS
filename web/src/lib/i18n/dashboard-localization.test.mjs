@@ -42,17 +42,22 @@ test("playerStatsUnreliable tooltip exists in all locales", () => {
   }
 });
 
-test("day detail play-count uncertainty tooltips exist in all locales", () => {
+test("day detail stat uncertainty tooltips exist in all locales", () => {
   for (const lang of ["ko", "en", "ja"]) {
     const dayDetail = resources[lang].translation.dashboard.dayDetail;
-    assert.ok(
-      typeof dayDetail.playCountUncertain === "string" && dayDetail.playCountUncertain.length > 0,
-      `${lang} should have first-sync playCountUncertain tooltip`,
-    );
-    assert.ok(
-      typeof dayDetail.playCountUnsyncedDate === "string" && dayDetail.playCountUnsyncedDate.length > 0,
-      `${lang} should have unsynced-date playCountUnsyncedDate tooltip`,
-    );
+    for (const key of [
+      "playCountUncertain",
+      "playCountUnsyncedDate",
+      "playTimeUncertain",
+      "playTimeUnsyncedDate",
+      "notesHitUncertain",
+      "notesHitUnsyncedDate",
+    ]) {
+      assert.ok(
+        typeof dayDetail[key] === "string" && dayDetail[key].length > 0,
+        `${lang} should have ${key} tooltip`,
+      );
+    }
   }
 });
 

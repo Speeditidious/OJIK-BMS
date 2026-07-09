@@ -18,7 +18,9 @@ export interface DaySummaryData {
   play_count_uncertain?: boolean;
   play_count_uncertain_reason?: "first_sync" | "unsynced_date" | string | null;
   playtime_uncertain?: boolean;
+  playtime_uncertain_reason?: "first_sync" | "unsynced_date" | string | null;
   notes_hit_uncertain?: boolean;
+  notes_hit_uncertain_reason?: "first_sync" | "unsynced_date" | string | null;
 }
 
 function DayStatCard({
@@ -86,6 +88,14 @@ export function DayStatGrid({ daySummary, className }: DayStatGridProps) {
     daySummary.play_count_uncertain_reason === "unsynced_date"
       ? t("dashboard.dayDetail.playCountUnsyncedDate")
       : t("dashboard.dayDetail.playCountUncertain");
+  const playTimeUncertainTooltip =
+    daySummary.playtime_uncertain_reason === "unsynced_date"
+      ? t("dashboard.dayDetail.playTimeUnsyncedDate")
+      : t("dashboard.dayDetail.playTimeUncertain");
+  const notesHitUncertainTooltip =
+    daySummary.notes_hit_uncertain_reason === "unsynced_date"
+      ? t("dashboard.dayDetail.notesHitUnsyncedDate")
+      : t("dashboard.dayDetail.notesHitUncertain");
 
   return (
     <TooltipProvider>
@@ -128,7 +138,7 @@ export function DayStatGrid({ daySummary, className }: DayStatGridProps) {
           uncertainTooltip={
             daySummary.player_stats_unreliable
               ? t("dashboard.dayDetail.playerStatsUnreliable")
-              : t("dashboard.dayDetail.playTimeUncertain")
+              : playTimeUncertainTooltip
           }
         />
         <DayStatCard
@@ -139,7 +149,7 @@ export function DayStatGrid({ daySummary, className }: DayStatGridProps) {
           uncertainTooltip={
             daySummary.player_stats_unreliable
               ? t("dashboard.dayDetail.playerStatsUnreliable")
-              : t("dashboard.dayDetail.notesHitUncertain")
+              : notesHitUncertainTooltip
           }
         />
       </div>

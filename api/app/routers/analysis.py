@@ -806,7 +806,9 @@ async def _get_day_stats(
         "playtime": total_playtime,
         "notes_hit": total_notes_hit,
         "playtime_uncertain": playtime_uncertain,
+        "playtime_uncertain_reason": uncertain_reason,
         "notes_hit_uncertain": notes_hit_uncertain,
+        "notes_hit_uncertain_reason": uncertain_reason,
         "has_rows": bool(rows),
         "player_stats_unreliable": player_stats_unreliable,
         "player_stats_unreliable_reason": (
@@ -1445,9 +1447,23 @@ async def get_recent_updates(
                 False if is_player_stats_unreliable
                 else (day_stats["playtime_uncertain"] or no_stats_but_has_records)
             ),
+            "playtime_uncertain_reason": (
+                None if is_player_stats_unreliable
+                else (
+                    day_stats.get("playtime_uncertain_reason")
+                    or ("unsynced_date" if no_stats_but_has_records else None)
+                )
+            ),
             "notes_hit_uncertain": (
                 False if is_player_stats_unreliable
                 else (day_stats["notes_hit_uncertain"] or no_stats_but_has_records)
+            ),
+            "notes_hit_uncertain_reason": (
+                None if is_player_stats_unreliable
+                else (
+                    day_stats.get("notes_hit_uncertain_reason")
+                    or ("unsynced_date" if no_stats_but_has_records else None)
+                )
             ),
             "player_stats_unreliable": is_player_stats_unreliable,
             "player_stats_unreliable_reason": day_stats.get("player_stats_unreliable_reason"),
