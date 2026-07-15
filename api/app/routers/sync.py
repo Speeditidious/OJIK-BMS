@@ -12,9 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.models.course import Course
 from app.models.fumen import Fumen
+from app.models.goal import UserGoal
 from app.models.score import UserPlayerStats, UserScore
 from app.models.user import User
+from app.services.goal_evaluator import GoalAchievementCandidate, evaluate_and_mark_achieved
+from app.services.score_row_detail import match_course_from_hash
 from app.utils.score_rank import rank_from_exscore, rate_from_exscore
 
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -608,6 +612,23 @@ async def sync_data(
     if not syncable_scores and not payload.player_stats:
         return SyncResponse(synced_scores=0, skipped_scores=skipped_scores, errors=[])
 
+    # ── Goal achievement detection (Task 10) ────────────────────────────────────
+    # Cheap existence check so the (currently 100%) of users with no goals pay
+    # ~zero cost for this feature — no candidate building, no course lookup.
+    active_goal_count_result = await db.execute(
+        select(func.count(UserGoal.goal_id)).where(
+            UserGoal.user_id == current_user.id,
+            UserGoal.status == "active",
+            UserGoal.deleted_at.is_(None),
+        )
+    )
+    has_active_goals = bool(active_goal_count_result.scalar_one_or_none())
+    achievement_candidates: list[GoalAchievementCandidate] = []
+    # Lazily populated the first time a course item reaches the hook point in
+    # this batch; courses are a small, bounded config-driven table so a single
+    # full-table fetch per sync batch (not per item) is cheap.
+    courses_for_matching: list[Course] | None = None
+
     # ── Bulk pre-fetch per-field bests ──────────────────────────────────────────
     current_bests: dict[tuple, dict[str, Any]] = {}
     same_day_map: dict[tuple, UserScore] = {}
@@ -954,6 +975,39 @@ async def sync_data(
                 entry["_latest_clear_count"] = item.clear_count
                 entry["_latest_scorehash"] = item.scorehash
 
+                # ── Goal achievement candidate (Task 10) ────────────────────
+                # Every code path reaching this point represents an item that
+                # was inserted or improved the stored best (metadata-only
+                # updates and skips `continue` before this line) — so it's the
+                # single correct place to collect achievement candidates.
+                if has_active_goals:
+                    resolved_course_id = None
+                    if is_course:
+                        if courses_for_matching is None:
+                            courses_result = await db.execute(select(Course))
+                            courses_for_matching = list(courses_result.scalars().all())
+                        matched_course = match_course_from_hash(
+                            courses_for_matching, item.fumen_hash_others, item.client_type
+                        )
+                        if matched_course is not None:
+                            resolved_course_id = matched_course.id
+                    if not is_course or resolved_course_id is not None:
+                        achievement_candidates.append(
+                            GoalAchievementCandidate(
+                                user_id=current_user.id,
+                                client_type=item.client_type,
+                                goal_type="course" if is_course else "chart",
+                                fumen_sha256=None if is_course else item.fumen_sha256,
+                                fumen_md5=None if is_course else item.fumen_md5,
+                                course_id=resolved_course_id,
+                                clear_type=item.clear_type,
+                                min_bp=item.min_bp,
+                                rank=rank,
+                                rate=rate,
+                                recorded_at=item.recorded_at or now,
+                            )
+                        )
+
                 synced_scores += 1
             except Exception as e:
                 identifier = item.scorehash or item.fumen_sha256 or item.fumen_md5 or item.fumen_hash_others or "?"
@@ -1067,6 +1121,18 @@ async def sync_data(
             )
         except Exception:
             pass  # Non-fatal: backfill failure must not break sync response
+
+    # Evaluate goal achievement candidates as part of the same transaction as
+    # the score writes above — atomic all-or-nothing with the rest of sync,
+    # and evaluate_and_mark_achieved's own `WHERE status='active'` guard makes
+    # this safe to re-run on a client sync retry (no double-transition).
+    if achievement_candidates:
+        achieved_goal_ids = await evaluate_and_mark_achieved(db, achievement_candidates)
+        if achieved_goal_ids:
+            logger.info(
+                "Sync marked %d goal(s) achieved for user %s",
+                len(achieved_goal_ids), current_user.id,
+            )
 
     await db.commit()
 
