@@ -954,6 +954,8 @@ export const resources = {
             bpIncreaseAria: "BP 증가",
             setGoalButton: "이 값으로 목표 설정",
             openAria: "레이팅 계산기 열기: {{title}}",
+            pickerButtonAria: "차분 검색해서 계산기 열기",
+            pickerTitle: "차분 선택",
           },
         },
         profileHeader: {
@@ -2038,6 +2040,8 @@ export const resources = {
             bpIncreaseAria: "Increase BP",
             setGoalButton: "Set goal with these values",
             openAria: "Open rating calculator: {{title}}",
+            pickerButtonAria: "Search charts to open calculator",
+            pickerTitle: "Select a Chart",
           },
         },
         profileHeader: {
@@ -3122,6 +3126,8 @@ export const resources = {
             bpIncreaseAria: "BP増加",
             setGoalButton: "この値で目標設定",
             openAria: "レーティング計算機を開く: {{title}}",
+            pickerButtonAria: "譜面を検索して計算機を開く",
+            pickerTitle: "譜面を選択",
           },
         },
         profileHeader: {
