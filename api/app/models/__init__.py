@@ -18,6 +18,7 @@ from app.models.fumen import (
     FumenTableEntry,
     UserFumenTag,
 )
+from app.models.goal import UserGoal
 from app.models.issue import (
     Issue,
     IssueComment,
@@ -69,6 +70,7 @@ __all__ = [
     "FumenPopularityWindow",
     "FumenTableEntry",
     "UserFumenTag",
+    "UserGoal",
     "UserScore",
     "UserPlayerStats",
     "Course",

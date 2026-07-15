@@ -33,6 +33,7 @@ from app.models.fumen import (
     FumenTableEntry,
     UserFumenTag,
 )
+from app.models.goal import UserGoal
 from app.models.issue import Issue, IssueComment, IssueTag
 from app.models.notification import (
     Notification,
@@ -897,6 +898,59 @@ class UserScoreAdmin(ModelView, model=UserScore):
     column_sortable_list = [UserScore.recorded_at, UserScore.synced_at, UserScore.rate]
     can_create = False  # Scores must enter through the sync pipeline
     can_delete = False  # Blind deletion would break score continuity
+
+
+class UserGoalAdmin(ModelView, model=UserGoal):
+    name = "User Goal"
+    name_plural = "User Goals"
+    icon = "fa-solid fa-bullseye"
+    column_list = [
+        UserGoal.goal_id,
+        UserGoal.user_id,
+        UserGoal.goal_type,
+        UserGoal.client_type,
+        UserGoal.table_slug,
+        UserGoal.fumen_sha256,
+        UserGoal.fumen_md5,
+        UserGoal.course_id,
+        UserGoal.course_md5_list,
+        UserGoal.target_clear_type,
+        UserGoal.target_min_bp,
+        UserGoal.target_rank,
+        UserGoal.target_rate,
+        UserGoal.projected_rating,
+        UserGoal.comment,
+        UserGoal.status,
+        UserGoal.baseline_snapshot,
+        UserGoal.created_at,
+        UserGoal.achieved_at,
+        UserGoal.achieved_recorded_at,
+        UserGoal.deleted_at,
+    ]
+    column_searchable_list = [
+        UserGoal.goal_id,
+        UserGoal.user_id,
+        UserGoal.goal_type,
+        UserGoal.client_type,
+        UserGoal.table_slug,
+        UserGoal.fumen_sha256,
+        UserGoal.fumen_md5,
+        UserGoal.course_id,
+        UserGoal.status,
+    ]
+    column_sortable_list = [
+        UserGoal.created_at,
+        UserGoal.achieved_at,
+        UserGoal.achieved_recorded_at,
+        UserGoal.status,
+    ]
+    # Achievement state (status/achieved_at/achieved_recorded_at) is only ever
+    # mutated by the goal evaluator service (Task 8) — admins may not create
+    # or hand-edit goals. Delete remains available for moderation, separate
+    # from the user-facing soft-delete flow (future DELETE /goals/{id}).
+    can_create = False
+    can_edit = False
+    can_delete = True
 
 
 class UserPlayerStatsAdmin(ModelView, model=UserPlayerStats):
