@@ -557,6 +557,7 @@ export function DayStatSheet({
                 showRatingInfo={prefs.day_sheet_show_rating_info}
                 ratingOrder={prefs.day_sheet_rating_order}
                 displayMode={prefs.day_sheet_rating_display_mode}
+                isOwner={isOwner}
               />
             ))}
           </div>

@@ -1,9 +1,12 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useRatingBreakdown } from "@/hooks/use-analysis";
 import { RatingExpProgressBar } from "@/components/ranking/RatingExpProgressBar";
 import { RatingContributionGrid } from "@/components/ranking/RatingContributionGrid";
+import { RatingCalculatorDialog } from "@/components/ranking/RatingCalculatorDialog";
+import type { RankingContributionEntry } from "@/lib/ranking-types";
 import { getDayStatRatingContributionEntries } from "@/lib/rating-detail-display-core.mjs";
 import { shouldShowRatingChangeTable } from "@/lib/day-stat-sheet-export-core.mjs";
 import { cn } from "@/lib/utils";
@@ -23,6 +26,8 @@ interface TableRatingChangeSectionProps {
   ratingOrder?: ("exp_info" | "rating_info")[];
   displayMode?: "rating" | "bmsforce" | "exp";
   enabled?: boolean;
+  /** Whether the viewer is the sheet owner — gates write actions (e.g. the calculator's readonly mode). */
+  isOwner?: boolean;
 }
 
 export function TableRatingChangeSection({
@@ -35,9 +40,18 @@ export function TableRatingChangeSection({
   ratingOrder = ["exp_info", "rating_info"],
   displayMode = "rating",
   enabled = true,
+  isOwner = false,
 }: TableRatingChangeSectionProps) {
   const { t } = useTranslation();
   const { data, isLoading } = useRatingBreakdown({ tableSlug, date, userId, enabled });
+
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [calculatorEntry, setCalculatorEntry] = useState<RankingContributionEntry | null>(null);
+
+  const openCalculatorFor = useCallback((entry: RankingContributionEntry) => {
+    setCalculatorEntry(entry);
+    setCalculatorOpen(true);
+  }, []);
 
   if (isLoading) {
     return (
@@ -168,7 +182,35 @@ export function TableRatingChangeSection({
       </h4>
 
       {/* Summary card (floated) + contribution cards flowing beside / below */}
-      <RatingContributionGrid entries={visibleRatingContributions} leadingSlot={summaryCard} />
+      <RatingContributionGrid
+        entries={visibleRatingContributions}
+        leadingSlot={summaryCard}
+        onOpenCalculator={openCalculatorFor}
+      />
+
+      {calculatorEntry && (
+        <RatingCalculatorDialog
+          open={calculatorOpen}
+          onClose={() => setCalculatorOpen(false)}
+          tableSlug={tableSlug}
+          fumen={{
+            sha256: calculatorEntry.sha256,
+            md5: calculatorEntry.md5,
+            level: calculatorEntry.level,
+            title: calculatorEntry.title,
+            artist: calculatorEntry.artist,
+            symbol: calculatorEntry.symbol,
+          }}
+          current={{
+            clearType: calculatorEntry.clear_type,
+            rank: calculatorEntry.rank_grade,
+            minBp: calculatorEntry.min_bp,
+            rate: calculatorEntry.rate,
+          }}
+          clientType={calculatorEntry.client_types[0] ?? "beatoraja"}
+          readonlyMode={!isOwner}
+        />
+      )}
     </div>
   );
 }

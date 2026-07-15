@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { Calculator } from "lucide-react";
 import type { RankingContributionEntry } from "@/lib/ranking-types";
 import {
   formatRatingContributionCardRankLabel,
@@ -69,9 +70,22 @@ const LAMP_ABBR: Record<number, string> = {
 
 interface ContributionCardProps {
   entry: RankingContributionEntry;
+  /**
+   * When provided, the rating-value block becomes clickable and opens the
+   * what-if calculator for this entry. Mirrors the cell-scoped hover
+   * treatment used by `ContributionTable`'s rating cell (entry point 1),
+   * but implemented as an absolutely-positioned overlay button rather than
+   * wrapping the value itself — this component renders inside
+   * `DayStatSheet`'s image-export target, and the button/icon chrome must
+   * not appear in the exported image while the numeric rating value must.
+   * The overlay carries `data-export-exclude` (see `capture-utils.ts`)
+   * so it is dropped from the capture; the value `<div>` beneath it is a
+   * plain sibling and always survives.
+   */
+  onOpenCalculator?: (entry: RankingContributionEntry) => void;
 }
 
-function ContributionCard({ entry }: ContributionCardProps) {
+function ContributionCard({ entry, onOpenCalculator }: ContributionCardProps) {
   const { t } = useTranslation();
 
   const title = fumenTitleText(entry.title, t("common.states.noData"));
@@ -137,10 +151,27 @@ function ContributionCard({ entry }: ContributionCardProps) {
 
           {/* Rating block — uses the same theme-aware tokens as the
               rating-detail table's rating column (handles light + dark). */}
-          <div className="rating-value-cell shrink-0 rounded-[10px] px-3 py-1.5">
-            <span className="text-[21px] font-extrabold tabular-nums leading-none">
-              {ratingInt}
-            </span>
+          <div className="relative shrink-0">
+            <div className="rating-value-cell rounded-[10px] px-3 py-1.5">
+              <span className="text-[21px] font-extrabold tabular-nums leading-none">
+                {ratingInt}
+              </span>
+            </div>
+            {onOpenCalculator && (
+              <button
+                type="button"
+                data-export-exclude
+                data-rating-cell=""
+                className="group absolute inset-0 flex items-center justify-end rounded-[10px] px-3 transition-colors hover:bg-foreground/10 hover:ring-1 hover:ring-inset hover:ring-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenCalculator(entry);
+                }}
+                aria-label={t("ranking.detail.calculator.openAria", { title })}
+              >
+                <Calculator className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -191,9 +222,15 @@ interface RatingContributionGridProps {
    * then flow beside it and reclaim the full width once they pass its bottom.
    */
   leadingSlot?: ReactNode;
+  /**
+   * When provided, each card's rating-value block opens the what-if
+   * calculator for that entry. See `ContributionCard`'s `onOpenCalculator`
+   * doc for the image-export exclusion note.
+   */
+  onOpenCalculator?: (entry: RankingContributionEntry) => void;
 }
 
-export function RatingContributionGrid({ entries, leadingSlot }: RatingContributionGridProps) {
+export function RatingContributionGrid({ entries, leadingSlot, onOpenCalculator }: RatingContributionGridProps) {
   const { t } = useTranslation();
 
   const filtered = useMemo<RankingContributionEntry[]>(
@@ -213,7 +250,7 @@ export function RatingContributionGrid({ entries, leadingSlot }: RatingContribut
     return (
       <div className={cn("grid gap-3", "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4")}>
         {filtered.map((entry, i) => (
-          <ContributionCard key={entry.detail_score_id ?? i} entry={entry} />
+          <ContributionCard key={entry.detail_score_id ?? i} entry={entry} onOpenCalculator={onOpenCalculator} />
         ))}
       </div>
     );
@@ -231,7 +268,7 @@ export function RatingContributionGrid({ entries, leadingSlot }: RatingContribut
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filtered.map((entry, i) => (
-            <ContributionCard key={entry.detail_score_id ?? i} entry={entry} />
+            <ContributionCard key={entry.detail_score_id ?? i} entry={entry} onOpenCalculator={onOpenCalculator} />
           ))}
         </div>
       )}
