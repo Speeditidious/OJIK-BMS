@@ -19,6 +19,7 @@ from app.routers import (
     custom,
     day_notes,
     fumens,
+    goals,
     internal_client_updates,
     issues,
     notifications,
@@ -178,6 +179,7 @@ app.include_router(analysis.router)
 app.include_router(custom.router)
 app.include_router(sync.router)
 app.include_router(schedules.router)
+app.include_router(goals.router)
 app.include_router(rankings.router)
 app.include_router(weeklies.router)
 
