@@ -24,7 +24,9 @@ import { formatRelativeDate } from "@/lib/time";
 import { localeFromLanguage } from "@/lib/i18n/locale";
 
 // CSS variable refs per internal clear_type (0=NO PLAY, 1=FAILED, 2=ASSIST, 3=EASY, 4=NORMAL, 5=HARD, 6=EXHARD, 7=FC, 8=PERFECT, 9=MAX)
-const CLEAR_BADGE_STYLE: Record<number, React.CSSProperties> = {
+// Exported so other clear-lamp UI (e.g. RatingCalculatorDialog's clear segment control) can reuse the same tokens
+// instead of re-deriving them.
+export const CLEAR_BADGE_STYLE: Record<number, React.CSSProperties> = {
   0: { borderColor: "hsl(var(--clear-no-play))", background: "hsl(var(--clear-no-play)/0.4)", color: "hsl(var(--muted-foreground))" },
   1: { borderColor: "hsl(var(--clear-failed)/0.6)", background: "hsl(var(--clear-failed)/0.15)", color: "hsl(var(--clear-failed))" },
   2: { borderColor: "hsl(var(--clear-assist)/0.6)", background: "hsl(var(--clear-assist)/0.2)", color: "hsl(220 20% 9%)" },
