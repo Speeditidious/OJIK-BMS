@@ -426,6 +426,30 @@ async def test_course_baseline_lr2_suffix_match(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_course_baseline_lr2_md5_list_with_hole_still_matches(db_session: AsyncSession):
+    """`match_course_from_hash` (score_row_detail.py) is deliberately lenient
+    for lr2: it drops falsy/None entries from md5_list before joining, and
+    still matches as long as at least one truthy value remains — per
+    table_import.py, per-stage md5/sha256 entries can legitimately be None.
+    `_course_hash_condition` must mirror this exactly, not reject the whole
+    course just because one stage's md5 is missing."""
+    user_id = _uid()
+    course_id = _uid()
+    md5_a, md5_b = "m" * 32, "n" * 32
+    # Hole in the middle of md5_list (e.g. a stage with unknown md5).
+    _add_course(db_session, course_id=course_id, md5_list=[md5_a, None, md5_b], sha256_list=None)
+    # A real sync would only ever combine the truthy stage hashes.
+    course_hash = "headerhash" + md5_a + md5_b
+    _add_score(db_session, user_id=user_id, client_type="lr2", fumen_hash_others=course_hash, clear_type=5, rate=60.0)
+    await db_session.flush()
+
+    baseline = await compute_course_baseline(db_session, user_id, "lr2", course_id)
+
+    assert baseline.clear_type == 5
+    assert baseline.rate == 60.0
+
+
+@pytest.mark.asyncio
 async def test_course_baseline_beatoraja_exact_match(db_session: AsyncSession):
     user_id = _uid()
     course_id = _uid()

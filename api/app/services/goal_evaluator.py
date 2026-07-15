@@ -122,20 +122,22 @@ def _course_hash_condition(course: Course, client_type: str):
     given the course, find the score rows that would have matched it).
 
     - lr2: the score's `fumen_hash_others` is a combined LR2 stage hash that
-      *ends with* "".join(md5_list) — course_hash.endswith(joined) in the
-      reference implementation.
+      *ends with* "".join of the falsy-filtered md5_list — the reference
+      lenient rule is `course_hash.endswith(joined)` where `joined` is built
+      by dropping any None/falsy per-stage entries first (a hole in
+      `md5_list` does not invalidate the match, unlike beatoraja below).
     - beatoraja: the score's `fumen_hash_others` *equals* "".join(sha256_list)
-      exactly.
+      exactly, and requires ALL entries present (strict) in the reference.
 
-    All values in the relevant list must be present (non-empty); otherwise
-    there is no well-defined expected hash for this client_type and this
-    returns ``None`` (caller should treat as "no matching rows").
+    For lr2, returns ``None`` only if no truthy md5 values remain at all.
+    For beatoraja, returns ``None`` if the list is empty or has any hole;
+    there is no well-defined expected hash for this client_type otherwise
+    (caller should treat as "no matching rows").
     """
     if client_type == "lr2":
-        values = list(course.md5_list or [])
-        if not values or not all(values):
+        joined = "".join(value for value in (course.md5_list or []) if value)
+        if not joined:
             return None
-        joined = "".join(values)
         # "%" / "_" are not valid hex-hash characters, so no LIKE-escaping needed.
         return UserScore.fumen_hash_others.like(f"%{joined}")
     if client_type == "beatoraja":
