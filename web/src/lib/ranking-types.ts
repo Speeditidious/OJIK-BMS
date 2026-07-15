@@ -197,3 +197,42 @@ export interface RatingBreakdownResponse {
   rating_total_entries?: number;
   bmsforce_breakdown: BmsforceBreakdown;
 }
+
+/**
+ * Wire (snake_case) shape of `GET /rankings/{table_slug}/calc-params`.
+ * Mirrors `TableRankingConfig`/`BonusConfig`/`LevelOverride` in
+ * `api/app/services/ranking_config.py`. `rank_mult` is already the
+ * effective merged value (global defaults with table overrides applied at
+ * config-load time) — no client-side merge needed.
+ */
+export interface RatingCalcBonusParams {
+  bp_weight: number;
+  rate_weight: number;
+  bp_floor: number;
+  bp_slope: number;
+  /** 0~1 scale (not raw 0-100). */
+  rate_floor: number;
+  rate_slope: number;
+}
+
+export interface RatingCalcLevelOverrideParams {
+  fumen_sha256: string | null;
+  fumen_md5: string | null;
+  lamp_to_level: Record<string, string>;
+  note?: string | null;
+}
+
+export interface RatingCalcParamsResponse {
+  slug: string;
+  top_n: number;
+  max_level: number;
+  exp_level_step: number;
+  config_fingerprint: string;
+  c_table: number;
+  level_weights: Record<string, number>;
+  base_lamp_mult: Record<string, number>;
+  upper_lamp_bonus: Record<string, number>;
+  rank_mult: Record<string, number>;
+  bonus: RatingCalcBonusParams;
+  level_overrides: RatingCalcLevelOverrideParams[];
+}

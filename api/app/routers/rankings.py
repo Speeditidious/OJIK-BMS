@@ -1,5 +1,7 @@
 """Rankings API router."""
 import asyncio
+import hashlib
+import json
 import uuid
 from datetime import date
 from typing import Any
@@ -32,6 +34,10 @@ from app.services.rating_derived_data import (
 router = APIRouter(prefix="/rankings", tags=["rankings"])
 _CONTRIBUTION_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _HISTORY_REBUILD_LOCKS: dict[uuid.UUID, asyncio.Lock] = {}
+# RankingConfig is loaded once at process startup and is immutable for the
+# process lifetime (see _get_config_or_503 usage throughout this file), so
+# the calc-params fingerprint only needs to be computed once per table_slug.
+_CALC_PARAMS_FINGERPRINT_CACHE: dict[str, str] = {}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -143,6 +149,22 @@ def _get_config_or_503() -> RankingConfig:
         raise HTTPException(status_code=503, detail="Ranking config not initialised")
 
 
+def _calc_params_fingerprint(table_slug: str, body: dict[str, Any]) -> str:
+    """Return a stable "sha256:<hex>" fingerprint for a calc-params body.
+
+    Cached per table_slug in a module-level dict (not an LRU — there are
+    only ~10-15 tables) since RankingConfig never changes for the process
+    lifetime, so re-hashing on every request would be wasted work.
+    """
+    cached = _CALC_PARAMS_FINGERPRINT_CACHE.get(table_slug)
+    if cached is not None:
+        return cached
+    serialized = json.dumps(body, sort_keys=True, default=str)
+    fingerprint = "sha256:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    _CALC_PARAMS_FINGERPRINT_CACHE[table_slug] = fingerprint
+    return fingerprint
+
+
 async def _resolve_target_user(
     user_id: uuid.UUID | None,
     current_user: User | None,
@@ -242,6 +264,52 @@ async def get_ranking_display_config() -> dict[str, Any]:
             for emblem in config.bmsforce_emblems
         ]
     }
+
+
+@router.get("/{table_slug}/calc-params")
+async def get_calc_params(table_slug: str) -> dict[str, Any]:
+    """Return the per-table rating-formula config for client-side what-if calculation.
+
+    Pure static calculation config (no user data) — no auth required.
+    `rank_mult` is already the effective merged value (global defaults with
+    table overrides applied at config-load time in ranking_config.py's
+    `load_ranking_config`), so it is returned as-is with no extra merge step.
+    """
+    config = _get_config_or_503()
+    table_cfg = config.get_table_by_slug(table_slug)
+    if table_cfg is None:
+        raise HTTPException(status_code=404, detail=f"Table '{table_slug}' not found")
+
+    body: dict[str, Any] = {
+        "slug": table_cfg.slug,
+        "top_n": table_cfg.top_n,
+        "max_level": table_cfg.max_level,
+        "exp_level_step": config.exp_level_step,
+        "c_table": table_cfg.c_table,
+        "level_weights": table_cfg.level_weights,
+        "base_lamp_mult": table_cfg.base_lamp_mult,
+        "upper_lamp_bonus": table_cfg.upper_lamp_bonus,
+        "rank_mult": table_cfg.rank_mult,
+        "bonus": {
+            "bp_weight": table_cfg.bonus.bp_weight,
+            "rate_weight": table_cfg.bonus.rate_weight,
+            "bp_floor": table_cfg.bonus.bp_floor,
+            "bp_slope": table_cfg.bonus.bp_slope,
+            "rate_floor": table_cfg.bonus.rate_floor,
+            "rate_slope": table_cfg.bonus.rate_slope,
+        },
+        "level_overrides": [
+            {
+                "fumen_sha256": override.fumen_sha256,
+                "fumen_md5": override.fumen_md5,
+                "lamp_to_level": override.lamp_to_level,
+                "note": override.note,
+            }
+            for override in table_cfg.level_overrides
+        ],
+    }
+    body["config_fingerprint"] = _calc_params_fingerprint(table_slug, body)
+    return body
 
 
 # ── GET /rankings/{table_slug} ────────────────────────────────────────────────
