@@ -65,7 +65,13 @@ export function RatingDetailSection({
   const router = useRouter();
   const pathname = usePathname();
 
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [calculatorEntry, setCalculatorEntry] = useState<RankingContributionEntry | null>(null);
+
+  const openCalculatorFor = useCallback((entry: RankingContributionEntry) => {
+    setCalculatorEntry(entry);
+    setCalculatorOpen(true);
+  }, []);
 
   const ratingAsOf = searchParams.get(P_RATING_AS_OF);
 
@@ -239,12 +245,12 @@ export function RatingDetailSection({
             presentation={scope === "top" ? "rating-detail" : "default"}
             userId={userId ?? undefined}
             asOf={ratingAsOf}
-            onOpenCalculator={setCalculatorEntry}
+            onOpenCalculator={openCalculatorFor}
           />
           {calculatorEntry && (
             <RatingCalculatorDialog
-              open={!!calculatorEntry}
-              onClose={() => setCalculatorEntry(null)}
+              open={calculatorOpen}
+              onClose={() => setCalculatorOpen(false)}
               tableSlug={selectedTableSlug!}
               fumen={{
                 sha256: calculatorEntry.sha256,
