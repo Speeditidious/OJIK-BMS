@@ -52,7 +52,7 @@ function getClientLabels(clientType: string) {
   return CLEAR_TYPE_LABELS;
 }
 
-interface RatingCalculatorDialogProps {
+export interface RatingCalculatorDialogProps {
   open: boolean;
   onClose: () => void;
   tableSlug: string;
@@ -381,7 +381,7 @@ export function RatingCalculatorDialog({
                 {t("common.fields.rank")}
               </span>
               <span className="text-caption text-muted-foreground">
-                {t("ranking.detail.calculator.current")}: {effectiveCurrentRank}
+                {t("ranking.detail.calculator.current")}: {current.rank ?? "-"}
               </span>
             </div>
             <div className="flex flex-wrap gap-1.5">
