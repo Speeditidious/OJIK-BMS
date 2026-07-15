@@ -984,7 +984,9 @@ async def sync_data(
                     resolved_course_id = None
                     if is_course:
                         if courses_for_matching is None:
-                            courses_result = await db.execute(select(Course))
+                            courses_result = await db.execute(
+                                select(Course).where(Course.is_active.is_(True))
+                            )
                             courses_for_matching = list(courses_result.scalars().all())
                         matched_course = match_course_from_hash(
                             courses_for_matching, item.fumen_hash_others, item.client_type

@@ -201,6 +201,7 @@ async def _add_course(
     *,
     md5_list: list | None = None,
     sha256_list: list | None = None,
+    is_active: bool = True,
 ) -> Course:
     course = Course(
         id=uuid.uuid4(),
@@ -208,7 +209,7 @@ async def _add_course(
         md5_list=md5_list or [],
         sha256_list=sha256_list,
         constraint=[],
-        is_active=True,
+        is_active=is_active,
         dan_title="Test Dan",
         synced_at=datetime(2026, 6, 1, tzinfo=UTC),
     )
@@ -517,6 +518,53 @@ async def test_course_goal_achieved_lr2_suffix_match(db_session: AsyncSession):
 
     # LR2 course hash: a header hash prefix + the joined stage md5s (see
     # score_row_detail.match_course_from_hash's lr2 suffix rule).
+    course_hash = "headerhash" + md5_a + md5_b
+    payload = SyncRequest(
+        scores=[
+            ScoreSyncItem(
+                fumen_hash_others=course_hash,
+                client_type="lr2",
+                clear_type=6,
+                recorded_at=datetime(2026, 6, 5, tzinfo=UTC),
+            )
+        ],
+        player_stats=[],
+    )
+
+    result = await _sync(payload, user, db_session)
+
+    assert result.synced_scores == 1
+    assert await _goal_status(db_session, goal_id) == "achieved"
+
+
+@pytest.mark.asyncio
+async def test_course_goal_resolves_to_active_course_not_retired_duplicate(db_session: AsyncSession):
+    """When a retired (is_active=False) Course row and the current active
+    Course row share the same md5_list (e.g. after a table re-import
+    deactivated the old row and created a new one for the same course),
+    the course-fetch used for goal-achievement matching must only consider
+    active rows. Otherwise `match_course_from_hash` can resolve to the
+    stale row's id, which never equals the goal's `course_id`, and a
+    legitimately-achieving sync silently fails to mark the goal achieved.
+    """
+    user = _user()
+    md5_a, md5_b = "m" * 32, "n" * 32
+
+    # Retired row inserted first so an unfiltered fetch would encounter it
+    # before the active row (match_course_from_hash returns the first hit).
+    retired_course = await _add_course(
+        db_session, md5_list=[md5_a, md5_b], sha256_list=None, is_active=False,
+    )
+    active_course = await _add_course(
+        db_session, md5_list=[md5_a, md5_b], sha256_list=None, is_active=True,
+    )
+    assert retired_course.id != active_course.id
+
+    goal_id = await _add_goal(
+        db_session, user_id=user.id, goal_type="course", client_type="lr2",
+        course_id=active_course.id, target_clear_type=5,
+    )
+
     course_hash = "headerhash" + md5_a + md5_b
     payload = SyncRequest(
         scores=[
