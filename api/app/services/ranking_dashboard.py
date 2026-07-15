@@ -40,6 +40,7 @@ RANK_GRADE_ORDER = {
     "AA": 6,
     "AAA": 7,
     "MAX-": 8,
+    "MAX": 9,
 }
 
 

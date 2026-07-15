@@ -68,7 +68,7 @@ class UserRecord:
     improved: bool
 
 
-_RANK_ORDER = {"F": 0, "E": 1, "D": 2, "C": 3, "B": 4, "A": 5, "AA": 6, "AAA": 7, "MAX-": 8}
+_RANK_ORDER = {"F": 0, "E": 1, "D": 2, "C": 3, "B": 4, "A": 5, "AA": 6, "AAA": 7, "MAX-": 8, "MAX": 9}
 CANDIDATE_SORT_KEYS = {"clear", "bp", "rate", "score", "plays"}
 
 

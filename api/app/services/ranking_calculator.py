@@ -41,7 +41,7 @@ CLEAR_TYPE_TO_LAMP_NAME: dict[int | None, str] = {
     9:    "MAX",
 }
 
-RANK_ORDER = ["F", "E", "D", "C", "B", "A", "AA", "AAA", "MAX-"]
+RANK_ORDER = ["F", "E", "D", "C", "B", "A", "AA", "AAA", "MAX-", "MAX"]
 
 
 # ── Core data structures ──────────────────────────────────────────────────────
@@ -113,7 +113,7 @@ def _base(level: str, lamp: str, rank: str, cfg: TableRankingConfig) -> float:
     level_weight = cfg.level_weights.get(level)
     if level_weight is None:
         return 0.0
-    rank_multiplier_key = "AAA" if rank == "MAX-" else rank
+    rank_multiplier_key = "AAA" if rank in {"MAX", "MAX-"} else rank
     return (
         cfg.base_lamp_mult[lamp]
         * cfg.rank_mult.get(rank_multiplier_key, 0.0)

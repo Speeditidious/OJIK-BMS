@@ -203,7 +203,7 @@ def _build_score_agg_subquery(user_id: _uuid.UUID) -> Any:
         else_=UserScore.clear_type,
     )
     rank_order = case(
-        {"MAX-": 10, "AAA": 9, "AA": 8, "A": 7, "B": 6, "C": 5, "D": 4, "E": 3, "F": 2},
+        {"MAX": 11, "MAX-": 10, "AAA": 9, "AA": 8, "A": 7, "B": 6, "C": 5, "D": 4, "E": 3, "F": 2},
         value=UserScore.rank,
         else_=1,
     )
@@ -300,7 +300,7 @@ def _build_field_condition(
         if q.upper() not in RANK_VALUES:
             return None
         if score_agg is not None:
-            rank_value = {"MAX-": 10, "AAA": 9, "AA": 8, "A": 7, "B": 6, "C": 5, "D": 4, "E": 3, "F": 2}[q.upper()]
+            rank_value = {"MAX": 11, "MAX-": 10, "AAA": 9, "AA": 8, "A": 7, "B": 6, "C": 5, "D": 4, "E": 3, "F": 2}[q.upper()]
             return score_agg.c.rank_order == rank_value
         return _score_exists_cond(user.id, UserScore.rank == q.upper())
 

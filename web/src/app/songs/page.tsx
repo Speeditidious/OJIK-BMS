@@ -46,7 +46,7 @@ const TEXT_SEARCH_FIELDS = new Set<FumenSearchField>(["title_artist", "title", "
 
 const ENUM_OPTIONS: Partial<Record<FumenSearchField, readonly string[]>> = {
   clear:  ["MAX", "PERFECT", "FC", "EXHARD", "HARD", "NORMAL", "EASY", "ASSIST", "FAILED", "NO PLAY"],
-  rank:   ["MAX-", "AAA", "AA", "A", "B", "C", "D", "E", "F"],
+  rank:   ["MAX", "MAX-", "AAA", "AA", "A", "B", "C", "D", "E", "F"],
   option: ["正", "鏡", "乱", "R乱", "S乱", "螺", "H乱", "全皿", "EX乱", "EXS乱"],
   env:    ["LR", "BR"],
 };

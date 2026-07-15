@@ -53,7 +53,7 @@ function formatLevel(level: string, tableSymbol?: string): string {
 type SortKey = "level" | "title" | "recorded_at" | "ex_score" | "rate" | "rank" | "min_bp" | "clear_type" | "plays" | "option";
 type SortDir = "asc" | "desc";
 const RANK_ORDER: Record<string, number> = {
-  "MAX-": 9, AAA: 8, AA: 7, A: 6, B: 5, C: 4, D: 3, E: 2, F: 1,
+  MAX: 10, "MAX-": 9, AAA: 8, AA: 7, A: 6, B: 5, C: 4, D: 3, E: 2, F: 1,
 };
 
 // BMS title sort convention:

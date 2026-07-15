@@ -36,6 +36,7 @@ const RANK_GRADE_ORDER: Record<string, number> = {
   AA: 6,
   AAA: 7,
   "MAX-": 8,
+  MAX: 9,
 };
 
 interface ContributionTableProps {

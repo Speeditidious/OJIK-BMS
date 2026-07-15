@@ -39,7 +39,7 @@ interface TableDetailProps {
 const handleTableCopy = makeTableCopyHandler(1); // col 0=Level, col 1=Title/Artist
 
 const RANK_ORDER: Record<string, number> = {
-  "MAX-": 9, AAA: 8, AA: 7, A: 6, B: 5, C: 4, D: 3, E: 2, F: 1,
+  MAX: 10, "MAX-": 9, AAA: 8, AA: 7, A: 6, B: 5, C: 4, D: 3, E: 2, F: 1,
 };
 
 export function TableDetail({ tableId, isLoggedIn, selectedLevel, onLevelChange }: TableDetailProps) {

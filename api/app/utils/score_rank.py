@@ -6,6 +6,7 @@ import math
 from typing import Any
 
 RANK_THRESHOLDS: tuple[tuple[str, int], ...] = (
+    ("MAX", 18),
     ("MAX-", 17),
     ("AAA", 16),
     ("AA", 14),

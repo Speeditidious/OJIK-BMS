@@ -30,7 +30,7 @@ const CLEAR_TYPE_COLOR: Record<number, string> = {
 const RANK_COLOR: Record<string, string> = {
   F: "hsl(var(--clear-no-play))", E: "hsl(var(--clear-failed))", D: "hsl(var(--clear-assist))",
   C: "hsl(var(--clear-easy))", B: "hsl(var(--clear-normal))", A: "hsl(27 65% 55%)",
-  AA: "hsl(220 15% 72%)", AAA: "hsl(46 80% 60%)", "MAX-": "hsl(330 65% 78%)",
+  AA: "hsl(220 15% 72%)", AAA: "hsl(46 80% 60%)", "MAX-": "hsl(330 65% 78%)", MAX: "hsl(var(--clear-max))",
 };
 
 function ClearTypeGroupHeader({ label, count, ct, colSpan = 4 }: { label: string; count: number; ct: number; colSpan?: number }) {

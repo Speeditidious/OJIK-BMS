@@ -4,6 +4,7 @@
 
 /** @type {Record<string, number>} */
 export const RANK_SORT_ORDER = {
+  MAX: -2,
   "MAX-": -1,
   AAA: 0,
   AA: 1,
@@ -24,6 +25,7 @@ export function formatScoreRankLabel(rank, maxMinusScore) {
 }
 
 export function rankClassToken(rank) {
+  if (rank === "MAX") return "MAX";
   if (rank === "MAX-") return "MAX-minus";
   return rank ?? "F";
 }

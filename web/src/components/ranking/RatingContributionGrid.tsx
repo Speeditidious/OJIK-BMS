@@ -43,6 +43,7 @@ const RANK_COLOR: Record<string, string> = {
   AA: "hsl(220 15% 72%)",
   AAA: "hsl(46 80% 60%)",
   "MAX-": "hsl(330 65% 78%)",
+  MAX: "hsl(var(--clear-max))",
 };
 
 function rankColor(rank: string | null): string {
