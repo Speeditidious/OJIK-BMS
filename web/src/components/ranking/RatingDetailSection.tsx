@@ -9,6 +9,7 @@ import { useRankingContributionRows } from "@/hooks/use-rankings";
 import { useCalendarActivityDots } from "@/hooks/use-analysis";
 import type {
   MyRankData,
+  RankingContributionEntry,
   RankingTableConfig,
   RatingContributionScope,
   RatingContributionSortBy,
@@ -20,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { RankingTableSelector } from "./RankingTableSelector";
 import { RatingProfileHeader } from "./RatingProfileHeader";
 import { ContributionTable } from "./ContributionTable";
+import { RatingCalculatorDialog } from "./RatingCalculatorDialog";
 import { SnapshotDatePicker } from "@/components/dashboard/SnapshotDatePicker";
 
 const P_RATING_AS_OF = "rating_asof";
@@ -38,6 +40,8 @@ interface RatingDetailSectionProps {
   sortDir: "asc" | "desc";
   onSortChange: (sortBy: RatingContributionSortBy, sortDir: "asc" | "desc") => void;
   enabled?: boolean;
+  /** Whether the viewer is the profile owner — gates write actions (e.g. the calculator's readonly mode). */
+  isOwner: boolean;
 }
 
 export function RatingDetailSection({
@@ -54,11 +58,14 @@ export function RatingDetailSection({
   sortDir,
   onSortChange,
   enabled = true,
+  isOwner,
 }: RatingDetailSectionProps) {
   const { t } = useTranslation();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+
+  const [calculatorEntry, setCalculatorEntry] = useState<RankingContributionEntry | null>(null);
 
   const ratingAsOf = searchParams.get(P_RATING_AS_OF);
 
@@ -232,7 +239,31 @@ export function RatingDetailSection({
             presentation={scope === "top" ? "rating-detail" : "default"}
             userId={userId ?? undefined}
             asOf={ratingAsOf}
+            onOpenCalculator={setCalculatorEntry}
           />
+          {calculatorEntry && (
+            <RatingCalculatorDialog
+              open={!!calculatorEntry}
+              onClose={() => setCalculatorEntry(null)}
+              tableSlug={selectedTableSlug!}
+              fumen={{
+                sha256: calculatorEntry.sha256,
+                md5: calculatorEntry.md5,
+                level: calculatorEntry.level,
+                title: calculatorEntry.title,
+                artist: calculatorEntry.artist,
+                symbol: calculatorEntry.symbol,
+              }}
+              current={{
+                clearType: calculatorEntry.clear_type,
+                rank: calculatorEntry.rank_grade,
+                minBp: calculatorEntry.min_bp,
+                rate: calculatorEntry.rate,
+              }}
+              clientType={calculatorEntry.client_types[0] ?? "beatoraja"}
+              readonlyMode={!isOwner}
+            />
+          )}
         </>
       ) : tables.length > 0 ? (
         <div className="rounded-xl border border-dashed border-border px-6 py-10 text-center text-body text-muted-foreground">

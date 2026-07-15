@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { Calculator } from "lucide-react";
 import { clearText } from "@/components/dashboard/RecentActivity";
 import { RecordedAtCell } from "@/components/common/RecordedAtCell";
 import { UnavailableValue } from "@/components/common/UnavailableValue";
@@ -60,6 +61,13 @@ interface ContributionTableProps {
   presentation?: "default" | "day-detail" | "rating-detail";
   userId?: string;
   asOf?: string | null;
+  /**
+   * When provided (and `metric === "rating"`), clicking the rating value
+   * cell opens the what-if calculator for that entry instead of toggling
+   * the row's expanded detail. Only wired in the plain (non-`SectionCard`)
+   * row-rendering path — see `RatingDetailSection.tsx`.
+   */
+  onOpenCalculator?: (entry: RankingContributionEntry) => void;
 }
 
 type SectionKey = "kept" | "entered" | "dropped";
@@ -593,6 +601,7 @@ function ContributionRow({
   asOf,
   isExpanded,
   onToggle,
+  onOpenCalculator,
 }: {
   entry: RankingContributionEntry;
   metric: RatingContributionMetric;
@@ -603,6 +612,7 @@ function ContributionRow({
   asOf?: string | null;
   isExpanded?: boolean;
   onToggle?: () => void;
+  onOpenCalculator?: (entry: RankingContributionEntry) => void;
 }) {
   const { t } = useTranslation();
   const songUrl = entry.sha256 || entry.md5
@@ -654,12 +664,35 @@ function ContributionRow({
     if (column.key === "arrangement") {
       return <ArrangementCell entry={entry} />;
     }
+    if (column.key === "value" && onOpenCalculator && metric === "rating") {
+      return (
+        <button
+          type="button"
+          data-rating-cell=""
+          className="group flex h-full w-full items-center justify-center gap-1 px-3 transition-colors hover:bg-foreground/10 hover:ring-1 hover:ring-inset hover:ring-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenCalculator(entry);
+          }}
+          aria-label={t("ranking.detail.calculator.openAria", { title: displayTitle })}
+        >
+          <Calculator className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+          <ValueCell entry={entry} metric={metric} section={section} presentation={presentation} />
+        </button>
+      );
+    }
     return <ValueCell entry={entry} metric={metric} section={section} presentation={presentation} />;
   }
 
   function cellClassName(column: TableColumn): string {
     if (column.key === "title") return "px-2";
-    if (column.key === "value") return "rating-value-cell px-3 text-center w-32 font-bold tabular-nums text-base";
+    if (column.key === "value") {
+      const isInteractive = !!onOpenCalculator && metric === "rating";
+      return cn(
+        "rating-value-cell text-center w-32 font-bold tabular-nums text-base",
+        isInteractive ? "p-0" : "px-3",
+      );
+    }
     return cn(
       "px-2 text-label",
       (column.key === "rank" || column.key === "recorded_at") && "tabular-nums",
@@ -854,6 +887,7 @@ export function ContributionTable({
   presentation = "default",
   userId,
   asOf,
+  onOpenCalculator,
 }: ContributionTableProps) {
   const { t } = useTranslation();
   const parentRef = useRef<HTMLDivElement | null>(null);
@@ -1048,6 +1082,7 @@ export function ContributionTable({
                 asOf={asOf}
                 isExpanded={expandedKeys.has(entryKey)}
                 onToggle={() => toggleEntry(entryKey)}
+                onOpenCalculator={onOpenCalculator}
               />
             })}
             {shouldVirtualize && paddingBottom > 0 && (

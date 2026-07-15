@@ -746,6 +746,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
               sortDir={ratingDir}
               onSortChange={(sortBy, sortDir) => updateParams({ rating_sort: sortBy, rating_dir: sortDir })}
               enabled={showRatingOverview}
+              isOwner={isOwner}
             />
           </TabsContent>
 

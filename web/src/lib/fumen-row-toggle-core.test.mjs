@@ -14,3 +14,4 @@ assert.equal(shouldToggleFumenRow({ closest: () => null }), true);
 assert.equal(shouldToggleFumenRow(targetMatching("a")), false);
 assert.equal(shouldToggleFumenRow(targetMatching("button")), false);
 assert.equal(shouldToggleFumenRow(targetMatching("[data-state]")), true);
+assert.equal(shouldToggleFumenRow(targetMatching("[data-rating-cell]")), false);
