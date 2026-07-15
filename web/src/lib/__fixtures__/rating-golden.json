@@ -1,0 +1,712 @@
+{
+  "meta": {
+    "pythonSource": "api/app/services/ranking_calculator.py",
+    "note": "Golden fixture — regenerate via `conda run -n ojik_bms python3 api/scripts/dump_rating_fixtures.py` whenever the formula changes."
+  },
+  "configs": {
+    "aery_like": {
+      "cTable": 52.854122621564485,
+      "levelWeights": {
+        "LEVEL 1": 0.5,
+        "LEVEL 2": 1.0,
+        "LEVEL 3": 1.5,
+        "LEVEL 4": 2.0,
+        "LEVEL 5": 2.5,
+        "LEVEL 6": 3.0,
+        "LEVEL 7": 3.5,
+        "LEVEL 8": 4.0,
+        "LEVEL 9": 4.5,
+        "LEVEL 10": 5.0,
+        "LEVEL 11": 5.5,
+        "LEVEL 12": 6.0,
+        "LEVEL 13": 7.0,
+        "LEVEL 14": 8.0,
+        "LEVEL 15": 9.0,
+        "LEVEL 15+": 10.0,
+        "LEVEL 16": 11.0,
+        "LEVEL 16+": 12.0,
+        "LEVEL 17": 13.0,
+        "LEVEL 17+": 14.0,
+        "LEVEL 18": 15.0,
+        "LEVEL 18+": 16.0,
+        "LEVEL 19": 17.0,
+        "LEVEL 19+": 18.0,
+        "LEVEL 20": 20.0,
+        "LEVEL 20+": 22.0
+      },
+      "baseLampMult": {
+        "NOPLAY": 0.0,
+        "FAILED": 0.1,
+        "ASSIST": 0.1,
+        "EASY": 0.5,
+        "NORMAL": 0.6,
+        "HARD": 1.0,
+        "EXHARD": 1.0,
+        "FC": 1.0,
+        "PERFECT": 1.0,
+        "MAX": 1.0
+      },
+      "upperLampBonus": {
+        "NOPLAY": 0.0,
+        "FAILED": 0.0,
+        "ASSIST": 0.0,
+        "EASY": 0.0,
+        "NORMAL": 0.0,
+        "HARD": 0.0,
+        "EXHARD": 0.0,
+        "FC": 3.1,
+        "PERFECT": 3.1,
+        "MAX": 3.1
+      },
+      "rankMult": {
+        "F": 0.0,
+        "E": 0.1,
+        "D": 0.3,
+        "C": 0.5,
+        "B": 0.8,
+        "A": 1.0,
+        "AA": 1.04,
+        "AAA": 1.08
+      },
+      "bonus": {
+        "bpWeight": 0.2,
+        "rateWeight": 0.4,
+        "bpFloor": 100.0,
+        "bpSlope": 1.0,
+        "rateFloor": 0.7,
+        "rateSlope": 1.0
+      },
+      "levelOverrides": []
+    },
+    "overjoy_like": {
+      "cTable": 90.9090909090909,
+      "levelWeights": {
+        "0": 2.0,
+        "1": 2.0,
+        "2": 4.0,
+        "3": 6.0,
+        "4": 8.0,
+        "5": 11.0,
+        "6": 14.0,
+        "7": 17.0,
+        "8": 20.0
+      },
+      "baseLampMult": {
+        "NOPLAY": 0.0,
+        "FAILED": 0.1,
+        "ASSIST": 0.1,
+        "EASY": 1.0,
+        "NORMAL": 1.0,
+        "HARD": 1.0,
+        "EXHARD": 1.0,
+        "FC": 1.0,
+        "PERFECT": 1.0,
+        "MAX": 1.0
+      },
+      "upperLampBonus": {
+        "NOPLAY": 0.0,
+        "FAILED": 0.0,
+        "ASSIST": 0.0,
+        "EASY": 0.0,
+        "NORMAL": 0.6,
+        "HARD": 2.6,
+        "EXHARD": 2.6,
+        "FC": 5.6,
+        "PERFECT": 5.6,
+        "MAX": 5.6
+      },
+      "rankMult": {
+        "F": 0.0,
+        "E": 0.1,
+        "D": 0.3,
+        "C": 0.5,
+        "B": 0.8,
+        "A": 1.0,
+        "AA": 1.04,
+        "AAA": 1.08
+      },
+      "bonus": {
+        "bpWeight": 0.15,
+        "rateWeight": 0.4,
+        "bpFloor": 150.0,
+        "bpSlope": 1.0,
+        "rateFloor": 0.7,
+        "rateSlope": 1.0
+      },
+      "levelOverrides": [
+        {
+          "fumenSha256": "63eeb491ad5ad123df92b74ace3b65b9c6f2ec68e002f908b886cc5016c38310",
+          "fumenMd5": "c569481923194f107186148d48584351",
+          "lampToLevel": {
+            "HARD": "4",
+            "EXHARD": "4",
+            "FC": "5",
+            "PERFECT": "5"
+          },
+          "note": "Human Sacrifice Halt (HARD clear counts as level 4, FC+ as level 5)"
+        },
+        {
+          "fumenSha256": null,
+          "fumenMd5": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "lampToLevel": {
+            "NORMAL": "3",
+            "HARD": "4"
+          },
+          "note": "LR2-only test fixture override (md5-only match)"
+        }
+      ]
+    }
+  },
+  "resolveLevelCases": [
+    {
+      "description": "sha256-matched override hits (Beatoraja fumen, md5 absent)",
+      "configKey": "overjoy_like",
+      "fumenSha256": "63eeb491ad5ad123df92b74ace3b65b9c6f2ec68e002f908b886cc5016c38310",
+      "fumenMd5": null,
+      "lamp": "HARD",
+      "originalLevel": "3",
+      "expectedLevel": "4"
+    },
+    {
+      "description": "md5-only match hits (LR2 fumen, sha256 absent) — same override as sha256 case",
+      "configKey": "overjoy_like",
+      "fumenSha256": null,
+      "fumenMd5": "c569481923194f107186148d48584351",
+      "lamp": "HARD",
+      "originalLevel": "3",
+      "expectedLevel": "4"
+    },
+    {
+      "description": "LR2-only override entry (fumen_sha256=None in the override itself) matches by md5",
+      "configKey": "overjoy_like",
+      "fumenSha256": null,
+      "fumenMd5": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lamp": "NORMAL",
+      "originalLevel": "2",
+      "expectedLevel": "3"
+    },
+    {
+      "description": "no matching override (unknown hashes) → falls back to original_level",
+      "configKey": "overjoy_like",
+      "fumenSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "fumenMd5": "00000000000000000000000000000000",
+      "lamp": "HARD",
+      "originalLevel": "3",
+      "expectedLevel": "3"
+    },
+    {
+      "description": "override matched but lamp not in lamp_to_level → falls back to original_level",
+      "configKey": "overjoy_like",
+      "fumenSha256": "63eeb491ad5ad123df92b74ace3b65b9c6f2ec68e002f908b886cc5016c38310",
+      "fumenMd5": "c569481923194f107186148d48584351",
+      "lamp": "EASY",
+      "originalLevel": "3",
+      "expectedLevel": "3"
+    }
+  ],
+  "songRatingCases": [
+    {
+      "description": "lamp coverage: NOPLAY",
+      "configKey": "aery_like",
+      "level": "LEVEL 10",
+      "lamp": "NOPLAY",
+      "rank": "A",
+      "bp": 50,
+      "rate": 80.0,
+      "expectedSongRating": 0.0
+    },
+    {
+      "description": "lamp coverage: FAILED",
+      "configKey": "aery_like",
+      "level": "LEVEL 10",
+      "lamp": "FAILED",
+      "rank": "A",
+      "bp": 50,
+      "rate": 80.0,
+      "expectedSongRating": 36.99788583509515
+    },
+    {
+      "description": "lamp coverage: ASSIST",
+      "configKey": "aery_like",
+      "level": "LEVEL 10",
+      "lamp": "ASSIST",
+      "rank": "A",
+      "bp": 50,
+      "rate": 80.0,
+      "expectedSongRating": 36.99788583509515
+    },
+    {
+      "description": "lamp coverage: EASY",
+      "configKey": "aery_like",
+      "level": "LEVEL 10",
+      "lamp": "EASY",
+      "rank": "A",
+      "bp": 50,
+      "rate": 80.0,
+      "expectedSongRating": 142.70613107822413
+    },
+    {
+      "description": "lamp coverage: NORMAL",
+      "configKey": "aery_like",
+      "level": "LEVEL 10",
+      "lamp": "NORMAL",
+      "rank": "A",
+      "bp": 50,
+      "rate": 80.0,
+      "expectedSongRating": 169.13319238900635
+    },
+    {
+      "description": "lamp coverage: HARD",
+      "configKey": "aery_like",
+      "level": "LEVEL 10",
+      "lamp": "HARD",
+      "rank": "A",
+      "bp": 50,
+      "rate": 80.0,
+      "expectedSongRating": 274.84143763213535
+    },
+    {
+      "description": "lamp coverage: EXHARD",
+      "configKey": "aery_like",
+      "level": "LEVEL 10",
+      "lamp": "EXHARD",
+      "rank": "A",
+      "bp": 50,
+      "rate": 80.0,
+      "expectedSongRating": 274.84143763213535
+    },
+    {
+      "description": "lamp coverage: FC",
+      "configKey": "aery_like",
+      "level": "LEVEL 10",
+      "lamp": "FC",
+      "rank": "A",
+      "bp": 50,
+      "rate": 80.0,
+      "expectedSongRating": 443.9746300211417
+    },
+    {
+      "description": "lamp coverage: PERFECT",
+      "configKey": "aery_like",
+      "level": "LEVEL 10",
+      "lamp": "PERFECT",
+      "rank": "A",
+      "bp": 50,
+      "rate": 80.0,
+      "expectedSongRating": 443.9746300211417
+    },
+    {
+      "description": "lamp coverage: MAX",
+      "configKey": "aery_like",
+      "level": "LEVEL 10",
+      "lamp": "MAX",
+      "rank": "A",
+      "bp": 50,
+      "rate": 80.0,
+      "expectedSongRating": 443.9746300211417
+    },
+    {
+      "description": "rank coverage: F",
+      "configKey": "aery_like",
+      "level": "LEVEL 15",
+      "lamp": "HARD",
+      "rank": "F",
+      "bp": 30,
+      "rate": 85.0,
+      "expectedSongRating": 18.9629241664507
+    },
+    {
+      "description": "rank coverage: E",
+      "configKey": "aery_like",
+      "level": "LEVEL 15",
+      "lamp": "HARD",
+      "rank": "E",
+      "bp": 30,
+      "rate": 85.0,
+      "expectedSongRating": 66.53163452585873
+    },
+    {
+      "description": "rank coverage: D",
+      "configKey": "aery_like",
+      "level": "LEVEL 15",
+      "lamp": "HARD",
+      "rank": "D",
+      "bp": 30,
+      "rate": 85.0,
+      "expectedSongRating": 161.6690552446748
+    },
+    {
+      "description": "rank coverage: C",
+      "configKey": "aery_like",
+      "level": "LEVEL 15",
+      "lamp": "HARD",
+      "rank": "C",
+      "bp": 30,
+      "rate": 85.0,
+      "expectedSongRating": 256.8064759634909
+    },
+    {
+      "description": "rank coverage: B",
+      "configKey": "aery_like",
+      "level": "LEVEL 15",
+      "lamp": "HARD",
+      "rank": "B",
+      "bp": 30,
+      "rate": 85.0,
+      "expectedSongRating": 399.512607041715
+    },
+    {
+      "description": "rank coverage: A",
+      "configKey": "aery_like",
+      "level": "LEVEL 15",
+      "lamp": "HARD",
+      "rank": "A",
+      "bp": 30,
+      "rate": 85.0,
+      "expectedSongRating": 494.6500277605311
+    },
+    {
+      "description": "rank coverage: AA",
+      "configKey": "aery_like",
+      "level": "LEVEL 15",
+      "lamp": "HARD",
+      "rank": "AA",
+      "bp": 30,
+      "rate": 85.0,
+      "expectedSongRating": 513.6775119042943
+    },
+    {
+      "description": "rank coverage: AAA",
+      "configKey": "aery_like",
+      "level": "LEVEL 15",
+      "lamp": "HARD",
+      "rank": "AAA",
+      "bp": 30,
+      "rate": 85.0,
+      "expectedSongRating": 532.7049960480575
+    },
+    {
+      "description": "rank coverage: MAX-",
+      "configKey": "aery_like",
+      "level": "LEVEL 15",
+      "lamp": "HARD",
+      "rank": "MAX-",
+      "bp": 30,
+      "rate": 85.0,
+      "expectedSongRating": 532.7049960480575
+    },
+    {
+      "description": "rank coverage: MAX",
+      "configKey": "aery_like",
+      "level": "LEVEL 15",
+      "lamp": "HARD",
+      "rank": "MAX",
+      "bp": 30,
+      "rate": 85.0,
+      "expectedSongRating": 532.7049960480575
+    },
+    {
+      "description": "bp spread (aery_like, floor=100): bp=0",
+      "configKey": "aery_like",
+      "level": "LEVEL 12",
+      "lamp": "HARD",
+      "rank": "AA",
+      "bp": 0,
+      "rate": 75.0,
+      "expectedSongRating": 341.7967716301857
+    },
+    {
+      "description": "bp spread (aery_like, floor=100): bp=mid",
+      "configKey": "aery_like",
+      "level": "LEVEL 12",
+      "lamp": "HARD",
+      "rank": "AA",
+      "bp": 50,
+      "rate": 75.0,
+      "expectedSongRating": 336.5113593680292
+    },
+    {
+      "description": "bp spread (aery_like, floor=100): bp=at-floor",
+      "configKey": "aery_like",
+      "level": "LEVEL 12",
+      "lamp": "HARD",
+      "rank": "AA",
+      "bp": 100,
+      "rate": 75.0,
+      "expectedSongRating": 331.22594710587276
+    },
+    {
+      "description": "bp spread (aery_like, floor=100): bp=above-floor",
+      "configKey": "aery_like",
+      "level": "LEVEL 12",
+      "lamp": "HARD",
+      "rank": "AA",
+      "bp": 150,
+      "rate": 75.0,
+      "expectedSongRating": 331.22594710587276
+    },
+    {
+      "description": "bp spread (aery_like, floor=100): bp=None",
+      "configKey": "aery_like",
+      "level": "LEVEL 12",
+      "lamp": "HARD",
+      "rank": "AA",
+      "bp": null,
+      "rate": 75.0,
+      "expectedSongRating": 331.22594710587276
+    },
+    {
+      "description": "bp spread (overjoy_like, floor=150): bp=0",
+      "configKey": "overjoy_like",
+      "level": "5",
+      "lamp": "HARD",
+      "rank": "A",
+      "bp": 0,
+      "rate": 75.0,
+      "expectedSongRating": 1252.435901749374
+    },
+    {
+      "description": "bp spread (overjoy_like, floor=150): bp=mid",
+      "configKey": "overjoy_like",
+      "level": "5",
+      "lamp": "HARD",
+      "rank": "A",
+      "bp": 75,
+      "rate": 75.0,
+      "expectedSongRating": 1245.617719931192
+    },
+    {
+      "description": "bp spread (overjoy_like, floor=150): bp=at-floor",
+      "configKey": "overjoy_like",
+      "level": "5",
+      "lamp": "HARD",
+      "rank": "A",
+      "bp": 150,
+      "rate": 75.0,
+      "expectedSongRating": 1238.7995381130102
+    },
+    {
+      "description": "bp spread (overjoy_like, floor=150): bp=above-floor",
+      "configKey": "overjoy_like",
+      "level": "5",
+      "lamp": "HARD",
+      "rank": "A",
+      "bp": 220,
+      "rate": 75.0,
+      "expectedSongRating": 1238.7995381130102
+    },
+    {
+      "description": "bp spread (overjoy_like, floor=150): bp=None",
+      "configKey": "overjoy_like",
+      "level": "5",
+      "lamp": "HARD",
+      "rank": "A",
+      "bp": null,
+      "rate": 75.0,
+      "expectedSongRating": 1238.7995381130102
+    },
+    {
+      "description": "rate spread: rate=0",
+      "configKey": "aery_like",
+      "level": "LEVEL 12",
+      "lamp": "NORMAL",
+      "rank": "B",
+      "bp": 60,
+      "rate": 0.0,
+      "expectedSongRating": 155.8720032009781
+    },
+    {
+      "description": "rate spread: rate=mid",
+      "configKey": "aery_like",
+      "level": "LEVEL 12",
+      "lamp": "NORMAL",
+      "rank": "B",
+      "bp": 60,
+      "rate": 40.0,
+      "expectedSongRating": 155.8720032009781
+    },
+    {
+      "description": "rate spread: rate=at-floor",
+      "configKey": "aery_like",
+      "level": "LEVEL 12",
+      "lamp": "NORMAL",
+      "rank": "B",
+      "bp": 60,
+      "rate": 70.0,
+      "expectedSongRating": 155.8720032009781
+    },
+    {
+      "description": "rate spread: rate=above-floor",
+      "configKey": "aery_like",
+      "level": "LEVEL 12",
+      "lamp": "NORMAL",
+      "rank": "B",
+      "bp": 60,
+      "rate": 90.0,
+      "expectedSongRating": 171.72823998744744
+    },
+    {
+      "description": "rate spread: rate=100",
+      "configKey": "aery_like",
+      "level": "LEVEL 12",
+      "lamp": "NORMAL",
+      "rank": "B",
+      "bp": 60,
+      "rate": 100.0,
+      "expectedSongRating": 177.0136522496039
+    },
+    {
+      "description": "rate spread: rate=None",
+      "configKey": "aery_like",
+      "level": "LEVEL 12",
+      "lamp": "NORMAL",
+      "rank": "B",
+      "bp": 60,
+      "rate": null,
+      "expectedSongRating": 155.8720032009781
+    },
+    {
+      "description": "FC-or-above ignores bp: FC with bp=999",
+      "configKey": "aery_like",
+      "level": "LEVEL 14",
+      "lamp": "FC",
+      "rank": "AA",
+      "bp": 999,
+      "rate": 85.0,
+      "expectedSongRating": 631.2896405919663
+    },
+    {
+      "description": "FC-or-above ignores bp: PERFECT with bp=999",
+      "configKey": "aery_like",
+      "level": "LEVEL 14",
+      "lamp": "PERFECT",
+      "rank": "AA",
+      "bp": 999,
+      "rate": 85.0,
+      "expectedSongRating": 631.2896405919663
+    },
+    {
+      "description": "FC-or-above ignores bp: MAX with bp=999",
+      "configKey": "aery_like",
+      "level": "LEVEL 14",
+      "lamp": "MAX",
+      "rank": "AA",
+      "bp": 999,
+      "rate": 85.0,
+      "expectedSongRating": 631.2896405919663
+    },
+    {
+      "description": "control: HARD with bp=999 (bp bonus should be zero, no FC override)",
+      "configKey": "aery_like",
+      "level": "LEVEL 14",
+      "lamp": "HARD",
+      "rank": "AA",
+      "bp": 999,
+      "rate": 85.0,
+      "expectedSongRating": 450.3171247357294
+    },
+    {
+      "description": "unknown level (aery_like) → 0",
+      "configKey": "aery_like",
+      "level": "LEVEL 99",
+      "lamp": "HARD",
+      "rank": "A",
+      "bp": 50,
+      "rate": 80.0,
+      "expectedSongRating": 0.0
+    },
+    {
+      "description": "unknown level (overjoy_like) → 0",
+      "configKey": "overjoy_like",
+      "level": "99",
+      "lamp": "HARD",
+      "rank": "A",
+      "bp": 50,
+      "rate": 80.0,
+      "expectedSongRating": 0.0
+    }
+  ],
+  "standardizeCases": [
+    {
+      "description": "total_exp=0 → player_level=0, raw_top_n=0 → bms_force=0",
+      "totalExp": 0.0,
+      "expLevelStep": 100.0,
+      "maxLevel": 200,
+      "rawTopN": 0.0,
+      "expectedPlayerLevel": 0,
+      "expectedBmsForce": 0.0
+    },
+    {
+      "description": "negative total_exp/raw_top_n both clamp to 0",
+      "totalExp": -5.0,
+      "expLevelStep": 100.0,
+      "maxLevel": 200,
+      "rawTopN": -10.0,
+      "expectedPlayerLevel": 0,
+      "expectedBmsForce": 0.0
+    },
+    {
+      "description": "total_exp exactly at threshold(5)=3000 (step=100)",
+      "totalExp": 3000.0,
+      "expLevelStep": 100.0,
+      "maxLevel": 200,
+      "rawTopN": 2500.0,
+      "expectedPlayerLevel": 5,
+      "expectedBmsForce": 0.50025
+    },
+    {
+      "description": "total_exp just under threshold(6)=4200 (float-error safety)",
+      "totalExp": 4199.999999999998,
+      "expLevelStep": 100.0,
+      "maxLevel": 200,
+      "rawTopN": 4100.0,
+      "expectedPlayerLevel": 5,
+      "expectedBmsForce": 0.8204100000000001
+    },
+    {
+      "description": "total_exp exactly at threshold(6)=4200 (step=100)",
+      "totalExp": 4200.0,
+      "expLevelStep": 100.0,
+      "maxLevel": 200,
+      "rawTopN": 4100.0,
+      "expectedPlayerLevel": 6,
+      "expectedBmsForce": 0.820492
+    },
+    {
+      "description": "total_exp far above max_threshold → capped at max_level=10",
+      "totalExp": 50000.0,
+      "expLevelStep": 100.0,
+      "maxLevel": 10,
+      "rawTopN": 999999.0,
+      "expectedPlayerLevel": 10,
+      "expectedBmsForce": 44.922095000203825
+    },
+    {
+      "description": "raw_top_n adjusted exactly 100000 (<=100000 branch, player_level=0)",
+      "totalExp": 0.0,
+      "expLevelStep": 100.0,
+      "maxLevel": 200,
+      "rawTopN": 100000.0,
+      "expectedPlayerLevel": 0,
+      "expectedBmsForce": 20.0
+    },
+    {
+      "description": "raw_top_n adjusted just above 100000 (sqrt branch, player_level=0)",
+      "totalExp": 0.0,
+      "expLevelStep": 100.0,
+      "maxLevel": 200,
+      "rawTopN": 100000.0001,
+      "expectedPlayerLevel": 0,
+      "expectedBmsForce": 20.00000002
+    },
+    {
+      "description": "non-default exp_level_step=50, total_exp exactly at threshold(3)=600",
+      "totalExp": 600.0,
+      "expLevelStep": 50.0,
+      "maxLevel": 200,
+      "rawTopN": 550.0,
+      "expectedPlayerLevel": 3,
+      "expectedBmsForce": 0.11003299999999999
+    }
+  ]
+}
