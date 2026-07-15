@@ -14,6 +14,7 @@ from app.core.security import get_current_user, get_current_user_optional
 from app.models.course import Course
 from app.models.difficulty_table import DifficultyTable, UserFavoriteDifficultyTable
 from app.models.fumen import Fumen, FumenTableEntry
+from app.models.goal import UserGoal
 from app.models.score import UserPlayerStats, UserScore
 from app.models.user import User
 from app.services.clear_type_display import display_clear_type
@@ -637,6 +638,35 @@ async def _get_daily_plays(
     return {str(r.day): int(r.plays or 0) for r in result.all()}
 
 
+async def _get_daily_goals_achieved(
+    user: User,
+    start: datetime,
+    end: datetime,
+    db: AsyncSession,
+) -> dict[str, int]:
+    """Return {date_str: count} of goals achieved per day (privacy-gated by the caller).
+
+    Groups on `func.date(...)` rather than `cast(..., Date)` — see
+    `api/app/routers/goals.py`'s `/achievements` endpoint for why the latter
+    silently breaks on this project's SQLite test backend.
+    """
+    result = await db.execute(
+        select(
+            func.date(UserGoal.achieved_recorded_at).label("day"),
+            func.count().label("cnt"),
+        )
+        .where(
+            UserGoal.user_id == user.id,
+            UserGoal.status == "achieved",
+            UserGoal.deleted_at.is_(None),
+            UserGoal.achieved_recorded_at >= start,
+            UserGoal.achieved_recorded_at < end,
+        )
+        .group_by(func.date(UserGoal.achieved_recorded_at))
+    )
+    return {str(r.day): int(r.cnt) for r in result.all()}
+
+
 def _resolve_activity_window(
     days: int | None,
     from_: date_cls | None,
@@ -878,7 +908,21 @@ async def get_activity_heatmap(
         rating_updates_pending = False
     rating_map = _rating_count_map(rating_rows)
 
-    all_dates = sorted(set(updates_by_day) | set(new_plays_by_day) | set(plays_by_day) | set(rating_map))
+    # Goal achievement is private (plan §3.4-1): only surface counts when the
+    # requesting viewer is the target user themselves. When viewing someone
+    # else's calendar (or anonymously), skip the query entirely rather than
+    # running it and discarding the result.
+    goals_achieved_by_day: dict[str, int] = {}
+    if current_user is not None and current_user.id == target_user.id:
+        goals_achieved_by_day = await _get_daily_goals_achieved(target_user, start, end, db)
+
+    all_dates = sorted(
+        set(updates_by_day)
+        | set(new_plays_by_day)
+        | set(plays_by_day)
+        | set(rating_map)
+        | set(goals_achieved_by_day)
+    )
     return {
         "year": target_year,
         "rating_updates_pending": rating_updates_pending,
@@ -889,6 +933,7 @@ async def get_activity_heatmap(
                 "new_plays": new_plays_by_day.get(d, 0),
                 "plays": plays_by_day.get(d, 0),
                 "rating_updates": rating_map.get(d, 0),
+                "goals_achieved": goals_achieved_by_day.get(d, 0),
             }
             for d in all_dates
         ],
