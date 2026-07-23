@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,17 +31,29 @@ import {
   type GoalBaseline,
   type TargetCourse,
 } from "@/hooks/use-goals";
+import { useFumensList } from "@/hooks/use-fumens-list";
 import type { GoalDraft } from "@/lib/goal-types";
 import { validateGoalTarget } from "@/lib/goal-validation-core.mjs";
 import { anyTextMatchesLooseQuery } from "@/lib/text-search-core.mjs";
 import { formatRatePercent } from "@/lib/rate-format";
 import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import type { DifficultyTable, FumenListItem } from "@/types";
 
 const CLIENT_TYPES = ["lr2", "beatoraja", "qwilight"] as const;
 const CLIENT_LABELS: Record<string, string> = { lr2: "LR2", beatoraja: "Beatoraja", qwilight: "Qwilight" };
 
-type Step = "type" | "table" | "chart-pick" | "adjust-chart" | "course-pick" | "adjust-course" | "confirm";
+type Step =
+  | "type"
+  | "table"
+  | "chart-pick"
+  | "chart-table-choice"
+  | "adjust-chart"
+  | "adjust-chart-no-rating"
+  | "course-pick"
+  | "adjust-course"
+  | "confirm";
 
 interface CourseAdjust {
   clearType: number;
@@ -78,6 +91,13 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
   const [selectedTableSlug, setSelectedTableSlug] = useState<string | null>(null);
   const [chartSearch, setChartSearch] = useState("");
   const [courseSearch, setCourseSearch] = useState("");
+  const [chartScope, setChartScope] = useState<"table" | "all">("table");
+  const [allSongsSearch, setAllSongsSearch] = useState("");
+  const [allSongsPage, setAllSongsPage] = useState(1);
+  const [multiTableCandidate, setMultiTableCandidate] = useState<{
+    item: FumenListItem;
+    candidates: { slug: string; displayName: string; level: string; symbol: string }[];
+  } | null>(null);
 
   const [pendingChart, setPendingChart] = useState<GoalDraft | null>(null);
   const [chartPickCurrent, setChartPickCurrent] = useState<{
@@ -126,6 +146,10 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       setChartPickCurrent(null);
       setPendingCourseTarget(null);
       setPendingCourse(null);
+      setChartScope("table");
+      setAllSongsSearch("");
+      setAllSongsPage(1);
+      setMultiTableCandidate(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialDraft]);
@@ -144,6 +168,36 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
   }, [courseAdjustBaselineQuery.data, pendingCourseTarget?.course_id]);
 
   const rankingTablesQuery = useRankingTables();
+
+  const allTablesQuery = useQuery<DifficultyTable[]>({
+    queryKey: ["tables"],
+    queryFn: () => api.get<DifficultyTable[]>("/tables/"),
+    staleTime: 5 * 60 * 1000,
+    enabled: step === "table" && chartScope === "all",
+  });
+
+  /** table_id -> {slug, symbol, hasRating}, merging /rankings/tables (has_rating, slug) with /tables/ (symbol). */
+  const tableLookup = useMemo(() => {
+    const symbolById = new Map((allTablesQuery.data ?? []).map((t) => [t.id, t.symbol ?? ""]));
+    const map = new Map<string, { slug: string; symbol: string; hasRating: boolean; displayName: string }>();
+    for (const table of rankingTablesQuery.data ?? []) {
+      map.set(table.table_id, {
+        slug: table.slug,
+        symbol: symbolById.get(table.table_id) ?? "",
+        hasRating: table.has_rating,
+        displayName: table.display_name,
+      });
+    }
+    return map;
+  }, [rankingTablesQuery.data, allTablesQuery.data]);
+
+  const allSongsQuery = useFumensList({
+    field: "title_artist",
+    q: allSongsSearch,
+    page: allSongsPage,
+    limit: 20,
+    enabled: step === "table" && chartScope === "all",
+  });
 
   const chartRowsQuery = useRankingContributionRows({
     tableSlug: selectedTableSlug,
@@ -220,6 +274,83 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       current: { clearType: entry.clear_type, rank: entry.rank_grade, minBp: entry.min_bp, rate: entry.rate },
       defaultClientType: entry.client_types[0] ?? defaultClientType ?? "beatoraja",
     });
+    setStep("adjust-chart");
+  }
+
+  function handleSelectChartFromAllSongs(item: FumenListItem) {
+    const ratingCandidates = (item.table_entries ?? [])
+      .map((entry) => {
+        const info = tableLookup.get(entry.table_id);
+        if (!info || !info.hasRating) return null;
+        return { slug: info.slug, displayName: info.displayName, level: entry.level, symbol: info.symbol };
+      })
+      .filter((c): c is { slug: string; displayName: string; level: string; symbol: string } => c !== null);
+
+    const baseFumen = {
+      sha256: item.sha256,
+      md5: item.md5,
+      title: item.title ?? "",
+      artist: item.artist,
+    };
+    const baseCurrent = {
+      clearType: item.user_score?.best_clear_type ?? null,
+      rank: item.user_score?.rank ?? null,
+      minBp: item.user_score?.best_min_bp ?? null,
+      rate: item.user_score?.rate ?? null,
+    };
+    const clientTypeForItem = item.user_score?.client_type ?? defaultClientType ?? "beatoraja";
+
+    if (ratingCandidates.length === 0) {
+      setChartPickCurrent({
+        fumen: { ...baseFumen, level: "", symbol: undefined },
+        current: baseCurrent,
+        defaultClientType: clientTypeForItem,
+      });
+      setSelectedTableSlug(null);
+      setStep("adjust-chart-no-rating");
+      return;
+    }
+
+    if (ratingCandidates.length === 1) {
+      const only = ratingCandidates[0];
+      setChartPickCurrent({
+        fumen: { ...baseFumen, level: only.level, symbol: only.symbol },
+        current: baseCurrent,
+        defaultClientType: clientTypeForItem,
+      });
+      setSelectedTableSlug(only.slug);
+      setStep("adjust-chart");
+      return;
+    }
+
+    setMultiTableCandidate({ item, candidates: ratingCandidates });
+    setStep("chart-table-choice");
+  }
+
+  function handleChooseTableForCandidate(slug: string) {
+    if (!multiTableCandidate) return;
+    const { item, candidates } = multiTableCandidate;
+    const chosen = candidates.find((c) => c.slug === slug);
+    if (!chosen) return;
+    setChartPickCurrent({
+      fumen: {
+        sha256: item.sha256,
+        md5: item.md5,
+        title: item.title ?? "",
+        artist: item.artist,
+        level: chosen.level,
+        symbol: chosen.symbol,
+      },
+      current: {
+        clearType: item.user_score?.best_clear_type ?? null,
+        rank: item.user_score?.rank ?? null,
+        minBp: item.user_score?.best_min_bp ?? null,
+        rate: item.user_score?.rate ?? null,
+      },
+      defaultClientType: item.user_score?.client_type ?? defaultClientType ?? "beatoraja",
+    });
+    setSelectedTableSlug(slug);
+    setMultiTableCandidate(null);
     setStep("adjust-chart");
   }
 
@@ -309,24 +440,100 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
             )}
 
             {step === "table" && (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <BackButton onClick={() => setStep("type")} label={t("common.actions.back")} />
-                {rankingTablesQuery.isLoading ? (
-                  <Skeleton className="h-40 w-full" />
+                <div className="flex gap-2">
+                  {(["table", "all"] as const).map((scope) => (
+                    <button
+                      key={scope}
+                      type="button"
+                      onClick={() => setChartScope(scope)}
+                      className={cn(
+                        "rounded-md border px-3 py-1.5 text-caption font-semibold transition-colors",
+                        chartScope === scope
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-card text-muted-foreground hover:border-primary/50",
+                      )}
+                    >
+                      {scope === "table" ? t("goals.setup.scopeByTable") : t("goals.setup.scopeAllSongs")}
+                    </button>
+                  ))}
+                </div>
+
+                {chartScope === "table" ? (
+                  rankingTablesQuery.isLoading ? (
+                    <Skeleton className="h-40 w-full" />
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {(rankingTablesQuery.data ?? []).map((table) => (
+                        <button
+                          key={table.slug}
+                          type="button"
+                          onClick={() => handleSelectTable(table.slug)}
+                          className="rounded-lg border border-border bg-card px-3 py-2 text-left text-label font-medium transition-colors hover:border-primary hover:bg-primary/5"
+                        >
+                          {table.display_name}
+                        </button>
+                      ))}
+                    </div>
+                  )
                 ) : (
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {(rankingTablesQuery.data ?? []).map((table) => (
-                      <button
-                        key={table.slug}
-                        type="button"
-                        onClick={() => handleSelectTable(table.slug)}
-                        className="rounded-lg border border-border bg-card px-3 py-2 text-left text-label font-medium transition-colors hover:border-primary hover:bg-primary/5"
-                      >
-                        {table.display_name}
-                      </button>
-                    ))}
+                  <div className="space-y-2">
+                    <label className="relative block">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        value={allSongsSearch}
+                        onChange={(e) => {
+                          setAllSongsSearch(e.target.value);
+                          setAllSongsPage(1);
+                        }}
+                        placeholder={t("ranking.detail.searchPlaceholder")}
+                        className="w-full rounded-lg border border-border bg-card px-9 py-2 text-body outline-none transition-colors focus:border-primary"
+                      />
+                    </label>
+                    <div className="max-h-96 space-y-1 overflow-y-auto">
+                      {allSongsQuery.isLoading ? (
+                        <Skeleton className="h-40 w-full" />
+                      ) : (allSongsQuery.data?.items.length ?? 0) === 0 ? (
+                        <p className="py-6 text-center text-body text-muted-foreground">{t("common.states.noRecords")}</p>
+                      ) : (
+                        allSongsQuery.data!.items.map((item) => (
+                          <button
+                            key={`${item.sha256 ?? ""}-${item.md5 ?? ""}`}
+                            type="button"
+                            onClick={() => handleSelectChartFromAllSongs(item)}
+                            className="flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-colors hover:border-primary hover:bg-primary/5"
+                          >
+                            <span className="min-w-0 flex-1 truncate text-body">{item.title}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {step === "chart-table-choice" && multiTableCandidate && (
+              <div className="space-y-2">
+                <BackButton onClick={() => { setMultiTableCandidate(null); setStep("table"); }} label={t("common.actions.back")} />
+                <div className="text-body font-semibold">{multiTableCandidate.item.title}</div>
+                <div className="text-caption text-muted-foreground">{t("goals.setup.chooseRatingTable")}</div>
+                <div className="space-y-1">
+                  {multiTableCandidate.candidates.map((c) => (
+                    <button
+                      key={c.slug}
+                      type="button"
+                      onClick={() => handleChooseTableForCandidate(c.slug)}
+                      className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left transition-colors hover:border-primary hover:bg-primary/5"
+                    >
+                      <span className="shrink-0 rounded-md border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-caption font-semibold text-primary">
+                        {formatTableLevelWithSymbolForDisplay({ tableSymbol: c.symbol, level: c.level })}
+                      </span>
+                      <span className="text-body">{c.displayName}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 

@@ -11,6 +11,7 @@ interface UseFumensListParams {
   sortBy?: string;
   sortDir?: "asc" | "desc";
   limit?: number;
+  enabled?: boolean;
 }
 
 export function useFumensList({
@@ -21,6 +22,7 @@ export function useFumensList({
   sortBy = "title",
   sortDir = "asc",
   limit = 50,
+  enabled = true,
 }: UseFumensListParams) {
   const levelDisplayPrefs = useLevelDisplayPrefs();
 
@@ -55,6 +57,7 @@ export function useFumensList({
       if (q.trim()) params.set("q", q.trim());
       return api.get<FumenListResponse>(`/fumens/?${params.toString()}`);
     },
+    enabled,
     staleTime: 60 * 1000,
   });
 }
