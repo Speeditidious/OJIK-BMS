@@ -20,7 +20,7 @@ import {
 import { useRatingCalcParams } from "@/hooks/use-rating-calc";
 import { useRankingContributionRows } from "@/hooks/use-rankings";
 import type { GoalDraft } from "@/lib/goal-types";
-import { CLEAR_ROW_CLASS } from "@/lib/fumen-table-utils";
+import { CLEAR_ROW_STATIC_CLASS } from "@/lib/fumen-table-utils";
 import {
   lampName,
   resolveLevel,
@@ -362,7 +362,7 @@ export function RatingCalculatorDialog({
           <div className="overflow-hidden rounded-xl border border-border bg-card/60">
             <SectionTitle label={t("ranking.detail.calculator.current")} />
             <ColumnHeaderRow t={t} />
-            <div className={cn("grid items-stretch", GRID_TEMPLATE, CLEAR_ROW_CLASS[effectiveCurrentClearType])}>
+            <div className={cn("grid items-stretch", GRID_TEMPLATE, CLEAR_ROW_STATIC_CLASS[effectiveCurrentClearType])}>
               <Cell>
                 {calcResult?.currentPosition != null ? (
                   <span className="text-label font-semibold tabular-nums">{calcResult.currentPosition}</span>
@@ -405,7 +405,7 @@ export function RatingCalculatorDialog({
           <div className="overflow-hidden rounded-xl border border-border bg-card/60">
             <SectionTitle label={t("ranking.detail.calculator.adjusted")} accent />
             <ColumnHeaderRow t={t} />
-            <div className={cn("grid items-stretch", GRID_TEMPLATE, CLEAR_ROW_CLASS[clearType])}>
+            <div className={cn("grid items-stretch", GRID_TEMPLATE, CLEAR_ROW_STATIC_CLASS[clearType])}>
               <Cell>
                 {calcResult?.adjustedPosition != null ? (
                   <span className="text-label font-semibold tabular-nums">{calcResult.adjustedPosition}</span>
