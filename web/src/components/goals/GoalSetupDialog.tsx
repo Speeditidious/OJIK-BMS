@@ -415,6 +415,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
           fumen={chartPickCurrent.fumen}
           current={chartPickCurrent.current}
           clientType={chartPickCurrent.defaultClientType}
+          titleOverride={t("goals.setup.title")}
           onSetGoal={handleCalculatorSetGoal}
         />
       )}

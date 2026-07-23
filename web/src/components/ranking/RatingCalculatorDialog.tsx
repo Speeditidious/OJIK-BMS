@@ -122,6 +122,8 @@ export interface RatingCalculatorDialogProps {
   userId?: string | null;
   /** Hide the "set as goal" action when true (e.g. viewing another user's dashboard). */
   readonlyMode?: boolean;
+  /** Overrides the dialog title (e.g. "목표 설정" when opened from the goal-setup wizard instead of a standalone calculator entry point). */
+  titleOverride?: string;
   onSetGoal?: (draft: GoalDraft) => void;
 }
 
@@ -229,6 +231,7 @@ export function RatingCalculatorDialog({
   clientType,
   userId,
   readonlyMode = false,
+  titleOverride,
   onSetGoal,
 }: RatingCalculatorDialogProps) {
   const { t } = useTranslation();
@@ -353,7 +356,7 @@ export function RatingCalculatorDialog({
       <DialogContent className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden bg-card p-0">
         <DialogHeader className="border-b border-border px-6 py-4">
           <DialogTitle className="text-lg font-semibold">
-            {t("ranking.detail.calculator.title")}
+            {titleOverride ?? t("ranking.detail.calculator.title")}
           </DialogTitle>
           <div className="mt-1 flex items-center gap-2">
             <span className="shrink-0 rounded-md border border-primary/40 bg-primary/10 px-2 py-0.5 text-caption font-semibold text-primary">
