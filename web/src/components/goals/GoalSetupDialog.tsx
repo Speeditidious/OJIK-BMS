@@ -108,6 +108,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
 
   const [pendingCourseTarget, setPendingCourseTarget] = useState<TargetCourse | null>(null);
   const [courseAdjust, setCourseAdjust] = useState<CourseAdjust>({ clearType: 1, minBp: 0, rate: 0 });
+  const [noRatingAdjust, setNoRatingAdjust] = useState<CourseAdjust>({ clearType: 1, minBp: 0, rate: 0 });
   const [pendingCourse, setPendingCourse] = useState<
     (CourseAdjustDiff & { course: TargetCourse; clientType: string }) | null
   >(null);
@@ -150,6 +151,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       setAllSongsSearch("");
       setAllSongsPage(1);
       setMultiTableCandidate(null);
+      setNoRatingAdjust({ clearType: 1, minBp: 0, rate: 0 });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialDraft]);
@@ -166,6 +168,16 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
     // background refetch of the same query.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseAdjustBaselineQuery.data, pendingCourseTarget?.course_id]);
+
+  useEffect(() => {
+    if (step !== "adjust-chart-no-rating" || !chartPickCurrent) return;
+    setNoRatingAdjust({
+      clearType: normalizeClearForRating(chartPickCurrent.current.clearType),
+      minBp: chartPickCurrent.current.minBp,
+      rate: chartPickCurrent.current.rate,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, chartPickCurrent?.fumen.sha256, chartPickCurrent?.fumen.md5]);
 
   const rankingTablesQuery = useRankingTables();
 
@@ -360,6 +372,28 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
     setStep("confirm");
   }
 
+  function handleNoRatingAdjustContinue() {
+    if (!chartPickCurrent) return;
+    const baseline = chartPickCurrent.current;
+    const clearChanged = noRatingAdjust.clearType !== normalizeClearForRating(baseline.clearType);
+    const bpChanged = (noRatingAdjust.minBp ?? null) !== (baseline.minBp ?? null);
+    const rateChanged = (noRatingAdjust.rate ?? null) !== (baseline.rate ?? null);
+    const rank = rankGradeFromRate(noRatingAdjust.rate);
+    const draft: GoalDraft = {
+      tableSlug: "",
+      fumen: chartPickCurrent.fumen,
+      clientType: chartPickCurrent.defaultClientType,
+      clearType: clearChanged ? noRatingAdjust.clearType : null,
+      minBp: bpChanged ? noRatingAdjust.minBp : null,
+      rate: rateChanged ? noRatingAdjust.rate : null,
+      rank: rateChanged ? rank : null,
+      projectedRating: null,
+    };
+    setPendingChart(draft);
+    setClientType(chartPickCurrent.defaultClientType);
+    setStep("confirm");
+  }
+
   function handleSelectCourse(course: TargetCourse) {
     setPendingCourseTarget(course);
     setCourseAdjust({ clearType: 1, minBp: 0, rate: 0 });
@@ -390,7 +424,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
     const payload = {
       goal_type: goalType!,
       client_type: clientType,
-      table_slug: pendingChart?.tableSlug ?? null,
+      table_slug: pendingChart?.tableSlug || null,
       fumen_sha256: pendingChart?.fumen.sha256 ?? null,
       fumen_md5: pendingChart?.fumen.md5 ?? null,
       course_id: pendingCourse?.course.course_id ?? null,
@@ -616,6 +650,97 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
                 onBack={() => setStep("course-pick")}
                 onContinue={handleCourseAdjustContinue}
               />
+            )}
+
+            {step === "adjust-chart-no-rating" && chartPickCurrent && (
+              <div className="space-y-4">
+                <BackButton onClick={() => setStep("table")} label={t("common.actions.back")} />
+                <div className="text-body font-semibold">{chartPickCurrent.fumen.title}</div>
+                <p className="text-caption text-muted-foreground">{t("goals.setup.noRatingTableNote")}</p>
+
+                <div className="space-y-1.5">
+                  <div className="text-caption text-muted-foreground">{t("ranking.detail.calculator.current")}</div>
+                  <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-secondary/30 px-3 py-2 sm:grid-cols-4">
+                    <div className="text-center text-caption font-semibold">
+                      {chartPickCurrent.current.clearType != null
+                        ? CLEAR_TYPE_LABELS[chartPickCurrent.current.clearType] ?? String(chartPickCurrent.current.clearType)
+                        : "—"}
+                    </div>
+                    <div className="text-center text-caption tabular-nums">{chartPickCurrent.current.minBp ?? "—"}</div>
+                    <div className="text-center text-caption tabular-nums">
+                      {chartPickCurrent.current.rate != null ? formatRatePercent(chartPickCurrent.current.rate) : "—"}
+                    </div>
+                    <div className="text-center text-caption font-semibold">{chartPickCurrent.current.rank ?? "—"}</div>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-caption text-muted-foreground">{t("ranking.detail.calculator.adjusted")}</div>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <Field label={t("common.fields.clear")}>
+                      <select
+                        value={noRatingAdjust.clearType}
+                        onChange={(e) =>
+                          setNoRatingAdjust({
+                            ...noRatingAdjust,
+                            clearType: clampClearType(Number(e.target.value), chartPickCurrent.current.clearType),
+                          })
+                        }
+                        className="h-9 w-full cursor-pointer rounded-md border border-border bg-card px-2 text-center text-caption font-semibold outline-none focus:border-primary"
+                      >
+                        {RATING_CLEAR_TYPES.map((ct) => (
+                          <option key={ct} value={ct}>
+                            {CLEAR_TYPE_LABELS[ct] ?? String(ct)}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="BP">
+                      <Input
+                        type="number"
+                        min={0}
+                        value={noRatingAdjust.minBp ?? 0}
+                        onChange={(e) => {
+                          const next = Number(e.target.value);
+                          const clamped = clampMinBp(
+                            Number.isFinite(next) ? Math.max(0, Math.trunc(next)) : 0,
+                            chartPickCurrent.current.minBp,
+                          );
+                          setNoRatingAdjust({ ...noRatingAdjust, minBp: clamped });
+                        }}
+                        className="h-9 text-center tabular-nums"
+                      />
+                    </Field>
+                    <Field label={t("common.fields.rate")}>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.01}
+                        value={noRatingAdjust.rate ?? 0}
+                        onChange={(e) => {
+                          const next = Number(e.target.value);
+                          const clamped = clampRate(
+                            Number.isFinite(next) ? Math.min(100, Math.max(0, next)) : 0,
+                            chartPickCurrent.current.rate,
+                          );
+                          setNoRatingAdjust({ ...noRatingAdjust, rate: clamped });
+                        }}
+                        className="h-9 text-center tabular-nums"
+                      />
+                    </Field>
+                    <Field label={t("common.fields.rank")}>
+                      <div className="flex h-9 items-center justify-center rounded-md border border-border bg-secondary/30 text-caption font-semibold">
+                        {rankGradeFromRate(noRatingAdjust.rate)}
+                      </div>
+                    </Field>
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button onClick={handleNoRatingAdjustContinue}>{t("common.actions.next")}</Button>
+                </div>
+              </div>
             )}
 
             {step === "confirm" && goalType && (
