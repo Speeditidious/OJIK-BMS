@@ -123,8 +123,9 @@ function formatSongRatingValue(value: number): string {
 
 interface CalcResult {
   virtualSongRating: number;
-  currentSongRating: number;
-  /** 1-based positions within the table's rating ranking, or null if rows unavailable. */
+  /** null when there's no real current record (NOPLAY) — there's nothing to rate. */
+  currentSongRating: number | null;
+  /** 1-based positions within the table's rating ranking, or null if rows unavailable / no current record. */
   currentPosition: number | null;
   adjustedPosition: number | null;
 }
@@ -249,21 +250,28 @@ export function RatingCalculatorDialog({
     const virtualLamp = lampName(clearType);
     const currentLamp = lampName(current.clearType);
     const virtualLevel = resolveLevel(fumen.sha256, fumen.md5, virtualLamp, fumen.level, config);
-    const currentResolvedLevel = resolveLevel(fumen.sha256, fumen.md5, currentLamp, fumen.level, config);
     const virtualSongRating = songRating(
       { level: virtualLevel, lamp: virtualLamp, rank: adjustedRank, bp: minBp, rate },
       config,
     );
-    const currentSongRating = songRating(
-      {
-        level: currentResolvedLevel,
-        lamp: currentLamp,
-        rank: current.rank ?? "F",
-        bp: current.minBp,
-        rate: current.rate,
-      },
-      config,
-    );
+
+    // NOPLAY has no real record — songRating() would return 0.0 for it, which reads as a
+    // genuine (if low) rating rather than "not applicable." Keep currentSongRating/currentPosition
+    // null in that case so the UI shows "-" instead of a fabricated number.
+    let currentSongRating: number | null = null;
+    if (currentLamp !== "NOPLAY") {
+      const currentResolvedLevel = resolveLevel(fumen.sha256, fumen.md5, currentLamp, fumen.level, config);
+      currentSongRating = songRating(
+        {
+          level: currentResolvedLevel,
+          lamp: currentLamp,
+          rank: current.rank ?? "F",
+          bp: current.minBp,
+          rate: current.rate,
+        },
+        config,
+      );
+    }
 
     // Position = 1 + (# of *other* charts rated strictly higher). Exclude this fumen's own row so the
     // adjusted rating replaces (not double-counts) it.
@@ -282,7 +290,7 @@ export function RatingCalculatorDialog({
         .map((entry) => entry.value);
       const positionFor = (rating: number) =>
         1 + otherValues.reduce((count, value) => (value > rating ? count + 1 : count), 0);
-      currentPosition = positionFor(currentSongRating);
+      if (currentSongRating != null) currentPosition = positionFor(currentSongRating);
       adjustedPosition = positionFor(virtualSongRating);
     }
 
@@ -384,7 +392,7 @@ export function RatingCalculatorDialog({
               <Cell className="rating-value-cell text-base font-bold tabular-nums">
                 {isInitialLoading ? (
                   <Skeleton className="h-5 w-20" />
-                ) : calcResult ? (
+                ) : calcResult?.currentSongRating != null ? (
                   formatSongRatingValue(calcResult.currentSongRating)
                 ) : (
                   "—"
