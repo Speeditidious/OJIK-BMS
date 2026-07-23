@@ -291,6 +291,41 @@
 .clear-row-9 .row-muted { color: rgba(0, 0, 0, 0.55); }
 .clear-row-9:hover .row-muted { color: rgba(255, 255, 255, 0.7); }
 
+/* Non-interactive variant of the clear-row-N palette above — same
+   background/text colors as the non-hover state, but with no :hover rule.
+   Used by rows that aren't clickable (e.g. RatingCalculatorDialog's
+   "current"/"adjusted" tables), so incidental mouse-over doesn't recolor
+   text toward the background. */
+.clear-row-static-0 { background-color: hsl(var(--clear-no-play)); color: hsl(220 20% 35%); }
+.clear-row-static-0 .row-muted { color: hsl(220 10% 55%); }
+
+.clear-row-static-1 { background-color: hsl(var(--clear-failed)); color: hsl(220 20% 9%); }
+.clear-row-static-1 .row-muted { color: rgba(0, 0, 0, 0.55); }
+
+.clear-row-static-2 { background-color: hsl(var(--clear-assist)); color: hsl(220 20% 9%); }
+.clear-row-static-2 .row-muted { color: rgba(0, 0, 0, 0.55); }
+
+.clear-row-static-3 { background-color: hsl(var(--clear-easy)); color: hsl(220 20% 9%); }
+.clear-row-static-3 .row-muted { color: rgba(0, 0, 0, 0.55); }
+
+.clear-row-static-4 { background-color: hsl(var(--clear-normal)); color: hsl(220 20% 9%); }
+.clear-row-static-4 .row-muted { color: rgba(0, 0, 0, 0.55); }
+
+.clear-row-static-5 { background-color: hsl(var(--clear-hard)); color: hsl(220 20% 9%); }
+.clear-row-static-5 .row-muted { color: rgba(0, 0, 0, 0.55); }
+
+.clear-row-static-6 { background-color: hsl(var(--clear-exhard)); color: hsl(220 20% 9%); }
+.clear-row-static-6 .row-muted { color: rgba(0, 0, 0, 0.55); }
+
+.clear-row-static-7 { background-color: hsl(var(--clear-fc)); color: hsl(220 20% 9%); }
+.clear-row-static-7 .row-muted { color: rgba(0, 0, 0, 0.55); }
+
+.clear-row-static-8 { background-color: hsl(var(--clear-perfect)); color: hsl(220 20% 9%); }
+.clear-row-static-8 .row-muted { color: rgba(0, 0, 0, 0.55); }
+
+.clear-row-static-9 { background-color: hsl(var(--clear-max)); color: hsl(220 20% 9%); }
+.clear-row-static-9 .row-muted { color: rgba(0, 0, 0, 0.55); }
+
 /* Per-cell clear type coloring (for mixed-color rows). Hover triggers on parent tr:hover. */
 .clear-cell-0 { background-color: hsl(var(--clear-no-play)); color: hsl(220 20% 35%); transition: background-color 0.15s ease, color 0.15s ease; }
 tr:hover .clear-cell-0 { background-color: hsl(220 10% 78%); color: hsl(220 20% 20%); }

@@ -14,6 +14,19 @@ export const CLEAR_ROW_CLASS: Record<number, string> = {
   9: "clear-row-9",
 };
 
+export const CLEAR_ROW_STATIC_CLASS: Record<number, string> = {
+  0: "clear-row-static-0",
+  1: "clear-row-static-1",
+  2: "clear-row-static-2",
+  3: "clear-row-static-3",
+  4: "clear-row-static-4",
+  5: "clear-row-static-5",
+  6: "clear-row-static-6",
+  7: "clear-row-static-7",
+  8: "clear-row-static-8",
+  9: "clear-row-static-9",
+};
+
 export const ARRANGEMENT_KANJI: Record<string, string> = {
   NORMAL:        "正",
   MIRROR:        "鏡",
