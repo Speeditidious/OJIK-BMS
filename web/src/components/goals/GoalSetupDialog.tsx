@@ -18,7 +18,6 @@ import { CLEAR_TYPE_LABELS } from "@/components/charts/ClearDistributionChart";
 import {
   RatingCalculatorDialog,
   RATING_CLEAR_TYPES,
-  FC_OR_ABOVE_CLEAR_TYPES,
   getClientLabels,
   rankGradeFromRate,
 } from "@/components/ranking/RatingCalculatorDialog";
@@ -478,7 +477,6 @@ function CourseAdjustPanel({
   onContinue: () => void;
 }) {
   const { t } = useTranslation();
-  const isFcOrAbove = FC_OR_ABOVE_CLEAR_TYPES.has(value.clearType);
   const derivedRank = rankGradeFromRate(value.rate);
 
   return (
@@ -505,7 +503,6 @@ function CourseAdjustPanel({
             type="number"
             min={0}
             value={value.minBp ?? 0}
-            disabled={isFcOrAbove}
             onChange={(e) => {
               const next = Number(e.target.value);
               onChange({ ...value, minBp: Number.isFinite(next) ? Math.max(0, Math.trunc(next)) : 0 });

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,12 +12,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   CLEAR_TYPE_LABELS,
   LR2_CLEAR_TYPE_LABELS,
@@ -37,9 +30,6 @@ import { formatRatePercent } from "@/lib/rate-format";
 import { songHref } from "@/lib/song-href";
 import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
 import { cn } from "@/lib/utils";
-
-/** FC-or-above clear_type integers — BP is ignored (forced to 0) by the formula at these lamps. */
-export const FC_OR_ABOVE_CLEAR_TYPES = new Set([7, 8, 9]);
 
 /**
  * Clear types offered in the adjustable select, in display order. Restricted
@@ -165,33 +155,13 @@ function Cell({ children, className }: { children: React.ReactNode; className?: 
 }
 
 /** The shared column-header row, repeated by both the current and adjusted tables. */
-function ColumnHeaderRow({
-  t,
-  showBpTooltip,
-}: {
-  t: (key: string) => string;
-  showBpTooltip: boolean;
-}) {
+function ColumnHeaderRow({ t }: { t: (key: string) => string }) {
   return (
     <div className={cn("grid border-b border-border", GRID_TEMPLATE)}>
       <HeaderCell>{t("ranking.rank")}</HeaderCell>
       <HeaderCell>{t("common.fields.level")}</HeaderCell>
       <HeaderCell>{t("common.fields.clear")}</HeaderCell>
-      <HeaderCell>
-        BP
-        {showBpTooltip && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info className="h-3.5 w-3.5 cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent className="max-w-56 text-label">
-                {t("ranking.detail.calculator.bpIgnoredAtFc")}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
-      </HeaderCell>
+      <HeaderCell>BP</HeaderCell>
       <HeaderCell>{t("common.fields.rate")}</HeaderCell>
       <HeaderCell>{t("common.fields.rank")}</HeaderCell>
       <HeaderCell emphasis>{t("ranking.rating")}</HeaderCell>
@@ -267,7 +237,6 @@ export function RatingCalculatorDialog({
   const isInitialLoading = calcParamsQuery.isLoading;
 
   const effectiveCurrentClearType = current.clearType ?? 0;
-  const isFcOrAbove = FC_OR_ABOVE_CLEAR_TYPES.has(clearType);
   const clearLabels = getClientLabels(clientType ?? "");
 
   const rateChanged = (rate ?? null) !== (current.rate ?? null);
@@ -384,7 +353,7 @@ export function RatingCalculatorDialog({
           {/* Current table (read-only) */}
           <div className="overflow-hidden rounded-xl border border-border bg-card/60">
             <SectionTitle label={t("ranking.detail.calculator.current")} />
-            <ColumnHeaderRow t={t} showBpTooltip={false} />
+            <ColumnHeaderRow t={t} />
             <div className={cn("grid items-stretch", GRID_TEMPLATE, CLEAR_ROW_CLASS[effectiveCurrentClearType])}>
               <Cell>
                 {calcResult?.currentPosition != null ? (
@@ -427,7 +396,7 @@ export function RatingCalculatorDialog({
           {/* Adjusted table (editable) */}
           <div className="overflow-hidden rounded-xl border border-border bg-card/60">
             <SectionTitle label={t("ranking.detail.calculator.adjusted")} accent />
-            <ColumnHeaderRow t={t} showBpTooltip={isFcOrAbove} />
+            <ColumnHeaderRow t={t} />
             <div className={cn("grid items-stretch", GRID_TEMPLATE, CLEAR_ROW_CLASS[clearType])}>
               <Cell>
                 {calcResult?.adjustedPosition != null ? (
@@ -458,7 +427,6 @@ export function RatingCalculatorDialog({
                   type="number"
                   min={0}
                   value={minBp ?? 0}
-                  disabled={isFcOrAbove}
                   onChange={(e) => {
                     const next = Number(e.target.value);
                     setMinBp(Number.isFinite(next) ? Math.max(0, Math.trunc(next)) : 0);
