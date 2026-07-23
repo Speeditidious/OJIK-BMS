@@ -895,7 +895,6 @@ export const resources = {
       goals: {
         panel: {
           title: "목표",
-          description: "설정한 목표와 달성 현황을 확인하세요.",
           setGoal: "목표 설정",
           activeTab: "진행중 {{count}}",
           achievedTab: "달성 {{count}}",
@@ -2019,7 +2018,6 @@ export const resources = {
       goals: {
         panel: {
           title: "Goals",
-          description: "Track your set goals and achievements.",
           setGoal: "Set Goal",
           activeTab: "Active {{count}}",
           achievedTab: "Achieved {{count}}",
@@ -3143,7 +3141,6 @@ export const resources = {
       goals: {
         panel: {
           title: "目標",
-          description: "設定した目標と達成状況を確認できます。",
           setGoal: "目標設定",
           activeTab: "進行中 {{count}}",
           achievedTab: "達成済み {{count}}",

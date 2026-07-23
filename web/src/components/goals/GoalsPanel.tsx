@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useGoals } from "@/hooks/use-goals";
 import { GoalCard } from "@/components/goals/GoalCard";
@@ -30,13 +30,10 @@ export function GoalsPanel({ isOwner }: GoalsPanelProps) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-3">
-        <div>
-          <CardTitle className="flex items-center gap-2">
-            <Target className="h-5 w-5 text-primary" />
-            {t("goals.panel.title")}
-          </CardTitle>
-          <CardDescription>{t("goals.panel.description")}</CardDescription>
-        </div>
+        <CardTitle className="flex items-center gap-2">
+          <Target className="h-5 w-5 text-primary" />
+          {t("goals.panel.title")}
+        </CardTitle>
         <Button size="sm" onClick={() => setSetupOpen(true)}>
           {t("goals.panel.setGoal")}
         </Button>
