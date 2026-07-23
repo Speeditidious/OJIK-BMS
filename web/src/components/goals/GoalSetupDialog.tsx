@@ -12,7 +12,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CLEAR_TYPE_LABELS } from "@/components/charts/ClearDistributionChart";
 import {
@@ -78,7 +77,6 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
   >(null);
 
   const [clientType, setClientType] = useState<string>("beatoraja");
-  const [comment, setComment] = useState("");
   const [serverError, setServerError] = useState<string | null>(null);
 
   const activeGoalsQuery = useGoals("active", open);
@@ -90,7 +88,6 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
   useEffect(() => {
     if (!open) return;
     setServerError(null);
-    setComment("");
     if (initialDraft) {
       setPendingChart(initialDraft);
       setPendingCourseTarget(null);
@@ -223,7 +220,6 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       target_min_bp: target.minBp,
       target_rank: target.rank,
       target_rate: target.rate,
-      comment: comment.trim() || null,
     };
     createGoal.mutate(payload, {
       onSuccess: () => handleClose(),
@@ -377,8 +373,6 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
                 baselineLoading={baselineQuery.isLoading}
                 target={target}
                 validation={validation}
-                comment={comment}
-                onCommentChange={setComment}
                 showBack={!initialDraft}
                 onBack={() => setStep(goalType === "chart" ? "chart-pick" : "course-pick")}
               />
@@ -594,8 +588,6 @@ function ConfirmStep({
   baselineLoading,
   target,
   validation,
-  comment,
-  onCommentChange,
   showBack,
   onBack,
 }: {
@@ -608,8 +600,6 @@ function ConfirmStep({
   baselineLoading: boolean;
   target: ConfirmTarget;
   validation: { ok: boolean; errors: string[]; improvedMetrics: string[] } | null;
-  comment: string;
-  onCommentChange: (v: string) => void;
   showBack: boolean;
   onBack: () => void;
 }) {
@@ -710,16 +700,6 @@ function ConfirmStep({
         {validation && !validation.ok && !baselineLoading && (
           <p className="text-caption text-destructive">{t(`goals.setup.errors.${validation.errors[0]}`)}</p>
         )}
-      </div>
-
-      <div className="space-y-1">
-        <div className="text-caption text-muted-foreground">{t("goals.setup.comment")}</div>
-        <Textarea
-          value={comment}
-          onChange={(e) => onCommentChange(e.target.value)}
-          rows={2}
-          placeholder={t("goals.setup.commentPlaceholder")}
-        />
       </div>
     </div>
   );

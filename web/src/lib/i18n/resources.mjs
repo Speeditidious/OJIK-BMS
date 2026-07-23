@@ -918,8 +918,6 @@ export const resources = {
           unrecognizedCourses: "일반 코스",
           clientType: "구동기",
           conditions: "목표 조건",
-          comment: "코멘트",
-          commentPlaceholder: "메모를 남겨보세요 (선택)",
           save: "목표 저장",
           saveError: "목표를 저장하지 못했습니다.",
           errors: {
@@ -2040,8 +2038,6 @@ export const resources = {
           unrecognizedCourses: "Other Courses",
           clientType: "Client",
           conditions: "Goal Conditions",
-          comment: "Comment",
-          commentPlaceholder: "Leave a note (optional)",
           save: "Save Goal",
           saveError: "Failed to save the goal.",
           errors: {
@@ -3162,8 +3158,6 @@ export const resources = {
           unrecognizedCourses: "一般コース",
           clientType: "クライアント",
           conditions: "目標条件",
-          comment: "コメント",
-          commentPlaceholder: "メモを残す (任意)",
           save: "目標を保存",
           saveError: "目標を保存できませんでした。",
           errors: {
