@@ -98,6 +98,8 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
     item: FumenListItem;
     candidates: { slug: string; displayName: string; level: string; symbol: string }[];
   } | null>(null);
+  /** Which flow led into "adjust-chart" (the calculator) — determines where its close button returns to. */
+  const [chartAdjustOrigin, setChartAdjustOrigin] = useState<"table-pick" | "all-songs">("table-pick");
 
   const [pendingChart, setPendingChart] = useState<GoalDraft | null>(null);
   const [chartPickCurrent, setChartPickCurrent] = useState<{
@@ -128,6 +130,17 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
     enabled: step === "adjust-course" && !!pendingCourseTarget,
   });
 
+  // Same source `baselineQuery` uses at confirm — keeps the no-rating adjust step's clamp/seed
+  // values consistent with what confirm later re-validates against (avoids a value the adjust
+  // panel accepted being silently rejected at confirm due to a different baseline source).
+  const noRatingBaselineQuery = useGoalBaseline({
+    goalType: "chart",
+    clientType: chartPickCurrent ? chartPickCurrent.defaultClientType : null,
+    fumenSha256: chartPickCurrent?.fumen.sha256,
+    fumenMd5: chartPickCurrent?.fumen.md5,
+    enabled: step === "adjust-chart-no-rating" && !!chartPickCurrent,
+  });
+
   // Reset all wizard state whenever the dialog (re)opens.
   useEffect(() => {
     if (!open) return;
@@ -152,6 +165,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       setAllSongsPage(1);
       setMultiTableCandidate(null);
       setNoRatingAdjust({ clearType: 1, minBp: 0, rate: 0 });
+      setChartAdjustOrigin("table-pick");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialDraft]);
@@ -170,14 +184,17 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
   }, [courseAdjustBaselineQuery.data, pendingCourseTarget?.course_id]);
 
   useEffect(() => {
-    if (step !== "adjust-chart-no-rating" || !chartPickCurrent) return;
+    if (step !== "adjust-chart-no-rating" || !noRatingBaselineQuery.data) return;
+    const b = noRatingBaselineQuery.data;
     setNoRatingAdjust({
-      clearType: normalizeClearForRating(chartPickCurrent.current.clearType),
-      minBp: chartPickCurrent.current.minBp,
-      rate: chartPickCurrent.current.rate,
+      clearType: normalizeClearForRating(b.clear_type),
+      minBp: b.min_bp,
+      rate: b.rate,
     });
+    // Only re-seed when a fresh baseline arrives for a newly-picked chart, not on every
+    // background refetch of the same query.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, chartPickCurrent?.fumen.sha256, chartPickCurrent?.fumen.md5]);
+  }, [noRatingBaselineQuery.data, chartPickCurrent?.fumen.sha256, chartPickCurrent?.fumen.md5]);
 
   const rankingTablesQuery = useRankingTables();
 
@@ -286,6 +303,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       current: { clearType: entry.clear_type, rank: entry.rank_grade, minBp: entry.min_bp, rate: entry.rate },
       defaultClientType: entry.client_types[0] ?? defaultClientType ?? "beatoraja",
     });
+    setChartAdjustOrigin("table-pick");
     setStep("adjust-chart");
   }
 
@@ -331,6 +349,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
         defaultClientType: clientTypeForItem,
       });
       setSelectedTableSlug(only.slug);
+      setChartAdjustOrigin("all-songs");
       setStep("adjust-chart");
       return;
     }
@@ -363,6 +382,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
     });
     setSelectedTableSlug(slug);
     setMultiTableCandidate(null);
+    setChartAdjustOrigin("all-songs");
     setStep("adjust-chart");
   }
 
@@ -374,9 +394,9 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
 
   function handleNoRatingAdjustContinue() {
     if (!chartPickCurrent) return;
-    const baseline = chartPickCurrent.current;
-    const clearChanged = noRatingAdjust.clearType !== normalizeClearForRating(baseline.clearType);
-    const bpChanged = (noRatingAdjust.minBp ?? null) !== (baseline.minBp ?? null);
+    const baseline = noRatingBaselineQuery.data ?? { clear_type: null, min_bp: null, rank: null, rate: null };
+    const clearChanged = noRatingAdjust.clearType !== normalizeClearForRating(baseline.clear_type);
+    const bpChanged = (noRatingAdjust.minBp ?? null) !== (baseline.min_bp ?? null);
     const rateChanged = (noRatingAdjust.rate ?? null) !== (baseline.rate ?? null);
     const rank = rankGradeFromRate(noRatingAdjust.rate);
     const draft: GoalDraft = {
@@ -658,21 +678,25 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
                 <div className="text-body font-semibold">{chartPickCurrent.fumen.title}</div>
                 <p className="text-caption text-muted-foreground">{t("goals.setup.noRatingTableNote")}</p>
 
-                <div className="space-y-1.5">
-                  <div className="text-caption text-muted-foreground">{t("ranking.detail.calculator.current")}</div>
-                  <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-secondary/30 px-3 py-2 sm:grid-cols-4">
-                    <div className="text-center text-caption font-semibold">
-                      {chartPickCurrent.current.clearType != null
-                        ? CLEAR_TYPE_LABELS[chartPickCurrent.current.clearType] ?? String(chartPickCurrent.current.clearType)
-                        : "—"}
+                {noRatingBaselineQuery.isLoading ? (
+                  <Skeleton className="h-16 w-full" />
+                ) : (
+                  <div className="space-y-1.5">
+                    <div className="text-caption text-muted-foreground">{t("ranking.detail.calculator.current")}</div>
+                    <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-secondary/30 px-3 py-2 sm:grid-cols-4">
+                      <div className="text-center text-caption font-semibold">
+                        {noRatingBaselineQuery.data?.clear_type != null
+                          ? CLEAR_TYPE_LABELS[noRatingBaselineQuery.data.clear_type] ?? String(noRatingBaselineQuery.data.clear_type)
+                          : "—"}
+                      </div>
+                      <div className="text-center text-caption tabular-nums">{noRatingBaselineQuery.data?.min_bp ?? "—"}</div>
+                      <div className="text-center text-caption tabular-nums">
+                        {noRatingBaselineQuery.data?.rate != null ? formatRatePercent(noRatingBaselineQuery.data.rate) : "—"}
+                      </div>
+                      <div className="text-center text-caption font-semibold">{noRatingBaselineQuery.data?.rank ?? "—"}</div>
                     </div>
-                    <div className="text-center text-caption tabular-nums">{chartPickCurrent.current.minBp ?? "—"}</div>
-                    <div className="text-center text-caption tabular-nums">
-                      {chartPickCurrent.current.rate != null ? formatRatePercent(chartPickCurrent.current.rate) : "—"}
-                    </div>
-                    <div className="text-center text-caption font-semibold">{chartPickCurrent.current.rank ?? "—"}</div>
                   </div>
-                </div>
+                )}
 
                 <div className="space-y-1.5">
                   <div className="text-caption text-muted-foreground">{t("ranking.detail.calculator.adjusted")}</div>
@@ -683,7 +707,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
                         onChange={(e) =>
                           setNoRatingAdjust({
                             ...noRatingAdjust,
-                            clearType: clampClearType(Number(e.target.value), chartPickCurrent.current.clearType),
+                            clearType: clampClearType(Number(e.target.value), noRatingBaselineQuery.data?.clear_type ?? null),
                           })
                         }
                         className="h-9 w-full cursor-pointer rounded-md border border-border bg-card px-2 text-center text-caption font-semibold outline-none focus:border-primary"
@@ -704,7 +728,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
                           const next = Number(e.target.value);
                           const clamped = clampMinBp(
                             Number.isFinite(next) ? Math.max(0, Math.trunc(next)) : 0,
-                            chartPickCurrent.current.minBp,
+                            noRatingBaselineQuery.data?.min_bp ?? null,
                           );
                           setNoRatingAdjust({ ...noRatingAdjust, minBp: clamped });
                         }}
@@ -722,7 +746,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
                           const next = Number(e.target.value);
                           const clamped = clampRate(
                             Number.isFinite(next) ? Math.min(100, Math.max(0, next)) : 0,
-                            chartPickCurrent.current.rate,
+                            noRatingBaselineQuery.data?.rate ?? null,
                           );
                           setNoRatingAdjust({ ...noRatingAdjust, rate: clamped });
                         }}
@@ -784,7 +808,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       {chartPickCurrent && (
         <RatingCalculatorDialog
           open={open && step === "adjust-chart"}
-          onClose={() => setStep("chart-pick")}
+          onClose={() => setStep(chartAdjustOrigin === "all-songs" ? "table" : "chart-pick")}
           tableSlug={selectedTableSlug ?? ""}
           fumen={chartPickCurrent.fumen}
           current={chartPickCurrent.current}
