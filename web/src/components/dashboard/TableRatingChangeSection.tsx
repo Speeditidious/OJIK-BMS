@@ -6,7 +6,9 @@ import { useRatingBreakdown } from "@/hooks/use-analysis";
 import { RatingExpProgressBar } from "@/components/ranking/RatingExpProgressBar";
 import { RatingContributionGrid } from "@/components/ranking/RatingContributionGrid";
 import { RatingCalculatorDialog } from "@/components/ranking/RatingCalculatorDialog";
+import { GoalSetupDialog } from "@/components/goals/GoalSetupDialog";
 import type { RankingContributionEntry } from "@/lib/ranking-types";
+import type { GoalDraft } from "@/lib/goal-types";
 import { getDayStatRatingContributionEntries } from "@/lib/rating-detail-display-core.mjs";
 import { shouldShowRatingChangeTable } from "@/lib/day-stat-sheet-export-core.mjs";
 import { cn } from "@/lib/utils";
@@ -47,10 +49,18 @@ export function TableRatingChangeSection({
 
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [calculatorEntry, setCalculatorEntry] = useState<RankingContributionEntry | null>(null);
+  const [goalDraft, setGoalDraft] = useState<GoalDraft | null>(null);
+  const [goalSetupOpen, setGoalSetupOpen] = useState(false);
 
   const openCalculatorFor = useCallback((entry: RankingContributionEntry) => {
     setCalculatorEntry(entry);
     setCalculatorOpen(true);
+  }, []);
+
+  const handleSetGoal = useCallback((draft: GoalDraft) => {
+    setGoalDraft(draft);
+    setGoalSetupOpen(true);
+    setCalculatorOpen(false);
   }, []);
 
   if (isLoading) {
@@ -208,9 +218,12 @@ export function TableRatingChangeSection({
             rate: calculatorEntry.rate,
           }}
           clientType={calculatorEntry.client_types[0] ?? "beatoraja"}
+          userId={userId}
           readonlyMode={!isOwner}
+          onSetGoal={isOwner ? handleSetGoal : undefined}
         />
       )}
+      {isOwner && <GoalSetupDialog open={goalSetupOpen} onClose={() => setGoalSetupOpen(false)} initialDraft={goalDraft} />}
     </div>
   );
 }

@@ -63,6 +63,9 @@
     /* Activity chart: rating updates (most prominent series) */
     --chart-rating: 316 58% 62%;
 
+    /* Activity chart: goal achievements */
+    --chart-goal: 45 90% 55%;
+
     /* ── Text size tokens ── */
     --text-caption: 0.8rem;
     --text-label:   0.875rem;
@@ -135,6 +138,9 @@
 
     /* Activity chart: rating updates (most prominent series) */
     --chart-rating: 316 58% 62%;
+
+    /* Activity chart: goal achievements */
+    --chart-goal: 45 85% 65%;
 
   }
 }

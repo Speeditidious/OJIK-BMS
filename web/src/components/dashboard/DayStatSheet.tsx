@@ -20,6 +20,9 @@ import { TableRatingChangeSection } from "@/components/dashboard/TableRatingChan
 import { useDayStatSheetPrefs, useUpdateDayStatSheetPrefs } from "@/hooks/use-preferences";
 import { useMyRank } from "@/hooks/use-rankings";
 import { useRatingBreakdown } from "@/hooks/use-analysis";
+import { useGoalAchievements } from "@/hooks/use-goals";
+import { CLEAR_TYPE_LABELS } from "@/components/charts/ClearDistributionChart";
+import { formatRatePercent } from "@/lib/rate-format";
 import { useAuthStore } from "@/stores/auth";
 import { captureNodeToPng } from "@/lib/capture-utils";
 import { getCaptureErrorMessage } from "@/lib/capture-utils-core.mjs";
@@ -252,6 +255,9 @@ export function DayStatSheet({
 }: DayStatSheetProps) {
   const { t } = useTranslation();
   const { data: dayNote } = useDayNote(userId, date);
+  // Goal achievements are always self-scoped server-side (see goals.py) — only meaningful for the sheet owner.
+  const { data: goalAchievements } = useGoalAchievements(date, isOwner);
+  const achievedGoals = goalAchievements?.goals ?? [];
   const exportRef = useRef<HTMLDivElement>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -501,6 +507,33 @@ export function DayStatSheet({
         {daySummary && (
           <div data-day-sheet-section="summary" data-day-sheet-split-block>
             <DayStatGrid daySummary={daySummary} />
+          </div>
+        )}
+
+        {achievedGoals.length > 0 && (
+          <div data-day-sheet-section="goals" data-day-sheet-split-block className="space-y-2">
+            <h3 className="text-body font-bold text-foreground">{t("dashboard.daySheet.goalsAchieved")}</h3>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {achievedGoals.map((goal) => {
+                const title = goal.goal_type === "chart" ? goal.title : goal.course_name;
+                const metrics: string[] = [];
+                if (goal.target_clear_type != null) {
+                  metrics.push(CLEAR_TYPE_LABELS[goal.target_clear_type] ?? String(goal.target_clear_type));
+                }
+                if (goal.target_min_bp != null) metrics.push(`BP ${goal.target_min_bp}`);
+                if (goal.target_rank != null) metrics.push(goal.target_rank);
+                if (goal.target_rate != null) metrics.push(formatRatePercent(goal.target_rate));
+                return (
+                  <div
+                    key={goal.goal_id}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2"
+                  >
+                    <span className="min-w-0 truncate text-label font-semibold">{title}</span>
+                    <span className="shrink-0 text-caption font-medium text-muted-foreground">{metrics.join(" · ")}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 

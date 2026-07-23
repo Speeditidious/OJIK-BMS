@@ -2,7 +2,7 @@
 
 import { useDeferredValue, useCallback, useMemo, useState } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import { Calculator, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { UserPublicRead } from "@/hooks/use-user-profile";
 import { useRankingContributionRows } from "@/hooks/use-rankings";
@@ -22,8 +22,9 @@ import { RankingTableSelector } from "./RankingTableSelector";
 import { RatingProfileHeader } from "./RatingProfileHeader";
 import { ContributionTable } from "./ContributionTable";
 import { RatingCalculatorDialog } from "./RatingCalculatorDialog";
-import { RatingCalculatorPickerDialog } from "./RatingCalculatorPickerDialog";
 import { SnapshotDatePicker } from "@/components/dashboard/SnapshotDatePicker";
+import { GoalSetupDialog } from "@/components/goals/GoalSetupDialog";
+import type { GoalDraft } from "@/lib/goal-types";
 
 const P_RATING_AS_OF = "rating_asof";
 
@@ -68,11 +69,18 @@ export function RatingDetailSection({
 
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [calculatorEntry, setCalculatorEntry] = useState<RankingContributionEntry | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [goalDraft, setGoalDraft] = useState<GoalDraft | null>(null);
+  const [goalSetupOpen, setGoalSetupOpen] = useState(false);
 
   const openCalculatorFor = useCallback((entry: RankingContributionEntry) => {
     setCalculatorEntry(entry);
     setCalculatorOpen(true);
+  }, []);
+
+  const handleSetGoal = useCallback((draft: GoalDraft) => {
+    setGoalDraft(draft);
+    setGoalSetupOpen(true);
+    setCalculatorOpen(false);
   }, []);
 
   const ratingAsOf = searchParams.get(P_RATING_AS_OF);
@@ -216,14 +224,6 @@ export function RatingDetailSection({
             </div>
 
             <div className="flex items-center gap-2 md:ml-auto md:w-80">
-              <button
-                type="button"
-                onClick={() => setPickerOpen(true)}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-                aria-label={t("ranking.detail.calculator.pickerButtonAria")}
-              >
-                <Calculator className="h-4 w-4" />
-              </button>
               <label className="relative block w-full">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <input
@@ -279,16 +279,12 @@ export function RatingDetailSection({
                 rate: calculatorEntry.rate,
               }}
               clientType={calculatorEntry.client_types[0] ?? "beatoraja"}
+              userId={userId}
               readonlyMode={!isOwner}
+              onSetGoal={isOwner ? handleSetGoal : undefined}
             />
           )}
-          <RatingCalculatorPickerDialog
-            open={pickerOpen}
-            onClose={() => setPickerOpen(false)}
-            tableSlug={selectedTableSlug}
-            userId={userId}
-            onSelectEntry={openCalculatorFor}
-          />
+          {isOwner && <GoalSetupDialog open={goalSetupOpen} onClose={() => setGoalSetupOpen(false)} initialDraft={goalDraft} />}
         </>
       ) : tables.length > 0 ? (
         <div className="rounded-xl border border-dashed border-border px-6 py-10 text-center text-body text-muted-foreground">

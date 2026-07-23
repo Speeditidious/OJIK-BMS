@@ -669,14 +669,15 @@ function ContributionRow({
         <button
           type="button"
           data-rating-cell=""
-          className="group flex h-full w-full items-center justify-center gap-1 px-3 transition-colors hover:bg-foreground/10 hover:ring-1 hover:ring-inset hover:ring-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
+          className="group relative flex h-full w-full items-center justify-center transition-colors hover:bg-foreground/10 hover:ring-1 hover:ring-inset hover:ring-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
           onClick={(e) => {
             e.stopPropagation();
             onOpenCalculator(entry);
           }}
           aria-label={t("ranking.detail.calculator.openAria", { title: displayTitle })}
         >
-          <Calculator className="h-3.5 w-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+          {/* Absolutely positioned so the icon fading in on hover never shifts the centered rating number. */}
+          <Calculator className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100" />
           <ValueCell entry={entry} metric={metric} section={section} presentation={presentation} />
         </button>
       );

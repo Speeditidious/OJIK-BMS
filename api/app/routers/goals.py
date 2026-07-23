@@ -201,6 +201,73 @@ async def _enrich_goal(goal: UserGoal, db: AsyncSession) -> dict[str, Any]:
     return body
 
 
+@router.get("/target-courses")
+async def list_target_courses(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """List active courses available as goal targets (plan §3.4-1 step 2).
+
+    ``is_recognized`` distinguishes admin-configured dan courses (non-empty
+    ``dan_title``, matched from `config.toml`'s `[[tables.dans]]`) from
+    plain courses sourced from a difficulty table's own course listing —
+    the UI groups these into "recognized" vs "unrecognized" sections.
+    """
+    result = await db.execute(
+        select(Course, DifficultyTable.slug)
+        .outerjoin(DifficultyTable, DifficultyTable.id == Course.source_table_id)
+        .where(Course.is_active.is_(True))
+        .order_by(Course.dan_title.desc(), Course.name)
+    )
+    return {
+        "courses": [
+            {
+                "course_id": str(course.id),
+                "name": course.name,
+                "dan_title": course.dan_title or None,
+                "is_recognized": bool(course.dan_title),
+                "table_slug": table_slug,
+                "chart_count": len(course.md5_list or []),
+            }
+            for course, table_slug in result.all()
+        ],
+    }
+
+
+@router.get("/baseline")
+async def get_goal_baseline(
+    goal_type: Literal["chart", "course"],
+    client_type: str,
+    fumen_sha256: str | None = Query(default=None),
+    fumen_md5: str | None = Query(default=None),
+    course_id: uuid.UUID | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Preview the current best-ever baseline for a candidate goal target,
+    for the goal-setup dialog's immediate frontend validation (plan §3.2's
+    "프론트(즉시 피드백) + 백엔드 POST(권위 검증) 이중" — this is the frontend half,
+    reusing the exact same baseline computation POST /goals/ uses for its
+    authoritative check).
+    """
+    if goal_type == "chart":
+        if not fumen_sha256 and not fumen_md5:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="chart baseline requires fumen_sha256 or fumen_md5",
+            )
+        baseline = await compute_chart_baseline(db, current_user.id, client_type, fumen_sha256, fumen_md5)
+    else:
+        if course_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="course baseline requires course_id",
+            )
+        baseline = await compute_course_baseline(db, current_user.id, client_type, course_id)
+
+    return asdict(baseline)
+
+
 async def _resolve_default_client_type(user_id: uuid.UUID, db: AsyncSession) -> str | None:
     """Return the user's most-recently-synced client_type (plan §3.2's
     "기본 구동기 = 유저의 가장 최근 동기화 client_type"), or None if the user has

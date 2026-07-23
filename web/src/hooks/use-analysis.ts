@@ -20,6 +20,8 @@ export interface HeatmapDay {
   new_plays: number; // first-ever plays for a fumen (rn == 1), separate from updates
   plays: number;     // UserPlayerStats.playcount LAG delta sum; first-sync rows = 0
   rating_updates?: number;
+  /** Goals achieved that day (attributed to the triggering record's recorded_at) — only present for the viewer's own calendar. */
+  goals_achieved?: number;
 }
 
 export interface ActivityHeatmapResponse {

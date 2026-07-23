@@ -38,7 +38,7 @@ function toDateString(year: number, month: number, day: number): string {
 
 interface DotItem {
   label: string;
-  color: "primary" | "accent" | "play" | "new-play" | "rating";
+  color: "primary" | "accent" | "play" | "new-play" | "rating" | "goal";
 }
 
 function getDotItems(
@@ -56,6 +56,7 @@ function getDotItems(
   beatorajaNewPlays?: number,
   beatorajaPlays?: number,
   courseInfo?: { count: number; hasFirstClear: boolean },
+  goalsAchieved?: number,
 ): DotItem[] {
   const dots: DotItem[] = [];
   if (firstSyncDates?.lr2 === dateStr)
@@ -81,6 +82,9 @@ function getDotItems(
   const isFirstSync = firstSyncDates?.lr2 === dateStr || firstSyncDates?.beatoraja === dateStr;
   if (!isFirstSync && ratingUpdates > 0) {
     dots.push({ label: t("dashboard.activity.ratingUpdates", { count: ratingUpdates }), color: "rating" });
+  }
+  if ((goalsAchieved ?? 0) > 0) {
+    dots.push({ label: t("dashboard.activity.goalsAchieved", { count: goalsAchieved }), color: "goal" });
   }
   return dots;
 }
@@ -135,6 +139,12 @@ export function ActivityCalendar({
     }
     return map;
   }, [ratingUpdatesData]);
+
+  const goalsAchievedMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const d of data) map[d.date] = d.goals_achieved ?? 0;
+    return map;
+  }, [data]);
 
   const lr2UpdatesMap = useMemo(() => {
     if (!dataLr2) return undefined;
@@ -258,6 +268,7 @@ export function ActivityCalendar({
           const newPlays = newPlaysMap[dateStr] ?? 0;
           const plays = playsMap[dateStr] ?? 0;
           const ratingUpdates = ratingUpdatesMap[dateStr] ?? 0;
+          const goalsAchieved = goalsAchievedMap[dateStr] ?? 0;
           const isToday = dateStr === todayStr;
           const cellIsFirstSync = firstSyncDates?.lr2 === dateStr || firstSyncDates?.beatoraja === dateStr;
           const dots = getDotItems(
@@ -275,6 +286,7 @@ export function ActivityCalendar({
             beatorajaNewPlaysMap?.[dateStr] ?? (beatorajaNewPlaysMap ? 0 : undefined),
             beatorajaPlaysMap?.[dateStr] ?? (beatorajaPlaysMap ? 0 : undefined),
             courseMap[dateStr],
+            goalsAchieved,
           );
 
           const hasNote = noteDates?.has(dateStr) ?? false;
@@ -308,13 +320,13 @@ export function ActivityCalendar({
                       <div key={di} className="flex items-center gap-0.5 min-w-0">
                         <span
                           className="shrink-0 text-label leading-none"
-                          style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : dot.color === "new-play" ? "hsl(var(--chart-new-play))" : dot.color === "rating" ? "hsl(var(--chart-rating))" : `hsl(var(--${dot.color}))` }}
+                          style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : dot.color === "new-play" ? "hsl(var(--chart-new-play))" : dot.color === "rating" ? "hsl(var(--chart-rating))" : dot.color === "goal" ? "hsl(var(--chart-goal))" : `hsl(var(--${dot.color}))` }}
                         >
                           ●
                         </span>
                         <span
                           className="text-label leading-tight truncate"
-                          style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : dot.color === "new-play" ? "hsl(var(--chart-new-play))" : dot.color === "rating" ? "hsl(var(--chart-rating))" : `hsl(var(--${dot.color}))` }}
+                          style={{ color: dot.color === "play" ? "hsl(var(--chart-play))" : dot.color === "new-play" ? "hsl(var(--chart-new-play))" : dot.color === "rating" ? "hsl(var(--chart-rating))" : dot.color === "goal" ? "hsl(var(--chart-goal))" : `hsl(var(--${dot.color}))` }}
                         >
                           {dot.label}
                         </span>

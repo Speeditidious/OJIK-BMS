@@ -24,6 +24,7 @@ import { DayStatGrid } from "@/components/dashboard/DayStatGrid";
 import { DayStatSheet } from "@/components/dashboard/DayStatSheet";
 import { TableClearSection } from "@/components/dashboard/TableClearSection";
 import { DashboardUserHeader } from "@/components/dashboard/DashboardUserHeader";
+import { GoalsPanel } from "@/components/goals/GoalsPanel";
 import { ActivityHeatmap } from "@/components/charts/ActivityHeatmap";
 import { ActivityBarChart, type ActivitySeries } from "@/components/charts/ActivityBarChart";
 import { ActivityCalendar } from "@/components/charts/ActivityCalendar";
@@ -704,6 +705,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
             <TabsTrigger value="rating" disabled={rankingTablesLoading || rankingTables.length === 0}>{t("dashboard.tabs.rating")}</TabsTrigger>
             <TabsTrigger value="activity">{t("dashboard.tabs.activity")}</TabsTrigger>
             <TabsTrigger value="calendar">{t("dashboard.tabs.calendar")}</TabsTrigger>
+            {isOwner && <TabsTrigger value="goals">{t("dashboard.tabs.goals")}</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="distribution">
@@ -992,6 +994,12 @@ export function UserDashboardContent({ userId }: { userId: string }) {
               </Card>
             )}
           </TabsContent>
+
+          {isOwner && (
+            <TabsContent value="goals">
+              <GoalsPanel isOwner={isOwner} />
+            </TabsContent>
+          )}
         </Tabs>
       </main>
     </div>

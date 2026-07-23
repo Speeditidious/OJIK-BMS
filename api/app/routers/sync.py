@@ -17,7 +17,10 @@ from app.models.fumen import Fumen
 from app.models.goal import UserGoal
 from app.models.score import UserPlayerStats, UserScore
 from app.models.user import User
-from app.services.goal_evaluator import GoalAchievementCandidate, evaluate_and_mark_achieved
+from app.services.goal_evaluator import (
+    GoalAchievementCandidate,
+    evaluate_and_mark_achieved,
+)
 from app.services.score_row_detail import match_course_from_hash
 from app.utils.score_rank import rank_from_exscore, rate_from_exscore
 
