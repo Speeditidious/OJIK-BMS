@@ -18,10 +18,18 @@ import {
   RatingCalculatorDialog,
   RATING_CLEAR_TYPES,
   getClientLabels,
+  normalizeClearForRating,
   rankGradeFromRate,
 } from "@/components/ranking/RatingCalculatorDialog";
 import { useRankingTables, useRankingContributionRows } from "@/hooks/use-rankings";
-import { useCreateGoal, useGoalBaseline, useGoals, useTargetCourses, type TargetCourse } from "@/hooks/use-goals";
+import {
+  useCreateGoal,
+  useGoalBaseline,
+  useGoals,
+  useTargetCourses,
+  type GoalBaseline,
+  type TargetCourse,
+} from "@/hooks/use-goals";
 import type { GoalDraft } from "@/lib/goal-types";
 import { validateGoalTarget } from "@/lib/goal-validation-core.mjs";
 import { anyTextMatchesLooseQuery } from "@/lib/text-search-core.mjs";
@@ -38,6 +46,14 @@ interface CourseAdjust {
   clearType: number;
   minBp: number | null;
   rate: number | null;
+}
+
+/** The subset of CourseAdjust fields the user actually changed vs. baseline — mirrors the calculator's changed-only filtering (Task 7). */
+interface CourseAdjustDiff {
+  clearType: number | null;
+  minBp: number | null;
+  rate: number | null;
+  rank: string | null;
 }
 
 interface GoalSetupDialogProps {
@@ -73,7 +89,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
   const [pendingCourseTarget, setPendingCourseTarget] = useState<TargetCourse | null>(null);
   const [courseAdjust, setCourseAdjust] = useState<CourseAdjust>({ clearType: 1, minBp: 0, rate: 0 });
   const [pendingCourse, setPendingCourse] = useState<
-    (CourseAdjust & { course: TargetCourse; rank: string; clientType: string }) | null
+    (CourseAdjustDiff & { course: TargetCourse; clientType: string }) | null
   >(null);
 
   const [clientType, setClientType] = useState<string>("beatoraja");
@@ -83,6 +99,13 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
   const defaultClientType = activeGoalsQuery.data?.default_client_type ?? null;
 
   const createGoal = useCreateGoal();
+
+  const courseAdjustBaselineQuery = useGoalBaseline({
+    goalType: "course",
+    clientType: pendingCourseTarget ? defaultClientType ?? "beatoraja" : null,
+    courseId: pendingCourseTarget?.course_id,
+    enabled: step === "adjust-course" && !!pendingCourseTarget,
+  });
 
   // Reset all wizard state whenever the dialog (re)opens.
   useEffect(() => {
@@ -106,6 +129,19 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialDraft]);
+
+  useEffect(() => {
+    if (step !== "adjust-course" || !courseAdjustBaselineQuery.data) return;
+    const b = courseAdjustBaselineQuery.data;
+    setCourseAdjust({
+      clearType: normalizeClearForRating(b.clear_type),
+      minBp: b.min_bp,
+      rate: b.rate,
+    });
+    // Only re-seed when a fresh baseline arrives for a newly-picked course, not on every
+    // background refetch of the same query.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseAdjustBaselineQuery.data, pendingCourseTarget?.course_id]);
 
   const rankingTablesQuery = useRankingTables();
 
@@ -201,8 +237,19 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
 
   function handleCourseAdjustContinue() {
     if (!pendingCourseTarget) return;
+    const baseline = courseAdjustBaselineQuery.data ?? { clear_type: null, min_bp: null, rank: null, rate: null };
+    const clearChanged = courseAdjust.clearType !== normalizeClearForRating(baseline.clear_type);
+    const bpChanged = (courseAdjust.minBp ?? null) !== (baseline.min_bp ?? null);
+    const rateChanged = (courseAdjust.rate ?? null) !== (baseline.rate ?? null);
     const rank = rankGradeFromRate(courseAdjust.rate);
-    setPendingCourse({ ...courseAdjust, course: pendingCourseTarget, rank, clientType: defaultClientType ?? "beatoraja" });
+    setPendingCourse({
+      clearType: clearChanged ? courseAdjust.clearType : null,
+      minBp: bpChanged ? courseAdjust.minBp : null,
+      rate: rateChanged ? courseAdjust.rate : null,
+      rank: rateChanged ? rank : null,
+      course: pendingCourseTarget,
+      clientType: defaultClientType ?? "beatoraja",
+    });
     setClientType(defaultClientType ?? "beatoraja");
     setStep("confirm");
   }
@@ -355,6 +402,8 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
             {step === "adjust-course" && pendingCourseTarget && (
               <CourseAdjustPanel
                 course={pendingCourseTarget}
+                baseline={courseAdjustBaselineQuery.data ?? null}
+                baselineLoading={courseAdjustBaselineQuery.isLoading}
                 value={courseAdjust}
                 onChange={setCourseAdjust}
                 onBack={() => setStep("course-pick")}
@@ -457,14 +506,33 @@ function CourseGroup({
   );
 }
 
+function clampClearType(value: number, baselineClearType: number | null): number {
+  const normalizedBaseline = normalizeClearForRating(baselineClearType);
+  return value < normalizedBaseline ? normalizedBaseline : value;
+}
+
+function clampMinBp(value: number, baselineMinBp: number | null): number {
+  if (baselineMinBp == null) return value;
+  return value > baselineMinBp ? baselineMinBp : value;
+}
+
+function clampRate(value: number, baselineRate: number | null): number {
+  if (baselineRate == null) return value;
+  return value < baselineRate ? baselineRate : value;
+}
+
 function CourseAdjustPanel({
   course,
+  baseline,
+  baselineLoading,
   value,
   onChange,
   onBack,
   onContinue,
 }: {
   course: TargetCourse;
+  baseline: GoalBaseline | null;
+  baselineLoading: boolean;
   value: CourseAdjust;
   onChange: (next: CourseAdjust) => void;
   onBack: () => void;
@@ -472,57 +540,81 @@ function CourseAdjustPanel({
 }) {
   const { t } = useTranslation();
   const derivedRank = rankGradeFromRate(value.rate);
+  const baselineRank = baseline?.rank ?? "—";
 
   return (
     <div className="space-y-4">
       <BackButton onClick={onBack} label={t("common.actions.back")} />
       <div className="text-body font-semibold">{course.name}</div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Field label={t("common.fields.clear")}>
-          <select
-            value={value.clearType}
-            onChange={(e) => onChange({ ...value, clearType: Number(e.target.value) })}
-            className="h-9 w-full cursor-pointer rounded-md border border-border bg-card px-2 text-center text-caption font-semibold outline-none focus:border-primary"
-          >
-            {RATING_CLEAR_TYPES.map((ct) => (
-              <option key={ct} value={ct}>
-                {CLEAR_TYPE_LABELS[ct] ?? String(ct)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="BP">
-          <Input
-            type="number"
-            min={0}
-            value={value.minBp ?? 0}
-            onChange={(e) => {
-              const next = Number(e.target.value);
-              onChange({ ...value, minBp: Number.isFinite(next) ? Math.max(0, Math.trunc(next)) : 0 });
-            }}
-            className="h-9 text-center tabular-nums"
-          />
-        </Field>
-        <Field label={t("common.fields.rate")}>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            step={0.01}
-            value={value.rate ?? 0}
-            onChange={(e) => {
-              const next = Number(e.target.value);
-              onChange({ ...value, rate: Number.isFinite(next) ? Math.min(100, Math.max(0, next)) : 0 });
-            }}
-            className="h-9 text-center tabular-nums"
-          />
-        </Field>
-        <Field label={t("common.fields.rank")}>
-          <div className="flex h-9 items-center justify-center rounded-md border border-border bg-secondary/30 text-caption font-semibold">
-            {derivedRank}
+      {baselineLoading ? (
+        <Skeleton className="h-16 w-full" />
+      ) : (
+        <div className="space-y-1.5">
+          <div className="text-caption text-muted-foreground">{t("ranking.detail.calculator.current")}</div>
+          <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-secondary/30 px-3 py-2 sm:grid-cols-4">
+            <div className="text-center text-caption font-semibold">
+              {baseline?.clear_type != null ? CLEAR_TYPE_LABELS[baseline.clear_type] ?? String(baseline.clear_type) : "—"}
+            </div>
+            <div className="text-center text-caption tabular-nums">{baseline?.min_bp ?? "—"}</div>
+            <div className="text-center text-caption tabular-nums">
+              {baseline?.rate != null ? formatRatePercent(baseline.rate) : "—"}
+            </div>
+            <div className="text-center text-caption font-semibold">{baselineRank}</div>
           </div>
-        </Field>
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        <div className="text-caption text-muted-foreground">{t("ranking.detail.calculator.adjusted")}</div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Field label={t("common.fields.clear")}>
+            <select
+              value={value.clearType}
+              onChange={(e) => onChange({ ...value, clearType: clampClearType(Number(e.target.value), baseline?.clear_type ?? null) })}
+              className="h-9 w-full cursor-pointer rounded-md border border-border bg-card px-2 text-center text-caption font-semibold outline-none focus:border-primary"
+            >
+              {RATING_CLEAR_TYPES.map((ct) => (
+                <option key={ct} value={ct}>
+                  {CLEAR_TYPE_LABELS[ct] ?? String(ct)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="BP">
+            <Input
+              type="number"
+              min={0}
+              value={value.minBp ?? 0}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                const clamped = clampMinBp(Number.isFinite(next) ? Math.max(0, Math.trunc(next)) : 0, baseline?.min_bp ?? null);
+                onChange({ ...value, minBp: clamped });
+              }}
+              className="h-9 text-center tabular-nums"
+            />
+          </Field>
+          <Field label={t("common.fields.rate")}>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step={0.01}
+              value={value.rate ?? 0}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                const clamped = clampRate(Number.isFinite(next) ? Math.min(100, Math.max(0, next)) : 0, baseline?.rate ?? null);
+                onChange({ ...value, rate: clamped });
+              }}
+              className="h-9 text-center tabular-nums"
+            />
+          </Field>
+          <Field label={t("common.fields.rank")}>
+            <div className="flex h-9 items-center justify-center rounded-md border border-border bg-secondary/30 text-caption font-semibold">
+              {derivedRank}
+            </div>
+          </Field>
+        </div>
       </div>
 
       <div className="flex justify-end">
@@ -593,7 +685,7 @@ function ConfirmStep({
 }: {
   goalType: "chart" | "course";
   chart: GoalDraft | null;
-  course: (CourseAdjust & { course: TargetCourse; rank: string; clientType: string }) | null;
+  course: (CourseAdjustDiff & { course: TargetCourse; clientType: string }) | null;
   clientType: string;
   onClientTypeChange: (v: string) => void;
   baseline: { clear_type: number | null; min_bp: number | null; rank: string | null; rate: number | null } | null;
