@@ -21,6 +21,7 @@ import { useRatingCalcParams } from "@/hooks/use-rating-calc";
 import { useRankingContributionRows } from "@/hooks/use-rankings";
 import type { GoalDraft } from "@/lib/goal-types";
 import { CLEAR_ROW_STATIC_CLASS } from "@/lib/fumen-table-utils";
+import { validateGoalTarget } from "@/lib/goal-validation-core.mjs";
 import {
   lampName,
   resolveLevel,
@@ -311,19 +312,44 @@ export function RatingCalculatorDialog({
     contributionQuery.data,
   ]);
 
+  // Only fields the user actually changed from `current` become goal conditions — see Task 7:
+  // "just get HARD" shouldn't also demand an unrelated exact BP/rate match.
+  const clearChanged = clearType !== normalizeClearForRating(current.clearType);
+  const bpChanged = (minBp ?? null) !== (current.minBp ?? null);
+  const hasAnyChange = clearChanged || bpChanged || rateChanged;
+
+  const goalTarget = useMemo(
+    () => ({
+      clearType: clearChanged ? clearType : null,
+      minBp: bpChanged ? minBp : null,
+      rate: rateChanged ? rate : null,
+      rank: rateChanged ? adjustedRank : null,
+    }),
+    [clearChanged, clearType, bpChanged, minBp, rateChanged, rate, adjustedRank],
+  );
+
+  const goalValidation = useMemo(
+    () =>
+      validateGoalTarget(
+        { clear_type: current.clearType, min_bp: current.minBp, rank: current.rank, rate: current.rate },
+        goalTarget,
+      ),
+    [current.clearType, current.minBp, current.rank, current.rate, goalTarget],
+  );
+
   const songUrl = fumen.sha256 || fumen.md5 ? songHref({ sha256: fumen.sha256, md5: fumen.md5 }) : null;
   const levelDisplay = formatTableLevelWithSymbolForDisplay({ tableSymbol: fumen.symbol, level: fumen.level });
 
   function handleSetGoal() {
-    if (!onSetGoal || !calcResult) return;
+    if (!onSetGoal || !calcResult || !hasAnyChange || !goalValidation.ok) return;
     onSetGoal({
       tableSlug,
       fumen,
       clientType: clientType ?? "",
-      clearType,
-      rank: adjustedRank,
-      minBp,
-      rate,
+      clearType: goalTarget.clearType,
+      rank: goalTarget.rank,
+      minBp: goalTarget.minBp,
+      rate: goalTarget.rate,
       projectedRating: calcResult.virtualSongRating,
     });
   }
@@ -477,15 +503,22 @@ export function RatingCalculatorDialog({
           </div>
         </div>
 
-        <DialogFooter className="border-t border-border px-6 py-3">
-          <Button variant="outline" onClick={onClose}>
-            {t("common.actions.close")}
-          </Button>
-          {!readonlyMode && onSetGoal && (
-            <Button onClick={handleSetGoal} disabled={!calcResult}>
-              {t("ranking.detail.calculator.setGoalButton")}
-            </Button>
+        <DialogFooter className="flex-col items-stretch gap-2 border-t border-border px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+          {!readonlyMode && onSetGoal && hasAnyChange && !goalValidation.ok && (
+            <p className="text-caption text-destructive">
+              {goalValidation.errors.map((code) => t(`goals.setup.errors.${code}`)).join(" ")}
+            </p>
           )}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onClose}>
+              {t("common.actions.close")}
+            </Button>
+            {!readonlyMode && onSetGoal && (
+              <Button onClick={handleSetGoal} disabled={!calcResult || !hasAnyChange || !goalValidation.ok}>
+                {t("ranking.detail.calculator.setGoalButton")}
+              </Button>
+            )}
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
