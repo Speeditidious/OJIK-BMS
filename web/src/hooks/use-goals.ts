@@ -96,9 +96,17 @@ export interface TargetCourse {
   course_id: string;
   name: string;
   dan_title: string | null;
+  dan_order?: number | null;
   is_recognized: boolean;
   table_slug: string | null;
+  site_supported_table_slug: string | null;
+  site_supported_table_slugs?: string[];
   chart_count: number;
+  is_active: boolean;
+  clear_type: number | null;
+  min_bp: number | null;
+  rank: string | null;
+  rate: number | null;
 }
 
 /** Active courses available as goal targets, split into recognized (dan) / unrecognized in the UI. */

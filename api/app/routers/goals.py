@@ -14,7 +14,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +34,7 @@ from app.services.goal_evaluator import (
 )
 from app.services.ranking_calculator import CLEAR_TYPE_TO_LAMP_NAME
 from app.services.ranking_calculator import _song_rating as _rate_chart
-from app.services.ranking_config import get_ranking_config
+from app.services.ranking_config import get_effective_dans, get_ranking_config
 
 router = APIRouter(prefix="/goals", tags=["goals"])
 
@@ -176,6 +176,25 @@ def _goal_base_dict(goal: UserGoal) -> dict[str, Any]:
     }
 
 
+def _resolve_course_dan_title(course: Course) -> str | None:
+    """Recognized-dan badge text for a course, matching `list_target_courses`'s
+    resolution: prefer the course's own `dan_title` column, falling back to an
+    admin-configured dan (`config.toml`'s `[[tables.dans]]`) matched by course
+    name for courses that carry the dan status only through ranking config.
+    """
+    if course.dan_title:
+        return course.dan_title
+    try:
+        ranking_config = get_ranking_config()
+    except RuntimeError:
+        return None
+    for table_cfg in ranking_config.tables:
+        for dan in get_effective_dans(table_cfg, ranking_config):
+            if dan.course_name == course.name:
+                return dan.display_text
+    return None
+
+
 async def _enrich_goal(goal: UserGoal, db: AsyncSession) -> dict[str, Any]:
     """Attach display metadata (title/artist/level or course name/dan_title).
 
@@ -196,7 +215,7 @@ async def _enrich_goal(goal: UserGoal, db: AsyncSession) -> dict[str, Any]:
         course = await db.get(Course, goal.course_id)
         if course is not None:
             body["course_name"] = course.name
-            body["dan_title"] = course.dan_title
+            body["dan_title"] = _resolve_course_dan_title(course)
 
     return body
 
@@ -206,31 +225,72 @@ async def list_target_courses(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """List active courses available as goal targets (plan §3.4-1 step 2).
+    """List all courses (active and inactive) available as goal targets (plan §3.4-1 step 2).
+
+    Inactive courses (``is_active=False``, e.g. superseded by a newer table
+    version) are still selectable as goal targets — the UI marks them
+    distinctly rather than hiding them.
 
     ``is_recognized`` distinguishes admin-configured dan courses (non-empty
     ``dan_title``, matched from `config.toml`'s `[[tables.dans]]`) from
-    plain courses sourced from a difficulty table's own course listing —
-    the UI groups these into "recognized" vs "unrecognized" sections.
+    plain courses sourced from a difficulty table's own course listing.
     """
+    try:
+        ranking_config = get_ranking_config()
+    except RuntimeError:
+        ranking_config = None
+
+    default_client_type = await _resolve_default_client_type(current_user.id, db)
+    site_supported_names_by_slug: dict[str, set[str]] = {}
+    dan_display_by_course_name: dict[str, str] = {}
+    dan_order_by_course_name: dict[str, int] = {}
+    if ranking_config is not None:
+        for table_cfg in ranking_config.tables:
+            effective_dans = get_effective_dans(table_cfg, ranking_config)
+            dan_course_names = {dan.course_name for dan in effective_dans}
+            if dan_course_names:
+                site_supported_names_by_slug[table_cfg.slug] = dan_course_names
+            for dan in effective_dans:
+                dan_display_by_course_name.setdefault(dan.course_name, dan.display_text)
+                dan_order_by_course_name.setdefault(dan.course_name, dan.priority)
+
     result = await db.execute(
         select(Course, DifficultyTable.slug)
         .outerjoin(DifficultyTable, DifficultyTable.id == Course.source_table_id)
-        .where(Course.is_active.is_(True))
         .order_by(Course.dan_title.desc(), Course.name)
     )
-    return {
-        "courses": [
+    courses = []
+    for course, table_slug in result.all():
+        site_supported_table_slugs = []
+        for slug, course_names in site_supported_names_by_slug.items():
+            if course.name in course_names:
+                site_supported_table_slugs.append(slug)
+        baseline = (
+            await compute_course_baseline(db, current_user.id, default_client_type, course.id)
+            if default_client_type is not None
+            else GoalBaseline(None, None, None, None)
+        )
+        dan_title = course.dan_title or dan_display_by_course_name.get(course.name) or None
+        courses.append(
             {
                 "course_id": str(course.id),
                 "name": course.name,
-                "dan_title": course.dan_title or None,
-                "is_recognized": bool(course.dan_title),
+                "dan_title": dan_title,
+                "dan_order": dan_order_by_course_name.get(course.name),
+                "is_recognized": bool(dan_title),
                 "table_slug": table_slug,
+                "site_supported_table_slug": site_supported_table_slugs[0] if site_supported_table_slugs else None,
+                "site_supported_table_slugs": site_supported_table_slugs,
                 "chart_count": len(course.md5_list or []),
+                "is_active": bool(course.is_active),
+                "clear_type": baseline.clear_type,
+                "min_bp": baseline.min_bp,
+                "rank": baseline.rank,
+                "rate": baseline.rate,
             }
-            for course, table_slug in result.all()
-        ],
+        )
+    return {
+        "courses": courses,
     }
 
 
@@ -281,7 +341,10 @@ async def _resolve_default_client_type(user_id: uuid.UUID, db: AsyncSession) -> 
     result = await db.execute(
         select(UserPlayerStats.client_type)
         .where(UserPlayerStats.user_id == user_id)
-        .order_by(UserPlayerStats.synced_at.desc())
+        .order_by(
+            UserPlayerStats.synced_at.desc(),
+            case((UserPlayerStats.client_type == "lr2", 0), else_=1),
+        )
         .limit(1)
     )
     return result.scalars().first()

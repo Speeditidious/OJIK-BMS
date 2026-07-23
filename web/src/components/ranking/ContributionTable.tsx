@@ -669,7 +669,7 @@ function ContributionRow({
         <button
           type="button"
           data-rating-cell=""
-          className="group relative flex h-full w-full items-center justify-center transition-colors hover:bg-foreground/10 hover:ring-1 hover:ring-inset hover:ring-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
+          className="group relative flex min-h-11 w-full items-center justify-center transition-colors hover:bg-foreground/10 hover:ring-1 hover:ring-inset hover:ring-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40"
           onClick={(e) => {
             e.stopPropagation();
             onOpenCalculator(entry);

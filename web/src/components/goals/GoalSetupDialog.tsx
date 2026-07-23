@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, Loader2, Search } from "lucide-react";
+import { Check, ChevronLeft, Loader2, Music2, Search, Trophy, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,16 +13,31 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Pagination } from "@/components/common/Pagination";
+import { TableLevelBadges } from "@/components/common/TableLevelBadges";
 import { CLEAR_TYPE_LABELS } from "@/components/charts/ClearDistributionChart";
 import {
   RatingCalculatorDialog,
   RATING_CLEAR_TYPES,
+  RATING_RANKS,
   getClientLabels,
+  minRateForRank,
   normalizeClearForRating,
   rankGradeFromRate,
+  sanitizeBpInput,
+  sanitizeRateInput,
 } from "@/components/ranking/RatingCalculatorDialog";
 import { useRankingTables, useRankingContributionRows } from "@/hooks/use-rankings";
+import { useFavoriteTables } from "@/hooks/use-tables";
 import {
   useCreateGoal,
   useGoalBaseline,
@@ -34,15 +49,28 @@ import {
 import { useFumensList } from "@/hooks/use-fumens-list";
 import type { GoalDraft } from "@/lib/goal-types";
 import { validateGoalTarget } from "@/lib/goal-validation-core.mjs";
+import { formatGoalValidationErrors } from "@/lib/goal-validation-message";
 import { anyTextMatchesLooseQuery } from "@/lib/text-search-core.mjs";
 import { formatRatePercent } from "@/lib/rate-format";
 import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
+import { CLEAR_ROW_CLASS, CLEAR_ROW_STATIC_CLASS } from "@/lib/fumen-table-utils";
+import { displayClearType } from "@/lib/clear-type-display";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { DifficultyTable, FumenListItem } from "@/types";
+import type { DifficultyTable, DifficultyTableDetail, FumenListItem, FumenSearchField, TableFumen } from "@/types";
 
-const CLIENT_TYPES = ["lr2", "beatoraja", "qwilight"] as const;
-const CLIENT_LABELS: Record<string, string> = { lr2: "LR2", beatoraja: "Beatoraja", qwilight: "Qwilight" };
+const CLIENT_TYPES = ["lr2", "beatoraja"] as const;
+const CLIENT_LABELS: Record<string, string> = { lr2: "LR2", beatoraja: "Beatoraja" };
+
+type ChartScope = "rating" | "table" | "all";
+type CourseScope = "supported" | "table" | "all";
+type GoalSearchField = "title_artist" | "title" | "artist" | "level" | "clear" | "bp" | "rate" | "rank" | "badge" | "name" | "active";
+type ChartGoalSortKey = "title" | "clear" | "bp" | "rate" | "rank";
+type CourseGoalSortKey = "badge" | "name" | "clear" | "rank" | "active";
+type SortDir = "asc" | "desc";
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const COURSE_GOAL_CLEAR_TYPES = [0, 1, 4, 5, 6, 7, 8, 9];
 
 type Step =
   | "type"
@@ -59,6 +87,7 @@ interface CourseAdjust {
   clearType: number;
   minBp: number | null;
   rate: number | null;
+  rank: string;
 }
 
 /** The subset of CourseAdjust fields the user actually changed vs. baseline — mirrors the calculator's changed-only filtering (Task 7). */
@@ -91,8 +120,18 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
   const [selectedTableSlug, setSelectedTableSlug] = useState<string | null>(null);
   const [chartSearch, setChartSearch] = useState("");
   const [courseSearch, setCourseSearch] = useState("");
-  const [chartScope, setChartScope] = useState<"table" | "all">("table");
+  const [chartSearchField, setChartSearchField] = useState<GoalSearchField>("title_artist");
+  const [courseSearchField, setCourseSearchField] = useState<GoalSearchField>("name");
+  const [chartLevelFilter, setChartLevelFilter] = useState<string | null>(null);
+  const [chartSortKey, setChartSortKey] = useState<ChartGoalSortKey>("title");
+  const [chartSortDir, setChartSortDir] = useState<SortDir>("asc");
+  const [courseSortKey, setCourseSortKey] = useState<CourseGoalSortKey>("badge");
+  const [courseSortDir, setCourseSortDir] = useState<SortDir>("asc");
+  const [chartScope, setChartScope] = useState<ChartScope>("table");
+  const [courseScope, setCourseScope] = useState<CourseScope>("supported");
+  const [selectedCourseTableSlug, setSelectedCourseTableSlug] = useState<string | null>(null);
   const [allSongsSearch, setAllSongsSearch] = useState("");
+  const [allSongsSearchField, setAllSongsSearchField] = useState<GoalSearchField>("title_artist");
   const [allSongsPage, setAllSongsPage] = useState(1);
   const [multiTableCandidate, setMultiTableCandidate] = useState<{
     item: FumenListItem;
@@ -104,13 +143,15 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
   const [pendingChart, setPendingChart] = useState<GoalDraft | null>(null);
   const [chartPickCurrent, setChartPickCurrent] = useState<{
     fumen: GoalDraft["fumen"];
+    ratingTableOptions?: { slug: string; displayName: string; level: string; symbol: string }[];
     current: { clearType: number | null; rank: string | null; minBp: number | null; rate: number | null };
     defaultClientType: string;
   } | null>(null);
 
   const [pendingCourseTarget, setPendingCourseTarget] = useState<TargetCourse | null>(null);
-  const [courseAdjust, setCourseAdjust] = useState<CourseAdjust>({ clearType: 1, minBp: 0, rate: 0 });
-  const [noRatingAdjust, setNoRatingAdjust] = useState<CourseAdjust>({ clearType: 1, minBp: 0, rate: 0 });
+  const [courseAdjust, setCourseAdjust] = useState<CourseAdjust>({ clearType: 1, minBp: null, rate: null, rank: "F" });
+  const [courseAdjustClientType, setCourseAdjustClientType] = useState<string>("beatoraja");
+  const [noRatingAdjust, setNoRatingAdjust] = useState<CourseAdjust>({ clearType: 1, minBp: null, rate: null, rank: "F" });
   const [pendingCourse, setPendingCourse] = useState<
     (CourseAdjustDiff & { course: TargetCourse; clientType: string }) | null
   >(null);
@@ -125,7 +166,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
 
   const courseAdjustBaselineQuery = useGoalBaseline({
     goalType: "course",
-    clientType: pendingCourseTarget ? defaultClientType ?? "beatoraja" : null,
+    clientType: pendingCourseTarget ? courseAdjustClientType : null,
     courseId: pendingCourseTarget?.course_id,
     enabled: step === "adjust-course" && !!pendingCourseTarget,
   });
@@ -149,6 +190,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       setPendingChart(initialDraft);
       setPendingCourseTarget(null);
       setPendingCourse(null);
+      setCourseAdjustClientType(defaultClientType || "beatoraja");
       setClientType(initialDraft.clientType || defaultClientType || "beatoraja");
       setStep("confirm");
     } else {
@@ -156,15 +198,26 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       setSelectedTableSlug(null);
       setChartSearch("");
       setCourseSearch("");
+      setChartSearchField("title_artist");
+      setCourseSearchField("name");
+      setChartLevelFilter(null);
+      setChartSortKey("title");
+      setChartSortDir("asc");
+      setCourseSortKey("badge");
+      setCourseSortDir("asc");
       setPendingChart(null);
       setChartPickCurrent(null);
       setPendingCourseTarget(null);
       setPendingCourse(null);
-      setChartScope("table");
+      setCourseAdjustClientType(defaultClientType || "beatoraja");
+      setChartScope("rating");
+      setCourseScope("supported");
+      setSelectedCourseTableSlug(null);
       setAllSongsSearch("");
+      setAllSongsSearchField("title_artist");
       setAllSongsPage(1);
       setMultiTableCandidate(null);
-      setNoRatingAdjust({ clearType: 1, minBp: 0, rate: 0 });
+      setNoRatingAdjust({ clearType: 1, minBp: null, rate: null, rank: "F" });
       setChartAdjustOrigin("table-pick");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -177,6 +230,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       clearType: normalizeClearForRating(b.clear_type),
       minBp: b.min_bp,
       rate: b.rate,
+      rank: b.rank ?? rankGradeFromRate(b.rate),
     });
     // Only re-seed when a fresh baseline arrives for a newly-picked course, not on every
     // background refetch of the same query.
@@ -190,6 +244,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       clearType: normalizeClearForRating(b.clear_type),
       minBp: b.min_bp,
       rate: b.rate,
+      rank: b.rank ?? rankGradeFromRate(b.rate),
     });
     // Only re-seed when a fresh baseline arrives for a newly-picked chart, not on every
     // background refetch of the same query.
@@ -197,13 +252,20 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
   }, [noRatingBaselineQuery.data, chartPickCurrent?.fumen.sha256, chartPickCurrent?.fumen.md5]);
 
   const rankingTablesQuery = useRankingTables();
+  const favoriteTablesQuery = useFavoriteTables();
 
   const allTablesQuery = useQuery<DifficultyTable[]>({
     queryKey: ["tables"],
     queryFn: () => api.get<DifficultyTable[]>("/tables/"),
     staleTime: 5 * 60 * 1000,
-    enabled: step === "table" && chartScope === "all",
+    enabled: step === "table" || step === "chart-pick" || step === "course-pick",
   });
+  const allTables = useMemo(() => allTablesQuery.data ?? [], [allTablesQuery.data]);
+  const favoriteTables = (favoriteTablesQuery.data ?? []) as DifficultyTable[];
+  const tableBySlug = useMemo(() => {
+    return new Map(allTables.filter((table) => table.slug).map((table) => [table.slug!, table]));
+  }, [allTables]);
+  const tableSymbolById = useMemo(() => new Map(allTables.map((table) => [table.id, table.symbol ?? ""])), [allTables]);
 
   /** table_id -> {slug, symbol, hasRating}, merging /rankings/tables (has_rating, slug) with /tables/ (symbol). */
   const tableLookup = useMemo(() => {
@@ -221,12 +283,13 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
   }, [rankingTablesQuery.data, allTablesQuery.data]);
 
   const allSongsQuery = useFumensList({
-    field: "title_artist",
+    field: allSongsSearchField as FumenSearchField,
     q: allSongsSearch,
     page: allSongsPage,
     limit: 20,
     enabled: step === "table" && chartScope === "all",
   });
+  const allSongsTotalPages = allSongsQuery.data ? Math.max(1, Math.ceil(allSongsQuery.data.total / allSongsQuery.data.limit)) : 1;
 
   const chartRowsQuery = useRankingContributionRows({
     tableSlug: selectedTableSlug,
@@ -234,25 +297,113 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
     scope: "all",
     sortBy: "value",
     sortDir: "desc",
-    enabled: step === "chart-pick" && !!selectedTableSlug,
+    enabled: step === "chart-pick" && !!selectedTableSlug && (rankingTablesQuery.data ?? []).some((table) => table.slug === selectedTableSlug && table.has_rating),
+  });
+  const selectedChartTable = selectedTableSlug ? tableBySlug.get(selectedTableSlug) ?? null : null;
+  const selectedChartTableHasRating = (rankingTablesQuery.data ?? []).some((table) => table.slug === selectedTableSlug && table.has_rating);
+  const selectedChartTableDetailQuery = useQuery<DifficultyTableDetail>({
+    queryKey: ["table", selectedChartTable?.id],
+    queryFn: () => api.get<DifficultyTableDetail>(`/tables/${selectedChartTable!.id}`),
+    enabled: step === "chart-pick" && !!selectedChartTable?.id,
+    staleTime: 5 * 60 * 1000,
+  });
+  const tableSongsQuery = useQuery<TableFumen[]>({
+    queryKey: ["table-songs", selectedChartTable?.id],
+    queryFn: () => api.get<TableFumen[]>(`/tables/${selectedChartTable!.id}/songs`),
+    enabled: step === "chart-pick" && !!selectedChartTable?.id && !selectedChartTableHasRating,
+    staleTime: 5 * 60 * 1000,
   });
   const filteredChartRows = useMemo(() => {
     const entries = chartRowsQuery.data?.entries ?? [];
-    if (!chartSearch.trim()) return entries;
-    return entries.filter((e) => anyTextMatchesLooseQuery([e.title, e.artist], chartSearch));
-  }, [chartRowsQuery.data, chartSearch]);
+    return sortChartGoalRows(
+      filterChartGoalRows(entries, chartSearch, chartSearchField)
+        .filter((entry) => chartLevelFilter == null || entry.level === chartLevelFilter),
+      chartSortKey,
+      chartSortDir,
+    );
+  }, [chartLevelFilter, chartRowsQuery.data, chartSearch, chartSearchField, chartSortDir, chartSortKey]);
+  const filteredTableSongs = useMemo(() => {
+    const entries = tableSongsQuery.data ?? [];
+    return sortTableFumensForGoal(
+      filterTableFumensForGoal(entries, chartSearch, chartSearchField)
+        .filter((entry) => chartLevelFilter == null || entry.level === chartLevelFilter),
+      chartSortKey,
+      chartSortDir,
+    );
+  }, [chartLevelFilter, chartSearch, chartSearchField, chartSortDir, chartSortKey, tableSongsQuery.data]);
+  const chartLevelCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    const source = selectedChartTableHasRating ? (chartRowsQuery.data?.entries ?? []) : (tableSongsQuery.data ?? []);
+    for (const row of source) counts.set(row.level, (counts.get(row.level) ?? 0) + 1);
+    const levelOrder = selectedChartTableDetailQuery.data?.level_order ?? [];
+    return Array.from(counts.entries()).sort(([left], [right]) => {
+      const leftIndex = levelOrder.indexOf(left);
+      const rightIndex = levelOrder.indexOf(right);
+      if (leftIndex !== -1 || rightIndex !== -1) {
+        return (leftIndex === -1 ? 9999 : leftIndex) - (rightIndex === -1 ? 9999 : rightIndex);
+      }
+      return collator.compare(left, right);
+    });
+  }, [chartRowsQuery.data?.entries, selectedChartTableDetailQuery.data?.level_order, selectedChartTableHasRating, tableSongsQuery.data]);
+
+  useEffect(() => {
+    if (step !== "chart-pick" || chartLevelFilter != null || chartLevelCounts.length === 0) return;
+    setChartLevelFilter(chartLevelCounts[0][0]);
+  }, [chartLevelCounts, chartLevelFilter, step]);
 
   const targetCoursesQuery = useTargetCourses(step === "course-pick");
-  const { recognizedCourses, unrecognizedCourses } = useMemo(() => {
-    const courses = targetCoursesQuery.data?.courses ?? [];
-    const filtered = courseSearch.trim()
-      ? courses.filter((c) => anyTextMatchesLooseQuery([c.name, c.dan_title], courseSearch))
-      : courses;
-    return {
-      recognizedCourses: filtered.filter((c) => c.is_recognized),
-      unrecognizedCourses: filtered.filter((c) => !c.is_recognized),
-    };
-  }, [targetCoursesQuery.data, courseSearch]);
+  const displayCourses = useMemo(() => dedupeGoalCourses(targetCoursesQuery.data?.courses ?? []), [targetCoursesQuery.data?.courses]);
+  const allScopeCourses = useMemo(() => {
+    return sortCourses(filterCoursesForGoal(displayCourses, courseSearch, courseSearchField), courseSortKey, courseSortDir);
+  }, [courseSearch, courseSearchField, courseSortDir, courseSortKey, displayCourses]);
+  const supportedCourseTableSlugs = useMemo(() => {
+    const slugs = new Set<string>();
+    for (const course of displayCourses) {
+      for (const slug of supportedSlugsForCourse(course)) slugs.add(slug);
+    }
+    return slugs;
+  }, [displayCourses]);
+  const supportedCourseTables = useMemo(() => {
+    const rankingOrder = new Map((rankingTablesQuery.data ?? []).map((table, index) => [table.slug, index]));
+    return Array.from(supportedCourseTableSlugs)
+      .map((slug) => tableBySlug.get(slug))
+      .filter((table): table is DifficultyTable => table != null)
+      .sort((left, right) => (rankingOrder.get(left.slug ?? "") ?? 9999) - (rankingOrder.get(right.slug ?? "") ?? 9999));
+  }, [rankingTablesQuery.data, supportedCourseTableSlugs, tableBySlug]);
+  const courseTablesForScope = courseScope === "supported" ? supportedCourseTables : allTables;
+  const supportedCourseCountBySlug = useMemo(() => {
+    const counts = new Map<string, { active: number; total: number }>();
+    for (const course of displayCourses) {
+      for (const slug of supportedSlugsForCourse(course)) {
+        const next = counts.get(slug) ?? { active: 0, total: 0 };
+        next.total += 1;
+        if (course.is_active) next.active += 1;
+        counts.set(slug, next);
+      }
+    }
+    return counts;
+  }, [displayCourses]);
+  const tableCourseCountBySlug = useMemo(() => {
+    const counts = new Map<string, { active: number; total: number }>();
+    for (const course of displayCourses) {
+      if (!course.table_slug) continue;
+      const next = counts.get(course.table_slug) ?? { active: 0, total: 0 };
+      next.total += 1;
+      if (course.is_active) next.active += 1;
+      counts.set(course.table_slug, next);
+    }
+    return counts;
+  }, [displayCourses]);
+  const selectedCourseTable = selectedCourseTableSlug ? tableBySlug.get(selectedCourseTableSlug) ?? null : null;
+  const tableScopedCourses = useMemo(() => {
+    if (!selectedCourseTableSlug) return [];
+    const filtered = displayCourses.filter((course) =>
+      courseScope === "supported"
+        ? supportedSlugsForCourse(course).includes(selectedCourseTableSlug)
+        : course.table_slug === selectedCourseTableSlug,
+    );
+    return sortCourses(filterCoursesForGoal(filtered, courseSearch, courseSearchField), courseSortKey, courseSortDir);
+  }, [courseScope, courseSearch, courseSearchField, courseSortDir, courseSortKey, displayCourses, selectedCourseTableSlug]);
 
   const goalType: "chart" | "course" | null = pendingChart ? "chart" : pendingCourse ? "course" : null;
 
@@ -286,6 +437,11 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
 
   function handleSelectTable(slug: string) {
     setSelectedTableSlug(slug);
+    setChartSearch("");
+    setChartSearchField("title_artist");
+    setChartLevelFilter(null);
+    setChartSortKey("title");
+    setChartSortDir("asc");
     setStep("chart-pick");
   }
 
@@ -307,6 +463,29 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
     setStep("adjust-chart");
   }
 
+  function handleSelectTableSong(entry: TableFumen) {
+    setChartPickCurrent({
+      fumen: {
+        sha256: entry.sha256,
+        md5: entry.md5,
+        level: entry.level,
+        title: entry.title ?? "",
+        artist: entry.artist,
+        symbol: selectedChartTable?.symbol ?? undefined,
+      },
+      current: {
+        clearType: entry.user_score?.best_clear_type ?? null,
+        rank: entry.user_score?.rank ?? null,
+        minBp: entry.user_score?.best_min_bp ?? null,
+        rate: entry.user_score?.rate ?? null,
+      },
+      defaultClientType: entry.user_score?.client_type ?? defaultClientType ?? "beatoraja",
+    });
+    setSelectedTableSlug(selectedChartTable?.slug ?? null);
+    setChartAdjustOrigin("table-pick");
+    setStep("adjust-chart");
+  }
+
   function handleSelectChartFromAllSongs(item: FumenListItem) {
     const ratingCandidates = (item.table_entries ?? [])
       .map((entry) => {
@@ -321,6 +500,13 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       md5: item.md5,
       title: item.title ?? "",
       artist: item.artist,
+      levels: (item.table_entries ?? [])
+        .filter((entry) => entry.level)
+        .map((entry) => ({
+          symbol: tableLookup.get(entry.table_id)?.symbol ?? tableSymbolById.get(entry.table_id) ?? "",
+          slug: tableLookup.get(entry.table_id)?.slug ?? "",
+          level: entry.level,
+        })),
     };
     const baseCurrent = {
       clearType: item.user_score?.best_clear_type ?? null,
@@ -331,13 +517,19 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
     const clientTypeForItem = item.user_score?.client_type ?? defaultClientType ?? "beatoraja";
 
     if (ratingCandidates.length === 0) {
+      const firstEntry = item.table_entries?.[0];
       setChartPickCurrent({
-        fumen: { ...baseFumen, level: "", symbol: undefined },
+        fumen: {
+          ...baseFumen,
+          level: firstEntry?.level ?? "",
+          symbol: firstEntry ? tableSymbolById.get(firstEntry.table_id) : undefined,
+        },
         current: baseCurrent,
         defaultClientType: clientTypeForItem,
       });
       setSelectedTableSlug(null);
-      setStep("adjust-chart-no-rating");
+      setChartAdjustOrigin("all-songs");
+      setStep("adjust-chart");
       return;
     }
 
@@ -345,6 +537,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       const only = ratingCandidates[0];
       setChartPickCurrent({
         fumen: { ...baseFumen, level: only.level, symbol: only.symbol },
+        ratingTableOptions: ratingCandidates,
         current: baseCurrent,
         defaultClientType: clientTypeForItem,
       });
@@ -354,8 +547,16 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       return;
     }
 
-    setMultiTableCandidate({ item, candidates: ratingCandidates });
-    setStep("chart-table-choice");
+    const first = ratingCandidates[0];
+    setChartPickCurrent({
+      fumen: { ...baseFumen, level: first.level, symbol: first.symbol },
+      ratingTableOptions: ratingCandidates,
+      current: baseCurrent,
+      defaultClientType: clientTypeForItem,
+    });
+    setSelectedTableSlug(first.slug);
+    setChartAdjustOrigin("all-songs");
+    setStep("adjust-chart");
   }
 
   function handleChooseTableForCandidate(slug: string) {
@@ -395,10 +596,10 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
   function handleNoRatingAdjustContinue() {
     if (!chartPickCurrent) return;
     const baseline = noRatingBaselineQuery.data ?? { clear_type: null, min_bp: null, rank: null, rate: null };
-    const clearChanged = noRatingAdjust.clearType !== normalizeClearForRating(baseline.clear_type);
+    const clearChanged = noRatingAdjust.clearType !== (baseline.clear_type ?? 0);
     const bpChanged = (noRatingAdjust.minBp ?? null) !== (baseline.min_bp ?? null);
     const rateChanged = (noRatingAdjust.rate ?? null) !== (baseline.rate ?? null);
-    const rank = rankGradeFromRate(noRatingAdjust.rate);
+    const rankChanged = noRatingAdjust.rank !== (baseline.rank ?? rankGradeFromRate(baseline.rate));
     const draft: GoalDraft = {
       tableSlug: "",
       fumen: chartPickCurrent.fumen,
@@ -406,7 +607,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       clearType: clearChanged ? noRatingAdjust.clearType : null,
       minBp: bpChanged ? noRatingAdjust.minBp : null,
       rate: rateChanged ? noRatingAdjust.rate : null,
-      rank: rateChanged ? rank : null,
+      rank: rankChanged ? noRatingAdjust.rank : null,
       projectedRating: null,
     };
     setPendingChart(draft);
@@ -416,26 +617,23 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
 
   function handleSelectCourse(course: TargetCourse) {
     setPendingCourseTarget(course);
-    setCourseAdjust({ clearType: 1, minBp: 0, rate: 0 });
+    setCourseAdjustClientType(defaultClientType ?? "beatoraja");
+    setCourseAdjust({ clearType: 1, minBp: null, rate: null, rank: "F" });
     setStep("adjust-course");
   }
 
   function handleCourseAdjustContinue() {
     if (!pendingCourseTarget) return;
     const baseline = courseAdjustBaselineQuery.data ?? { clear_type: null, min_bp: null, rank: null, rate: null };
-    const clearChanged = courseAdjust.clearType !== normalizeClearForRating(baseline.clear_type);
-    const bpChanged = (courseAdjust.minBp ?? null) !== (baseline.min_bp ?? null);
-    const rateChanged = (courseAdjust.rate ?? null) !== (baseline.rate ?? null);
-    const rank = rankGradeFromRate(courseAdjust.rate);
+    const target = courseAdjustTarget(courseAdjust, baseline);
+    const validation = validateGoalTarget(baseline, target);
+    if (!validation.ok) return;
     setPendingCourse({
-      clearType: clearChanged ? courseAdjust.clearType : null,
-      minBp: bpChanged ? courseAdjust.minBp : null,
-      rate: rateChanged ? courseAdjust.rate : null,
-      rank: rateChanged ? rank : null,
+      ...target,
       course: pendingCourseTarget,
-      clientType: defaultClientType ?? "beatoraja",
+      clientType: courseAdjustClientType,
     });
-    setClientType(defaultClientType ?? "beatoraja");
+    setClientType(courseAdjustClientType);
     setStep("confirm");
   }
 
@@ -456,12 +654,15 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
     createGoal.mutate(payload, {
       onSuccess: () => handleClose(),
       onError: (err: unknown) => {
-        setServerError(err instanceof Error ? err.message : t("goals.setup.saveError"));
+        setServerError(localizeGoalSaveError(err, t));
       },
     });
   }
 
   const wizardOpen = open && step !== "adjust-chart";
+  /** Steps that own an internal scrolling list — these get a non-scrolling
+   * outer wrapper so only the inner list scrolls (avoids nested/double scrollbars). */
+  const isListStep = step === "table" || step === "chart-pick" || step === "course-pick";
 
   return (
     <>
@@ -471,98 +672,101 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
             <DialogTitle>{t("goals.setup.title")}</DialogTitle>
           </DialogHeader>
 
-          <div className="flex-1 space-y-4 overflow-y-auto py-2">
+          <div
+            className={cn(
+              "flex-1 space-y-4 py-2",
+              isListStep ? "flex min-h-0 flex-col overflow-hidden" : "overflow-y-auto",
+            )}
+          >
             {step === "type" && (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => setStep("table")}
-                  className="rounded-xl border border-border bg-card p-6 text-left transition-colors hover:border-primary hover:bg-primary/5"
-                >
-                  <div className="text-body font-semibold">{t("goals.setup.chartType")}</div>
-                  <div className="mt-1 text-caption text-muted-foreground">{t("goals.setup.chartTypeDescription")}</div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStep("course-pick")}
-                  className="rounded-xl border border-border bg-card p-6 text-left transition-colors hover:border-primary hover:bg-primary/5"
-                >
-                  <div className="text-body font-semibold">{t("goals.setup.courseType")}</div>
-                  <div className="mt-1 text-caption text-muted-foreground">{t("goals.setup.courseTypeDescription")}</div>
-                </button>
+              <div className="space-y-3">
+                <BackButton onClick={handleClose} label={t("common.actions.back")} />
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setStep("table")}
+                    className="flex min-h-28 items-center justify-center gap-3 rounded-xl border border-border bg-card p-6 text-center transition-colors hover:border-primary hover:bg-primary/5"
+                  >
+                    <Music2 className="h-5 w-5 shrink-0 text-primary" />
+                    <div className="text-lg font-semibold">{t("goals.setup.chartType")}</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCourseScope("supported");
+                      setSelectedCourseTableSlug(null);
+                      setCourseSearch("");
+                      setStep("course-pick");
+                    }}
+                    className="flex min-h-28 items-center justify-center gap-3 rounded-xl border border-border bg-card p-6 text-center transition-colors hover:border-primary hover:bg-primary/5"
+                  >
+                    <Trophy className="h-5 w-5 shrink-0 text-primary" />
+                    <div className="text-lg font-semibold">{t("goals.setup.courseType")}</div>
+                  </button>
+                </div>
               </div>
             )}
 
             {step === "table" && (
-              <div className="space-y-3">
+              <div className="flex min-h-0 flex-1 flex-col gap-3">
                 <BackButton onClick={() => setStep("type")} label={t("common.actions.back")} />
-                <div className="flex gap-2">
-                  {(["table", "all"] as const).map((scope) => (
-                    <button
-                      key={scope}
-                      type="button"
-                      onClick={() => setChartScope(scope)}
-                      className={cn(
-                        "rounded-md border px-3 py-1.5 text-caption font-semibold transition-colors",
-                        chartScope === scope
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border bg-card text-muted-foreground hover:border-primary/50",
-                      )}
-                    >
-                      {scope === "table" ? t("goals.setup.scopeByTable") : t("goals.setup.scopeAllSongs")}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedOptions
+                  value={chartScope}
+                  options={[
+                    ["rating", t("goals.setup.scopeRatingSupported")],
+                    ["table", t("goals.setup.scopeByTable")],
+                    ["all", t("goals.setup.scopeAllSongs")],
+                  ]}
+                  onChange={setChartScope}
+                />
 
-                {chartScope === "table" ? (
-                  rankingTablesQuery.isLoading ? (
+                {chartScope !== "all" ? (
+                  rankingTablesQuery.isLoading || allTablesQuery.isLoading ? (
                     <Skeleton className="h-40 w-full" />
                   ) : (
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {(rankingTablesQuery.data ?? []).map((table) => (
-                        <button
-                          key={table.slug}
-                          type="button"
-                          onClick={() => handleSelectTable(table.slug)}
-                          className="rounded-lg border border-border bg-card px-3 py-2 text-left text-label font-medium transition-colors hover:border-primary hover:bg-primary/5"
-                        >
-                          {table.display_name}
-                        </button>
-                      ))}
-                    </div>
+                    <TableCategoryPicker
+                      tables={chartScope === "rating"
+                        ? (rankingTablesQuery.data ?? [])
+                          .filter((table) => table.has_rating)
+                          .map((table) => tableBySlug.get(table.slug))
+                          .filter((table): table is DifficultyTable => table != null)
+                        : allTables}
+                      favorites={favoriteTables}
+                      onSelect={(table) => table.slug && handleSelectTable(table.slug)}
+                    />
                   )
                 ) : (
-                  <div className="space-y-2">
-                    <label className="relative block">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <input
-                        value={allSongsSearch}
-                        onChange={(e) => {
-                          setAllSongsSearch(e.target.value);
-                          setAllSongsPage(1);
-                        }}
-                        placeholder={t("ranking.detail.searchPlaceholder")}
-                        className="w-full rounded-lg border border-border bg-card px-9 py-2 text-body outline-none transition-colors focus:border-primary"
+                  <div className="flex min-h-0 flex-1 flex-col gap-2">
+                    <GoalSearchBar
+                      value={allSongsSearch}
+                      onChange={(next) => {
+                        setAllSongsSearch(next);
+                        setAllSongsPage(1);
+                      }}
+                      field={allSongsSearchField}
+                      onFieldChange={(next) => {
+                        setAllSongsSearchField(next);
+                        setAllSongsPage(1);
+                      }}
+                      fields={allSongSearchFields(t)}
+                      placeholder={t("ranking.detail.searchPlaceholder")}
+                    />
+                    <AllSongsGoalTable
+                      loading={allSongsQuery.isLoading}
+                      items={allSongsQuery.data?.items ?? []}
+                      tableSymbolById={tableSymbolById}
+                      emptyMessage={t("common.states.noRecords")}
+                      onSelect={handleSelectChartFromAllSongs}
+                    />
+                    {allSongsTotalPages > 1 && (
+                      <Pagination
+                        page={allSongsPage}
+                        totalPages={allSongsTotalPages}
+                        onPageChange={setAllSongsPage}
+                        label={t("songs.pagination", { page: allSongsPage, totalPages: allSongsTotalPages })}
+                        placeholder={t("pagination.placeholder")}
                       />
-                    </label>
-                    <div className="max-h-96 space-y-1 overflow-y-auto">
-                      {allSongsQuery.isLoading ? (
-                        <Skeleton className="h-40 w-full" />
-                      ) : (allSongsQuery.data?.items.length ?? 0) === 0 ? (
-                        <p className="py-6 text-center text-body text-muted-foreground">{t("common.states.noRecords")}</p>
-                      ) : (
-                        allSongsQuery.data!.items.map((item) => (
-                          <button
-                            key={`${item.sha256 ?? ""}-${item.md5 ?? ""}`}
-                            type="button"
-                            onClick={() => handleSelectChartFromAllSongs(item)}
-                            className="flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-colors hover:border-primary hover:bg-primary/5"
-                          >
-                            <span className="min-w-0 flex-1 truncate text-body">{item.title}</span>
-                          </button>
-                        ))
-                      )}
-                    </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -592,71 +796,108 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
             )}
 
             {step === "chart-pick" && (
-              <div className="space-y-2">
+              <div className="flex min-h-0 flex-1 flex-col gap-2">
                 <BackButton onClick={() => setStep("table")} label={t("common.actions.back")} />
-                <label className="relative block">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    value={chartSearch}
-                    onChange={(e) => setChartSearch(e.target.value)}
-                    placeholder={t("ranking.detail.searchPlaceholder")}
-                    className="w-full rounded-lg border border-border bg-card px-9 py-2 text-body outline-none transition-colors focus:border-primary"
-                  />
-                </label>
-                <div className="max-h-96 space-y-1 overflow-y-auto">
-                  {chartRowsQuery.isLoading ? (
-                    <Skeleton className="h-40 w-full" />
-                  ) : filteredChartRows.length === 0 ? (
-                    <p className="py-6 text-center text-body text-muted-foreground">{t("common.states.noRecords")}</p>
-                  ) : (
-                    filteredChartRows.map((entry) => (
-                      <button
-                        key={`${entry.sha256 ?? ""}-${entry.md5 ?? ""}`}
-                        type="button"
-                        onClick={() => handleSelectChart(entry)}
-                        className="flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-colors hover:border-primary hover:bg-primary/5"
-                      >
-                        <span className="shrink-0 rounded-md border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-caption font-semibold text-primary">
-                          {formatTableLevelWithSymbolForDisplay({ tableSymbol: entry.symbol, level: entry.level })}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-body">{entry.title}</span>
-                      </button>
-                    ))
-                  )}
-                </div>
+                <ChartSearchTable
+                  search={chartSearch}
+                  onSearchChange={setChartSearch}
+                  searchField={chartSearchField}
+                  onSearchFieldChange={setChartSearchField}
+                  loading={selectedChartTableHasRating ? chartRowsQuery.isLoading : tableSongsQuery.isLoading}
+                  ratingRows={selectedChartTableHasRating ? filteredChartRows : []}
+                  tableSongs={selectedChartTableHasRating ? [] : filteredTableSongs}
+                  tableSymbol={selectedChartTable?.symbol}
+                  levelCounts={chartLevelCounts}
+                  selectedLevel={chartLevelFilter}
+                  onLevelChange={setChartLevelFilter}
+                  sortKey={chartSortKey}
+                  sortDir={chartSortDir}
+                  onSort={(key) => updateSort(key, chartSortKey, chartSortDir, setChartSortKey, setChartSortDir)}
+                  emptyMessage={t("common.states.noRecords")}
+                  onSelectRating={handleSelectChart}
+                  onSelectTableSong={handleSelectTableSong}
+                />
               </div>
             )}
 
             {step === "course-pick" && (
-              <div className="space-y-2">
-                <BackButton onClick={() => setStep("type")} label={t("common.actions.back")} />
-                <label className="relative block">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    value={courseSearch}
-                    onChange={(e) => setCourseSearch(e.target.value)}
-                    placeholder={t("ranking.detail.searchPlaceholder")}
-                    className="w-full rounded-lg border border-border bg-card px-9 py-2 text-body outline-none transition-colors focus:border-primary"
+              <div className="flex min-h-0 flex-1 flex-col gap-3">
+                <BackButton
+                  onClick={() => {
+                    if (selectedCourseTableSlug) {
+                      setSelectedCourseTableSlug(null);
+                      setCourseSearch("");
+                    } else {
+                      setStep("type");
+                    }
+                  }}
+                  label={t("common.actions.back")}
+                />
+                {!selectedCourseTableSlug && (
+                  <SegmentedOptions
+                    value={courseScope}
+                    options={[
+                      ["supported", t("goals.setup.scopeSiteSupported")],
+                      ["table", t("goals.setup.scopeByTable")],
+                      ["all", t("goals.setup.scopeAllCourses")],
+                    ]}
+                    onChange={(scope) => {
+                      setCourseScope(scope);
+                      setSelectedCourseTableSlug(null);
+                      setCourseSearch("");
+                    }}
                   />
-                </label>
-                <div className="max-h-96 space-y-3 overflow-y-auto">
-                  {targetCoursesQuery.isLoading ? (
-                    <Skeleton className="h-40 w-full" />
-                  ) : (
-                    <>
-                      <CourseGroup
-                        label={t("goals.setup.recognizedCourses")}
-                        courses={recognizedCourses}
-                        onSelect={handleSelectCourse}
-                      />
-                      <CourseGroup
-                        label={t("goals.setup.unrecognizedCourses")}
-                        courses={unrecognizedCourses}
-                        onSelect={handleSelectCourse}
-                      />
-                    </>
-                  )}
-                </div>
+                )}
+                {courseScope === "all" ? (
+                  <CourseSearchList
+                    search={courseSearch}
+                    onSearchChange={setCourseSearch}
+                    searchField={courseSearchField}
+                    onSearchFieldChange={setCourseSearchField}
+                    loading={targetCoursesQuery.isLoading}
+                    courses={allScopeCourses}
+                    sortKey={courseSortKey}
+                    sortDir={courseSortDir}
+                    onSort={(key) => updateSort(key, courseSortKey, courseSortDir, setCourseSortKey, setCourseSortDir)}
+                    emptyMessage={t("common.states.noRecords")}
+                    onSelect={handleSelectCourse}
+                  />
+                ) : selectedCourseTable ? (
+                  <div className="flex min-h-0 flex-1 flex-col gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
+                      {selectedCourseTable.symbol && (
+                        <span className="rounded-md border border-border px-1.5 py-0.5 text-caption font-semibold">
+                          {selectedCourseTable.symbol}
+                        </span>
+                      )}
+                      <span className="min-w-0 truncate text-body font-semibold">{selectedCourseTable.name}</span>
+                    </div>
+                    <CourseSearchList
+                      search={courseSearch}
+                      onSearchChange={setCourseSearch}
+                      searchField={courseSearchField}
+                      onSearchFieldChange={setCourseSearchField}
+                      loading={targetCoursesQuery.isLoading}
+                      courses={tableScopedCourses}
+                      sortKey={courseSortKey}
+                      sortDir={courseSortDir}
+                      onSort={(key) => updateSort(key, courseSortKey, courseSortDir, setCourseSortKey, setCourseSortDir)}
+                      emptyMessage={t("goals.setup.noCoursesForTable")}
+                      onSelect={handleSelectCourse}
+                    />
+                  </div>
+                ) : targetCoursesQuery.isLoading || allTablesQuery.isLoading ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : (
+                  <CourseTableCategoryPicker
+                    tables={courseTablesForScope}
+                    courseCountBySlug={courseScope === "supported" ? supportedCourseCountBySlug : tableCourseCountBySlug}
+                    favorites={favoriteTables}
+                    showFavorites={courseScope === "table"}
+                    groupBySource={courseScope === "table"}
+                    onSelect={(table) => table.slug && setSelectedCourseTableSlug(table.slug)}
+                  />
+                )}
               </div>
             )}
 
@@ -666,7 +907,9 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
                 baseline={courseAdjustBaselineQuery.data ?? null}
                 baselineLoading={courseAdjustBaselineQuery.isLoading}
                 value={courseAdjust}
+                clientType={courseAdjustClientType}
                 onChange={setCourseAdjust}
+                onClientTypeChange={setCourseAdjustClientType}
                 onBack={() => setStep("course-pick")}
                 onContinue={handleCourseAdjustContinue}
               />
@@ -705,14 +948,11 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
                       <select
                         value={noRatingAdjust.clearType}
                         onChange={(e) =>
-                          setNoRatingAdjust({
-                            ...noRatingAdjust,
-                            clearType: clampClearType(Number(e.target.value), noRatingBaselineQuery.data?.clear_type ?? null),
-                          })
+                          setNoRatingAdjust(linkCourseAdjustFromClear(noRatingAdjust, Number(e.target.value), noRatingBaselineQuery.data ?? null))
                         }
                         className="h-9 w-full cursor-pointer rounded-md border border-border bg-card px-2 text-center text-caption font-semibold outline-none focus:border-primary"
                       >
-                        {RATING_CLEAR_TYPES.map((ct) => (
+                        {allowedClearTypes(noRatingBaselineQuery.data?.clear_type ?? null).map((ct) => (
                           <option key={ct} value={ct}>
                             {CLEAR_TYPE_LABELS[ct] ?? String(ct)}
                           </option>
@@ -721,42 +961,44 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
                     </Field>
                     <Field label="BP">
                       <Input
-                        type="number"
-                        min={0}
-                        value={noRatingAdjust.minBp ?? 0}
+                        type="text"
+                        inputMode="numeric"
+                        value={noRatingAdjust.minBp ?? ""}
+                        placeholder="-"
                         onChange={(e) => {
-                          const next = Number(e.target.value);
-                          const clamped = clampMinBp(
-                            Number.isFinite(next) ? Math.max(0, Math.trunc(next)) : 0,
-                            noRatingBaselineQuery.data?.min_bp ?? null,
-                          );
-                          setNoRatingAdjust({ ...noRatingAdjust, minBp: clamped });
+                          setNoRatingAdjust({
+                            ...noRatingAdjust,
+                            minBp: sanitizeBpInput(e.target.value, noRatingBaselineQuery.data?.min_bp ?? null),
+                          });
                         }}
                         className="h-9 text-center tabular-nums"
                       />
                     </Field>
                     <Field label={t("common.fields.rate")}>
                       <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step={0.01}
-                        value={noRatingAdjust.rate ?? 0}
+                        type="text"
+                        inputMode="decimal"
+                        value={noRatingAdjust.rate ?? ""}
+                        placeholder="-"
                         onChange={(e) => {
-                          const next = Number(e.target.value);
-                          const clamped = clampRate(
-                            Number.isFinite(next) ? Math.min(100, Math.max(0, next)) : 0,
-                            noRatingBaselineQuery.data?.rate ?? null,
-                          );
-                          setNoRatingAdjust({ ...noRatingAdjust, rate: clamped });
+                          setNoRatingAdjust(linkCourseAdjustFromRate(
+                            noRatingAdjust,
+                            sanitizeRateInput(e.target.value, noRatingBaselineQuery.data?.rate ?? null),
+                          ));
                         }}
                         className="h-9 text-center tabular-nums"
                       />
                     </Field>
                     <Field label={t("common.fields.rank")}>
-                      <div className="flex h-9 items-center justify-center rounded-md border border-border bg-secondary/30 text-caption font-semibold">
-                        {rankGradeFromRate(noRatingAdjust.rate)}
-                      </div>
+                      <select
+                        value={noRatingAdjust.rank}
+                        onChange={(e) => setNoRatingAdjust(linkCourseAdjustFromRank(noRatingAdjust, e.target.value))}
+                        className="h-9 w-full cursor-pointer rounded-md border border-border bg-card px-2 text-center text-caption font-semibold outline-none focus:border-primary"
+                      >
+                        {allowedRanks(noRatingBaselineQuery.data?.rank ?? null).map((rank) => (
+                          <option key={rank} value={rank}>{rank}</option>
+                        ))}
+                      </select>
                     </Field>
                   </div>
                 </div>
@@ -773,24 +1015,26 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
                 chart={pendingChart}
                 course={pendingCourse}
                 clientType={clientType}
-                onClientTypeChange={setClientType}
                 baseline={baselineQuery.data ?? null}
                 baselineLoading={baselineQuery.isLoading}
                 target={target}
                 validation={validation}
-                showBack={!initialDraft}
-                onBack={() => setStep(goalType === "chart" ? "chart-pick" : "course-pick")}
+                showBack
+                onBack={() => {
+                  if (initialDraft) {
+                    handleClose();
+                    return;
+                  }
+                  setStep(goalType === "chart" ? "adjust-chart" : "adjust-course");
+                }}
               />
             )}
           </div>
 
           {step === "confirm" && goalType && (
-            <DialogFooter className="flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
-              {serverError && <p className="text-caption text-destructive">{serverError}</p>}
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={handleClose} disabled={createGoal.isPending}>
-                  {t("common.actions.cancel")}
-                </Button>
+            <DialogFooter className="flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+              {serverError && <p className="min-w-0 text-caption text-destructive sm:flex-1">{serverError}</p>}
+              <div className="ml-auto flex justify-end gap-2">
                 <Button
                   onClick={handleSave}
                   disabled={baselineQuery.isLoading || !validation?.ok || createGoal.isPending}
@@ -808,12 +1052,15 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
       {chartPickCurrent && (
         <RatingCalculatorDialog
           open={open && step === "adjust-chart"}
-          onClose={() => setStep(chartAdjustOrigin === "all-songs" ? "table" : "chart-pick")}
+          onClose={handleClose}
+          onBack={() => setStep(chartAdjustOrigin === "all-songs" ? "table" : "chart-pick")}
           tableSlug={selectedTableSlug ?? ""}
           fumen={chartPickCurrent.fumen}
+          ratingTableOptions={chartPickCurrent.ratingTableOptions}
           current={chartPickCurrent.current}
           clientType={chartPickCurrent.defaultClientType}
           titleOverride={t("goals.setup.title")}
+          showBackButton
           onSetGoal={handleCalculatorSetGoal}
         />
       )}
@@ -823,58 +1070,1066 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
 
 function BackButton({ onClick, label }: { onClick: () => void; label: string }) {
   return (
-    <Button variant="ghost" size="sm" className="-ml-2 gap-1 text-muted-foreground" onClick={onClick}>
+    <Button variant="ghost" size="sm" className="h-9 shrink-0 self-start justify-start gap-1 rounded-md text-muted-foreground" onClick={onClick}>
       <ChevronLeft className="h-4 w-4" />
       {label}
     </Button>
   );
 }
 
-function CourseGroup({
-  label,
-  courses,
-  onSelect,
+function SegmentedOptions<T extends string>({
+  value,
+  options,
+  onChange,
 }: {
-  label: string;
-  courses: TargetCourse[];
-  onSelect: (course: TargetCourse) => void;
+  value: T;
+  options: [T, string][];
+  onChange: (next: T) => void;
 }) {
-  if (courses.length === 0) return null;
   return (
-    <div className="space-y-1">
-      <div className="text-caption font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      {courses.map((course) => (
+    <div className="flex flex-wrap gap-2">
+      {options.map(([optionValue, label]) => (
         <button
-          key={course.course_id}
+          key={optionValue}
           type="button"
-          onClick={() => onSelect(course)}
-          className="flex w-full items-center gap-2 rounded-lg border border-transparent px-3 py-2 text-left transition-colors hover:border-primary hover:bg-primary/5"
-        >
-          {course.dan_title && (
-            <span className="shrink-0 rounded-md border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-caption font-semibold text-accent">
-              {course.dan_title}
-            </span>
+          onClick={() => onChange(optionValue)}
+          className={cn(
+            "rounded-md border px-3 py-1.5 text-caption font-semibold transition-colors",
+            value === optionValue
+              ? "border-primary bg-primary/10 text-primary"
+              : "border-border bg-card text-muted-foreground hover:border-primary/50",
           )}
-          <span className="min-w-0 flex-1 truncate text-body">{course.name}</span>
+        >
+          {label}
         </button>
       ))}
     </div>
   );
 }
 
+function TableCategoryPicker({
+  tables,
+  favorites,
+  onSelect,
+}: {
+  tables: DifficultyTable[];
+  favorites: DifficultyTable[];
+  onSelect: (table: DifficultyTable) => void;
+}) {
+  const { t } = useTranslation();
+  const favoriteIds = new Set(favorites.map((table) => table.id));
+  const countById = new Map(tables.map((table) => [table.id, table.song_count]));
+  const visibleFavorites = favorites.filter((table) => tables.some((candidate) => candidate.id === table.id));
+  const otherTables = tables.filter((table) => !favoriteIds.has(table.id));
+  const defaultTables = otherTables.filter((table) => table.is_default);
+  const userTables = otherTables.filter((table) => !table.is_default);
+
+  return (
+    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+      <TablePickerSection title={t("tables.sidebar.favorites")} tables={visibleFavorites} countById={countById} onSelect={onSelect} />
+      <TablePickerSection title={t("tables.sidebar.defaultTables")} tables={defaultTables} countById={countById} onSelect={onSelect} />
+      <TablePickerSection title={t("tables.sidebar.userTables")} tables={userTables} countById={countById} onSelect={onSelect} />
+      {tables.length === 0 && (
+        <p className="py-6 text-center text-body text-muted-foreground">{t("common.states.noRecords")}</p>
+      )}
+    </div>
+  );
+}
+
+function GoalSearchBar({
+  value,
+  onChange,
+  field,
+  onFieldChange,
+  fields,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  field: GoalSearchField;
+  onFieldChange: (value: GoalSearchField) => void;
+  fields: { value: GoalSearchField; label: string }[];
+  placeholder: string;
+}) {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  function commitSearch() {
+    onChange(draft);
+  }
+
+  return (
+    <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+      <Select value={field} onValueChange={(next) => onFieldChange(next as GoalSearchField)}>
+        <SelectTrigger className="h-10 sm:w-44">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {fields.map((option) => (
+            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Input
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && commitSearch()}
+        placeholder={placeholder}
+        className="h-10 flex-1"
+      />
+      <Button type="button" onClick={commitSearch} className="h-10 gap-1.5">
+        <Search className="h-4 w-4" />
+        {t("songs.search.submit")}
+      </Button>
+    </div>
+  );
+}
+
+function supportedSlugsForCourse(course: TargetCourse): string[] {
+  return course.site_supported_table_slugs?.length
+    ? course.site_supported_table_slugs
+    : course.site_supported_table_slug
+      ? [course.site_supported_table_slug]
+      : [];
+}
+
+function localizeGoalSaveError(err: unknown, t: (key: string) => string): string {
+  const message = err instanceof Error ? err.message : "";
+  if (message === "An active goal already exists for this target") {
+    return t("goals.setup.errors.duplicate_active_goal");
+  }
+  return message || t("goals.setup.saveError");
+}
+
+function compareCourseBadge(left: TargetCourse, right: TargetCourse): number {
+  const leftHasBadge = !!left.dan_title;
+  const rightHasBadge = !!right.dan_title;
+  if (leftHasBadge !== rightHasBadge) return leftHasBadge ? -1 : 1;
+  return compareBadgeText(left.dan_title ?? "", right.dan_title ?? "", left.dan_order, right.dan_order);
+}
+
+const COURSE_NAME_GRADE_ORDER: Array<[RegExp, number]> = [
+  [/入門|intro|beginner/i, 0],
+  [/初段|一段|1\s*(?:dan|段)|1_DAN/i, 1],
+  [/二段|2\s*(?:dan|段)|2_DAN/i, 2],
+  [/三段|3\s*(?:dan|段)|3_DAN/i, 3],
+  [/四段|4\s*(?:dan|段)|4_DAN/i, 4],
+  [/五段|5\s*(?:dan|段)|5_DAN/i, 5],
+  [/六段|6\s*(?:dan|段)|6_DAN/i, 6],
+  [/七段|7\s*(?:dan|段)|7_DAN/i, 7],
+  [/八段|8\s*(?:dan|段)|8_DAN/i, 8],
+  [/九段|9\s*(?:dan|段)|9_DAN/i, 9],
+  [/十段|10\s*(?:dan|段)|10_DAN/i, 10],
+  [/皆伝|kaiden/i, 11],
+  [/gorilla/i, 12],
+  [/over\s*joy|overjoy/i, 13],
+];
+
+function courseNameGradeIndex(name: string): number {
+  for (const [pattern, index] of COURSE_NAME_GRADE_ORDER) {
+    if (pattern.test(name)) return index;
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+function courseNameGradeMatch(name: string): { index: number; prefix: string } {
+  let best: { index: number; prefix: string; at: number } | null = null;
+  for (const [pattern, index] of COURSE_NAME_GRADE_ORDER) {
+    const match = pattern.exec(name);
+    if (!match || match.index == null) continue;
+    if (best == null || match.index < best.at) {
+      best = { index, prefix: name.slice(0, match.index).trim(), at: match.index };
+    }
+  }
+  return best ?? { index: Number.POSITIVE_INFINITY, prefix: name.trim() };
+}
+
+function compareBadgeText(
+  left: string,
+  right: string,
+  leftOrder: number | null | undefined,
+  rightOrder: number | null | undefined,
+): number {
+  const leftPrefix = badgeSortPrefix(left);
+  const rightPrefix = badgeSortPrefix(right);
+  const prefixCmp = collator.compare(leftPrefix, rightPrefix);
+  if (prefixCmp !== 0) return prefixCmp;
+
+  const leftCourseBadgeRank = courseBadgeRank(left, leftOrder);
+  const rightCourseBadgeRank = courseBadgeRank(right, rightOrder);
+  if (leftCourseBadgeRank != null || rightCourseBadgeRank != null) {
+    if (leftCourseBadgeRank == null) return 1;
+    if (rightCourseBadgeRank == null) return -1;
+    if (leftCourseBadgeRank !== rightCourseBadgeRank) return leftCourseBadgeRank - rightCourseBadgeRank;
+    return collator.compare(left, right);
+  }
+
+  const leftMatch = /^(\D*?)(\d+)?\s*$/u.exec(left.trim());
+  const rightMatch = /^(\D*?)(\d+)?\s*$/u.exec(right.trim());
+  const leftNumber = leftMatch?.[2] ? Number(leftMatch[2]) : Number.POSITIVE_INFINITY;
+  const rightNumber = rightMatch?.[2] ? Number(rightMatch[2]) : Number.POSITIVE_INFINITY;
+  if (leftNumber !== rightNumber) return leftNumber - rightNumber;
+  const normalizedLeftOrder = leftOrder ?? courseNameGradeIndex(left);
+  const normalizedRightOrder = rightOrder ?? courseNameGradeIndex(right);
+  if (normalizedLeftOrder !== normalizedRightOrder) return normalizedLeftOrder - normalizedRightOrder;
+  return collator.compare(left, right);
+}
+
+function badgeSortPrefix(label: string): string {
+  const normalized = label.trim();
+  const numberMatch = /^(.*?)(?:0?(?:[1-9]|10))(?:\s*(?:dan|段))?$/iu.exec(normalized);
+  if (numberMatch) return numberMatch[1].trim() || "#";
+  if (normalized.includes("★★")) return normalized.replace(/★★.*/u, "").trim() || "★";
+  if (/gorilla/i.test(normalized)) return normalized.replace(/gorilla.*/iu, "").trim() || "★";
+  if (normalized.includes("(^^)")) return normalized.replace(/\(\^\^\).*/u, "").trim() || "★";
+  const grade = courseNameGradeMatch(normalized);
+  return grade.prefix || normalized;
+}
+
+function courseBadgeRank(label: string, order: number | null | undefined): number | null {
+  const normalized = label.trim();
+  if (!normalized) return null;
+  const normalizedLower = normalized.toLowerCase();
+  const normalizedOrder = typeof order === "number" ? order / 10 : null;
+
+  if (normalized.includes("★★") || /皆伝|kaiden/i.test(normalized)) return 11;
+  if (/gorilla/i.test(normalized)) return 12;
+  if (normalized.includes("(^^)") || /over\s*joy|overjoy/i.test(normalized)) return 13;
+
+  const numericBadge = /(?:^|[^\d])0?([1-9]|10)(?:[^\d]|$)/u.exec(normalized);
+  if (numericBadge && !/^(?:sl|st|dp|sp)\d+$/i.test(normalized)) {
+    return Number(numericBadge[1]);
+  }
+
+  const gradeIndex = courseNameGradeIndex(normalized);
+  if (Number.isFinite(gradeIndex)) return gradeIndex;
+  return normalizedOrder;
+}
+
+function compareCourseName(left: TargetCourse, right: TargetCourse): number {
+  const leftGrade = courseNameGradeMatch(left.name);
+  const rightGrade = courseNameGradeMatch(right.name);
+  const prefixCmp = collator.compare(leftGrade.prefix, rightGrade.prefix);
+  if (prefixCmp !== 0) return prefixCmp;
+  if (leftGrade.index !== rightGrade.index) return leftGrade.index - rightGrade.index;
+  return collator.compare(left.name, right.name);
+}
+
+function sortCourses(courses: TargetCourse[], key: CourseGoalSortKey, dir: SortDir): TargetCourse[] {
+  return courses.slice().sort((a, b) => {
+    if (a.is_active !== b.is_active) return a.is_active ? -1 : 1;
+    let cmp = 0;
+    if (key === "badge") {
+      cmp = compareCourseBadge(a, b);
+      if (cmp === 0) cmp = compareCourseName(a, b);
+    } else if (key === "name") {
+      cmp = compareCourseName(a, b);
+    } else if (key === "clear") {
+      cmp = (a.clear_type ?? -1) - (b.clear_type ?? -1);
+    } else if (key === "rank") {
+      cmp = compareRank(a.rank, b.rank);
+    } else if (key === "active") {
+      cmp = Number(a.is_active) - Number(b.is_active);
+    }
+    return dir === "asc" ? cmp : -cmp;
+  });
+}
+
+function courseClearLabel(clearType: number | null | undefined): string {
+  if (clearType == null) return "—";
+  if (clearType === 4) return "CLEAR";
+  return CLEAR_TYPE_LABELS[clearType] ?? String(clearType);
+}
+
+function allowedCourseClearTypes(baselineClearType: number | null): number[] {
+  const normalizedBaseline = baselineClearType == null ? 0 : Math.min(9, Math.max(0, Math.trunc(baselineClearType)));
+  return COURSE_GOAL_CLEAR_TYPES.filter((clearType) => clearType >= normalizedBaseline);
+}
+
+type RatingGoalRow = NonNullable<ReturnType<typeof useRankingContributionRows>["data"]>["entries"][number];
+
+function AllSongsGoalTable({
+  loading,
+  items,
+  tableSymbolById,
+  emptyMessage,
+  onSelect,
+}: {
+  loading: boolean;
+  items: FumenListItem[];
+  tableSymbolById: Map<string, string>;
+  emptyMessage: string;
+  onSelect: (item: FumenListItem) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="min-h-0 flex-1 overflow-auto overflow-x-hidden rounded-md border border-border">
+      {loading ? (
+        <Skeleton className="h-40 w-full" />
+      ) : items.length === 0 ? (
+        <p className="py-6 text-center text-body text-muted-foreground">{emptyMessage}</p>
+      ) : (
+        <table className="w-full table-fixed border-collapse text-left">
+          <colgroup>
+            <col className="w-[136px]" />
+            <col />
+            <col className="w-[88px]" />
+            <col className="w-[58px]" />
+          </colgroup>
+          <thead className="sticky top-0 z-10 bg-card text-caption text-muted-foreground">
+            <tr className="border-b border-border">
+              <th className="px-2 py-2 font-medium">{t("common.fields.level")}</th>
+              <th className="px-2 py-2 font-medium">{t("common.fields.titleArtist")}</th>
+              <th className="px-2 py-2 font-medium">{t("common.fields.clear")}</th>
+              <th className="px-2 py-2 font-medium">{t("common.fields.rank")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => {
+              const score = item.user_score;
+              const clearType = displayClearType(score?.best_clear_type ?? null, { rate: score?.rate }) ?? score?.best_clear_type ?? null;
+              const levels = (item.table_entries ?? []).map((entry) => ({
+                symbol: tableSymbolById.get(entry.table_id) ?? "",
+                slug: entry.table_id,
+                level: entry.level,
+              }));
+              return (
+                <tr
+                  key={`${item.sha256 ?? ""}-${item.md5 ?? ""}`}
+                  onClick={() => onSelect(item)}
+                  className={cn("cursor-pointer border-b border-border/30", clearType != null ? CLEAR_ROW_CLASS[clearType] : "hover:bg-secondary/50")}
+                >
+                  <td className="px-2 py-2">
+                    <div className="min-w-0 truncate">
+                      <TableLevelBadges levels={levels} maxVisible={2} />
+                    </div>
+                  </td>
+                  <td className="min-w-0 px-2 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-label font-medium">{item.title ?? t("fumen.detail.untitled")}</div>
+                      {item.artist && <div className="truncate text-caption row-muted">{item.artist}</div>}
+                    </div>
+                  </td>
+                  <td className="px-2 py-2 text-label whitespace-nowrap">
+                    {score ? (CLEAR_TYPE_LABELS[score.best_clear_type ?? 0] ?? "—") : "—"}
+                  </td>
+                  <td className="px-2 py-2 text-label font-semibold">{score?.rank ?? "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function updateSort<T extends string>(
+  key: T,
+  currentKey: T,
+  currentDir: SortDir,
+  setKey: (value: T) => void,
+  setDir: (value: SortDir) => void,
+) {
+  if (key === currentKey) {
+    setDir(currentDir === "asc" ? "desc" : "asc");
+    return;
+  }
+  setKey(key);
+  setDir("asc");
+}
+
+function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
+  if (!active) return <span className="ml-0.5 text-muted-foreground/35">⇅</span>;
+  return <span className="ml-0.5">{dir === "asc" ? "↑" : "↓"}</span>;
+}
+
+function SortTh<T extends string>({
+  col,
+  label,
+  sortKey,
+  sortDir,
+  onSort,
+  className,
+}: {
+  col: T;
+  label: string;
+  sortKey: T;
+  sortDir: SortDir;
+  onSort: (key: T) => void;
+  className?: string;
+}) {
+  return (
+    <th
+      className={cn("cursor-pointer select-none px-2 py-2 text-left font-medium whitespace-nowrap hover:text-foreground", className)}
+      onClick={() => onSort(col)}
+    >
+      {label}<SortIcon active={sortKey === col} dir={sortDir} />
+    </th>
+  );
+}
+
+function chartSearchFields(t: ReturnType<typeof useTranslation>["t"]) {
+  return [
+    { value: "title_artist" as const, label: t("common.fields.titleArtist") },
+    { value: "title" as const, label: t("common.fields.title") },
+    { value: "artist" as const, label: t("common.fields.artist") },
+    { value: "clear" as const, label: t("common.fields.clear") },
+    { value: "bp" as const, label: t("common.fields.bp") },
+    { value: "rate" as const, label: t("common.fields.rate") },
+    { value: "rank" as const, label: t("common.fields.rank") },
+  ];
+}
+
+function allSongSearchFields(t: ReturnType<typeof useTranslation>["t"]) {
+  return [
+    { value: "title_artist" as const, label: t("common.fields.titleArtist") },
+    { value: "title" as const, label: t("common.fields.title") },
+    { value: "artist" as const, label: t("common.fields.artist") },
+    { value: "level" as const, label: t("common.fields.level") },
+  ];
+}
+
+function courseSearchFields(t: ReturnType<typeof useTranslation>["t"]) {
+  return [
+    { value: "name" as const, label: t("common.fields.name") },
+    { value: "badge" as const, label: t("goals.setup.badge") },
+    { value: "clear" as const, label: t("common.fields.clear") },
+    { value: "rank" as const, label: t("common.fields.rank") },
+    { value: "active" as const, label: t("goals.setup.active") },
+  ];
+}
+
+function filterChartGoalRows(rows: RatingGoalRow[], query: string, field: GoalSearchField): RatingGoalRow[] {
+  const q = query.trim();
+  if (!q) return rows;
+  return rows.filter((row) => {
+    switch (field) {
+      case "title_artist":
+        return anyTextMatchesLooseQuery([row.title, row.artist], q);
+      case "title":
+        return anyTextMatchesLooseQuery([row.title], q);
+      case "artist":
+        return anyTextMatchesLooseQuery([row.artist], q);
+      case "clear":
+        return anyTextMatchesLooseQuery([CLEAR_TYPE_LABELS[row.clear_type] ?? String(row.clear_type)], q);
+      case "bp":
+        return anyTextMatchesLooseQuery([row.min_bp], q);
+      case "rate":
+        return anyTextMatchesLooseQuery([row.rate != null ? formatRatePercent(row.rate) : null], q);
+      case "rank":
+        return anyTextMatchesLooseQuery([row.rank_grade], q);
+      default:
+        return true;
+    }
+  });
+}
+
+function filterTableFumensForGoal(rows: TableFumen[], query: string, field: GoalSearchField): TableFumen[] {
+  const q = query.trim();
+  if (!q) return rows;
+  return rows.filter((row) => {
+    const score = row.user_score;
+    switch (field) {
+      case "title_artist":
+        return anyTextMatchesLooseQuery([row.title, row.artist], q);
+      case "title":
+        return anyTextMatchesLooseQuery([row.title], q);
+      case "artist":
+        return anyTextMatchesLooseQuery([row.artist], q);
+      case "clear":
+        return anyTextMatchesLooseQuery([score?.best_clear_type != null ? CLEAR_TYPE_LABELS[score.best_clear_type] : null], q);
+      case "bp":
+        return anyTextMatchesLooseQuery([score?.best_min_bp], q);
+      case "rate":
+        return anyTextMatchesLooseQuery([score?.rate != null ? formatRatePercent(score.rate) : null], q);
+      case "rank":
+        return anyTextMatchesLooseQuery([score?.rank], q);
+      default:
+        return true;
+    }
+  });
+}
+
+function compareNullableNumber(left: number | null | undefined, right: number | null | undefined): number {
+  const l = left ?? Number.POSITIVE_INFINITY;
+  const r = right ?? Number.POSITIVE_INFINITY;
+  return l - r;
+}
+
+function compareRank(left: string | null | undefined, right: string | null | undefined): number {
+  return rankIndex(left) - rankIndex(right);
+}
+
+function sortChartGoalRows(rows: RatingGoalRow[], key: ChartGoalSortKey, dir: SortDir): RatingGoalRow[] {
+  return rows.slice().sort((a, b) => {
+    let cmp = 0;
+    if (key === "title") cmp = collator.compare(a.title ?? "", b.title ?? "");
+    else if (key === "clear") cmp = (a.clear_type ?? -1) - (b.clear_type ?? -1);
+    else if (key === "bp") cmp = compareNullableNumber(a.min_bp, b.min_bp);
+    else if (key === "rate") cmp = (a.rate ?? -1) - (b.rate ?? -1);
+    else if (key === "rank") cmp = compareRank(a.rank_grade, b.rank_grade);
+    return dir === "asc" ? cmp : -cmp;
+  });
+}
+
+function sortTableFumensForGoal(rows: TableFumen[], key: ChartGoalSortKey, dir: SortDir): TableFumen[] {
+  return rows.slice().sort((a, b) => {
+    let cmp = 0;
+    const as = a.user_score;
+    const bs = b.user_score;
+    if (key === "title") cmp = collator.compare(a.title ?? "", b.title ?? "");
+    else if (key === "clear") cmp = (as?.best_clear_type ?? -1) - (bs?.best_clear_type ?? -1);
+    else if (key === "bp") cmp = compareNullableNumber(as?.best_min_bp, bs?.best_min_bp);
+    else if (key === "rate") cmp = (as?.rate ?? -1) - (bs?.rate ?? -1);
+    else if (key === "rank") cmp = compareRank(as?.rank, bs?.rank);
+    return dir === "asc" ? cmp : -cmp;
+  });
+}
+
+function courseDedupeKey(course: TargetCourse): string {
+  if (course.dan_title) return `dan:${course.dan_title}`;
+  return `name:${course.table_slug ?? ""}:${course.name}`;
+}
+
+function preferCourseRepresentative(left: TargetCourse, right: TargetCourse): TargetCourse {
+  if (left.is_active !== right.is_active) return left.is_active ? left : right;
+  if ((left.dan_order ?? Number.POSITIVE_INFINITY) !== (right.dan_order ?? Number.POSITIVE_INFINITY)) {
+    return (left.dan_order ?? Number.POSITIVE_INFINITY) < (right.dan_order ?? Number.POSITIVE_INFINITY) ? left : right;
+  }
+  return collator.compare(left.name, right.name) <= 0 ? left : right;
+}
+
+function dedupeGoalCourses(courses: TargetCourse[]): TargetCourse[] {
+  const map = new Map<string, TargetCourse>();
+  for (const course of courses) {
+    const key = courseDedupeKey(course);
+    const existing = map.get(key);
+    map.set(key, existing ? preferCourseRepresentative(existing, course) : course);
+  }
+  return Array.from(map.values());
+}
+
+function filterCoursesForGoal(courses: TargetCourse[], query: string, field: GoalSearchField): TargetCourse[] {
+  const q = query.trim();
+  if (!q) return courses;
+  return courses.filter((course) => {
+    switch (field) {
+      case "name":
+        return anyTextMatchesLooseQuery([course.name], q);
+      case "badge":
+        return anyTextMatchesLooseQuery([course.dan_title], q);
+      case "clear":
+        return anyTextMatchesLooseQuery([courseClearLabel(course.clear_type)], q);
+      case "rank":
+        return anyTextMatchesLooseQuery([course.rank], q);
+      case "active":
+        return anyTextMatchesLooseQuery([course.is_active ? "active 활성화 有効" : "inactive 비활성 無効"], q);
+      default:
+        return anyTextMatchesLooseQuery([course.name, course.dan_title], q);
+    }
+  });
+}
+
+function ChartSearchTable({
+  search,
+  onSearchChange,
+  searchField,
+  onSearchFieldChange,
+  loading,
+  ratingRows,
+  tableSongs,
+  tableSymbol,
+  levelCounts,
+  selectedLevel,
+  onLevelChange,
+  sortKey,
+  sortDir,
+  onSort,
+  emptyMessage,
+  onSelectRating,
+  onSelectTableSong,
+}: {
+  search: string;
+  onSearchChange: (value: string) => void;
+  searchField: GoalSearchField;
+  onSearchFieldChange: (value: GoalSearchField) => void;
+  loading: boolean;
+  ratingRows: RatingGoalRow[];
+  tableSongs: TableFumen[];
+  tableSymbol?: string | null;
+  levelCounts: [string, number][];
+  selectedLevel: string | null;
+  onLevelChange: (value: string | null) => void;
+  sortKey: ChartGoalSortKey;
+  sortDir: SortDir;
+  onSort: (key: ChartGoalSortKey) => void;
+  emptyMessage: string;
+  onSelectRating: (row: RatingGoalRow) => void;
+  onSelectTableSong: (row: TableFumen) => void;
+}) {
+  const { t } = useTranslation();
+  const hasRatingRows = ratingRows.length > 0;
+  const hasTableSongs = tableSongs.length > 0;
+  const effectiveSelectedLevel = selectedLevel ?? levelCounts[0]?.[0] ?? null;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <GoalSearchBar
+        value={search}
+        onChange={onSearchChange}
+        field={searchField}
+        onFieldChange={onSearchFieldChange}
+        fields={chartSearchFields(t)}
+        placeholder={t("ranking.detail.searchPlaceholder")}
+      />
+      <div className="flex min-h-0 flex-1 overflow-hidden rounded-md border border-border">
+        <div className="w-24 shrink-0 overflow-y-auto border-r border-border">
+          {levelCounts.map(([level, count]) => (
+            <button
+              key={level}
+              type="button"
+              onClick={() => onLevelChange(level)}
+              className={cn(
+                "flex min-h-9 w-full items-center justify-between px-2 text-left text-label transition-colors",
+                effectiveSelectedLevel === level ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground hover:bg-secondary",
+              )}
+            >
+              <span className="truncate">{formatTableLevelWithSymbolForDisplay({ tableSymbol, level })}</span>
+              <span className="text-caption opacity-70">{count}</span>
+            </button>
+          ))}
+        </div>
+        <div className="min-w-0 flex-1 overflow-auto">
+          {loading ? (
+            <Skeleton className="h-40 w-full" />
+          ) : !hasRatingRows && !hasTableSongs ? (
+            <p className="py-6 text-center text-body text-muted-foreground">{emptyMessage}</p>
+          ) : (
+            <table className="w-full table-fixed border-collapse text-left">
+              <colgroup>
+                <col />
+                <col className="w-[88px]" />
+                <col className="w-[48px]" />
+                <col className="w-[68px]" />
+                <col className="w-[58px]" />
+              </colgroup>
+              <thead className="sticky top-0 z-10 bg-card text-caption text-muted-foreground">
+                <tr className="border-b border-border">
+                  <SortTh col="title" label={t("common.fields.titleArtist")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <SortTh col="clear" label={t("common.fields.clear")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <SortTh col="bp" label={t("common.fields.bp")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <SortTh col="rate" label={t("common.fields.rate")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <SortTh col="rank" label={t("common.fields.rank")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                </tr>
+              </thead>
+              <tbody>
+                {ratingRows.map((row) => {
+                  const clearType = displayClearType(row.clear_type, { rate: row.rate }) ?? row.clear_type;
+                  return (
+                    <tr
+                      key={`${row.sha256 ?? ""}-${row.md5 ?? ""}`}
+                      onClick={() => onSelectRating(row)}
+                      className={cn("cursor-pointer border-b border-border/30", CLEAR_ROW_CLASS[clearType] ?? "hover:bg-secondary/50")}
+                    >
+                      <td className="min-w-0 px-2 py-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-label font-medium">{row.title}</div>
+                          {row.artist && <div className="truncate text-caption row-muted">{row.artist}</div>}
+                        </div>
+                      </td>
+                      <td className="px-2 py-2 text-label whitespace-nowrap">{CLEAR_TYPE_LABELS[row.clear_type] ?? "—"}</td>
+                      <td className="px-2 py-2 text-label tabular-nums">{row.min_bp ?? "—"}</td>
+                      <td className="px-2 py-2 text-label tabular-nums">{row.rate != null ? formatRatePercent(row.rate) : "—"}</td>
+                      <td className="px-2 py-2 text-label font-semibold">{row.rank_grade ?? "—"}</td>
+                    </tr>
+                  );
+                })}
+                {tableSongs.map((row) => {
+                  const score = row.user_score;
+                  const clearType = displayClearType(score?.best_clear_type ?? null, { exscore: score?.best_exscore, rate: score?.rate });
+                  return (
+                    <tr
+                      key={row.fumen_id}
+                      onClick={() => onSelectTableSong(row)}
+                      className={cn("cursor-pointer border-b border-border/30", clearType != null ? CLEAR_ROW_CLASS[clearType] : "hover:bg-secondary/50")}
+                    >
+                      <td className="min-w-0 px-2 py-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-label font-medium">{row.title ?? t("fumen.detail.untitled")}</div>
+                          {row.artist && <div className="truncate text-caption row-muted">{row.artist}</div>}
+                        </div>
+                      </td>
+                      <td className="px-2 py-2 text-label whitespace-nowrap">{score ? (CLEAR_TYPE_LABELS[score.best_clear_type ?? 0] ?? "—") : "—"}</td>
+                      <td className="px-2 py-2 text-label tabular-nums">{score?.best_min_bp ?? "—"}</td>
+                      <td className="px-2 py-2 text-label tabular-nums">{score?.rate != null ? formatRatePercent(score.rate) : "—"}</td>
+                      <td className="px-2 py-2 text-label font-semibold">{score?.rank ?? "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TablePickerSection({
+  title,
+  tables,
+  countById,
+  onSelect,
+}: {
+  title: string;
+  tables: DifficultyTable[];
+  countById: Map<string, number | null | undefined>;
+  onSelect: (table: DifficultyTable) => void;
+}) {
+  if (tables.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      <div className="text-caption font-semibold text-muted-foreground">{title}</div>
+      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+        {tables.map((table) => (
+          <button
+            key={table.id}
+            type="button"
+            onClick={() => onSelect(table)}
+            className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left transition-colors hover:border-primary hover:bg-primary/5"
+          >
+            {table.symbol && (
+              <span className="shrink-0 rounded-md border border-border px-1.5 py-0.5 text-caption font-semibold">
+                {table.symbol}
+              </span>
+            )}
+            <span className="min-w-0 flex-1 truncate text-label font-medium">{table.name}</span>
+            <span className="shrink-0 text-caption text-muted-foreground">{table.song_count ?? countById.get(table.id) ?? 0}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Difficulty-table picker for the course-goal flow. Unlike the chart flow's
+ * TableCategoryPicker, this never shows a "Favorites" section (favoriting a
+ * table is unrelated to which tables have courses), skips source-type
+ * grouping entirely for the curated "site supported" scope, and shows the
+ * actual course count for the active scope instead of the table's song count. */
+function CourseTableCategoryPicker({
+  tables,
+  courseCountBySlug,
+  favorites,
+  showFavorites,
+  groupBySource,
+  onSelect,
+}: {
+  tables: DifficultyTable[];
+  courseCountBySlug: Map<string, { active: number; total: number }>;
+  favorites: DifficultyTable[];
+  showFavorites: boolean;
+  groupBySource: boolean;
+  onSelect: (table: DifficultyTable) => void;
+}) {
+  const { t } = useTranslation();
+  const favoriteIds = new Set(favorites.map((table) => table.id));
+  const visibleFavorites = showFavorites ? favorites.filter((table) => tables.some((candidate) => candidate.id === table.id)) : [];
+  const otherTables = tables.filter((table) => !favoriteIds.has(table.id));
+  const defaultTables = groupBySource ? otherTables.filter((table) => table.is_default) : [];
+  const userTables = groupBySource ? otherTables.filter((table) => !table.is_default) : [];
+
+  return (
+    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+      {groupBySource ? (
+        <>
+          <CourseTablePickerSection
+            title={t("tables.sidebar.favorites")}
+            tables={visibleFavorites}
+            courseCountBySlug={courseCountBySlug}
+            onSelect={onSelect}
+          />
+          <CourseTablePickerSection
+            title={t("tables.sidebar.defaultTables")}
+            tables={defaultTables}
+            courseCountBySlug={courseCountBySlug}
+            onSelect={onSelect}
+          />
+          <CourseTablePickerSection
+            title={t("tables.sidebar.userTables")}
+            tables={userTables}
+            courseCountBySlug={courseCountBySlug}
+            onSelect={onSelect}
+          />
+        </>
+      ) : (
+        <CourseTablePickerSection title={null} tables={tables} courseCountBySlug={courseCountBySlug} onSelect={onSelect} />
+      )}
+      {tables.length === 0 && (
+        <p className="py-6 text-center text-body text-muted-foreground">{t("common.states.noRecords")}</p>
+      )}
+    </div>
+  );
+}
+
+function CourseTablePickerSection({
+  title,
+  tables,
+  courseCountBySlug,
+  onSelect,
+}: {
+  title: string | null;
+  tables: DifficultyTable[];
+  courseCountBySlug: Map<string, { active: number; total: number }>;
+  onSelect: (table: DifficultyTable) => void;
+}) {
+  if (tables.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      {title && <div className="text-caption font-semibold text-muted-foreground">{title}</div>}
+      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+        {tables.map((table) => (
+          <button
+            key={table.id}
+            type="button"
+            onClick={() => onSelect(table)}
+            className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-left transition-colors hover:border-primary hover:bg-primary/5"
+          >
+            {table.symbol && (
+              <span className="shrink-0 rounded-md border border-border px-1.5 py-0.5 text-caption font-semibold">
+                {table.symbol}
+              </span>
+            )}
+            <span className="min-w-0 flex-1 truncate text-label font-medium">{table.name}</span>
+            <span className="shrink-0 text-caption text-muted-foreground">
+              {formatCourseCount(courseCountBySlug.get(table.slug ?? ""))}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function formatCourseCount(count: { active: number; total: number } | undefined): string {
+  return `${count?.active ?? 0}/${count?.total ?? 0}`;
+}
+
+function CourseSearchList({
+  search,
+  onSearchChange,
+  searchField,
+  onSearchFieldChange,
+  loading,
+  courses,
+  sortKey,
+  sortDir,
+  onSort,
+  emptyMessage,
+  onSelect,
+}: {
+  search: string;
+  onSearchChange: (value: string) => void;
+  searchField: GoalSearchField;
+  onSearchFieldChange: (value: GoalSearchField) => void;
+  loading: boolean;
+  courses: TargetCourse[];
+  sortKey: CourseGoalSortKey;
+  sortDir: SortDir;
+  onSort: (key: CourseGoalSortKey) => void;
+  emptyMessage: string;
+  onSelect: (course: TargetCourse) => void;
+}) {
+  const { t } = useTranslation();
+  const activeCourses = courses.filter((course) => course.is_active);
+  const inactiveCourses = courses.filter((course) => !course.is_active);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <GoalSearchBar
+        value={search}
+        onChange={onSearchChange}
+        field={searchField}
+        onFieldChange={onSearchFieldChange}
+        fields={courseSearchFields(t)}
+        placeholder={t("ranking.detail.searchPlaceholder")}
+      />
+      <div className="min-h-0 flex-1 overflow-auto overflow-x-hidden rounded-md border border-border">
+        {loading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : courses.length === 0 ? (
+          <p className="py-6 text-center text-body text-muted-foreground">{emptyMessage}</p>
+        ) : (
+          <TooltipProvider delayDuration={200}>
+            <table className="w-full table-fixed border-collapse text-left">
+              <colgroup>
+                <col className="w-[86px]" />
+                <col />
+                <col className="w-[82px]" />
+                <col className="w-[64px]" />
+                <col className="w-[64px]" />
+              </colgroup>
+              <thead className="sticky top-0 z-10 bg-card text-caption text-muted-foreground">
+                <tr className="border-b border-border">
+                  <SortTh col="badge" label={t("goals.setup.badge")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <SortTh col="name" label={t("common.fields.name")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <SortTh col="clear" label={t("common.fields.clear")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <SortTh col="rank" label={t("common.fields.rank")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+                  <SortTh col="active" label={t("goals.setup.active")} sortKey={sortKey} sortDir={sortDir} onSort={onSort} className="text-center" />
+                </tr>
+              </thead>
+              <tbody>
+                <CourseRowsSection title={t("goals.setup.activeCourses")} courses={activeCourses} onSelect={onSelect} />
+                <CourseRowsSection title={t("goals.setup.inactiveCourses")} courses={inactiveCourses} onSelect={onSelect} />
+              </tbody>
+            </table>
+          </TooltipProvider>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CourseRowsSection({
+  title,
+  courses,
+  onSelect,
+}: {
+  title: string;
+  courses: TargetCourse[];
+  onSelect: (course: TargetCourse) => void;
+}) {
+  if (courses.length === 0) return null;
+  return (
+    <>
+      <tr className="bg-secondary/40">
+        <td colSpan={5} className="px-2 py-1.5 text-caption font-semibold text-muted-foreground">
+          {title}
+        </td>
+      </tr>
+      {courses.map((course) => (
+        <CourseRow key={course.course_id} course={course} onSelect={onSelect} />
+      ))}
+    </>
+  );
+}
+
+function CourseRow({ course, onSelect }: { course: TargetCourse; onSelect: (course: TargetCourse) => void }) {
+  const { t } = useTranslation();
+  const clearType = displayClearType(course.clear_type, { rate: course.rate }) ?? course.clear_type;
+  return (
+    <tr
+      onClick={() => onSelect(course)}
+      className={cn("cursor-pointer border-b border-border/30", clearType != null ? CLEAR_ROW_CLASS[clearType] : "hover:bg-secondary/50")}
+    >
+      <td className="px-2 py-2">
+        {course.dan_title ? (
+          <span className="inline-flex rounded-md border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-caption font-semibold text-accent">
+            {course.dan_title}
+          </span>
+        ) : (
+          <span className="text-label row-muted">—</span>
+        )}
+      </td>
+      <td className="px-2 py-2">
+        <div className="truncate text-label font-medium">{course.name}</div>
+      </td>
+      <td className="px-2 py-2 text-label">{courseClearLabel(course.clear_type)}</td>
+      <td className="px-2 py-2 text-label font-semibold">{course.rank ?? "—"}</td>
+      <td className="px-2 py-2 text-center">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className={cn("inline-flex justify-center", course.is_active ? "text-primary" : "text-destructive")}>
+              {course.is_active ? <Check className="h-4 w-4" /> : <X className="h-4 w-4" />}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {course.is_active ? t("goals.setup.courseActiveTooltip") : t("goals.setup.courseInactiveTooltip")}
+          </TooltipContent>
+        </Tooltip>
+      </td>
+    </tr>
+  );
+}
+
 function clampClearType(value: number, baselineClearType: number | null): number {
-  const normalizedBaseline = normalizeClearForRating(baselineClearType);
+  const normalizedBaseline = baselineClearType == null ? 0 : Math.min(9, Math.max(0, Math.trunc(baselineClearType)));
   return value < normalizedBaseline ? normalizedBaseline : value;
 }
 
-function clampMinBp(value: number, baselineMinBp: number | null): number {
-  if (baselineMinBp == null) return value;
-  return value > baselineMinBp ? baselineMinBp : value;
+function rankIndex(rank: string | null | undefined): number {
+  return rank ? RATING_RANKS.indexOf(rank) : -1;
 }
 
-function clampRate(value: number, baselineRate: number | null): number {
-  if (baselineRate == null) return value;
-  return value < baselineRate ? baselineRate : value;
+function allowedClearTypes(baselineClearType: number | null): number[] {
+  const normalizedBaseline = baselineClearType == null ? 0 : Math.min(9, Math.max(0, Math.trunc(baselineClearType)));
+  return RATING_CLEAR_TYPES.filter((clearType) => clearType >= normalizedBaseline);
+}
+
+function allowedRanks(baselineRank: string | null): string[] {
+  const baselineIndex = rankIndex(baselineRank);
+  return RATING_RANKS.filter((rank) => rankIndex(rank) >= baselineIndex);
+}
+
+function linkCourseAdjustFromClear(value: CourseAdjust, clearType: number, baseline: GoalBaseline | null): CourseAdjust {
+  const nextClear = clampClearType(clearType, baseline?.clear_type ?? null);
+  if (nextClear === 9) {
+    return { ...value, clearType: 9, rate: 100, rank: "MAX" };
+  }
+  return { ...value, clearType: nextClear };
+}
+
+function linkCourseAdjustFromRate(value: CourseAdjust, rate: number | null): CourseAdjust {
+  if (rate === 100) {
+    return { ...value, clearType: 9, rate: 100, rank: "MAX" };
+  }
+  return { ...value, rate, rank: rankGradeFromRate(rate) };
+}
+
+function linkCourseAdjustFromRank(value: CourseAdjust, rank: string): CourseAdjust {
+  const rate = minRateForRank(rank);
+  if (rank === "MAX") {
+    return { ...value, clearType: 9, rate, rank };
+  }
+  return { ...value, rate, rank };
+}
+
+function courseAdjustTarget(value: CourseAdjust, baseline: GoalBaseline | null): CourseAdjustDiff {
+  const clearChanged = value.clearType !== (baseline?.clear_type ?? 0);
+  const bpChanged = (value.minBp ?? null) !== (baseline?.min_bp ?? null);
+  const rateChanged = (value.rate ?? null) !== (baseline?.rate ?? null);
+  const rankChanged = value.rank !== (baseline?.rank ?? rankGradeFromRate(baseline?.rate ?? null));
+  return {
+    clearType: clearChanged ? value.clearType : null,
+    minBp: bpChanged ? value.minBp : null,
+    rate: rateChanged ? value.rate : null,
+    rank: rankChanged ? value.rank : null,
+  };
+}
+
+const COURSE_GOAL_GRID_TEMPLATE = "grid-cols-[minmax(112px,1fr)_minmax(88px,0.8fr)_minmax(104px,0.9fr)_minmax(72px,0.7fr)]";
+
+function CourseGoalCell({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={cn("flex min-w-0 items-center justify-center px-2 py-3 text-label", className)}>
+      {children}
+    </div>
+  );
+}
+
+function CourseGoalColumnHeader({ t }: { t: (key: string) => string }) {
+  return (
+    <div className={cn("grid border-b border-border text-label font-medium text-muted-foreground", COURSE_GOAL_GRID_TEMPLATE)}>
+      <div className="px-2 py-2 text-center">{t("common.fields.clear")}</div>
+      <div className="px-2 py-2 text-center">BP</div>
+      <div className="px-2 py-2 text-center">{t("common.fields.rate")}</div>
+      <div className="px-2 py-2 text-center">{t("common.fields.rank")}</div>
+    </div>
+  );
 }
 
 function CourseAdjustPanel({
@@ -882,7 +2137,9 @@ function CourseAdjustPanel({
   baseline,
   baselineLoading,
   value,
+  clientType,
   onChange,
+  onClientTypeChange,
   onBack,
   onContinue,
 }: {
@@ -890,92 +2147,145 @@ function CourseAdjustPanel({
   baseline: GoalBaseline | null;
   baselineLoading: boolean;
   value: CourseAdjust;
+  clientType: string;
   onChange: (next: CourseAdjust) => void;
+  onClientTypeChange: (next: string) => void;
   onBack: () => void;
   onContinue: () => void;
 }) {
   const { t } = useTranslation();
-  const derivedRank = rankGradeFromRate(value.rate);
-  const baselineRank = baseline?.rank ?? "—";
+  const currentClear = baseline?.clear_type ?? 0;
+  const adjustedClear = value.clearType;
+  const target = courseAdjustTarget(value, baseline);
+  const hasAnyChange = Object.values(target).some((metric) => metric != null);
+  const validation = baselineLoading ? null : validateGoalTarget(
+    baseline ?? { clear_type: null, min_bp: null, rank: null, rate: null },
+    target,
+  );
 
   return (
     <div className="space-y-4">
       <BackButton onClick={onBack} label={t("common.actions.back")} />
-      <div className="text-body font-semibold">{course.name}</div>
+      <div className="flex items-center gap-2">
+        {course.dan_title && (
+          <span className="shrink-0 rounded-md border border-accent/40 bg-accent/10 px-2 py-0.5 text-caption font-semibold text-accent">
+            {course.dan_title}
+          </span>
+        )}
+        <span className="min-w-0 truncate text-body font-semibold">{course.name}</span>
+      </div>
 
       {baselineLoading ? (
         <Skeleton className="h-16 w-full" />
       ) : (
-        <div className="space-y-1.5">
-          <div className="text-caption text-muted-foreground">{t("ranking.detail.calculator.current")}</div>
-          <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-secondary/30 px-3 py-2 sm:grid-cols-4">
-            <div className="text-center text-caption font-semibold">
-              {baseline?.clear_type != null ? CLEAR_TYPE_LABELS[baseline.clear_type] ?? String(baseline.clear_type) : "—"}
-            </div>
-            <div className="text-center text-caption tabular-nums">{baseline?.min_bp ?? "—"}</div>
-            <div className="text-center text-caption tabular-nums">
+        <div className="overflow-hidden rounded-xl border border-border bg-card/60">
+          <div className="flex min-h-10 items-center border-b border-border/50 bg-secondary/40 px-4 py-2">
+            <span className="text-caption font-semibold text-muted-foreground">
+              {t("ranking.detail.calculator.current")}
+            </span>
+          </div>
+          <CourseGoalColumnHeader t={t} />
+          <div className={cn("grid items-stretch", COURSE_GOAL_GRID_TEMPLATE, CLEAR_ROW_STATIC_CLASS[currentClear] ?? "")}>
+            <CourseGoalCell className="font-semibold">
+              {baseline?.clear_type != null ? courseClearLabel(baseline.clear_type) : "—"}
+            </CourseGoalCell>
+            <CourseGoalCell className="tabular-nums">{baseline?.min_bp ?? "—"}</CourseGoalCell>
+            <CourseGoalCell className="tabular-nums">
               {baseline?.rate != null ? formatRatePercent(baseline.rate) : "—"}
-            </div>
-            <div className="text-center text-caption font-semibold">{baselineRank}</div>
+            </CourseGoalCell>
+            <CourseGoalCell className="font-semibold">{baseline?.rank ?? "—"}</CourseGoalCell>
           </div>
         </div>
       )}
 
-      <div className="space-y-1.5">
-        <div className="text-caption text-muted-foreground">{t("ranking.detail.calculator.adjusted")}</div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Field label={t("common.fields.clear")}>
+      <div className="overflow-hidden rounded-xl border border-border bg-card/60">
+        <div className="flex min-h-10 items-center border-b border-border/50 bg-secondary/40 px-4 py-2">
+          <span className="text-caption font-semibold text-primary">
+            {t("ranking.detail.calculator.adjusted")}
+          </span>
+          <div className="ml-auto flex items-center gap-1">
+            {CLIENT_TYPES.map((ct) => (
+              <button
+                key={ct}
+                type="button"
+                onClick={() => onClientTypeChange(ct)}
+                className={cn(
+                  "rounded-md border px-2 py-1 text-caption font-semibold transition-colors",
+                  clientType === ct
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-card text-muted-foreground hover:border-primary/50",
+                )}
+              >
+                {CLIENT_LABELS[ct]}
+              </button>
+            ))}
+          </div>
+        </div>
+        <CourseGoalColumnHeader t={t} />
+        <div className={cn("grid items-stretch", COURSE_GOAL_GRID_TEMPLATE, CLEAR_ROW_STATIC_CLASS[adjustedClear] ?? "")}>
+          <CourseGoalCell>
             <select
               value={value.clearType}
-              onChange={(e) => onChange({ ...value, clearType: clampClearType(Number(e.target.value), baseline?.clear_type ?? null) })}
+              onChange={(e) => onChange(linkCourseAdjustFromClear(value, Number(e.target.value), baseline))}
               className="h-9 w-full cursor-pointer rounded-md border border-border bg-card px-2 text-center text-caption font-semibold outline-none focus:border-primary"
             >
-              {RATING_CLEAR_TYPES.map((ct) => (
+              {allowedCourseClearTypes(baseline?.clear_type ?? null).map((ct) => (
                 <option key={ct} value={ct}>
-                  {CLEAR_TYPE_LABELS[ct] ?? String(ct)}
+                  {courseClearLabel(ct)}
                 </option>
               ))}
             </select>
-          </Field>
-          <Field label="BP">
+          </CourseGoalCell>
+          <CourseGoalCell>
             <Input
-              type="number"
-              min={0}
-              value={value.minBp ?? 0}
+              type="text"
+              inputMode="numeric"
+              value={value.minBp ?? ""}
+              placeholder="-"
               onChange={(e) => {
-                const next = Number(e.target.value);
-                const clamped = clampMinBp(Number.isFinite(next) ? Math.max(0, Math.trunc(next)) : 0, baseline?.min_bp ?? null);
-                onChange({ ...value, minBp: clamped });
+                onChange({ ...value, minBp: sanitizeBpInput(e.target.value, baseline?.min_bp ?? null) });
               }}
               className="h-9 text-center tabular-nums"
             />
-          </Field>
-          <Field label={t("common.fields.rate")}>
+          </CourseGoalCell>
+          <CourseGoalCell>
             <Input
-              type="number"
-              min={0}
-              max={100}
-              step={0.01}
-              value={value.rate ?? 0}
+              type="text"
+              inputMode="decimal"
+              value={value.rate ?? ""}
+              placeholder="-"
               onChange={(e) => {
-                const next = Number(e.target.value);
-                const clamped = clampRate(Number.isFinite(next) ? Math.min(100, Math.max(0, next)) : 0, baseline?.rate ?? null);
-                onChange({ ...value, rate: clamped });
+                onChange(linkCourseAdjustFromRate(value, sanitizeRateInput(e.target.value, baseline?.rate ?? null)));
               }}
               className="h-9 text-center tabular-nums"
             />
-          </Field>
-          <Field label={t("common.fields.rank")}>
-            <div className="flex h-9 items-center justify-center rounded-md border border-border bg-secondary/30 text-caption font-semibold">
-              {derivedRank}
-            </div>
-          </Field>
+          </CourseGoalCell>
+          <CourseGoalCell>
+            <select
+              value={value.rank}
+              onChange={(e) => onChange(linkCourseAdjustFromRank(value, e.target.value))}
+              className="h-9 w-full cursor-pointer rounded-md border border-border bg-card px-2 text-center text-caption font-semibold outline-none focus:border-primary"
+            >
+              {allowedRanks(baseline?.rank ?? null).map((rank) => (
+                <option key={rank} value={rank}>{rank}</option>
+              ))}
+            </select>
+          </CourseGoalCell>
         </div>
       </div>
 
-      <div className="flex justify-end">
-        <Button onClick={onContinue}>{t("common.actions.next")}</Button>
-      </div>
+      <DialogFooter className="flex-col items-stretch gap-2 border-t border-border px-0 pt-3 sm:flex-row sm:items-center">
+        {hasAnyChange && validation && !validation.ok && (
+          <p className="min-w-0 text-caption text-destructive sm:flex-1">
+            {formatGoalValidationErrors(validation.errors, t)}
+          </p>
+        )}
+        <div className="ml-auto flex justify-end gap-2">
+          <Button onClick={onContinue} disabled={baselineLoading || !hasAnyChange || !validation?.ok}>
+            {t("ranking.detail.calculator.setGoalButton")}
+          </Button>
+        </div>
+      </DialogFooter>
     </div>
   );
 }
@@ -1026,12 +2336,20 @@ function MetricRow({
   );
 }
 
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-md bg-secondary/30 px-3 py-1.5 text-label">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium">{value}</span>
+    </div>
+  );
+}
+
 function ConfirmStep({
   goalType,
   chart,
   course,
   clientType,
-  onClientTypeChange,
   baseline,
   baselineLoading,
   target,
@@ -1043,7 +2361,6 @@ function ConfirmStep({
   chart: GoalDraft | null;
   course: (CourseAdjustDiff & { course: TargetCourse; clientType: string }) | null;
   clientType: string;
-  onClientTypeChange: (v: string) => void;
   baseline: { clear_type: number | null; min_bp: number | null; rank: string | null; rate: number | null } | null;
   baselineLoading: boolean;
   target: ConfirmTarget;
@@ -1084,33 +2401,13 @@ function ConfirmStep({
         <span className="truncate text-body font-semibold">{title}</span>
       </div>
 
-      <div className="space-y-1">
-        <div className="text-caption text-muted-foreground">{t("goals.setup.clientType")}</div>
-        <div className="flex gap-2">
-          {CLIENT_TYPES.map((ct) => (
-            <button
-              key={ct}
-              type="button"
-              onClick={() => onClientTypeChange(ct)}
-              className={cn(
-                "rounded-md border px-3 py-1.5 text-caption font-semibold transition-colors",
-                clientType === ct
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border bg-card text-muted-foreground hover:border-primary/50",
-              )}
-            >
-              {CLIENT_LABELS[ct]}
-            </button>
-          ))}
-        </div>
-      </div>
-
       <div className="space-y-1.5">
         <div className="text-caption text-muted-foreground">{t("goals.setup.conditions")}</div>
         {baselineLoading ? (
           <Skeleton className="h-24 w-full" />
         ) : (
           <>
+            <InfoRow label={t("goals.setup.clientType")} value={CLIENT_LABELS[clientType] ?? clientType} />
             {target.clearType != null && (
               <MetricRow
                 label={t("common.fields.clear")}
@@ -1146,7 +2443,7 @@ function ConfirmStep({
           </>
         )}
         {validation && !validation.ok && !baselineLoading && (
-          <p className="text-caption text-destructive">{t(`goals.setup.errors.${validation.errors[0]}`)}</p>
+          <p className="text-caption text-destructive">{formatGoalValidationErrors(validation.errors, t)}</p>
         )}
       </div>
     </div>

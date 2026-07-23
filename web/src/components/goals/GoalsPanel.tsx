@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Target } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useGoals } from "@/hooks/use-goals";
 import { GoalCard } from "@/components/goals/GoalCard";
@@ -29,13 +29,14 @@ export function GoalsPanel({ isOwner }: GoalsPanelProps) {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-3">
-        <CardTitle className="flex items-center gap-2">
-          <Target className="h-5 w-5 text-primary" />
-          {t("goals.panel.title")}
-        </CardTitle>
-        <Button size="sm" onClick={() => setSetupOpen(true)}>
-          {t("goals.panel.setGoal")}
+      <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-1.5">
+          <CardTitle>{t("goals.panel.title")}</CardTitle>
+          <CardDescription>{t("goals.panel.description")}</CardDescription>
+        </div>
+        <Button size="lg" onClick={() => setSetupOpen(true)} className="gap-2 shadow-sm">
+          <Plus className="h-4 w-4" />
+          <span className="font-semibold">{t("goals.panel.setGoal")}</span>
         </Button>
       </CardHeader>
       <CardContent>

@@ -694,6 +694,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
             userId={userId}
             createdAt={profileUser.created_at}
             lastSyncedAt={profileUser.last_synced_at}
+            isOwner={isOwner}
           />
         </div>
 
@@ -776,7 +777,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
               <>
                 <Card>
                   <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0">
+                    <div className="min-w-0 space-y-1.5">
                       <CardTitle>{t("dashboard.activityOverview.heatmapTitle")}</CardTitle>
                       <CardDescription>{t("dashboard.activityOverview.heatmapDescription")}</CardDescription>
                     </div>
@@ -828,7 +829,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
 
                 <Card>
                   <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0">
+                    <div className="min-w-0 space-y-1.5">
                       <CardTitle>{t("dashboard.activityOverview.graphTitle")}</CardTitle>
                       <CardDescription>{t("dashboard.activityOverview.graphDescription")}</CardDescription>
                     </div>
@@ -875,7 +876,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
 
                 <Card>
                   <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0">
+                    <div className="min-w-0 space-y-1.5">
                       <CardTitle>{t("dashboard.activityOverview.ratingGraphTitle")}</CardTitle>
                       <CardDescription>{t("dashboard.activityOverview.ratingGraphDescription")}</CardDescription>
                     </div>

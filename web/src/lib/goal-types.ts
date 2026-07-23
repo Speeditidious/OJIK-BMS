@@ -19,6 +19,7 @@ export interface GoalDraft {
     title: string;
     artist: string | null;
     symbol?: string;
+    levels?: Array<{ symbol: string; level: string; slug?: string }>;
   };
   clientType: string;
   clearType: number | null;
