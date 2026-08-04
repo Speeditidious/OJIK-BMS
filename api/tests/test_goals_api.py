@@ -956,3 +956,27 @@ async def test_list_active_goals_puts_unordered_goals_last_by_recency(db_session
 
     # Ordered goal first; the two NULLs sink below it, newest of them first.
     assert [g["fumen_sha256"] for g in result["goals"]] == ["c" * 64, "b" * 64, "a" * 64]
+
+
+@pytest.mark.asyncio
+async def test_create_goal_lands_at_the_top_of_the_active_list(db_session: AsyncSession):
+    user = await _add_db_user(db_session, username="creator")
+    sha256, md5 = "d" * 64, "d" * 32
+    await _add_fumen(db_session, sha256=sha256, md5=md5)
+    await _add_score(
+        db_session, user_id=user.id, fumen_sha256=sha256, fumen_md5=md5, clear_type=5, rate=70.0
+    )
+    await _add_chart_goal(db_session, user_id=user.id, sha256="a" * 64, md5="a" * 32, display_order=0)
+    await _add_chart_goal(db_session, user_id=user.id, sha256="b" * 64, md5="b" * 32, display_order=1)
+
+    body = GoalCreate(
+        goal_type="chart", client_type="beatoraja",
+        fumen_sha256=sha256, fumen_md5=md5, target_clear_type=7,
+    )
+    created = await create_goal(body, current_user=_user(user.id), db=db_session)
+
+    assert created["fumen_sha256"] == sha256
+    listed = await list_goals(
+        goal_status="active", user_id=None, current_user=_user(user.id), db=db_session
+    )
+    assert listed["goals"][0]["goal_id"] == created["goal_id"]

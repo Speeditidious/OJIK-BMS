@@ -725,6 +725,18 @@ async def create_goal(
             target_rate=body.target_rate,
         )
 
+    # New goals appear at the top of the active list, matching the pre-
+    # display_order behaviour (created_at DESC). Negative values accumulate
+    # only until the next PUT /goals/reorder renumbers the list 0..n-1.
+    min_order = await db.scalar(
+        select(func.min(UserGoal.display_order)).where(
+            UserGoal.user_id == current_user.id,
+            UserGoal.deleted_at.is_(None),
+            UserGoal.status == "active",
+        )
+    )
+    next_display_order = 0 if min_order is None else min_order - 1
+
     goal = UserGoal(
         goal_id=uuid.uuid4(),
         user_id=current_user.id,
@@ -743,6 +755,7 @@ async def create_goal(
         comment=body.comment,
         status="active",
         baseline_snapshot=asdict(baseline),
+        display_order=next_display_order,
     )
     db.add(goal)
     try:
