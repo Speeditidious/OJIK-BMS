@@ -111,7 +111,8 @@ async def db_session():
                 created_at DATETIME,
                 achieved_at DATETIME,
                 achieved_recorded_at DATETIME,
-                deleted_at DATETIME
+                deleted_at DATETIME,
+                display_order INTEGER
             )
             """,
             """
@@ -347,16 +348,27 @@ async def _add_favorite(
 
 
 async def _add_chart_goal(
-    db: AsyncSession, *, user_id: uuid.UUID, sha256: str, md5: str, table_slug: str | None = None
-) -> None:
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    sha256: str,
+    md5: str,
+    table_slug: str | None = None,
+    display_order: int | None = None,
+    created_at: datetime | None = None,
+) -> uuid.UUID:
+    goal_id = uuid.uuid4()
     db.add(
         UserGoal(
-            goal_id=uuid.uuid4(), user_id=user_id, goal_type="chart", client_type="beatoraja",
+            goal_id=goal_id, user_id=user_id, goal_type="chart", client_type="beatoraja",
             table_slug=table_slug, fumen_sha256=sha256, fumen_md5=md5, target_clear_type=7,
             status="active", baseline_snapshot={},
+            display_order=display_order,
+            created_at=created_at or datetime(2026, 1, 1, tzinfo=UTC),
         )
     )
     await db.flush()
+    return goal_id
 
 
 def _table_cfg(slug: str = "test-table") -> TableRankingConfig:
@@ -907,3 +919,40 @@ async def test_achievements_for_another_user_are_visible(db_session: AsyncSessio
 
     assert len(result["goals"]) == 1
     assert result["is_owner"] is False
+
+
+# ── display_order ordering ───────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_list_active_goals_follows_display_order(db_session: AsyncSession):
+    user = await _add_db_user(db_session, username="orderer")
+    await _add_chart_goal(db_session, user_id=user.id, sha256="a" * 64, md5="a" * 32, display_order=2)
+    await _add_chart_goal(db_session, user_id=user.id, sha256="b" * 64, md5="b" * 32, display_order=0)
+    await _add_chart_goal(db_session, user_id=user.id, sha256="c" * 64, md5="c" * 32, display_order=1)
+
+    result = await list_goals(
+        goal_status="active", user_id=None, current_user=_user(user.id), db=db_session
+    )
+
+    assert [g["fumen_sha256"] for g in result["goals"]] == ["b" * 64, "c" * 64, "a" * 64]
+
+
+@pytest.mark.asyncio
+async def test_list_active_goals_puts_unordered_goals_last_by_recency(db_session: AsyncSession):
+    user = await _add_db_user(db_session, username="mixed")
+    await _add_chart_goal(
+        db_session, user_id=user.id, sha256="a" * 64, md5="a" * 32,
+        display_order=None, created_at=datetime(2026, 3, 1, tzinfo=UTC),
+    )
+    await _add_chart_goal(
+        db_session, user_id=user.id, sha256="b" * 64, md5="b" * 32,
+        display_order=None, created_at=datetime(2026, 5, 1, tzinfo=UTC),
+    )
+    await _add_chart_goal(db_session, user_id=user.id, sha256="c" * 64, md5="c" * 32, display_order=7)
+
+    result = await list_goals(
+        goal_status="active", user_id=None, current_user=_user(user.id), db=db_session
+    )
+
+    # Ordered goal first; the two NULLs sink below it, newest of them first.
+    assert [g["fumen_sha256"] for g in result["goals"]] == ["c" * 64, "b" * 64, "a" * 64]

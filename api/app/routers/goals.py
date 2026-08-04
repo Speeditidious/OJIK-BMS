@@ -601,15 +601,21 @@ async def list_goals(
     """
     target_user = await _resolve_target_user(user_id, current_user, db)
 
-    result = await db.execute(
-        select(UserGoal)
-        .where(
-            UserGoal.user_id == target_user.id,
-            UserGoal.deleted_at.is_(None),
-            UserGoal.status == goal_status,
-        )
-        .order_by(UserGoal.created_at.desc())
+    query = select(UserGoal).where(
+        UserGoal.user_id == target_user.id,
+        UserGoal.deleted_at.is_(None),
+        UserGoal.status == goal_status,
     )
+    if goal_status == "active":
+        # Owner-defined order; goals without one fall back to recency.
+        query = query.order_by(
+            UserGoal.display_order.asc().nullslast(),
+            UserGoal.created_at.desc(),
+        )
+    else:
+        query = query.order_by(UserGoal.created_at.desc())
+
+    result = await db.execute(query)
     goals = result.scalars().all()
 
     goal_dicts = await _enrich_goals(list(goals), db)

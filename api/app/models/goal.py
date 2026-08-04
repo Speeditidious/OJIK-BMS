@@ -112,5 +112,11 @@ class UserGoal(Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Owner-defined ordering for the active goal list. NULL sorts last, so a
+    # goal that predates this column (or was never reordered) falls back to
+    # recency. Holes left by soft-deleted or achieved goals are harmless —
+    # only relative order is read — and PUT /goals/reorder renumbers 0..n-1.
+    display_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     def __repr__(self) -> str:
         return f"<UserGoal goal_id={self.goal_id} user={self.user_id} type={self.goal_type} status={self.status}>"

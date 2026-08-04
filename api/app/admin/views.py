@@ -906,6 +906,7 @@ class UserGoalAdmin(ModelView, model=UserGoal):
     icon = "fa-solid fa-bullseye"
     column_list = [
         UserGoal.goal_id,
+        UserGoal.display_order,
         UserGoal.user_id,
         UserGoal.goal_type,
         UserGoal.client_type,
