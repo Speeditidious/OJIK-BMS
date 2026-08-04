@@ -613,7 +613,12 @@ async def list_goals(
             UserGoal.created_at.desc(),
         )
     else:
-        query = query.order_by(UserGoal.created_at.desc())
+        # The achieved tab surfaces the achievement date on each card, so
+        # "most recently achieved" is the only order matching what is shown.
+        query = query.order_by(
+            UserGoal.achieved_recorded_at.desc().nullslast(),
+            UserGoal.created_at.desc(),
+        )
 
     result = await db.execute(query)
     goals = result.scalars().all()

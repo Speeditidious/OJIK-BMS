@@ -980,3 +980,34 @@ async def test_create_goal_lands_at_the_top_of_the_active_list(db_session: Async
         goal_status="active", user_id=None, current_user=_user(user.id), db=db_session
     )
     assert listed["goals"][0]["goal_id"] == created["goal_id"]
+
+
+@pytest.mark.asyncio
+async def test_list_achieved_goals_orders_by_achievement_date(db_session: AsyncSession):
+    user = await _add_db_user(db_session, username="achiever")
+    # Created oldest but achieved most recently — must come first.
+    db_session.add(
+        UserGoal(
+            goal_id=uuid.uuid4(), user_id=user.id, goal_type="chart", client_type="beatoraja",
+            fumen_sha256="a" * 64, fumen_md5="a" * 32, target_clear_type=7,
+            status="achieved", baseline_snapshot={},
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            achieved_recorded_at=datetime(2026, 7, 1, tzinfo=UTC),
+        )
+    )
+    db_session.add(
+        UserGoal(
+            goal_id=uuid.uuid4(), user_id=user.id, goal_type="chart", client_type="beatoraja",
+            fumen_sha256="b" * 64, fumen_md5="b" * 32, target_clear_type=7,
+            status="achieved", baseline_snapshot={},
+            created_at=datetime(2026, 6, 1, tzinfo=UTC),
+            achieved_recorded_at=datetime(2026, 6, 15, tzinfo=UTC),
+        )
+    )
+    await db_session.flush()
+
+    result = await list_goals(
+        goal_status="achieved", user_id=None, current_user=_user(user.id), db=db_session
+    )
+
+    assert [g["fumen_sha256"] for g in result["goals"]] == ["a" * 64, "b" * 64]
