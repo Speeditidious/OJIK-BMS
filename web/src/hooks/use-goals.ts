@@ -101,7 +101,7 @@ export function useDeleteGoal() {
  * (`["goals","active","me"]`) and the goals tab (`["goals","active",userId]`)
  * are refreshed by the shared `["goals"]` prefix, so reordering in one place
  * shows up in the other. The invalidation promise is returned so per-call
- * `onSuccess` handlers run only after the fresh order has landed.
+ * `onSettled` handlers run only after the fresh order has landed.
  */
 export function useReorderGoals() {
   const queryClient = useQueryClient();

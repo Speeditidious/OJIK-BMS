@@ -36,6 +36,7 @@ export function DashboardUserHeader({
 }: DashboardUserHeaderProps) {
   const { t } = useTranslation();
   const activeGoals = useGoals("active", undefined, isOwner);
+  const totalActiveCount = activeGoals.data?.goals.length ?? 0;
   const visibleGoals = useMemo(
     () =>
       applyLevelDisplayPreference(
@@ -89,7 +90,7 @@ export function DashboardUserHeader({
         <div className="mt-4 border-t border-border/70 pt-4">
           <div className="mb-2 flex items-center gap-1.5">
             <span className="text-body font-medium">
-              {t("goals.panel.setGoalsCount", { count: activeGoals.data?.goals.length ?? 0 })}
+              {t("goals.panel.setGoalsCount", { count: totalActiveCount })}
             </span>
             {onGoToGoals && (
               <TooltipProvider delayDuration={150}>
@@ -121,7 +122,7 @@ export function DashboardUserHeader({
             <SortableGoalList
               goals={visibleGoals}
               strategy={rectSortingStrategy}
-              disabled={false}
+              disabled={visibleGoals.length !== totalActiveCount}
               className="grid gap-2 lg:grid-cols-3"
               renderItem={(goal, dragHandle) => (
                 <GoalCard goal={goal} compact dragHandle={dragHandle} />

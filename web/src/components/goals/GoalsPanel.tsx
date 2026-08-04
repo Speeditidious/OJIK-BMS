@@ -111,7 +111,7 @@ export function GoalsPanel({ userId, isOwner }: GoalsPanelProps) {
                     strategy={verticalListSortingStrategy}
                     // Reordering a partial view would move goals the user
                     // cannot see, so it is blocked while anything is filtered out.
-                    disabled={!isOwner || filteredActive.length !== preferenceActiveList.length}
+                    disabled={!isOwner || filteredActive.length !== activeList.length}
                     disabledReason={isOwner ? t("goals.card.reorderDisabledByFilter") : undefined}
                     className="space-y-2"
                     renderItem={(goal, dragHandle) => (
