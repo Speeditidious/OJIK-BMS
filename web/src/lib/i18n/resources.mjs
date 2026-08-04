@@ -945,6 +945,8 @@ export const resources = {
           deleteAria: "목표 삭제",
           deleteConfirmTitle: "목표 삭제",
           deleteConfirmBody: "정말로 목표를 삭제하시겠습니까?",
+          reorderTitle: "드래그해서 순서 변경",
+          reorderDisabledByFilter: "필터를 해제하면 순서를 변경할 수 있습니다.",
         },
         setup: {
           title: "목표 설정",
@@ -2122,6 +2124,8 @@ export const resources = {
           deleteAria: "Delete goal",
           deleteConfirmTitle: "Delete Goal",
           deleteConfirmBody: "Are you sure you want to delete this goal?",
+          reorderTitle: "Drag to reorder",
+          reorderDisabledByFilter: "Clear the filters to reorder goals.",
         },
         setup: {
           title: "Set Goal",
@@ -3299,6 +3303,8 @@ export const resources = {
           deleteAria: "目標を削除",
           deleteConfirmTitle: "目標削除",
           deleteConfirmBody: "本当にこの目標を削除しますか?",
+          reorderTitle: "ドラッグして並び替え",
+          reorderDisabledByFilter: "フィルターを解除すると並び替えできます。",
         },
         setup: {
           title: "目標設定",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -69,9 +69,11 @@ interface GoalCardProps {
   compact?: boolean;
   /** False when viewing someone else's goals — hides the delete affordance. */
   canDelete?: boolean;
+  /** Drag handle rendered at the card's leading edge. Omit for a static card. */
+  dragHandle?: ReactNode;
 }
 
-export function GoalCard({ goal, compact = false, canDelete = true }: GoalCardProps) {
+export function GoalCard({ goal, compact = false, canDelete = true, dragHandle }: GoalCardProps) {
   const { t } = useTranslation();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const deleteGoal = useDeleteGoal();
@@ -97,6 +99,7 @@ export function GoalCard({ goal, compact = false, canDelete = true }: GoalCardPr
         compact ? "px-3 py-2" : "px-4 py-3",
       )}
     >
+      {dragHandle && <div className="mt-0.5 flex shrink-0 items-center">{dragHandle}</div>}
       <div className="min-w-0 flex-1 space-y-1">
         <div className={cn("flex min-w-0 items-center gap-1.5", compact ? "flex-nowrap" : "flex-wrap")}>
           {goal.goal_type === "chart" ? (

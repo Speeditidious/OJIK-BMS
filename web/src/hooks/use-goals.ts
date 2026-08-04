@@ -96,6 +96,21 @@ export function useDeleteGoal() {
   });
 }
 
+/**
+ * Persist the owner's goal ordering. Both the profile card
+ * (`["goals","active","me"]`) and the goals tab (`["goals","active",userId]`)
+ * are refreshed by the shared `["goals"]` prefix, so reordering in one place
+ * shows up in the other. The invalidation promise is returned so per-call
+ * `onSuccess` handlers run only after the fresh order has landed.
+ */
+export function useReorderGoals() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (goalIds: string[]) => api.put("/goals/reorder", { goal_ids: goalIds }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["goals"] }),
+  });
+}
+
 export interface GoalAchievementsResponse {
   goals: GoalRecord[];
   is_owner: boolean;
