@@ -27,6 +27,7 @@ from app.models.fumen import Fumen, FumenTableEntry
 from app.models.goal import UserGoal
 from app.models.score import UserPlayerStats
 from app.models.user import User
+from app.schemas import MessageResponse
 from app.services.goal_evaluator import (
     GoalBaseline,
     compute_chart_baseline,
@@ -58,6 +59,12 @@ class GoalCreate(BaseModel):
     target_rank: str | None = None
     target_rate: float | None = None
     comment: str | None = None
+
+
+class GoalReorderRequest(BaseModel):
+    """Owner-defined ordering for the active goal list, most-important first."""
+
+    goal_ids: list[uuid.UUID]
 
 
 def _goal_achieved_recorded_date_filter(target_date: date):
@@ -601,15 +608,26 @@ async def list_goals(
     """
     target_user = await _resolve_target_user(user_id, current_user, db)
 
-    result = await db.execute(
-        select(UserGoal)
-        .where(
-            UserGoal.user_id == target_user.id,
-            UserGoal.deleted_at.is_(None),
-            UserGoal.status == goal_status,
-        )
-        .order_by(UserGoal.created_at.desc())
+    query = select(UserGoal).where(
+        UserGoal.user_id == target_user.id,
+        UserGoal.deleted_at.is_(None),
+        UserGoal.status == goal_status,
     )
+    if goal_status == "active":
+        # Owner-defined order; goals without one fall back to recency.
+        query = query.order_by(
+            UserGoal.display_order.asc().nullslast(),
+            UserGoal.created_at.desc(),
+        )
+    else:
+        # The achieved tab surfaces the achievement date on each card, so
+        # "most recently achieved" is the only order matching what is shown.
+        query = query.order_by(
+            UserGoal.achieved_recorded_at.desc().nullslast(),
+            UserGoal.created_at.desc(),
+        )
+
+    result = await db.execute(query)
     goals = result.scalars().all()
 
     goal_dicts = await _enrich_goals(list(goals), db)
@@ -719,6 +737,18 @@ async def create_goal(
             target_rate=body.target_rate,
         )
 
+    # New goals appear at the top of the active list, matching the pre-
+    # display_order behaviour (created_at DESC). Negative values accumulate
+    # only until the next PUT /goals/reorder renumbers the list 0..n-1.
+    min_order = await db.scalar(
+        select(func.min(UserGoal.display_order)).where(
+            UserGoal.user_id == current_user.id,
+            UserGoal.deleted_at.is_(None),
+            UserGoal.status == "active",
+        )
+    )
+    next_display_order = 0 if min_order is None else min_order - 1
+
     goal = UserGoal(
         goal_id=uuid.uuid4(),
         user_id=current_user.id,
@@ -737,6 +767,7 @@ async def create_goal(
         comment=body.comment,
         status="active",
         baseline_snapshot=asdict(baseline),
+        display_order=next_display_order,
     )
     db.add(goal)
     try:
@@ -754,6 +785,38 @@ async def create_goal(
     await db.refresh(goal)
 
     return await _enrich_goal(goal, db)
+
+
+# ── PUT /goals/reorder ───────────────────────────────────────────────────────
+
+@router.put("/reorder", response_model=MessageResponse)
+async def reorder_goals(
+    body: GoalReorderRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MessageResponse:
+    """Renumber the caller's active goals to match the given order.
+
+    IDs that are not the caller's own live active goals are ignored rather
+    than rejected — a stale client list (a goal achieved or deleted in
+    another tab) should still reorder everything else instead of failing.
+    """
+    result = await db.execute(
+        select(UserGoal).where(
+            UserGoal.user_id == current_user.id,
+            UserGoal.deleted_at.is_(None),
+            UserGoal.status == "active",
+        )
+    )
+    goals: dict[uuid.UUID, UserGoal] = {goal.goal_id: goal for goal in result.scalars().all()}
+
+    for order, goal_id in enumerate(body.goal_ids):
+        goal = goals.get(goal_id)
+        if goal is not None:
+            goal.display_order = order
+
+    await db.commit()
+    return MessageResponse(message="Goals reordered")
 
 
 # ── DELETE /goals/{goal_id} ──────────────────────────────────────────────────

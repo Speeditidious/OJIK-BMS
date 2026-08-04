@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import type { TableLevelRef } from "@/components/common/TableLevelBadges";
 import { clearTdClass, rankTdClass } from "@/lib/score-cell-class";
 import type { GoalRecord } from "@/hooks/use-goals";
 import { useDeleteGoal } from "@/hooks/use-goals";
+import { formatGoalDate } from "@/lib/goal-date-format.mjs";
 import { formatRatePercent } from "@/lib/rate-format";
 import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
 import { sortTableLevelsCore } from "@/lib/table-level-sort-core.mjs";
@@ -68,9 +69,11 @@ interface GoalCardProps {
   compact?: boolean;
   /** False when viewing someone else's goals — hides the delete affordance. */
   canDelete?: boolean;
+  /** Drag handle rendered at the card's leading edge. Omit for a static card. */
+  dragHandle?: ReactNode;
 }
 
-export function GoalCard({ goal, compact = false, canDelete = true }: GoalCardProps) {
+export function GoalCard({ goal, compact = false, canDelete = true, dragHandle }: GoalCardProps) {
   const { t } = useTranslation();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const deleteGoal = useDeleteGoal();
@@ -96,6 +99,7 @@ export function GoalCard({ goal, compact = false, canDelete = true }: GoalCardPr
         compact ? "px-3 py-2" : "px-4 py-3",
       )}
     >
+      {dragHandle && <div className="mt-0.5 flex shrink-0 items-center">{dragHandle}</div>}
       <div className="min-w-0 flex-1 space-y-1">
         <div className={cn("flex min-w-0 items-center gap-1.5", compact ? "flex-nowrap" : "flex-wrap")}>
           {goal.goal_type === "chart" ? (
@@ -144,12 +148,16 @@ export function GoalCard({ goal, compact = false, canDelete = true }: GoalCardPr
           )}
         </div>
         {!compact && goal.comment && <p className="truncate text-caption text-muted-foreground">{goal.comment}</p>}
-        {!compact && goal.status === "achieved" && goal.achieved_recorded_at && (
-          <p className="text-caption text-muted-foreground">
-            {t("goals.card.achievedOn", { date: goal.achieved_recorded_at.slice(0, 10) })}
-          </p>
-        )}
       </div>
+
+      {!compact && (goal.created_at || goal.achieved_recorded_at) && (
+        <div className="shrink-0 space-y-0.5 whitespace-nowrap text-right text-caption text-muted-foreground">
+          {goal.created_at && <p>{t("goals.card.registeredOn", { date: formatGoalDate(goal.created_at) })}</p>}
+          {goal.status === "achieved" && goal.achieved_recorded_at && (
+            <p>{t("goals.card.achievedOnDate", { date: formatGoalDate(goal.achieved_recorded_at) })}</p>
+          )}
+        </div>
+      )}
 
       {!compact && canDelete && (
         <Button

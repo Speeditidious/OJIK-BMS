@@ -2,10 +2,13 @@
 
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowRight, UserCircle } from "lucide-react";
+import { ArrowRight, ArrowUpRight, UserCircle } from "lucide-react";
+import { rectSortingStrategy } from "@dnd-kit/sortable";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { AvatarImage } from "@/components/common/AvatarImage";
 import { GoalCard } from "@/components/goals/GoalCard";
+import { SortableGoalList } from "@/components/goals/SortableGoalList";
 import { useGoals } from "@/hooks/use-goals";
 import { resolveAvatarUrl } from "@/lib/avatar";
 import { applyLevelDisplayPreference } from "@/lib/goal-filter-core";
@@ -18,6 +21,8 @@ interface DashboardUserHeaderProps {
   createdAt: string;
   lastSyncedAt: string | null;
   isOwner?: boolean;
+  /** Jump to the dashboard's goals tab. Omit to hide the shortcut icon. */
+  onGoToGoals?: () => void;
 }
 
 export function DashboardUserHeader({
@@ -27,9 +32,11 @@ export function DashboardUserHeader({
   createdAt,
   lastSyncedAt,
   isOwner = false,
+  onGoToGoals,
 }: DashboardUserHeaderProps) {
   const { t } = useTranslation();
   const activeGoals = useGoals("active", undefined, isOwner);
+  const totalActiveCount = activeGoals.data?.goals.length ?? 0;
   const visibleGoals = useMemo(
     () =>
       applyLevelDisplayPreference(
@@ -81,16 +88,47 @@ export function DashboardUserHeader({
 
       {isOwner && (activeGoals.isLoading || visibleGoals.length > 0) && (
         <div className="mt-4 border-t border-border/70 pt-4">
-          <div className="mb-2 text-body font-medium">
-            {t("goals.panel.setGoalsCount", { count: activeGoals.data?.goals.length ?? 0 })}
+          <div className="mb-2 flex items-center gap-1.5">
+            <span className="text-body font-medium">
+              {t("goals.panel.setGoalsCount", { count: totalActiveCount })}
+            </span>
+            {onGoToGoals && (
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={onGoToGoals}
+                      className="text-muted-foreground transition-colors hover:text-foreground"
+                      aria-label={t("goals.panel.goToGoalsTab")}
+                    >
+                      <ArrowUpRight className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent className="text-label">
+                    {t("goals.panel.goToGoalsTab")}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
           </div>
-          <div className="grid gap-2 lg:grid-cols-3">
-            {activeGoals.isLoading
-              ? Array.from({ length: 3 }).map((_, index) => (
-                  <div key={index} className="h-16 animate-pulse rounded-lg bg-muted" />
-                ))
-              : visibleGoals.map((goal) => <GoalCard key={goal.goal_id} goal={goal} compact />)}
-          </div>
+          {activeGoals.isLoading ? (
+            <div className="grid gap-2 lg:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} className="h-16 animate-pulse rounded-lg bg-muted" />
+              ))}
+            </div>
+          ) : (
+            <SortableGoalList
+              goals={visibleGoals}
+              strategy={rectSortingStrategy}
+              disabled={visibleGoals.length !== totalActiveCount}
+              className="grid gap-2 lg:grid-cols-3"
+              renderItem={(goal, dragHandle) => (
+                <GoalCard goal={goal} compact dragHandle={dragHandle} />
+              )}
+            />
+          )}
         </div>
       )}
     </section>

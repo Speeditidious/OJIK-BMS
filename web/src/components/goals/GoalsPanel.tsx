@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus } from "lucide-react";
+import { verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,6 +11,7 @@ import { useGoals } from "@/hooks/use-goals";
 import { GoalCard } from "@/components/goals/GoalCard";
 import { GoalFilterBar } from "@/components/goals/GoalFilterBar";
 import { GoalSetupDialog } from "@/components/goals/GoalSetupDialog";
+import { SortableGoalList } from "@/components/goals/SortableGoalList";
 import type { GoalFilter } from "@/lib/goal-filter-core";
 import { applyLevelDisplayPreference, emptyGoalFilter, filterGoals } from "@/lib/goal-filter-core";
 
@@ -99,15 +101,23 @@ export function GoalsPanel({ userId, isOwner }: GoalsPanelProps) {
                   filter={activeFilter}
                   onFilterChange={setActiveFilter}
                   showAchievedRange={false}
+                  isOwner={isOwner}
                 />
                 {filteredActive.length === 0 ? (
                   <p className="text-body text-muted-foreground">{t("goals.filter.noMatch")}</p>
                 ) : (
-                  <div className="space-y-2">
-                    {filteredActive.map((goal) => (
-                      <GoalCard key={goal.goal_id} goal={goal} canDelete={isOwner} />
-                    ))}
-                  </div>
+                  <SortableGoalList
+                    goals={filteredActive}
+                    strategy={verticalListSortingStrategy}
+                    // Reordering a partial view would move goals the user
+                    // cannot see, so it is blocked while anything is filtered out.
+                    disabled={!isOwner || filteredActive.length !== activeList.length}
+                    disabledReason={isOwner ? t("goals.card.reorderDisabledByFilter") : undefined}
+                    className="space-y-2"
+                    renderItem={(goal, dragHandle) => (
+                      <GoalCard goal={goal} canDelete={isOwner} dragHandle={dragHandle} />
+                    )}
+                  />
                 )}
               </>
             )}
@@ -126,6 +136,7 @@ export function GoalsPanel({ userId, isOwner }: GoalsPanelProps) {
                   filter={achievedFilter}
                   onFilterChange={setAchievedFilter}
                   showAchievedRange
+                  isOwner={isOwner}
                 />
                 {filteredAchieved.length === 0 ? (
                   <p className="text-body text-muted-foreground">{t("goals.filter.noMatch")}</p>

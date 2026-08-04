@@ -627,6 +627,12 @@ export function UserDashboardContent({ userId }: { userId: string }) {
     replaceParams({ tab: value });
   }
 
+  // Profile-card shortcut into the goals tab. The tab lives in the URL, so
+  // this reuses the same param plumbing instead of a full page navigation.
+  const handleGoToGoals = useCallback(() => {
+    replaceParams({ tab: "goals" });
+  }, [replaceParams]);
+
   // Calendar tab day click — sets calendar_date only
   function handleDayClick(dateStr: string) {
     updateParams({ tab: "calendar", calendar_date: dateStr });
@@ -695,6 +701,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
             createdAt={profileUser.created_at}
             lastSyncedAt={profileUser.last_synced_at}
             isOwner={isOwner}
+            onGoToGoals={isOwner ? handleGoToGoals : undefined}
           />
         </div>
 

@@ -111,7 +111,8 @@ async def db_session():
                 created_at DATETIME,
                 achieved_at DATETIME,
                 achieved_recorded_at DATETIME,
-                deleted_at DATETIME
+                deleted_at DATETIME,
+                display_order INTEGER
             )
             """,
             """
