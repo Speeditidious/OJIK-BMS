@@ -12,17 +12,20 @@ min_request_interval_hours = 1
 [[default_tables]]
 slug = "balgwang"
 name = "発狂"
+symbol = "★"
 url = "https://darksabun.club/table/archive/insane1/"
 auto_update = false
 
 [[default_tables]]
 slug = "overjoy"
 name = "第3期Overjoy"
+symbol = "★★"
 url = "https://rattoto10.jounin.jp/table_overjoy.html"
 
 [[default_tables]]
 slug = "new_balgwang"
 name = "NEW GENERATION 発狂"
+symbol = "▼"
 url = "https://rattoto10.jounin.jp/table_insane.html"
 
 [[default_tables]]

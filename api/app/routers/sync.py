@@ -100,6 +100,20 @@ class SyncResponse(BaseModel):
 LR2_JUDGMENT_KEYS = ("perfect", "great", "good", "bad", "poor")
 
 
+def _score_best_key(
+    fumen_sha256: str | None,
+    fumen_md5: str | None,
+    fumen_hash_others: str | None,
+    client_type: str,
+) -> tuple[str | None, str | None, str | None, str]:
+    """Return the canonical key used for per-chart best lookups."""
+    if fumen_sha256:
+        return (fumen_sha256, None, None, client_type)
+    if fumen_md5:
+        return (None, fumen_md5, None, client_type)
+    return (None, None, fumen_hash_others, client_type)
+
+
 def _is_misclassified_lr2_record(item: ScoreSyncItem) -> bool:
     """Return True for Beatoraja score rows that legacy clients sent as LR2."""
     if item.client_type != "lr2" or item.recorded_at is None or item.judgments is None:
@@ -257,7 +271,7 @@ async def _fetch_current_bests(
 ) -> dict[tuple, dict[str, Any]]:
     """Bulk-fetch per-field best values for the given fumen hashes.
 
-    Returns a dict keyed by (fumen_sha256, fumen_md5, fumen_hash_others, client_type)
+    Returns a dict keyed by canonical fumen identity + client_type
     with values: {clear_type, exscore, min_bp, max_combo, play_count}.
     Aggregates in Python after fetching all rows for the target hashes.
     """
@@ -295,7 +309,7 @@ async def _fetch_current_bests(
     rows = result.scalars().all()
 
     for row in rows:
-        key = (row.fumen_sha256, row.fumen_md5, row.fumen_hash_others, row.client_type)
+        key = _score_best_key(row.fumen_sha256, row.fumen_md5, row.fumen_hash_others, row.client_type)
         if key not in bests:
             bests[key] = {
                 "clear_type": None,
@@ -446,6 +460,18 @@ def _merge_into_existing(
         "scorehash": merged_scorehash,
         "recorded_at": merged_recorded_at,
     }
+
+
+def _same_day_merge_changes(existing: UserScore, merged: dict[str, Any], fumen_id: Any | None) -> dict[str, Any]:
+    """Return only same-day merge fields whose stored value would actually change."""
+    update_vals = {
+        field: value
+        for field, value in merged.items()
+        if getattr(existing, field) != value
+    }
+    if fumen_id is not None and existing.fumen_id is None:
+        update_vals["fumen_id"] = fumen_id
+    return update_vals
 
 
 async def _fetch_same_day_rows(
@@ -707,12 +733,12 @@ async def sync_data(
 
                 # ── Best key for lookup ─────────────────────────────────────
                 # sha256 takes priority; md5-only if sha256 absent; hash_others for courses
-                if item.fumen_sha256:
-                    best_key = (item.fumen_sha256, None, None, item.client_type)
-                elif item.fumen_md5:
-                    best_key = (None, item.fumen_md5, None, item.client_type)
-                else:
-                    best_key = (None, None, item.fumen_hash_others, item.client_type)
+                best_key = _score_best_key(
+                    item.fumen_sha256,
+                    item.fumen_md5,
+                    item.fumen_hash_others,
+                    item.client_type,
+                )
 
                 best = current_bests.get(best_key)
 
@@ -730,21 +756,33 @@ async def sync_data(
                         # Without this check, items from different rows oscillate — each sync
                         # overwrites the previous item's metadata onto the same row, causing
                         # metadata_updated to fire indefinitely on every re-sync.
-                        scorehash_mismatch = (
-                            item.scorehash is not None
-                            and target_scorehash is not None
-                            and item.scorehash != target_scorehash
+                        scorehash_matches_target = (
+                            target_scorehash is None
+                            or item.scorehash == target_scorehash
                         )
-                        if row_id is not None and not scorehash_mismatch:
+                        if row_id is not None:
                             update_vals: dict[str, Any] = {}
-                            if item.judgments is not None and item.judgments != best.get("_latest_judgments"):
+                            if (
+                                scorehash_matches_target
+                                and item.judgments is not None
+                                and item.judgments != best.get("_latest_judgments")
+                            ):
                                 update_vals["judgments"] = item.judgments
-                            if item.options is not None and item.options != best.get("_latest_options"):
+                            if (
+                                scorehash_matches_target
+                                and item.options is not None
+                                and item.options != best.get("_latest_options")
+                            ):
                                 update_vals["options"] = item.options
-                            if item.clear_count is not None and item.clear_count != best.get("_latest_clear_count"):
+                            if (
+                                scorehash_matches_target
+                                and item.clear_count is not None
+                                and item.clear_count != best.get("_latest_clear_count")
+                            ):
                                 update_vals["clear_count"] = item.clear_count
                             if (
-                                item.scorehash is not None
+                                scorehash_matches_target
+                                and item.scorehash is not None
                                 and item.scorehash != best.get("_latest_scorehash")
                                 and _scorehash_identity_key(item) not in existing_scorehashes
                             ):
@@ -821,16 +859,21 @@ async def sync_data(
                     if existing_same_day is not None:
                         # Merge into the existing same-day row
                         merged = _merge_into_existing(existing_same_day, item, exscore, rate, rank)
-                        await db.execute(
-                            update(UserScore)
-                            .where(UserScore.id == existing_same_day.id)
-                            .values(
-                                **merged,
-                                synced_at=now,
-                                fumen_id=resolved_fumen_id or existing_same_day.fumen_id,
-                            )
+                        update_vals = _same_day_merge_changes(
+                            existing_same_day,
+                            merged,
+                            resolved_fumen_id,
                         )
-                        metadata_updated += 1
+                        if update_vals:
+                            await db.execute(
+                                update(UserScore)
+                                .where(UserScore.id == existing_same_day.id)
+                                .values(
+                                    **update_vals,
+                                    synced_at=now,
+                                )
+                            )
+                            metadata_updated += 1
                         new_id = existing_same_day.id
                         if resolved_fumen_id is not None:
                             touched_fumen_ids.add(resolved_fumen_id)

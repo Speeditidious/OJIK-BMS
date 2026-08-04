@@ -19,15 +19,19 @@ import pytest
 import pytest_asyncio
 import sqlalchemy as sa
 from fastapi import HTTPException
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.sql.sqltypes import Date as SqlDateType
 
 from app.models.course import Course
-from app.models.difficulty_table import DifficultyTable
+from app.models.difficulty_table import DifficultyTable, UserFavoriteDifficultyTable
 from app.models.fumen import Fumen, FumenTableEntry
 from app.models.goal import UserGoal
 from app.models.score import UserPlayerStats, UserScore
+from app.models.user import User
 from app.routers.goals import (
     GoalCreate,
+    _goal_achieved_recorded_date_filter,
     create_goal,
     delete_goal,
     list_goal_achievements,
@@ -164,6 +168,28 @@ async def db_session():
             )
             """,
             """
+            CREATE TABLE user_favorite_difficulty_tables (
+                user_id CHAR(32) NOT NULL,
+                table_id CHAR(32) NOT NULL,
+                display_order INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, table_id)
+            )
+            """,
+            """
+            CREATE TABLE users (
+                id CHAR(32) PRIMARY KEY,
+                username VARCHAR(64) NOT NULL,
+                bio VARCHAR(500),
+                is_active BOOLEAN NOT NULL DEFAULT 1,
+                is_admin BOOLEAN NOT NULL DEFAULT 0,
+                avatar_url VARCHAR(512),
+                first_synced_at JSON,
+                preferences JSON,
+                created_at DATETIME,
+                updated_at DATETIME
+            )
+            """,
+            """
             CREATE TABLE user_player_stats (
                 id CHAR(32) PRIMARY KEY,
                 user_id CHAR(32) NOT NULL,
@@ -191,6 +217,15 @@ def _uid() -> uuid.UUID:
 
 def _user(user_id: uuid.UUID | None = None) -> SimpleNamespace:
     return SimpleNamespace(id=user_id or _uid())
+
+
+async def _add_db_user(db: AsyncSession, *, username: str, is_active: bool = True) -> User:
+    """Insert a real `users` row — required whenever a request targets a user
+    other than the caller, since `_resolve_target_user` looks the target up."""
+    user = User(id=uuid.uuid4(), username=username, is_active=is_active)
+    db.add(user)
+    await db.flush()
+    return user
 
 
 async def _add_score(
@@ -256,6 +291,74 @@ async def _add_table_entry(db: AsyncSession, *, fumen_id: uuid.UUID, table_slug:
     await db.flush()
 
 
+async def _add_table_entry_with_symbol(
+    db: AsyncSession, *, fumen_id: uuid.UUID, table_slug: str, level: str, symbol: str
+) -> None:
+    table_id = uuid.uuid4()
+    db.add(DifficultyTable(id=table_id, name="Test Table", slug=table_slug, symbol=symbol))
+    db.add(FumenTableEntry(fumen_id=fumen_id, table_id=table_id, level=level))
+    await db.flush()
+
+
+async def _add_table(
+    db: AsyncSession,
+    *,
+    slug: str,
+    name: str = "Test Table",
+    symbol: str = "★",
+    is_default: bool = False,
+    default_order: int | None = None,
+    level_order: list[str] | None = None,
+    non_regular_level_order: list[str] | None = None,
+) -> DifficultyTable:
+    """Insert a difficulty table without attaching any fumen to it."""
+    table = DifficultyTable(
+        id=uuid.uuid4(),
+        name=name,
+        slug=slug,
+        symbol=symbol,
+        is_default=is_default,
+        default_order=default_order,
+        level_order=level_order,
+        non_regular_level_order=non_regular_level_order,
+    )
+    db.add(table)
+    await db.flush()
+    return table
+
+
+async def _add_fumen_to_table(
+    db: AsyncSession, *, fumen_id: uuid.UUID, table: DifficultyTable, level: str
+) -> None:
+    """Attach a fumen to an already-created table at the given level."""
+    db.add(FumenTableEntry(fumen_id=fumen_id, table_id=table.id, level=level))
+    await db.flush()
+
+
+async def _add_favorite(
+    db: AsyncSession, *, user_id: uuid.UUID, table: DifficultyTable, display_order: int
+) -> None:
+    db.add(
+        UserFavoriteDifficultyTable(
+            user_id=user_id, table_id=table.id, display_order=display_order
+        )
+    )
+    await db.flush()
+
+
+async def _add_chart_goal(
+    db: AsyncSession, *, user_id: uuid.UUID, sha256: str, md5: str, table_slug: str | None = None
+) -> None:
+    db.add(
+        UserGoal(
+            goal_id=uuid.uuid4(), user_id=user_id, goal_type="chart", client_type="beatoraja",
+            table_slug=table_slug, fumen_sha256=sha256, fumen_md5=md5, target_clear_type=7,
+            status="active", baseline_snapshot={},
+        )
+    )
+    await db.flush()
+
+
 def _table_cfg(slug: str = "test-table") -> TableRankingConfig:
     return TableRankingConfig(
         slug=slug,
@@ -285,8 +388,10 @@ def _config() -> RankingConfig:
 
 @pytest.mark.asyncio
 async def test_list_goals_empty(db_session: AsyncSession):
-    result = await list_goals(goal_status="active", current_user=_user(), db=db_session)
-    assert result == {"goals": [], "default_client_type": None}
+    result = await list_goals(goal_status="active", user_id=None, current_user=_user(), db=db_session)
+    assert result == {
+        "goals": [], "default_client_type": None, "is_owner": True, "tables": [],
+    }
 
 
 @pytest.mark.asyncio
@@ -296,9 +401,280 @@ async def test_list_goals_reports_default_client_type_from_latest_sync(db_sessio
     db_session.add(UserPlayerStats(id=uuid.uuid4(), user_id=user.id, client_type="beatoraja", synced_at=datetime(2026, 6, 5, tzinfo=UTC)))
     await db_session.flush()
 
-    result = await list_goals(goal_status="active", current_user=user, db=db_session)
+    result = await list_goals(goal_status="active", user_id=None, current_user=user, db=db_session)
 
     assert result["default_client_type"] == "beatoraja"
+
+
+@pytest.mark.asyncio
+async def test_list_goals_includes_all_table_memberships(db_session: AsyncSession):
+    user = _user()
+    sha256, md5 = "c" * 64, "d" * 32
+    fumen = await _add_fumen(db_session, sha256=sha256, md5=md5)
+    await _add_table_entry_with_symbol(
+        db_session, fumen_id=fumen.fumen_id, table_slug="insane", level="12", symbol="★"
+    )
+    await _add_table_entry_with_symbol(
+        db_session, fumen_id=fumen.fumen_id, table_slug="normal", level="9", symbol="☆"
+    )
+    db_session.add(
+        UserGoal(
+            goal_id=uuid.uuid4(), user_id=user.id, goal_type="chart", client_type="beatoraja",
+            table_slug="insane", fumen_sha256=sha256, fumen_md5=md5, target_clear_type=7,
+            status="active", baseline_snapshot={},
+        )
+    )
+    await db_session.flush()
+
+    result = await list_goals(goal_status="active", user_id=None, current_user=user, db=db_session)
+
+    goal = result["goals"][0]
+    assert goal["level"] == "12"  # level still resolves against the goal's own table_slug
+    by_slug = {entry["slug"]: entry for entry in goal["table_levels"]}
+    assert by_slug["insane"] == {"slug": "insane", "symbol": "★", "level": "12"}
+    assert by_slug["normal"] == {"slug": "normal", "symbol": "☆", "level": "9"}
+
+
+@pytest.mark.asyncio
+async def test_list_goals_table_levels_resolves_lr2_md5_only_goal(db_session: AsyncSession):
+    """LR2 goals carry md5 only (fumen_sha256 IS NULL) — they must still resolve."""
+    user = _user()
+    md5 = "e" * 32
+    fumen = await _add_fumen(db_session, sha256=None, md5=md5)
+    await _add_table_entry_with_symbol(
+        db_session, fumen_id=fumen.fumen_id, table_slug="insane", level="11", symbol="★"
+    )
+    db_session.add(
+        UserGoal(
+            goal_id=uuid.uuid4(), user_id=user.id, goal_type="chart", client_type="lr2",
+            table_slug="insane", fumen_sha256=None, fumen_md5=md5, target_clear_type=5,
+            status="active", baseline_snapshot={},
+        )
+    )
+    await db_session.flush()
+
+    result = await list_goals(goal_status="active", user_id=None, current_user=user, db=db_session)
+
+    assert result["goals"][0]["table_levels"] == [
+        {"slug": "insane", "symbol": "★", "level": "11"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_goals_course_goal_has_empty_table_levels(db_session: AsyncSession):
+    user = _user()
+    course_id = _uid()
+    await _add_course(db_session, course_id=course_id, name="Course A")
+    db_session.add(
+        UserGoal(
+            goal_id=uuid.uuid4(), user_id=user.id, goal_type="course", client_type="beatoraja",
+            course_id=course_id, target_clear_type=4, status="active", baseline_snapshot={},
+        )
+    )
+    await db_session.flush()
+
+    result = await list_goals(goal_status="active", user_id=None, current_user=user, db=db_session)
+
+    assert result["goals"][0]["course_name"] == "Course A"
+    assert result["goals"][0]["table_levels"] == []
+
+
+@pytest.mark.asyncio
+async def test_list_goals_for_another_user_is_readable_and_not_owned(db_session: AsyncSession):
+    owner = await _add_db_user(db_session, username="owner")
+    viewer = _user()
+    db_session.add(
+        UserGoal(
+            goal_id=uuid.uuid4(), user_id=owner.id, goal_type="course", client_type="beatoraja",
+            course_id=_uid(), target_clear_type=4, status="active", baseline_snapshot={},
+        )
+    )
+    await db_session.flush()
+
+    result = await list_goals(
+        goal_status="active", user_id=owner.id, current_user=viewer, db=db_session
+    )
+
+    assert len(result["goals"]) == 1
+    assert result["is_owner"] is False
+
+
+@pytest.mark.asyncio
+async def test_list_goals_for_another_user_works_anonymously(db_session: AsyncSession):
+    owner = await _add_db_user(db_session, username="anon-target")
+    db_session.add(
+        UserGoal(
+            goal_id=uuid.uuid4(), user_id=owner.id, goal_type="course", client_type="beatoraja",
+            course_id=_uid(), target_clear_type=4, status="achieved",
+            achieved_recorded_at=datetime(2026, 7, 1, tzinfo=UTC), baseline_snapshot={},
+        )
+    )
+    await db_session.flush()
+
+    result = await list_goals(
+        goal_status="achieved", user_id=owner.id, current_user=None, db=db_session
+    )
+
+    assert len(result["goals"]) == 1
+    assert result["is_owner"] is False
+
+
+@pytest.mark.asyncio
+async def test_list_goals_anonymous_without_user_id_is_unauthorized(db_session: AsyncSession):
+    with pytest.raises(HTTPException) as exc:
+        await list_goals(goal_status="active", user_id=None, current_user=None, db=db_session)
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_list_goals_for_inactive_user_returns_404(db_session: AsyncSession):
+    target = await _add_db_user(db_session, username="deactivated", is_active=False)
+
+    with pytest.raises(HTTPException) as exc:
+        await list_goals(goal_status="active", user_id=target.id, current_user=_user(), db=db_session)
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_goal_tables_are_ordered_favorites_then_default_then_rest(db_session: AsyncSession):
+    """Favorites keep the owner's own display_order; defaults come next by
+    default_order; everything else trails by name."""
+    user = _user()
+    fav_b = await _add_table(db_session, slug="fav-b", name="Fav B")
+    fav_a = await _add_table(db_session, slug="fav-a", name="Fav A")
+    default_t = await _add_table(
+        db_session, slug="server-default", name="Server Default",
+        is_default=True, default_order=1,
+    )
+    other = await _add_table(db_session, slug="zz-other", name="ZZ Other")
+    # fav_b is ordered before fav_a by the user, against alphabetical order.
+    await _add_favorite(db_session, user_id=user.id, table=fav_b, display_order=0)
+    await _add_favorite(db_session, user_id=user.id, table=fav_a, display_order=1)
+
+    for index, table in enumerate((fav_a, fav_b, default_t, other)):
+        sha256, md5 = f"{index}" * 64, f"{index}" * 32
+        fumen = await _add_fumen(db_session, sha256=sha256, md5=md5)
+        await _add_fumen_to_table(db_session, fumen_id=fumen.fumen_id, table=table, level="1")
+        await _add_chart_goal(db_session, user_id=user.id, sha256=sha256, md5=md5)
+
+    result = await list_goals(goal_status="active", user_id=None, current_user=user, db=db_session)
+
+    assert [t["slug"] for t in result["tables"]] == [
+        "fav-b", "fav-a", "server-default", "zz-other",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_goal_tables_level_order_follows_the_table_and_drops_unused_levels(
+    db_session: AsyncSession,
+):
+    user = _user()
+    table = await _add_table(
+        db_session, slug="insane", name="Insane", symbol="★",
+        level_order=["12", "11", "10", "9"],
+    )
+    for index, level in enumerate(("10", "12")):
+        sha256, md5 = f"{index}" * 64, f"{index}" * 32
+        fumen = await _add_fumen(db_session, sha256=sha256, md5=md5)
+        await _add_fumen_to_table(db_session, fumen_id=fumen.fumen_id, table=table, level=level)
+        await _add_chart_goal(db_session, user_id=user.id, sha256=sha256, md5=md5)
+
+    result = await list_goals(goal_status="active", user_id=None, current_user=user, db=db_session)
+
+    assert result["tables"] == [
+        {
+            "slug": "insane",
+            "name": "Insane",
+            "symbol": "★",
+            "level_order": ["12", "10"],
+            "preference_visible": False,
+            "preference_level_order": [],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_goal_tables_include_a_level_missing_from_the_table_order(db_session: AsyncSession):
+    """A goal can reference a level the table's admin-configured order does not
+    know about (stale config, or a table re-synced after the goal was made).
+    The level must still be selectable, appended after the known ones."""
+    user = _user()
+    table = await _add_table(db_session, slug="insane", name="Insane", level_order=["12"])
+    for index, level in enumerate(("12", "unknown")):
+        sha256, md5 = f"{index}" * 64, f"{index}" * 32
+        fumen = await _add_fumen(db_session, sha256=sha256, md5=md5)
+        await _add_fumen_to_table(db_session, fumen_id=fumen.fumen_id, table=table, level=level)
+        await _add_chart_goal(db_session, user_id=user.id, sha256=sha256, md5=md5)
+
+    result = await list_goals(goal_status="active", user_id=None, current_user=user, db=db_session)
+
+    assert result["tables"][0]["level_order"] == ["12", "unknown"]
+
+
+@pytest.mark.asyncio
+async def test_goal_tables_include_level_display_preference_metadata(db_session: AsyncSession):
+    user = _user()
+    user.preferences = {
+        "level_display": {
+            "server_default": True,
+            "server_default_show_non_regular": False,
+        }
+    }
+    table = await _add_table(
+        db_session,
+        slug="insane",
+        name="Insane",
+        symbol="★",
+        is_default=True,
+        level_order=["12", "0"],
+        non_regular_level_order=["0"],
+    )
+    for index, level in enumerate(("12", "0")):
+        sha256, md5 = f"{index}" * 64, f"{index}" * 32
+        fumen = await _add_fumen(db_session, sha256=sha256, md5=md5)
+        await _add_fumen_to_table(db_session, fumen_id=fumen.fumen_id, table=table, level=level)
+        await _add_chart_goal(db_session, user_id=user.id, sha256=sha256, md5=md5)
+
+    result = await list_goals(goal_status="active", user_id=None, current_user=user, db=db_session)
+
+    assert result["tables"][0]["level_order"] == ["12", "0"]
+    assert result["tables"][0]["preference_visible"] is True
+    assert result["tables"][0]["preference_level_order"] == ["12"]
+
+
+@pytest.mark.asyncio
+async def test_course_goal_exposes_its_source_table(db_session: AsyncSession):
+    user = _user()
+    table = await _add_table(db_session, slug="dan-table", name="Dan Table", symbol="段")
+    course_id = _uid()
+    course = await _add_course(db_session, course_id=course_id, name="Course A")
+    course.source_table_id = table.id
+    await db_session.flush()
+    db_session.add(
+        UserGoal(
+            goal_id=uuid.uuid4(), user_id=user.id, goal_type="course", client_type="beatoraja",
+            course_id=course_id, target_clear_type=4, status="active", baseline_snapshot={},
+        )
+    )
+    await db_session.flush()
+
+    result = await list_goals(goal_status="active", user_id=None, current_user=user, db=db_session)
+
+    assert result["goals"][0]["course_table_slug"] == "dan-table"
+    assert [t["slug"] for t in result["tables"]] == ["dan-table"]
+
+
+@pytest.mark.asyncio
+async def test_chart_goal_has_null_course_table_slug(db_session: AsyncSession):
+    user = _user()
+    sha256, md5 = "a" * 64, "b" * 32
+    await _add_fumen(db_session, sha256=sha256, md5=md5)
+    await _add_chart_goal(db_session, user_id=user.id, sha256=sha256, md5=md5)
+
+    result = await list_goals(goal_status="active", user_id=None, current_user=user, db=db_session)
+
+    assert result["goals"][0]["course_table_slug"] is None
+    assert result["tables"] == []
 
 
 # ── create_goal ──────────────────────────────────────────────────────────────
@@ -432,7 +808,7 @@ async def test_delete_goal_soft_deletes_and_hides_from_active_list(db_session: A
     row = (await db_session.execute(sa.select(UserGoal).where(UserGoal.goal_id == goal_id))).scalar_one()
     assert row.deleted_at is not None  # soft delete: row still exists
 
-    result = await list_goals(goal_status="active", current_user=user, db=db_session)
+    result = await list_goals(goal_status="active", user_id=None, current_user=user, db=db_session)
     assert result["goals"] == []
 
 
@@ -458,6 +834,14 @@ async def test_delete_goal_not_owned_returns_404(db_session: AsyncSession):
 
 # ── list_goal_achievements ───────────────────────────────────────────────────
 
+def test_achievement_date_filter_binds_postgres_date():
+    condition = _goal_achieved_recorded_date_filter(date(2026, 8, 3))
+    compiled = condition.compile(dialect=postgresql.dialect())
+
+    assert "date(user_goals.achieved_recorded_at)" in str(compiled)
+    assert any(isinstance(bind.type, SqlDateType) for bind in compiled.binds.values())
+
+
 @pytest.mark.asyncio
 async def test_achievements_by_date_filters_to_matching_day(db_session: AsyncSession):
     user = _user()
@@ -482,7 +866,7 @@ async def test_achievements_by_date_filters_to_matching_day(db_session: AsyncSes
     ))
     await db_session.flush()
 
-    result = await list_goal_achievements(date=date(2026, 6, 15), current_user=user, db=db_session)
+    result = await list_goal_achievements(date=date(2026, 6, 15), user_id=None, current_user=user, db=db_session)
 
     assert [g["goal_id"] for g in result["goals"]] == [str(achieved_goal_id)]
 
@@ -499,6 +883,27 @@ async def test_achievements_by_date_excludes_soft_deleted(db_session: AsyncSessi
     ))
     await db_session.flush()
 
-    result = await list_goal_achievements(date=date(2026, 6, 15), current_user=user, db=db_session)
+    result = await list_goal_achievements(date=date(2026, 6, 15), user_id=None, current_user=user, db=db_session)
 
     assert result["goals"] == []
+
+
+@pytest.mark.asyncio
+async def test_achievements_for_another_user_are_visible(db_session: AsyncSession):
+    owner = await _add_db_user(db_session, username="sheet-owner")
+    viewer = _user()
+    db_session.add(
+        UserGoal(
+            goal_id=uuid.uuid4(), user_id=owner.id, goal_type="course", client_type="beatoraja",
+            course_id=_uid(), target_clear_type=4, status="achieved",
+            achieved_recorded_at=datetime(2026, 7, 4, 9, 0, tzinfo=UTC), baseline_snapshot={},
+        )
+    )
+    await db_session.flush()
+
+    result = await list_goal_achievements(
+        date=date(2026, 7, 4), user_id=owner.id, current_user=viewer, db=db_session
+    )
+
+    assert len(result["goals"]) == 1
+    assert result["is_owner"] is False

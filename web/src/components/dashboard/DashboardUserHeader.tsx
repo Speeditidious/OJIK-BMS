@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowRight, UserCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,6 +8,7 @@ import { AvatarImage } from "@/components/common/AvatarImage";
 import { GoalCard } from "@/components/goals/GoalCard";
 import { useGoals } from "@/hooks/use-goals";
 import { resolveAvatarUrl } from "@/lib/avatar";
+import { applyLevelDisplayPreference } from "@/lib/goal-filter-core";
 import { formatJoinDate, timeAgo } from "@/lib/time";
 
 interface DashboardUserHeaderProps {
@@ -27,8 +29,16 @@ export function DashboardUserHeader({
   isOwner = false,
 }: DashboardUserHeaderProps) {
   const { t } = useTranslation();
-  const activeGoals = useGoals("active", isOwner);
-  const visibleGoals = activeGoals.data?.goals.slice(0, 3) ?? [];
+  const activeGoals = useGoals("active", undefined, isOwner);
+  const visibleGoals = useMemo(
+    () =>
+      applyLevelDisplayPreference(
+        activeGoals.data?.goals ?? [],
+        activeGoals.data?.tables ?? [],
+        true,
+      ),
+    [activeGoals.data],
+  );
 
   return (
     <section className="rounded-xl border border-border bg-card/70 p-5">

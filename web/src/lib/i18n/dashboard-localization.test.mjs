@@ -111,3 +111,64 @@ test("day stat sheet labels use the current report wording", () => {
     "デイリーレポート",
   );
 });
+
+test("goal filter, shared calendar, and snapshot keys exist in all locales", () => {
+  const filterKeys = [
+    "title", "level", "clear", "rank", "rate", "bp",
+    "createdRange", "achievedRange",
+    "reset", "noMatch", "min", "max", "anyDate", "clearDates", "invalidRange",
+    "activeCount", "chartAxis", "courseAxis", "table", "applyLevelDisplayPrefs", "showAxis",
+    "noneSpecified", "axisEmpty",
+  ];
+  const calendarKeys = ["prevMonth", "nextMonth", "start", "end"];
+
+  for (const lang of ["ko", "en", "ja"]) {
+    const goals = resources[lang].translation.goals;
+    assert.ok(goals.filter, `${lang} should have goals.filter`);
+    for (const key of filterKeys) {
+      assert.equal(
+        typeof goals.filter[key], "string",
+        `${lang} goals.filter.${key} should be a string`,
+      );
+    }
+    assert.equal(
+      goals.filter.matched, undefined,
+      `${lang} goals.filter.matched should be removed`,
+    );
+    assert.equal(goals.filter.combineLabel, undefined, `${lang} goals.filter.combineLabel`);
+    assert.equal(goals.filter.combineAnd, undefined, `${lang} goals.filter.combineAnd`);
+    assert.equal(goals.filter.combineOr, undefined, `${lang} goals.filter.combineOr`);
+    assert.equal(typeof goals.panel.othersTitle, "string", `${lang} goals.panel.othersTitle`);
+    assert.equal(
+      typeof goals.panel.othersDescription, "string",
+      `${lang} goals.panel.othersDescription`,
+    );
+
+    const calendar = resources[lang].translation.common.calendar;
+    assert.ok(calendar, `${lang} should have common.calendar`);
+    for (const key of calendarKeys) {
+      assert.equal(
+        typeof calendar[key], "string",
+        `${lang} common.calendar.${key} should be a string`,
+      );
+    }
+
+    assert.equal(
+      typeof resources[lang].translation.dashboard.tableClear.snapshotLabel, "string",
+      `${lang} dashboard.tableClear.snapshotLabel`,
+    );
+  }
+});
+
+test("the snapshot date picker has no hardcoded Korean chrome", () => {
+  const source = readFileSync(
+    new URL("../../components/dashboard/SnapshotDatePicker.tsx", import.meta.url),
+    "utf8",
+  );
+  for (const literal of ["이전 달", "다음 달", "일\", \"월\"", "년 ", "월\"}"]) {
+    assert.equal(
+      source.includes(literal), false,
+      `SnapshotDatePicker should not hardcode ${JSON.stringify(literal)}`,
+    );
+  }
+});

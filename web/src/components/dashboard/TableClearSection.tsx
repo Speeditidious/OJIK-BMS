@@ -956,7 +956,8 @@ export function TableClearSection({
         />
         {asOf && (
           <span className="text-label text-muted-foreground">
-            스냅샷: <span className="text-foreground font-medium">{asOf.replace(/-/g, ".")}</span>
+            {t("dashboard.tableClear.snapshotLabel")}:{" "}
+            <span className="text-foreground font-medium">{asOf.replace(/-/g, ".")}</span>
           </span>
         )}
       </div>

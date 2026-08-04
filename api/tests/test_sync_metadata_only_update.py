@@ -175,6 +175,84 @@ def test_misclassified_lr2_record_detector(client_type, judgments, recorded_at, 
     assert sync_module._is_misclassified_lr2_record(item) is expected
 
 
+def test_score_best_key_prefers_sha256_when_md5_is_also_present():
+    """Stored sha256+md5 rows must match incoming sha256-first score keys."""
+    key = sync_module._score_best_key("s" * 64, "m" * 32, None, "beatoraja")
+
+    assert key == ("s" * 64, None, None, "beatoraja")
+
+
+def test_same_day_merge_changes_skips_noop_update():
+    existing = UserScore(
+        id=uuid.uuid4(),
+        clear_type=3,
+        exscore=1500,
+        rate=75.0,
+        rank="AA",
+        min_bp=20,
+        max_combo=900,
+        play_count=4,
+        clear_count=2,
+        judgments={"epg": 700, "lpg": 0, "egr": 100, "lgr": 0},
+        options={"option": 0},
+        scorehash="scorehash-1",
+        recorded_at=datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC),
+        fumen_id=uuid.uuid4(),
+    )
+    merged = {
+        "clear_type": existing.clear_type,
+        "exscore": existing.exscore,
+        "rate": existing.rate,
+        "rank": existing.rank,
+        "min_bp": existing.min_bp,
+        "max_combo": existing.max_combo,
+        "play_count": existing.play_count,
+        "clear_count": existing.clear_count,
+        "judgments": existing.judgments,
+        "options": existing.options,
+        "scorehash": existing.scorehash,
+        "recorded_at": existing.recorded_at,
+    }
+
+    assert sync_module._same_day_merge_changes(existing, merged, existing.fumen_id) == {}
+
+
+def test_same_day_merge_changes_backfills_missing_fumen_id():
+    fumen_id = uuid.uuid4()
+    existing = UserScore(
+        id=uuid.uuid4(),
+        clear_type=3,
+        exscore=1500,
+        rate=75.0,
+        rank="AA",
+        min_bp=20,
+        max_combo=900,
+        play_count=4,
+        clear_count=2,
+        judgments={"epg": 700, "lpg": 0, "egr": 100, "lgr": 0},
+        options={"option": 0},
+        scorehash="scorehash-1",
+        recorded_at=datetime(2026, 5, 4, 12, 0, 0, tzinfo=UTC),
+        fumen_id=None,
+    )
+    merged = {
+        "clear_type": existing.clear_type,
+        "exscore": existing.exscore,
+        "rate": existing.rate,
+        "rank": existing.rank,
+        "min_bp": existing.min_bp,
+        "max_combo": existing.max_combo,
+        "play_count": existing.play_count,
+        "clear_count": existing.clear_count,
+        "judgments": existing.judgments,
+        "options": existing.options,
+        "scorehash": existing.scorehash,
+        "recorded_at": existing.recorded_at,
+    }
+
+    assert sync_module._same_day_merge_changes(existing, merged, fumen_id) == {"fumen_id": fumen_id}
+
+
 @pytest.mark.parametrize(
     ("client_type", "judgments"),
     [
@@ -527,6 +605,55 @@ async def test_metadata_only_update_skipped_when_scorehash_mismatches_target_row
     assert data["metadata_updated"] == 0, "scorehash mismatch must not update the row"
     assert data["skipped_scores"] == 1
     assert len(captured_updates) == 0, "no UPDATE should have been issued"
+
+
+@pytest.mark.asyncio
+async def test_metadata_only_update_skipped_when_scorehashless_item_targets_scorehash_row():
+    """A scorehash-less Beatoraja item must not overwrite metadata on a scorelog row."""
+    row_id = uuid.uuid4()
+    fumen_sha256 = "d" * 64
+    captured_updates: list = []
+    best = _make_best(row_id, judgments={"epg": 100}, scorehash="scorehash_A")
+
+    mock_user = MagicMock()
+    mock_user.id = uuid.uuid4()
+    mock_db = _make_mock_db(captured_updates)
+
+    async def override_get_db():
+        yield mock_db
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    try:
+        with patch.object(
+            sync_module,
+            "_fetch_current_bests",
+            AsyncMock(return_value={(fumen_sha256, None, None, "beatoraja"): best}),
+        ):
+            with patch.object(sync_module, "_fetch_existing_scorehashes", AsyncMock(return_value=set())):
+                with patch.object(sync_module, "_fetch_same_day_rows", AsyncMock(return_value={})):
+                    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                        resp = await client.post(
+                            "/sync/",
+                            json={
+                                "scores": [{
+                                    "fumen_sha256": fumen_sha256,
+                                    "client_type": "beatoraja",
+                                    "clear_type": 2,
+                                    "exscore": 1000,
+                                    "judgments": {"epg": 50},
+                                }],
+                                "player_stats": [],
+                            },
+                        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["metadata_updated"] == 0
+    assert data["skipped_scores"] == 1
+    assert len(captured_updates) == 0, "scorehash-less metadata must not update a scorehash row"
 
 
 @pytest.mark.asyncio

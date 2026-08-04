@@ -30,12 +30,12 @@ function WeeklyContent() {
   const { t, i18n } = useTranslation();
   const { user } = useAuthStore();
 
-  const { data: categories } = useWeeklyCategories();
-  const { data: rolloverInfo } = useWeeklyRolloverInfo();
-
   const category = searchParams.get("category");
   const bracket = searchParams.get("bracket");
   const offset = parseInt(searchParams.get("offset") ?? "0", 10) || 0;
+
+  const { data: categories } = useWeeklyCategories(offset);
+  const { data: rolloverInfo } = useWeeklyRolloverInfo();
 
   const updateParams = useCallback(
     (updates: Record<string, string>) => {
@@ -53,7 +53,12 @@ function WeeklyContent() {
     if (resolved) {
       const changed = resolved.category !== category || resolved.bracket !== bracket;
       if (changed) {
-        updateParams({ category: resolved.category, bracket: resolved.bracket, offset: "0" });
+        const updates: Record<string, string> = {
+          category: resolved.category,
+          bracket: resolved.bracket,
+        };
+        if (!category || !bracket) updates.offset = "0";
+        updateParams(updates);
       }
     }
   }, [categories, category, bracket, updateParams, user?.id]);

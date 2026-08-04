@@ -21,8 +21,7 @@ import { useDayStatSheetPrefs, useUpdateDayStatSheetPrefs } from "@/hooks/use-pr
 import { useMyRank } from "@/hooks/use-rankings";
 import { useRatingBreakdown } from "@/hooks/use-analysis";
 import { useGoalAchievements } from "@/hooks/use-goals";
-import { CLEAR_TYPE_LABELS } from "@/components/charts/ClearDistributionChart";
-import { formatRatePercent } from "@/lib/rate-format";
+import { GoalCard } from "@/components/goals/GoalCard";
 import { useAuthStore } from "@/stores/auth";
 import { captureNodeToPng } from "@/lib/capture-utils";
 import { getCaptureErrorMessage } from "@/lib/capture-utils-core.mjs";
@@ -255,8 +254,9 @@ export function DayStatSheet({
 }: DayStatSheetProps) {
   const { t } = useTranslation();
   const { data: dayNote } = useDayNote(userId, date);
-  // Goal achievements are always self-scoped server-side (see goals.py) — only meaningful for the sheet owner.
-  const { data: goalAchievements } = useGoalAchievements(date, isOwner);
+  // Goal achievements are publicly readable (2026-08-03 policy change) — the
+  // day sheet shows them for whoever's dashboard is being viewed.
+  const { data: goalAchievements } = useGoalAchievements(date, userId);
   const achievedGoals = goalAchievements?.goals ?? [];
   const exportRef = useRef<HTMLDivElement>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -511,28 +511,21 @@ export function DayStatSheet({
         )}
 
         {achievedGoals.length > 0 && (
-          <div data-day-sheet-section="goals" data-day-sheet-split-block className="space-y-2">
-            <h3 className="text-body font-bold text-foreground">{t("dashboard.daySheet.goalsAchieved")}</h3>
+          <div data-day-sheet-section="goals" className="space-y-4">
+            {/* Section header — same divider style as the rating/record sections */}
+            <div data-day-sheet-split-block data-day-sheet-keep-with-next className="mt-4 flex items-center gap-3">
+              <div className="flex-1 border-t border-border/50" />
+              <h2 className="shrink-0 text-2xl font-extrabold tracking-tight text-foreground">
+                {t("dashboard.daySheet.goalsAchieved")}
+              </h2>
+              <div className="flex-1 border-t border-border/50" />
+            </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {achievedGoals.map((goal) => {
-                const title = goal.goal_type === "chart" ? goal.title : goal.course_name;
-                const metrics: string[] = [];
-                if (goal.target_clear_type != null) {
-                  metrics.push(CLEAR_TYPE_LABELS[goal.target_clear_type] ?? String(goal.target_clear_type));
-                }
-                if (goal.target_min_bp != null) metrics.push(`BP ${goal.target_min_bp}`);
-                if (goal.target_rank != null) metrics.push(goal.target_rank);
-                if (goal.target_rate != null) metrics.push(formatRatePercent(goal.target_rate));
-                return (
-                  <div
-                    key={goal.goal_id}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2"
-                  >
-                    <span className="min-w-0 truncate text-label font-semibold">{title}</span>
-                    <span className="shrink-0 text-caption font-medium text-muted-foreground">{metrics.join(" · ")}</span>
-                  </div>
-                );
-              })}
+              {achievedGoals.map((goal) => (
+                <div key={goal.goal_id} data-day-sheet-split-block>
+                  <GoalCard goal={goal} canDelete={false} />
+                </div>
+              ))}
             </div>
           </div>
         )}

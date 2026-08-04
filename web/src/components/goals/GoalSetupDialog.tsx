@@ -159,7 +159,7 @@ export function GoalSetupDialog({ open, onClose, initialDraft }: GoalSetupDialog
   const [clientType, setClientType] = useState<string>("beatoraja");
   const [serverError, setServerError] = useState<string | null>(null);
 
-  const activeGoalsQuery = useGoals("active", open);
+  const activeGoalsQuery = useGoals("active", undefined, open);
   const defaultClientType = activeGoalsQuery.data?.default_client_type ?? null;
 
   const createGoal = useCreateGoal();

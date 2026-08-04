@@ -17,10 +17,9 @@ import {
   BEATORAJA_CLEAR_TYPE_LABELS,
 } from "@/components/charts/ClearDistributionChart";
 import type { TableLevelRef } from "@/components/common/TableLevelBadges";
-import { clearTdClass, rankTdClass } from "@/components/dashboard/ScoreUpdates";
+import { clearTdClass, rankTdClass } from "@/lib/score-cell-class";
 import type { GoalRecord } from "@/hooks/use-goals";
 import { useDeleteGoal } from "@/hooks/use-goals";
-import { useFumenTableLevels } from "@/hooks/use-fumen-table-levels";
 import { formatRatePercent } from "@/lib/rate-format";
 import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
 import { sortTableLevelsCore } from "@/lib/table-level-sort-core.mjs";
@@ -67,9 +66,11 @@ interface GoalCardProps {
   goal: GoalRecord;
   /** Tighter, delete-button-less rendering for the profile card's goal preview. */
   compact?: boolean;
+  /** False when viewing someone else's goals — hides the delete affordance. */
+  canDelete?: boolean;
 }
 
-export function GoalCard({ goal, compact = false }: GoalCardProps) {
+export function GoalCard({ goal, compact = false, canDelete = true }: GoalCardProps) {
   const { t } = useTranslation();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const deleteGoal = useDeleteGoal();
@@ -80,12 +81,9 @@ export function GoalCard({ goal, compact = false }: GoalCardProps) {
       ? songHref({ sha256: goal.fumen_sha256, md5: goal.fumen_md5 })
       : null;
 
-  // All tables the chart belongs to (not just the one it was targeted through) — same
-  // source as the song detail page's "belonging tables" section.
-  const chartTableLevels = useFumenTableLevels(
-    goal.goal_type === "chart" ? goal.fumen_sha256 : null,
-    goal.goal_type === "chart" ? goal.fumen_md5 : null,
-  );
+  // All tables the chart belongs to, resolved server-side in the goal payload
+  // (`table_levels`) — previously one extra fumen-detail request per card.
+  const chartTableLevels: TableLevelRef[] = goal.goal_type === "chart" ? goal.table_levels : [];
 
   function handleDelete() {
     deleteGoal.mutate(goal.goal_id, { onSuccess: () => setConfirmOpen(false) });
@@ -94,14 +92,14 @@ export function GoalCard({ goal, compact = false }: GoalCardProps) {
   return (
     <div
       className={cn(
-        "flex items-start justify-between gap-3 rounded-lg border border-border bg-card/60",
+        "flex items-start justify-between gap-3 rounded-lg border border-border bg-card/60 shadow-sm",
         compact ? "px-3 py-2" : "px-4 py-3",
       )}
     >
       <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className={cn("flex min-w-0 items-center gap-1.5", compact ? "flex-nowrap" : "flex-wrap")}>
           {goal.goal_type === "chart" ? (
-            <ChartLevelBadges levels={chartTableLevels} maxVisible={compact ? 2 : 3} />
+            <ChartLevelBadges levels={chartTableLevels} maxVisible={compact ? 1 : 3} />
           ) : (
             goal.dan_title && (
               <span className="shrink-0 rounded-md border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-caption font-semibold text-accent">
@@ -110,11 +108,11 @@ export function GoalCard({ goal, compact = false }: GoalCardProps) {
             )
           )}
           {href ? (
-            <a href={href} className={cn("truncate font-semibold hover:text-primary", compact ? "text-label" : "text-body")}>
+            <a href={href} className={cn("min-w-0 truncate font-semibold hover:text-primary", compact ? "text-label" : "text-body")}>
               {title}
             </a>
           ) : (
-            <span className={cn("truncate font-semibold", compact ? "text-label" : "text-body")}>{title}</span>
+            <span className={cn("min-w-0 truncate font-semibold", compact ? "text-label" : "text-body")}>{title}</span>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -153,7 +151,7 @@ export function GoalCard({ goal, compact = false }: GoalCardProps) {
         )}
       </div>
 
-      {!compact && (
+      {!compact && canDelete && (
         <Button
           variant="ghost"
           size="icon"

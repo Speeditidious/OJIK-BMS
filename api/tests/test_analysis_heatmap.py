@@ -259,7 +259,7 @@ async def test_heatmap_excludes_active_not_yet_achieved_goals(db_session: AsyncS
 # ── privacy ──────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_heatmap_privacy_other_user_view_returns_zero_and_skips_query(db_session: AsyncSession, monkeypatch):
+async def test_heatmap_other_user_view_shows_goal_achievement_counts(db_session: AsyncSession, monkeypatch):
     target = await _add_user(db_session)
     viewer = await _add_user(db_session)
     await _add_achieved_goal(db_session, user_id=target.id, achieved_recorded_at=datetime(2026, 1, 5, tzinfo=UTC))
@@ -279,12 +279,13 @@ async def test_heatmap_privacy_other_user_view_returns_zero_and_skips_query(db_s
         year=2026, client_type=None, user_id=target.id, current_user=viewer, db=db_session
     )
 
-    assert all(row["goals_achieved"] == 0 for row in result["data"])
-    assert calls == [], "goal-count query must be skipped entirely for a non-self view"
+    row = next(r for r in result["data"] if r["date"] == "2026-01-05")
+    assert row["goals_achieved"] == 1
+    assert calls == [1], "goal-count query runs even for a non-self view (goals are public)"
 
 
 @pytest.mark.asyncio
-async def test_heatmap_anonymous_view_returns_zero_and_skips_query(db_session: AsyncSession, monkeypatch):
+async def test_heatmap_anonymous_view_shows_goal_achievement_counts(db_session: AsyncSession, monkeypatch):
     target = await _add_user(db_session)
     await _add_achieved_goal(db_session, user_id=target.id, achieved_recorded_at=datetime(2026, 1, 5, tzinfo=UTC))
 
@@ -303,8 +304,9 @@ async def test_heatmap_anonymous_view_returns_zero_and_skips_query(db_session: A
         year=2026, client_type=None, user_id=target.id, current_user=None, db=db_session
     )
 
-    assert all(row["goals_achieved"] == 0 for row in result["data"])
-    assert calls == [], "goal-count query must be skipped entirely for an anonymous view"
+    row = next(r for r in result["data"] if r["date"] == "2026-01-05")
+    assert row["goals_achieved"] == 1
+    assert calls == [1], "goal-count query runs even for an anonymous view (goals are public)"
 
 
 # ── existing heatmap behavior unaffected ────────────────────────────────────

@@ -275,18 +275,18 @@ async def rerank_popularity_window(db: AsyncSession, window: str) -> None:
             sa.text(
                 """
                 WITH ranked AS (
-                    SELECT window, fumen_id,
+                    SELECT "window", fumen_id,
                            ROW_NUMBER() OVER (
                                ORDER BY played_user_count DESC, play_count DESC, fumen_id
                            ) AS new_rank
                     FROM fumen_popularity_window
-                    WHERE window = :window
+                    WHERE "window" = :window
                 )
                 UPDATE fumen_popularity_window fpw
                    SET rank = ranked.new_rank,
                        computed_at = now()
                   FROM ranked
-                 WHERE fpw.window = ranked.window
+                 WHERE fpw."window" = ranked."window"
                    AND fpw.fumen_id = ranked.fumen_id
                 """
             ),

@@ -48,6 +48,12 @@ from app.services.rating_derived_data import (
     has_fresh_user_table_rating_derived_data,
 )
 from app.services.score_history import is_play_count_only_update
+from app.services.table_level_order import (
+    normalize_level_order as _normalize_level_order,
+)
+from app.services.table_level_order import (
+    split_table_level_order as _split_table_level_order,
+)
 from app.utils.course_notes import course_notes_total
 from app.utils.score_rank import max_minus_score, notes_from_judgments
 
@@ -56,51 +62,6 @@ _RATING_UPDATES_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _RATING_UPDATES_AGG_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _RATING_BREAKDOWN_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 _CUSTOM_RANGE_MAX_DAYS = 730
-
-
-def _normalize_level_order(value: list[Any] | None) -> list[str]:
-    """Return non-empty level labels as strings while preserving order."""
-    levels: list[str] = []
-    seen: set[str] = set()
-    for raw in value or []:
-        level = str(raw).strip()
-        if not level or level in seen:
-            continue
-        levels.append(level)
-        seen.add(level)
-    return levels
-
-
-def _split_table_level_order(
-    level_order: list[Any] | None,
-    display_level_order: list[Any] | None,
-    non_regular_level_order: list[Any] | None,
-) -> tuple[list[str], list[str]]:
-    """Split display levels into regular and non-regular ordered groups.
-
-    Stale admin-configured values are ignored so table syncs can change
-    ``level_order`` without breaking dashboard rendering.
-    """
-    base_order = _normalize_level_order(level_order)
-    available = set(base_order)
-
-    non_regular: list[str] = []
-    for level in _normalize_level_order(non_regular_level_order):
-        if level in available:
-            non_regular.append(level)
-    non_regular_set = set(non_regular)
-
-    regular: list[str] = []
-    for level in _normalize_level_order(display_level_order):
-        if level in available and level not in non_regular_set:
-            regular.append(level)
-
-    regular_seen = set(regular)
-    for level in base_order:
-        if level not in non_regular_set and level not in regular_seen:
-            regular.append(level)
-
-    return regular, non_regular
 
 
 def _non_no_play_score_filter():
@@ -644,7 +605,7 @@ async def _get_daily_goals_achieved(
     end: datetime,
     db: AsyncSession,
 ) -> dict[str, int]:
-    """Return {date_str: count} of goals achieved per day (privacy-gated by the caller).
+    """Return {date_str: count} of goals achieved per day.
 
     Groups on `func.date(...)` rather than `cast(..., Date)` — see
     `api/app/routers/goals.py`'s `/achievements` endpoint for why the latter
@@ -908,13 +869,10 @@ async def get_activity_heatmap(
         rating_updates_pending = False
     rating_map = _rating_count_map(rating_rows)
 
-    # Goal achievement is private (plan §3.4-1): only surface counts when the
-    # requesting viewer is the target user themselves. When viewing someone
-    # else's calendar (or anonymously), skip the query entirely rather than
-    # running it and discarding the result.
-    goals_achieved_by_day: dict[str, int] = {}
-    if current_user is not None and current_user.id == target_user.id:
-        goals_achieved_by_day = await _get_daily_goals_achieved(target_user, start, end, db)
+    # Goal achievement is publicly readable (2026-08-03 policy change — the
+    # goals tab is now visible on other players' dashboards, and the calendar
+    # dot is how a visitor finds which day to open).
+    goals_achieved_by_day = await _get_daily_goals_achieved(target_user, start, end, db)
 
     all_dates = sorted(
         set(updates_by_day)

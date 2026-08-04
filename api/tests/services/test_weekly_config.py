@@ -11,11 +11,11 @@ def test_load_returns_categories_in_order():
     assert "balgwang" in keys
 
 
-def test_bracket_pick_count_defaults():
+def test_bracket_pick_count_defaults_to_two():
     cfg = load_weekly_config()
     five_aery = cfg.category("5aery")
     starter = five_aery.bracket("starter")
-    assert starter.pick_count == 7
+    assert starter.pick_count == 2
 
 
 def test_aery_level_ranges_match_imported_level_labels():
@@ -29,18 +29,42 @@ def test_aery_level_ranges_match_imported_level_labels():
     assert five_aery.bracket("master").selectors[0].level_range == ("LEVEL 19+", "LEVEL 20+")
 
 
-def test_multi_table_bracket_has_multiple_selectors():
+def test_balgwang_category_splits_tables_into_groups():
     cfg = load_weekly_config()
-    diamond = cfg.category("balgwang").bracket("diamond")
-    assert len(diamond.selectors) == 3
-    assert {s.table for s in diamond.selectors} == {"balgwang", "new_balgwang", "overjoy"}
+    category = cfg.category("balgwang")
+    groups = {b.group for b in category.brackets}
+    assert groups == {"発狂", "NEW GENERATION 発狂", "OVERJOY"}
+
+    for bracket in category.brackets:
+        tables = {s.table for s in bracket.selectors}
+        if bracket.group == "発狂":
+            assert tables == {"balgwang"}
+        elif bracket.group == "NEW GENERATION 発狂":
+            assert tables == {"new_balgwang"}
+        elif bracket.group == "OVERJOY":
+            assert tables == {"overjoy"}
 
 
-def test_new_balgwang_obsidian_uses_existing_level_label():
+def test_new_balgwang_upper_ranges_are_split_without_missing_label():
     cfg = load_weekly_config()
-    obsidian = cfg.category("balgwang").bracket("obsidian")
-    new_balgwang_selector = next(s for s in obsidian.selectors if s.table == "new_balgwang")
-    assert new_balgwang_selector.levels == ("24",)
+    category = cfg.category("balgwang")
+    assert category.bracket("ng_diamond").selectors[0].level_range == ("21", "22")
+    assert category.bracket("ng_obsidian").selectors[0].level_range == ("23", "24")
+
+
+def test_balgwang_upper_ranges_are_split_at_twenty_three():
+    cfg = load_weekly_config()
+    category = cfg.category("balgwang")
+    assert category.bracket("bg_diamond").selectors[0].level_range == ("21", "22")
+    assert category.bracket("bg_obsidian").selectors[0].level_range == ("23", "25")
+
+
+def test_overjoy_group_keeps_existing_level_ranges():
+    cfg = load_weekly_config()
+    category = cfg.category("balgwang")
+    assert category.bracket("oj_diamond").selectors[0].level_range == ("0", "3")
+    assert category.bracket("oj_obsidian").selectors[0].level_range == ("4", "5")
+    assert category.bracket("oj_wtf").selectors[0].level_range == ("6", "8")
 
 
 def test_rollover_settings():
@@ -64,8 +88,8 @@ def test_weekly_dan_tables_follow_category_dan_systems():
     assert _weekly_dan_table_slugs("stellaverse", "sr_traveler") == ["satellite", "stella"]
     assert _weekly_dan_table_slugs("stellaverse", "sl_traveler") == ["satellite", "stella"]
     assert _weekly_dan_table_slugs("stellaverse", "st_traveler") == ["satellite", "stella"]
-    assert _weekly_dan_table_slugs("balgwang", "dirt") == ["balgwang", "new_balgwang", "overjoy"]
-    assert _weekly_dan_table_slugs("balgwang", "wtf") == ["balgwang", "new_balgwang", "overjoy"]
+    assert _weekly_dan_table_slugs("balgwang", "bg_dirt") == ["balgwang", "new_balgwang", "overjoy"]
+    assert _weekly_dan_table_slugs("balgwang", "oj_wtf") == ["balgwang", "new_balgwang", "overjoy"]
 
 
 def test_weekly_avatar_url_matches_ranking_fallback_order():

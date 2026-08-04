@@ -16,10 +16,10 @@ export function useWeeklyRolloverInfo() {
   });
 }
 
-export function useWeeklyCategories() {
+export function useWeeklyCategories(offset = 0) {
   return useQuery<CategoryMeta[]>({
-    queryKey: ["weeklies", "categories"],
-    queryFn: () => api.get<CategoryMeta[]>("/weeklies/categories"),
+    queryKey: ["weeklies", "categories", offset],
+    queryFn: () => api.get<CategoryMeta[]>(`/weeklies/categories?offset=${offset}`),
     staleTime: 5 * 60 * 1000,
   });
 }

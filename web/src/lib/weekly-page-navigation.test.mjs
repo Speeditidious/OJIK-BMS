@@ -13,7 +13,7 @@ test("weekly page keeps period navigation available when detail data is missing"
 
 test("weekly page restores stored category and bracket with the current period on initial entry", () => {
   assert.match(pageSource, /readLastWeekly\(user\?\.id\)/);
-  assert.match(pageSource, /updateParams\(\{ category: resolved\.category, bracket: resolved\.bracket, offset: "0" \}\)/);
+  assert.match(pageSource, /if \(!category \|\| !bracket\) updates\.offset = "0"/);
   assert.doesNotMatch(pageSource, /saveLastWeekly\(user\?\.id,\s*\{[^}]*offset/s);
 });
 
@@ -29,6 +29,10 @@ test("weekly page keeps the selected period when switching category or bracket",
 
 test("weekly page loads generated periods for the selected category and bracket", () => {
   assert.match(pageSource, /useWeeklyPeriods\(category,\s*bracket\)/);
+});
+
+test("weekly page loads category metadata for the selected period offset", () => {
+  assert.match(pageSource, /useWeeklyCategories\(offset\)/);
 });
 
 test("weekly page clamps offsets earlier than the first generated period", () => {
