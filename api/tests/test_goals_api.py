@@ -31,11 +31,13 @@ from app.models.score import UserPlayerStats, UserScore
 from app.models.user import User
 from app.routers.goals import (
     GoalCreate,
+    GoalReorderRequest,
     _goal_achieved_recorded_date_filter,
     create_goal,
     delete_goal,
     list_goal_achievements,
     list_goals,
+    reorder_goals,
 )
 from app.services.ranking_config import (
     BonusConfig,
@@ -1011,3 +1013,93 @@ async def test_list_achieved_goals_orders_by_achievement_date(db_session: AsyncS
     )
 
     assert [g["fumen_sha256"] for g in result["goals"]] == ["a" * 64, "b" * 64]
+
+
+# ── PUT /goals/reorder ───────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_reorder_goals_renumbers_the_active_list(db_session: AsyncSession):
+    user = await _add_db_user(db_session, username="reorderer")
+    first = await _add_chart_goal(db_session, user_id=user.id, sha256="a" * 64, md5="a" * 32, display_order=0)
+    second = await _add_chart_goal(db_session, user_id=user.id, sha256="b" * 64, md5="b" * 32, display_order=1)
+    third = await _add_chart_goal(db_session, user_id=user.id, sha256="c" * 64, md5="c" * 32, display_order=2)
+
+    await reorder_goals(
+        body=GoalReorderRequest(goal_ids=[third, first, second]),
+        current_user=_user(user.id),
+        db=db_session,
+    )
+
+    result = await list_goals(
+        goal_status="active", user_id=None, current_user=_user(user.id), db=db_session
+    )
+    assert [g["fumen_sha256"] for g in result["goals"]] == ["c" * 64, "a" * 64, "b" * 64]
+
+
+@pytest.mark.asyncio
+async def test_reorder_goals_ignores_other_users_goals(db_session: AsyncSession):
+    owner = await _add_db_user(db_session, username="owner")
+    stranger = await _add_db_user(db_session, username="stranger")
+    mine = await _add_chart_goal(db_session, user_id=owner.id, sha256="a" * 64, md5="a" * 32, display_order=5)
+    theirs = await _add_chart_goal(db_session, user_id=stranger.id, sha256="b" * 64, md5="b" * 32, display_order=9)
+
+    await reorder_goals(
+        body=GoalReorderRequest(goal_ids=[theirs, mine]),
+        current_user=_user(owner.id),
+        db=db_session,
+    )
+
+    # Only the owner's goal was touched, and it took index 1 (its position in
+    # the request) — the stranger's goal keeps its original order.
+    assert (await db_session.get(UserGoal, mine)).display_order == 1
+    assert (await db_session.get(UserGoal, theirs)).display_order == 9
+
+
+@pytest.mark.asyncio
+async def test_reorder_goals_ignores_deleted_and_achieved_goals(db_session: AsyncSession):
+    user = await _add_db_user(db_session, username="skipper")
+    active = await _add_chart_goal(db_session, user_id=user.id, sha256="a" * 64, md5="a" * 32, display_order=0)
+    achieved = uuid.uuid4()
+    db_session.add(
+        UserGoal(
+            goal_id=achieved, user_id=user.id, goal_type="chart", client_type="beatoraja",
+            fumen_sha256="b" * 64, fumen_md5="b" * 32, target_clear_type=7,
+            status="achieved", baseline_snapshot={}, display_order=3,
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+    )
+    deleted = uuid.uuid4()
+    db_session.add(
+        UserGoal(
+            goal_id=deleted, user_id=user.id, goal_type="chart", client_type="beatoraja",
+            fumen_sha256="c" * 64, fumen_md5="c" * 32, target_clear_type=7,
+            status="active", baseline_snapshot={}, display_order=4,
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            deleted_at=datetime(2026, 2, 1, tzinfo=UTC),
+        )
+    )
+    await db_session.flush()
+
+    await reorder_goals(
+        body=GoalReorderRequest(goal_ids=[achieved, deleted, active]),
+        current_user=_user(user.id),
+        db=db_session,
+    )
+
+    assert (await db_session.get(UserGoal, active)).display_order == 2
+    assert (await db_session.get(UserGoal, achieved)).display_order == 3
+    assert (await db_session.get(UserGoal, deleted)).display_order == 4
+
+
+@pytest.mark.asyncio
+async def test_reorder_goals_with_unknown_ids_is_a_noop(db_session: AsyncSession):
+    user = await _add_db_user(db_session, username="ghost")
+    mine = await _add_chart_goal(db_session, user_id=user.id, sha256="a" * 64, md5="a" * 32, display_order=0)
+
+    await reorder_goals(
+        body=GoalReorderRequest(goal_ids=[uuid.uuid4(), uuid.uuid4()]),
+        current_user=_user(user.id),
+        db=db_session,
+    )
+
+    assert (await db_session.get(UserGoal, mine)).display_order == 0
