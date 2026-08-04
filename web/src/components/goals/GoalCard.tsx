@@ -20,6 +20,7 @@ import type { TableLevelRef } from "@/components/common/TableLevelBadges";
 import { clearTdClass, rankTdClass } from "@/lib/score-cell-class";
 import type { GoalRecord } from "@/hooks/use-goals";
 import { useDeleteGoal } from "@/hooks/use-goals";
+import { formatGoalDate } from "@/lib/goal-date-format.mjs";
 import { formatRatePercent } from "@/lib/rate-format";
 import { formatTableLevelWithSymbolForDisplay } from "@/lib/table-level-display";
 import { sortTableLevelsCore } from "@/lib/table-level-sort-core.mjs";
@@ -144,12 +145,16 @@ export function GoalCard({ goal, compact = false, canDelete = true }: GoalCardPr
           )}
         </div>
         {!compact && goal.comment && <p className="truncate text-caption text-muted-foreground">{goal.comment}</p>}
-        {!compact && goal.status === "achieved" && goal.achieved_recorded_at && (
-          <p className="text-caption text-muted-foreground">
-            {t("goals.card.achievedOn", { date: goal.achieved_recorded_at.slice(0, 10) })}
-          </p>
-        )}
       </div>
+
+      {!compact && (goal.created_at || goal.achieved_recorded_at) && (
+        <div className="shrink-0 space-y-0.5 whitespace-nowrap text-right text-caption text-muted-foreground">
+          {goal.created_at && <p>{t("goals.card.registeredOn", { date: formatGoalDate(goal.created_at) })}</p>}
+          {goal.status === "achieved" && goal.achieved_recorded_at && (
+            <p>{t("goals.card.achievedOnDate", { date: formatGoalDate(goal.achieved_recorded_at) })}</p>
+          )}
+        </div>
+      )}
 
       {!compact && canDelete && (
         <Button

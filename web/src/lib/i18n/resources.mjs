@@ -940,7 +940,8 @@ export const resources = {
         },
         card: {
           noMetrics: "설정된 조건 없음",
-          achievedOn: "{{date}} 달성",
+          registeredOn: "등록 {{date}}",
+          achievedOnDate: "달성 {{date}}",
           deleteAria: "목표 삭제",
           deleteConfirmTitle: "목표 삭제",
           deleteConfirmBody: "정말로 목표를 삭제하시겠습니까?",
@@ -2116,7 +2117,8 @@ export const resources = {
         },
         card: {
           noMetrics: "No conditions set",
-          achievedOn: "Achieved on {{date}}",
+          registeredOn: "Set {{date}}",
+          achievedOnDate: "Achieved {{date}}",
           deleteAria: "Delete goal",
           deleteConfirmTitle: "Delete Goal",
           deleteConfirmBody: "Are you sure you want to delete this goal?",
@@ -3292,7 +3294,8 @@ export const resources = {
         },
         card: {
           noMetrics: "設定された条件なし",
-          achievedOn: "{{date}} 達成",
+          registeredOn: "登録 {{date}}",
+          achievedOnDate: "達成 {{date}}",
           deleteAria: "目標を削除",
           deleteConfirmTitle: "目標削除",
           deleteConfirmBody: "本当にこの目標を削除しますか?",
