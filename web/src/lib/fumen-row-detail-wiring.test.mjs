@@ -21,7 +21,8 @@ const ratingDetail = read("../components/ranking/RatingDetailSection.tsx");
 assert.match(ratingDetail, /asOf=\{ratingAsOf\}/);
 
 const scoreUpdates = read("../components/dashboard/ScoreUpdates.tsx");
-assert.match(scoreUpdates, /<FumenTab data=\{data\} userId=\{userId\} asOf=\{date\}/);
+// Whitespace-tolerant: the call is multi-line once extra props (goalSlot) are passed.
+assert.match(scoreUpdates, /<FumenTab\s+data=\{data\}\s+userId=\{userId\}\s+asOf=\{date\}/);
 assert.match(scoreUpdates, /function SummaryFumenRow/);
 assert.match(scoreUpdates, /<FumenRowDetail fumenId=\{item\.fumen_id\} scoreId=\{item\.detail_score_id\} userId=\{userId\} asOf=\{asOf\}/);
 assert.match(scoreUpdates, /<SummaryFumenRow item=\{item\} userId=\{userId\} asOf=\{asOf\}/);

@@ -14,14 +14,15 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import Date as SqlDate
+from sqlalchemy import case, func, literal, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, get_current_user_optional
 from app.models.course import Course
-from app.models.difficulty_table import DifficultyTable
+from app.models.difficulty_table import DifficultyTable, UserFavoriteDifficultyTable
 from app.models.fumen import Fumen, FumenTableEntry
 from app.models.goal import UserGoal
 from app.models.score import UserPlayerStats
@@ -35,6 +36,8 @@ from app.services.goal_evaluator import (
 from app.services.ranking_calculator import CLEAR_TYPE_TO_LAMP_NAME
 from app.services.ranking_calculator import _song_rating as _rate_chart
 from app.services.ranking_config import get_effective_dans, get_ranking_config
+from app.services.table_level_order import split_table_level_order
+from app.services.level_display_preferences import normalize_level_display_preferences
 
 router = APIRouter(prefix="/goals", tags=["goals"])
 
@@ -55,6 +58,11 @@ class GoalCreate(BaseModel):
     target_rank: str | None = None
     target_rate: float | None = None
     comment: str | None = None
+
+
+def _goal_achieved_recorded_date_filter(target_date: date):
+    """Return a cross-dialect date filter for achieved_recorded_at."""
+    return func.date(UserGoal.achieved_recorded_at) == literal(target_date, SqlDate())
 
 
 # ── Fumen / course metadata resolution helpers ──────────────────────────────
@@ -195,29 +203,227 @@ def _resolve_course_dan_title(course: Course) -> str | None:
     return None
 
 
-async def _enrich_goal(goal: UserGoal, db: AsyncSession) -> dict[str, Any]:
-    """Attach display metadata (title/artist/level or course name/dan_title).
+async def _enrich_goals(goals: list[UserGoal], db: AsyncSession) -> list[dict[str, Any]]:
+    """Attach display metadata (title/artist/level/table memberships, or course
+    name/dan_title) to a batch of goals using a fixed number of queries.
+
+    Batched rather than per-goal because the goals panel renders the user's
+    entire list at once; the previous per-goal implementation issued two
+    queries per chart goal, and the frontend then issued one more per card to
+    recover the chart's other table memberships.
 
     Defensive: if the referenced Fumen/Course/DifficultyTable was deleted or
     renamed after the goal was created, the metadata fields are simply left
-    null rather than raising — goals can outlive their source data.
+    null/empty rather than raising — goals can outlive their source data.
     """
-    body = _goal_base_dict(goal)
-    body.update({"title": None, "artist": None, "level": None, "course_name": None, "dan_title": None})
+    chart_goals = [g for g in goals if g.goal_type == "chart"]
 
-    if goal.goal_type == "chart":
-        fumen = await _resolve_fumen(db, goal.fumen_sha256, goal.fumen_md5)
-        if fumen is not None:
-            body["title"] = fumen.title
-            body["artist"] = fumen.artist
-            body["level"] = await _resolve_level_for_table(db, fumen.fumen_id, goal.table_slug)
-    elif goal.goal_type == "course" and goal.course_id is not None:
-        course = await db.get(Course, goal.course_id)
-        if course is not None:
-            body["course_name"] = course.name
-            body["dan_title"] = _resolve_course_dan_title(course)
+    # 1) Every chart goal's Fumen row in one query. sha256 and md5 are both
+    #    matched (CLAUDE.md "Fumen hash lookups") — LR2 goals carry md5 only.
+    sha_values = {g.fumen_sha256 for g in chart_goals if g.fumen_sha256}
+    md5_values = {g.fumen_md5 for g in chart_goals if g.fumen_md5}
+    fumens: list[Fumen] = []
+    if sha_values or md5_values:
+        conditions = []
+        if sha_values:
+            conditions.append(Fumen.sha256.in_(sha_values))
+        if md5_values:
+            conditions.append(Fumen.md5.in_(md5_values))
+        fumens = list((await db.execute(select(Fumen).where(or_(*conditions)))).scalars().all())
+    fumen_by_sha = {f.sha256: f for f in fumens if f.sha256}
+    fumen_by_md5 = {f.md5: f for f in fumens if f.md5}
 
-    return body
+    # 2) Every resolved fumen's table memberships in one query.
+    fumen_ids = {f.fumen_id for f in fumens if f.fumen_id is not None}
+    levels_by_fumen: dict[uuid.UUID, list[dict[str, str]]] = {}
+    if fumen_ids:
+        rows = await db.execute(
+            select(
+                FumenTableEntry.fumen_id,
+                DifficultyTable.slug,
+                DifficultyTable.symbol,
+                FumenTableEntry.level,
+            )
+            .join(DifficultyTable, DifficultyTable.id == FumenTableEntry.table_id)
+            .where(
+                FumenTableEntry.fumen_id.in_(fumen_ids),
+                DifficultyTable.slug.isnot(None),
+            )
+        )
+        for fumen_id, slug, symbol, level in rows.all():
+            levels_by_fumen.setdefault(fumen_id, []).append(
+                {"slug": slug, "symbol": symbol or "", "level": level}
+            )
+
+    # 3) Every course goal's Course row in one query.
+    course_ids = {g.course_id for g in goals if g.goal_type == "course" and g.course_id is not None}
+    courses_by_id: dict[uuid.UUID, Course] = {}
+    if course_ids:
+        course_rows = await db.execute(select(Course).where(Course.id.in_(course_ids)))
+        courses_by_id = {c.id: c for c in course_rows.scalars().all()}
+
+    # 4) Source difficulty table of every course goal — the course filter axis
+    #    groups by table, and courses carry only a table id.
+    course_table_ids = {
+        c.source_table_id for c in courses_by_id.values() if c.source_table_id is not None
+    }
+    course_table_slug_by_id: dict[uuid.UUID, str] = {}
+    if course_table_ids:
+        slug_rows = await db.execute(
+            select(DifficultyTable.id, DifficultyTable.slug).where(
+                DifficultyTable.id.in_(course_table_ids),
+                DifficultyTable.slug.isnot(None),
+            )
+        )
+        course_table_slug_by_id = {table_id: slug for table_id, slug in slug_rows.all()}
+
+    bodies: list[dict[str, Any]] = []
+    for goal in goals:
+        body = _goal_base_dict(goal)
+        body.update(
+            {
+                "title": None,
+                "artist": None,
+                "level": None,
+                "table_levels": [],
+                "course_name": None,
+                "dan_title": None,
+                "course_table_slug": None,
+            }
+        )
+
+        if goal.goal_type == "chart":
+            fumen = None
+            if goal.fumen_sha256:
+                fumen = fumen_by_sha.get(goal.fumen_sha256)
+            if fumen is None and goal.fumen_md5:
+                fumen = fumen_by_md5.get(goal.fumen_md5)
+            if fumen is not None:
+                body["title"] = fumen.title
+                body["artist"] = fumen.artist
+                table_levels = levels_by_fumen.get(fumen.fumen_id, [])
+                body["table_levels"] = table_levels
+                if goal.table_slug:
+                    body["level"] = next(
+                        (tl["level"] for tl in table_levels if tl["slug"] == goal.table_slug),
+                        None,
+                    )
+        elif goal.goal_type == "course" and goal.course_id is not None:
+            course = courses_by_id.get(goal.course_id)
+            if course is not None:
+                body["course_name"] = course.name
+                body["dan_title"] = _resolve_course_dan_title(course)
+                body["course_table_slug"] = course_table_slug_by_id.get(course.source_table_id)
+
+        bodies.append(body)
+
+    return bodies
+
+
+async def _enrich_goal(goal: UserGoal, db: AsyncSession) -> dict[str, Any]:
+    """Single-goal convenience wrapper over `_enrich_goals` (POST /goals/ response)."""
+    return (await _enrich_goals([goal], db))[0]
+
+
+async def _build_goal_tables(
+    bodies: list[dict[str, Any]],
+    target_user: User,
+    db: AsyncSession,
+) -> list[dict[str, Any]]:
+    """Difficulty tables referenced by a goal list, ordered for the filter UI.
+
+    The order is the dashboard owner's: their favourites in their own
+    ``display_order``, then server default tables by ``default_order``, then
+    everything else by name. Resolving it here rather than in the frontend
+    keeps the goals panel to a single request.
+
+    ``level_order`` is the table's canonical display order narrowed to the
+    levels the goals actually use, so the filter chips match the ordering the
+    clear-distribution view already shows.
+    """
+    levels_by_slug: dict[str, set[str]] = {}
+    slugs: set[str] = set()
+    for body in bodies:
+        for entry in body.get("table_levels") or []:
+            slugs.add(entry["slug"])
+            levels_by_slug.setdefault(entry["slug"], set()).add(entry["level"])
+        course_slug = body.get("course_table_slug")
+        if course_slug:
+            slugs.add(course_slug)
+
+    if not slugs:
+        return []
+
+    table_rows = await db.execute(select(DifficultyTable).where(DifficultyTable.slug.in_(slugs)))
+    tables = list(table_rows.scalars().all())
+
+    favorite_rows = await db.execute(
+        select(
+            UserFavoriteDifficultyTable.table_id,
+            UserFavoriteDifficultyTable.display_order,
+        ).where(UserFavoriteDifficultyTable.user_id == target_user.id)
+    )
+    favorite_order = {table_id: order for table_id, order in favorite_rows.all()}
+    raw_preferences = getattr(target_user, "preferences", None) or {}
+    prefs = normalize_level_display_preferences(raw_preferences.get("level_display"))
+
+    def _table_scopes(table: DifficultyTable) -> list[str]:
+        scopes: list[str] = []
+        if table.id in favorite_order:
+            scopes.append("favorite")
+        if table.is_default:
+            scopes.append("server_default")
+        elif table.source_url:
+            scopes.append("user_added")
+        else:
+            scopes.append("ojik_custom")
+        return scopes
+
+    def _preference_visible(table: DifficultyTable) -> bool:
+        scopes = _table_scopes(table)
+        return not scopes or any(prefs[scope] for scope in scopes)
+
+    def _hide_non_regular(table: DifficultyTable) -> bool:
+        scopes = _table_scopes(table)
+        return bool(scopes) and all(not prefs[f"{scope}_show_non_regular"] for scope in scopes)
+
+    # Tuple sort key: (bucket, within-bucket order, name tiebreak).
+    def _sort_key(table: DifficultyTable) -> tuple[int, int, str]:
+        if table.id in favorite_order:
+            return (0, favorite_order[table.id], table.name or "")
+        if table.is_default:
+            # Defaults without an explicit order sink below the ordered ones.
+            return (1, table.default_order if table.default_order is not None else 1_000_000, table.name or "")
+        return (2, 0, table.name or "")
+
+    result: list[dict[str, Any]] = []
+    for table in sorted(tables, key=_sort_key):
+        regular, non_regular = split_table_level_order(
+            table.level_order, table.display_level_order, table.non_regular_level_order
+        )
+        present = levels_by_slug.get(table.slug, set())
+        ordered = [level for level in (*regular, *non_regular) if level in present]
+        # Levels a goal references that the table's own order does not list —
+        # keep them selectable rather than silently dropping the chip.
+        ordered.extend(sorted(present - set(ordered)))
+        preference_level_order = ordered
+        preference_visible = _preference_visible(table)
+        if not preference_visible:
+            preference_level_order = []
+        elif _hide_non_regular(table):
+            non_regular_set = set(non_regular)
+            preference_level_order = [level for level in ordered if level not in non_regular_set]
+        result.append(
+            {
+                "slug": table.slug,
+                "name": table.name,
+                "symbol": table.symbol or "",
+                "level_order": ordered,
+                "preference_visible": preference_visible,
+                "preference_level_order": preference_level_order,
+            }
+        )
+    return result
 
 
 @router.get("/target-courses")
@@ -350,19 +556,55 @@ async def _resolve_default_client_type(user_id: uuid.UUID, db: AsyncSession) -> 
     return result.scalars().first()
 
 
+# ── Target user resolution ───────────────────────────────────────────────────
+
+async def _resolve_target_user(
+    user_id: uuid.UUID | None,
+    current_user: User | None,
+    db: AsyncSession,
+) -> User:
+    """Resolve whose goals are being requested.
+
+    Mirrors `analysis.py` / `scores.py` / `rankings.py`'s helper of the same
+    name: `user_id=None` means "the caller", any other id means a public
+    read of that user's dashboard.
+    """
+    if user_id is None:
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        return current_user
+
+    if current_user is not None and current_user.id == user_id:
+        return current_user
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    target_user = result.scalar_one_or_none()
+    if target_user is None or not target_user.is_active:
+        raise HTTPException(status_code=404, detail="User not found")
+    return target_user
+
+
 # ── GET /goals/ ──────────────────────────────────────────────────────────────
 
 @router.get("/")
 async def list_goals(
     goal_status: Literal["active", "achieved"] = Query(default="active", alias="status"),
-    current_user: User = Depends(get_current_user),
+    user_id: uuid.UUID | None = Query(default=None, description="Target user; defaults to the caller"),
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """List the current user's own goals, filtered by status (default active)."""
+    """List a user's goals, filtered by status (default active).
+
+    Goals are publicly readable so a visitor can browse another player's goal
+    tab; mutation (POST / DELETE) stays owner-only. `is_owner` tells the
+    frontend whether to render the create/delete affordances.
+    """
+    target_user = await _resolve_target_user(user_id, current_user, db)
+
     result = await db.execute(
         select(UserGoal)
         .where(
-            UserGoal.user_id == current_user.id,
+            UserGoal.user_id == target_user.id,
             UserGoal.deleted_at.is_(None),
             UserGoal.status == goal_status,
         )
@@ -370,10 +612,15 @@ async def list_goals(
     )
     goals = result.scalars().all()
 
-    goal_dicts = [await _enrich_goal(goal, db) for goal in goals]
-    default_client_type = await _resolve_default_client_type(current_user.id, db)
+    goal_dicts = await _enrich_goals(list(goals), db)
+    default_client_type = await _resolve_default_client_type(target_user.id, db)
 
-    return {"goals": goal_dicts, "default_client_type": default_client_type}
+    return {
+        "goals": goal_dicts,
+        "default_client_type": default_client_type,
+        "is_owner": current_user is not None and current_user.id == target_user.id,
+        "tables": await _build_goal_tables(goal_dicts, target_user, db),
+    }
 
 
 # ── POST /goals/ ─────────────────────────────────────────────────────────────
@@ -542,11 +789,14 @@ async def delete_goal(
 @router.get("/achievements")
 async def list_goal_achievements(
     date: date = Query(..., description="YYYY-MM-DD, matched against achieved_recorded_at's date"),
-    current_user: User = Depends(get_current_user),
+    user_id: uuid.UUID | None = Query(default=None, description="Target user; defaults to the caller"),
+    current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Return goals achieved on the given calendar date (Task 15's DayStatSheet
-    "goals achieved that day" section).
+    """Return goals achieved on the given calendar date, for the day-detail
+    page's "goals achieved" sections (DayStatSheet and the update-detail tab).
+
+    Publicly readable for the same reason as `list_goals`.
 
     Uses `func.date(...)` rather than `cast(..., Date)` — both Postgres and
     SQLite provide a `date()` function that extracts the calendar date from
@@ -554,16 +804,21 @@ async def list_goal_achievements(
     because "DATE" isn't a recognized type-affinity keyword there, so the
     cast falls back to NUMERIC affinity and silently mis-parses the value.
     """
+    target_user = await _resolve_target_user(user_id, current_user, db)
+
     result = await db.execute(
         select(UserGoal)
         .where(
-            UserGoal.user_id == current_user.id,
+            UserGoal.user_id == target_user.id,
             UserGoal.deleted_at.is_(None),
             UserGoal.status == "achieved",
-            func.date(UserGoal.achieved_recorded_at) == date.isoformat(),
+            _goal_achieved_recorded_date_filter(date),
         )
         .order_by(UserGoal.achieved_recorded_at.desc())
     )
     goals = result.scalars().all()
 
-    return {"goals": [await _enrich_goal(goal, db) for goal in goals]}
+    return {
+        "goals": await _enrich_goals(list(goals), db),
+        "is_owner": current_user is not None and current_user.id == target_user.id,
+    }

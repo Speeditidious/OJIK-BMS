@@ -1,7 +1,7 @@
 [settings]
 timezone = "Asia/Seoul"
 rollover = { day_of_week = "mon", hour = 4, minute = 0 }
-default_pick_count = 7
+default_pick_count = 2
 
 # ─────────────────────────── 5KEYS AERY ───────────────────────────
 [[categories]]
@@ -151,64 +151,110 @@ key = "balgwang"
 name = "発狂類"
 order = 2
 
+  # 発狂 (bg)
   [[categories.brackets]]
-  key = "dirt"
+  key = "bg_dirt"
+  group = "発狂"
   order = 0
   color = "#FACC15"
-  selectors = [
-    { table = "balgwang", level_range = ["1", "5"] },
-    { table = "new_balgwang", level_range = ["1", "5"] },
-  ]
+  selectors = [ { table = "balgwang", level_range = ["1", "5"] } ]
 
   [[categories.brackets]]
-  key = "stone"
+  key = "bg_stone"
+  group = "発狂"
   order = 1
   color = "#FB923C"
-  selectors = [
-    { table = "balgwang", level_range = ["6", "11"] },
-    { table = "new_balgwang", level_range = ["6", "11"] },
-  ]
+  selectors = [ { table = "balgwang", level_range = ["6", "11"] } ]
 
   [[categories.brackets]]
-  key = "iron"
+  key = "bg_iron"
+  group = "発狂"
   order = 2
   color = "#EF4444"
-  selectors = [
-    { table = "balgwang", level_range = ["12", "16"] },
-    { table = "new_balgwang", level_range = ["12", "16"] },
-  ]
+  selectors = [ { table = "balgwang", level_range = ["12", "16"] } ]
 
   [[categories.brackets]]
-  key = "gold"
+  key = "bg_gold"
+  group = "発狂"
   order = 3
   color = "#DC2626"
-  selectors = [
-    { table = "balgwang", level_range = ["17", "20"] },
-    { table = "new_balgwang", level_range = ["17", "20"] },
-  ]
+  selectors = [ { table = "balgwang", level_range = ["17", "20"] } ]
 
   [[categories.brackets]]
-  key = "diamond"
+  key = "bg_diamond"
+  group = "発狂"
   order = 4
   color = "#3B82F6"
-  selectors = [
-    { table = "balgwang", level_range = ["21", "23"] },
-    { table = "new_balgwang", level_range = ["21", "23"] },
-    { table = "overjoy", level_range = ["0", "3"] },
-  ]
+  selectors = [ { table = "balgwang", level_range = ["21", "22"] } ]
 
   [[categories.brackets]]
-  key = "obsidian"
+  key = "bg_obsidian"
+  group = "発狂"
   order = 5
   color = "#6366F1"
-  selectors = [
-    { table = "balgwang", level_range = ["24", "25"] },
-    { table = "new_balgwang", levels = ["24"] },
-    { table = "overjoy", level_range = ["4", "5"] },
-  ]
+  selectors = [ { table = "balgwang", level_range = ["23", "25"] } ]
+
+  # NEW GENERATION 発狂 (ng)
+  [[categories.brackets]]
+  key = "ng_dirt"
+  group = "NEW GENERATION 発狂"
+  order = 6
+  color = "#FACC15"
+  selectors = [ { table = "new_balgwang", level_range = ["1", "5"] } ]
 
   [[categories.brackets]]
-  key = "wtf"
-  order = 6
+  key = "ng_stone"
+  group = "NEW GENERATION 発狂"
+  order = 7
+  color = "#FB923C"
+  selectors = [ { table = "new_balgwang", level_range = ["6", "11"] } ]
+
+  [[categories.brackets]]
+  key = "ng_iron"
+  group = "NEW GENERATION 発狂"
+  order = 8
+  color = "#EF4444"
+  selectors = [ { table = "new_balgwang", level_range = ["12", "16"] } ]
+
+  [[categories.brackets]]
+  key = "ng_gold"
+  group = "NEW GENERATION 発狂"
+  order = 9
+  color = "#DC2626"
+  selectors = [ { table = "new_balgwang", level_range = ["17", "20"] } ]
+
+  [[categories.brackets]]
+  key = "ng_diamond"
+  group = "NEW GENERATION 発狂"
+  order = 10
+  color = "#3B82F6"
+  selectors = [ { table = "new_balgwang", level_range = ["21", "22"] } ]
+
+  [[categories.brackets]]
+  key = "ng_obsidian"
+  group = "NEW GENERATION 発狂"
+  order = 11
+  color = "#6366F1"
+  selectors = [ { table = "new_balgwang", level_range = ["23", "24"] } ]
+
+  # OVERJOY (oj)
+  [[categories.brackets]]
+  key = "oj_diamond"
+  group = "OVERJOY"
+  order = 12
+  color = "#3B82F6"
+  selectors = [ { table = "overjoy", level_range = ["0", "3"] } ]
+
+  [[categories.brackets]]
+  key = "oj_obsidian"
+  group = "OVERJOY"
+  order = 13
+  color = "#6366F1"
+  selectors = [ { table = "overjoy", level_range = ["4", "5"] } ]
+
+  [[categories.brackets]]
+  key = "oj_wtf"
+  group = "OVERJOY"
+  order = 14
   color = "#9333EA"
   selectors = [ { table = "overjoy", level_range = ["6", "8"] } ]

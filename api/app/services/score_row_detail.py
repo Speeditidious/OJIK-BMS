@@ -389,6 +389,15 @@ def _mirror_lanes(n: int) -> list[int]:
     return list(range(n, 0, -1))
 
 
+def _decode_lr2_deterministic_lanes(arrangement_enum: int, keymode: int) -> list[int] | None:
+    """Return LR2 deterministic lanes for NORMAL/MIRROR, independent of rseed."""
+    if arrangement_enum == 0:
+        return _identity_lanes(keymode)
+    if arrangement_enum == 1:
+        return _mirror_lanes(keymode)
+    return None
+
+
 def _decode_bea_sp_option(option_enum: int, seed: int | None, keymode: int) -> dict | None:
     """Decode a single Beatoraja SP option into a lane group dict, or return a reason string."""
     label = _BEA_SP_OPTION_LABELS.get(option_enum, f"UNKNOWN({option_enum})")
@@ -427,8 +436,6 @@ def decode_arrangement(
     """
     if options is None:
         return _make_unavailable("UNKNOWN", "score_metadata_missing")
-    if keymode is None:
-        return _make_unavailable("UNKNOWN", "keymode_missing")
 
     if client_type == "lr2":
         op_best = options.get("op_best")
@@ -438,20 +445,22 @@ def decode_arrangement(
         arrangement_enum = op_best // 10
         label = _LR2_OPTION_LABELS.get(arrangement_enum, f"UNKNOWN({arrangement_enum})")
 
+        if keymode is None:
+            return _make_unavailable(label, "keymode_missing")
+
         # LR2 only supports SP (5K/7K); DP modes cannot reconstruct both sides
         if keymode not in _BEA_SP_KEYMODES:
             if keymode in _BEA_DP_KEYMODES:
                 return _make_unavailable(label, "dp_unsupported")
             return _make_unavailable(label, "keymode_unsupported")
 
-        if arrangement_enum in _LR2_STATIC_MAP_OPTIONS:
-            return _make_unavailable(label, "static_map_unsupported")
+        lanes = _decode_lr2_deterministic_lanes(arrangement_enum, keymode)
+        if lanes is None:
+            if arrangement_enum in _LR2_STATIC_MAP_OPTIONS:
+                return _make_unavailable(label, "static_map_unsupported")
+            if arrangement_enum != 2:
+                return _make_unavailable(label, "static_map_unsupported")
 
-        if arrangement_enum == 0:  # NORMAL
-            lanes = _identity_lanes(keymode)
-        elif arrangement_enum == 1:  # MIRROR
-            lanes = _mirror_lanes(keymode)
-        elif arrangement_enum == 2:  # RANDOM
             rseed = options.get("rseed")
             if rseed is None:
                 return _make_unavailable(label, "score_metadata_missing")
@@ -459,8 +468,6 @@ def decode_arrangement(
             if arrangement_str is None:
                 return _make_unavailable(label, "lr2_seed_unmapped")
             lanes = [int(c) for c in arrangement_str]
-        else:
-            return _make_unavailable(label, "static_map_unsupported")
 
         return {
             "option_label": label,
@@ -474,9 +481,12 @@ def decode_arrangement(
         if option_raw is None:
             return _make_unavailable("UNKNOWN", "score_metadata_missing")
 
+        option_enum = option_raw & 0xFF
+        label = _BEA_SP_OPTION_LABELS.get(option_enum, f"UNKNOWN({option_enum})")
+        if keymode is None:
+            return _make_unavailable(label, "keymode_missing")
+
         if keymode in _BEA_SP_KEYMODES:
-            option_enum = option_raw & 0xFF
-            label = _BEA_SP_OPTION_LABELS.get(option_enum, f"UNKNOWN({option_enum})")
             seed = options.get("seed")
             result = _decode_bea_sp_option(option_enum, seed, keymode)
             if isinstance(result, tuple):

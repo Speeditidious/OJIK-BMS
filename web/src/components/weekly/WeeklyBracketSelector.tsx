@@ -11,6 +11,12 @@ const GROUP_ICONS: Record<string, typeof Star> = {
   Stella: Star,
 };
 
+const GROUP_SYMBOLS: Record<string, string> = {
+  "発狂": "★",
+  "NEW GENERATION 発狂": "▼",
+  OVERJOY: "★★",
+};
+
 interface Props {
   brackets: BracketMeta[];
   selected: string;
@@ -66,6 +72,7 @@ function GroupPill({
   onClick: () => void;
 }) {
   const Icon: typeof Star | undefined = GROUP_ICONS[name];
+  const symbol = GROUP_SYMBOLS[name];
   const accentColor = isLightMode ? readableOnLight(color) : readableOnDark(color);
   const surfaceColor = isLightMode ? "#ffffff" : "#1E2330";
 
@@ -88,11 +95,15 @@ function GroupPill({
       onClick={onClick}
       style={active ? activeStyle : idleStyle}
       className={cn(
-        "flex items-center gap-1.5 px-4 py-2 rounded-lg text-label font-semibold transition-all",
+        "flex max-w-full items-center gap-1.5 px-4 py-2 rounded-lg text-label font-semibold transition-all",
         !active && "hover:brightness-110",
       )}
     >
-      {Icon ? (
+      {symbol ? (
+        <span className="min-w-3.5 flex-shrink-0 text-center font-black" style={{ color: iconColor }}>
+          {symbol}
+        </span>
+      ) : Icon ? (
         <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: iconColor }} />
       ) : (
         <span
@@ -100,7 +111,7 @@ function GroupPill({
           style={{ backgroundColor: iconColor }}
         />
       )}
-      <span style={{ color: textColor }}>{name}</span>
+      <span className="min-w-0 truncate whitespace-nowrap" style={{ color: textColor }}>{name}</span>
     </button>
   );
 }

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { GoalTable, GoalTableLevel } from "@/lib/goal-filter-core";
 
 export interface GoalRecord {
   goal_id: string;
@@ -28,20 +29,33 @@ export interface GoalRecord {
   title: string | null;
   artist: string | null;
   level: string | null;
+  table_levels: GoalTableLevel[];
   course_name: string | null;
   dan_title: string | null;
+  /** Source difficulty table of a course goal — null for chart goals. */
+  course_table_slug: string | null;
 }
 
 export interface GoalListResponse {
   goals: GoalRecord[];
   default_client_type: string | null;
+  is_owner: boolean;
+  /** Difficulty tables referenced by these goals, already ordered by the server. */
+  tables: GoalTable[];
 }
 
-/** Active or achieved goals for the current user (goals are always self-scoped — see goals.py). */
-export function useGoals(status: "active" | "achieved", enabled: boolean = true) {
+/**
+ * A user's active or achieved goals. `userId` targets another player's
+ * dashboard; omit it to read the signed-in user's own goals.
+ */
+export function useGoals(status: "active" | "achieved", userId?: string, enabled: boolean = true) {
   return useQuery<GoalListResponse>({
-    queryKey: ["goals", status],
-    queryFn: () => api.get<GoalListResponse>(`/goals/?status=${status}`),
+    queryKey: ["goals", status, userId ?? "me"],
+    queryFn: () => {
+      const params = new URLSearchParams({ status });
+      if (userId) params.set("user_id", userId);
+      return api.get<GoalListResponse>(`/goals/?${params.toString()}`);
+    },
     enabled,
     staleTime: 30 * 1000,
   });
@@ -66,7 +80,7 @@ export function useCreateGoal() {
   return useMutation({
     mutationFn: (payload: GoalCreatePayload) => api.post<GoalRecord>("/goals/", payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["goals", "active"] });
+      queryClient.invalidateQueries({ queryKey: ["goals"] });
     },
   });
 }
@@ -76,17 +90,30 @@ export function useDeleteGoal() {
   return useMutation({
     mutationFn: (goalId: string) => api.delete(`/goals/${goalId}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["goals", "active"] });
-      queryClient.invalidateQueries({ queryKey: ["goals", "achieved"] });
+      queryClient.invalidateQueries({ queryKey: ["goals"] });
+      queryClient.invalidateQueries({ queryKey: ["goal-achievements"] });
     },
   });
 }
 
-/** Goals achieved on a given calendar date (DayStatSheet's achievement section). */
-export function useGoalAchievements(date: string | null, enabled: boolean = true) {
-  return useQuery<{ goals: GoalRecord[] }>({
-    queryKey: ["goal-achievements", date],
-    queryFn: () => api.get<{ goals: GoalRecord[] }>(`/goals/achievements?date=${date}`),
+export interface GoalAchievementsResponse {
+  goals: GoalRecord[];
+  is_owner: boolean;
+}
+
+/** Goals achieved on a given calendar date, for the day-detail sections. */
+export function useGoalAchievements(
+  date: string | null,
+  userId?: string,
+  enabled: boolean = true,
+) {
+  return useQuery<GoalAchievementsResponse>({
+    queryKey: ["goal-achievements", date, userId ?? "me"],
+    queryFn: () => {
+      const params = new URLSearchParams({ date: date! });
+      if (userId) params.set("user_id", userId);
+      return api.get<GoalAchievementsResponse>(`/goals/achievements?${params.toString()}`);
+    },
     enabled: enabled && !!date,
     staleTime: 60 * 1000,
   });

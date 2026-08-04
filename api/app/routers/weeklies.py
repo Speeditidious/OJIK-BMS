@@ -212,6 +212,106 @@ def _weekly_avatar_url(
     return build_discord_avatar_url(discord_id or "", discord_avatar_hash) or discord_avatar_url
 
 
+def _clean_weekly_level(lv: str) -> str:
+    return re.sub(r"^LEVEL\s+", "", lv, flags=re.IGNORECASE).strip()
+
+
+def _format_weekly_range(sym: str, lv0: str, lv1: str) -> str:
+    if lv0 == lv1:
+        return f"{sym}{lv0}"
+    return f"{sym}{lv0} ~ {lv1}"
+
+
+def _build_display_ranges_from_selector_groups(
+    selector_groups: list[tuple[str, list[str]]],
+) -> list[RangeDisplay]:
+    """Build selector range labels from frozen or live weekly selector metadata."""
+    result: list[RangeDisplay] = []
+    range_syms: dict[tuple[str, str], list[str]] = {}
+
+    for sym, raw_levels in selector_groups:
+        levels = [_clean_weekly_level(lv) for lv in raw_levels if str(lv).strip()]
+        if not levels:
+            continue
+        lv0, lv1 = levels[0], levels[-1]
+        key = (lv0, lv1)
+        range_syms.setdefault(key, [])
+        if sym not in range_syms[key]:
+            range_syms[key].append(sym)
+
+    for (lv0, lv1), syms in range_syms.items():
+        if not syms:
+            result.append(RangeDisplay(text=f"{lv0} ~ {lv1}" if lv0 != lv1 else lv0))
+        elif len(syms) == 1:
+            result.append(RangeDisplay(text=_format_weekly_range(syms[0], lv0, lv1)))
+        else:
+            result.append(RangeDisplay(text=f"{syms[-1]}{lv0} ~ {syms[0]}{lv1}"))
+
+    return result
+
+
+def _historical_category_meta(
+    weekly_rows: list[Weekly],
+    category_order: dict[str, int],
+    slug_to_symbol: dict[str, str | None],
+) -> list[CategoryMeta]:
+    categories: dict[str, dict] = {}
+    bracket_order_by_category: dict[str, int] = {}
+
+    for weekly in sorted(weekly_rows, key=lambda w: (w.category_key, w.created_at)):
+        snap = weekly.config_snapshot or {}
+        category_key = weekly.category_key
+        category = categories.setdefault(
+            category_key,
+            {
+                "name": snap.get("category_name") or category_key,
+                "order": category_order.get(category_key, len(categories)),
+                "brackets": [],
+            },
+        )
+        bracket_order = bracket_order_by_category.get(category_key, 0)
+        bracket_order_by_category[category_key] = bracket_order + 1
+
+        selectors = snap.get("selectors") if isinstance(snap.get("selectors"), list) else []
+        selector_groups = [
+            (
+                slug_to_weekly_symbol(str(s.get("table") or ""), slug_to_symbol),
+                list(s.get("levels") or []),
+            )
+            for s in selectors
+            if isinstance(s, dict)
+        ]
+        category["brackets"].append(
+            BracketMeta(
+                key=weekly.bracket_key,
+                group=snap.get("bracket_group"),
+                order=bracket_order,
+                color=snap.get("color", "#888888"),
+                has_current=True,
+                display_ranges=_build_display_ranges_from_selector_groups(selector_groups),
+            )
+        )
+
+    out = [
+        CategoryMeta(
+            key=key,
+            name=value["name"],
+            order=value["order"],
+            brackets=value["brackets"],
+        )
+        for key, value in categories.items()
+    ]
+    return sorted(out, key=lambda c: c.order)
+
+
+def slug_to_weekly_symbol(slug: str, slug_to_symbol: dict[str, str | None] | None = None) -> str:
+    """Return stable special-character symbols for weekly発狂 display."""
+    overrides = {"balgwang": "★", "new_balgwang": "▼", "overjoy": "★★"}
+    if slug in overrides:
+        return overrides[slug]
+    return (slug_to_symbol or {}).get(slug) or ""
+
+
 # ── endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/rollover-info", response_model=WeeklyRolloverInfo)
@@ -235,87 +335,44 @@ async def get_rollover_info() -> WeeklyRolloverInfo:
 
 
 @router.get("/categories", response_model=list[CategoryMeta])
-async def list_categories(db: AsyncSession = Depends(get_db)) -> list[CategoryMeta]:
+async def list_categories(
+    offset: int = Query(0, le=0),
+    db: AsyncSession = Depends(get_db),
+) -> list[CategoryMeta]:
     cfg = load_weekly_config()
-    cur_start, _ = _resolve_period(0)
+    period_start, _ = _resolve_period(offset)
 
     existing_result = await db.execute(
-        select(Weekly.category_key, Weekly.bracket_key).where(Weekly.period_start == cur_start)
+        select(Weekly).where(Weekly.period_start == period_start)
     )
-    existing = {(r.category_key, r.bracket_key) for r in existing_result.all()}
+    existing_weeklies = list(existing_result.scalars().all())
+    existing = {(w.category_key, w.bracket_key) for w in existing_weeklies}
 
     all_slugs = {s.table for c in cfg.categories for b in c.brackets for s in b.selectors}
+    for weekly in existing_weeklies:
+        snap = weekly.config_snapshot or {}
+        selectors = snap.get("selectors") if isinstance(snap.get("selectors"), list) else []
+        for selector in selectors:
+            if isinstance(selector, dict) and selector.get("table"):
+                all_slugs.add(str(selector["table"]))
     sym_result = await db.execute(
         select(DifficultyTable.slug, DifficultyTable.symbol).where(DifficultyTable.slug.in_(all_slugs))
     )
     slug_to_symbol: dict[str, str | None] = {r.slug: r.symbol for r in sym_result.all()}
+    category_order = {c.key: c.order for c in cfg.categories}
+
+    if offset < 0 and existing_weeklies:
+        return _historical_category_meta(existing_weeklies, category_order, slug_to_symbol)
 
     def _build_display_ranges(b) -> list[RangeDisplay]:
-        def clean_lv(lv: str) -> str:
-            return re.sub(r"^LEVEL\s+", "", lv, flags=re.IGNORECASE).strip()
-
-        def to_num(lv: str) -> float | None:
-            try:
-                return float(re.sub(r"[^\d.]", "", lv))
-            except ValueError:
-                return None
-
-        # ── Pass 1: collect all level_range selectors into groups keyed by (lv0, lv1) ──
-        # range_syms[key] = ordered list of symbols that share this exact range
-        range_syms: dict[tuple[str, str], list[str]] = {}
+        selector_groups: list[tuple[str, list[str]]] = []
         for s in b.selectors:
-            if not s.level_range:
-                continue
-            sym = slug_to_symbol.get(s.table) or ""
-            lv0, lv1 = clean_lv(s.level_range[0]), clean_lv(s.level_range[1])
-            key = (lv0, lv1)
-            range_syms.setdefault(key, [])
-            if sym not in range_syms[key]:
-                range_syms[key].append(sym)
-
-        # ── Pass 2: override start symbol for a range if a `levels` selector
-        #    pinpoints exactly its lower bound (e.g. new_balgwang levels=["24"] within ★24~25)
-        range_start_override: dict[tuple[str, str], str] = {}
-        for s in b.selectors:
-            if not s.levels:
-                continue
-            sym = slug_to_symbol.get(s.table) or ""
-            for lv in s.levels:
-                lv_c = clean_lv(lv)
-                n = to_num(lv_c)
-                if n is None:
-                    continue
-                for (lv0, lv1), syms in range_syms.items():
-                    lo, hi = to_num(lv0), to_num(lv1)
-                    if lo is None or hi is None:
-                        continue
-                    if lo <= n <= hi and sym not in syms:
-                        # this single level is covered by the range but from a different table
-                        if abs(n - lo) < 0.001:
-                            range_start_override[(lv0, lv1)] = sym
-
-        # ── Pass 3: build display lines ──
-        result: list[RangeDisplay] = []
-        for (lv0, lv1), syms in range_syms.items():
-            start_sym = range_start_override.get((lv0, lv1))
-
-            if len(syms) == 0:
-                result.append(RangeDisplay(text=f"{lv0} ~ {lv1}"))
-            elif len(syms) == 1:
-                sym = syms[0]
-                if start_sym and start_sym != sym:
-                    # e.g. ▼24 ~ ★25  (subset table covers the start of this range)
-                    result.append(RangeDisplay(text=f"{start_sym}{lv0} ~ {sym}{lv1}"))
-                else:
-                    # e.g. ★★0 ~ 3  (single table, no symbol repeat at end)
-                    result.append(RangeDisplay(text=f"{sym}{lv0} ~ {lv1}"))
-            else:
-                # Multiple tables share the exact same range.
-                # Convention: last-added symbol (typically the "easier" variant) at start,
-                # first symbol at end.  e.g. syms=["★","▼"] → ▼21 ~ ★23
-                result.append(RangeDisplay(text=f"{syms[-1]}{lv0} ~ {syms[0]}{lv1}"))
-
-        return result
+            sym = slug_to_weekly_symbol(s.table, slug_to_symbol)
+            if s.level_range:
+                selector_groups.append((sym, [s.level_range[0], s.level_range[1]]))
+            elif s.levels:
+                selector_groups.append((sym, list(s.levels)))
+        return _build_display_ranges_from_selector_groups(selector_groups)
 
     out: list[CategoryMeta] = []
     for c in cfg.categories:
@@ -340,12 +397,13 @@ async def list_periods(
     category_key: str, bracket_key: str, db: AsyncSession = Depends(get_db)
 ) -> list[dict]:
     result = await db.execute(
-        select(Weekly.id, Weekly.period_start, Weekly.period_end)
-        .where(Weekly.category_key == category_key, Weekly.bracket_key == bracket_key)
+        select(Weekly.period_start, Weekly.period_end)
+        .where(Weekly.category_key == category_key)
+        .distinct()
         .order_by(Weekly.period_start.desc())
     )
     return [
-        {"weekly_id": str(r.id), "period_start": r.period_start.isoformat(),
+        {"weekly_id": "", "period_start": r.period_start.isoformat(),
          "period_end": r.period_end.isoformat()}
         for r in result.all()
     ]
@@ -359,12 +417,6 @@ async def get_weekly_detail(
     current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> WeeklyDetail:
-    try:
-        cfg = load_weekly_config()
-        cfg.category(category_key).bracket(bracket_key)
-    except WeeklyConfigError:
-        raise HTTPException(status_code=404, detail="Unknown category/bracket")
-
     period_start, _ = _resolve_period(offset)
     cur_start, _ = _resolve_period(0)
 
@@ -377,6 +429,11 @@ async def get_weekly_detail(
     )
     weekly = weekly_result.scalar_one_or_none()
     if weekly is None:
+        try:
+            cfg = load_weekly_config()
+            cfg.category(category_key).bracket(bracket_key)
+        except WeeklyConfigError:
+            raise HTTPException(status_code=404, detail="Unknown category/bracket") from None
         raise HTTPException(status_code=404, detail="Weekly not found for this period")
 
     wf_result = await db.execute(

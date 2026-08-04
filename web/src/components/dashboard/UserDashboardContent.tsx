@@ -706,7 +706,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
             <TabsTrigger value="rating" disabled={rankingTablesLoading || rankingTables.length === 0}>{t("dashboard.tabs.rating")}</TabsTrigger>
             <TabsTrigger value="activity">{t("dashboard.tabs.activity")}</TabsTrigger>
             <TabsTrigger value="calendar">{t("dashboard.tabs.calendar")}</TabsTrigger>
-            {isOwner && <TabsTrigger value="goals">{t("dashboard.tabs.goals")}</TabsTrigger>}
+            <TabsTrigger value="goals">{t("dashboard.tabs.goals")}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="distribution">
@@ -996,11 +996,9 @@ export function UserDashboardContent({ userId }: { userId: string }) {
             )}
           </TabsContent>
 
-          {isOwner && (
-            <TabsContent value="goals">
-              <GoalsPanel isOwner={isOwner} />
-            </TabsContent>
-          )}
+          <TabsContent value="goals">
+            <GoalsPanel userId={userId} isOwner={isOwner} />
+          </TabsContent>
         </Tabs>
       </main>
     </div>

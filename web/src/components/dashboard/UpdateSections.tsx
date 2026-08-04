@@ -81,6 +81,9 @@ interface UpdateSectionsProps {
   onPrefsChange?: (p: Partial<DayStatSheetPrefs>) => void;
   /** "tab": interactive (scrollable, new-play toggle); "sheet": export-friendly (no scroll cap) */
   variant?: "tab" | "sheet";
+  /** Rendered above the course records. The day sheet leaves this empty
+   *  because it renders its own goal section higher up the export canvas. */
+  goalSlot?: React.ReactNode;
 }
 
 export function UpdateSections({
@@ -90,6 +93,7 @@ export function UpdateSections({
   prefs,
   onPrefsChange,
   variant = "tab",
+  goalSlot,
 }: UpdateSectionsProps) {
   const { t } = useTranslation();
   const newPlayPrefs = useScoreUpdatesPrefs();
@@ -415,6 +419,7 @@ export function UpdateSections({
 
   return (
     <div className="space-y-3">
+      {goalSlot}
       {summaryCourses.length > 0 && (
         <div>
           <CourseSectionTable

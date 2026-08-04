@@ -25,12 +25,34 @@ from app.services.fumen_popularity import (
     rebuild_popularity_window,
     refresh_dirty_fumen_popularity,
     refresh_popularity_window_for_fumens,
+    rerank_popularity_window,
 )
 
 
 @compiles(JSONB, "sqlite")
 def _compile_jsonb_for_sqlite(_type, _compiler, **_kw):
     return "JSON"
+
+
+class _PostgresDialect:
+    name = "postgresql"
+
+
+class _PostgresBind:
+    dialect = _PostgresDialect()
+
+
+class _CapturingPostgresSession:
+    def __init__(self):
+        self.statement = None
+        self.parameters = None
+
+    def get_bind(self):
+        return _PostgresBind()
+
+    async def execute(self, statement, parameters=None):
+        self.statement = statement
+        self.parameters = parameters
 
 
 @pytest_asyncio.fixture
@@ -133,6 +155,20 @@ async def db_session():
         yield session
         await session.rollback()
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_postgres_rerank_quotes_window_keyword():
+    session = _CapturingPostgresSession()
+
+    await rerank_popularity_window(session, "weekly")
+
+    sql = str(session.statement)
+    assert 'SELECT "window", fumen_id' in sql
+    assert 'WHERE "window" = :window' in sql
+    assert 'fpw."window" = ranked."window"' in sql
+    assert "SELECT window, fumen_id" not in sql
+    assert session.parameters == {"window": "weekly"}
 
 
 def _fid() -> uuid.UUID:

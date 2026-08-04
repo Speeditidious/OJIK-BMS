@@ -390,12 +390,44 @@ def test_lr2_normal_7k():
     assert result["lane_groups"][0]["side"] == "single"
 
 
+def test_lr2_normal_7k_ignores_unmapped_rseed():
+    """LR2 7K NORMAL is deterministic even when rseed is not in the server seed map."""
+    result = decode_arrangement("lr2", {"op_best": _LR2_7K_NORMAL_OP, "rseed": 999999999}, 7)
+    assert result["unavailable_reason"] is None
+    assert result["option_label"] == "NORMAL"
+    assert result["lane_groups"][0]["lanes"] == [1, 2, 3, 4, 5, 6, 7]
+
+
 def test_lr2_mirror_7k():
     """LR2 7K MIRROR returns reversed lanes."""
     result = decode_arrangement("lr2", {"op_best": _LR2_7K_MIRROR_OP, "rseed": 0}, 7)
     assert result["unavailable_reason"] is None
     assert result["option_label"] == "MIRROR"
     assert result["lane_groups"][0]["lanes"] == [7, 6, 5, 4, 3, 2, 1]
+
+
+def test_lr2_mirror_7k_ignores_unmapped_rseed():
+    """LR2 7K MIRROR is deterministic even when rseed is not in the server seed map."""
+    result = decode_arrangement("lr2", {"op_best": _LR2_7K_MIRROR_OP, "rseed": 999999999}, 7)
+    assert result["unavailable_reason"] is None
+    assert result["option_label"] == "MIRROR"
+    assert result["lane_groups"][0]["lanes"] == [7, 6, 5, 4, 3, 2, 1]
+
+
+def test_lr2_normal_5k_ignores_unmapped_rseed():
+    """LR2 5K NORMAL is deterministic even when rseed is not in the server seed map."""
+    result = decode_arrangement("lr2", {"op_best": _LR2_7K_NORMAL_OP, "rseed": 999999999}, 5)
+    assert result["unavailable_reason"] is None
+    assert result["option_label"] == "NORMAL"
+    assert result["lane_groups"][0]["lanes"] == [1, 2, 3, 4, 5]
+
+
+def test_lr2_mirror_5k_ignores_unmapped_rseed():
+    """LR2 5K MIRROR is deterministic even when rseed is not in the server seed map."""
+    result = decode_arrangement("lr2", {"op_best": _LR2_7K_MIRROR_OP, "rseed": 999999999}, 5)
+    assert result["unavailable_reason"] is None
+    assert result["option_label"] == "MIRROR"
+    assert result["lane_groups"][0]["lanes"] == [5, 4, 3, 2, 1]
 
 
 def test_lr2_random_7k_mapped():
@@ -446,6 +478,14 @@ def test_lr2_keymode_none():
     """LR2 with keymode=None returns keymode_missing."""
     result = decode_arrangement("lr2", {"op_best": _LR2_7K_NORMAL_OP}, None)
     assert result["unavailable_reason"] == "keymode_missing"
+    assert result["option_label"] == "NORMAL"
+
+
+def test_lr2_mirror_keymode_none_preserves_option_label():
+    """LR2 with keymode=None still displays the deterministic option label."""
+    result = decode_arrangement("lr2", {"op_best": _LR2_7K_MIRROR_OP, "rseed": 999999999}, None)
+    assert result["unavailable_reason"] == "keymode_missing"
+    assert result["option_label"] == "MIRROR"
 
 
 # ---------------------------------------------------------------------------
@@ -515,6 +555,13 @@ def test_bea_keymode_unsupported():
     """Beatoraja with unsupported keymode (e.g., 9 for POPN) returns keymode_unsupported."""
     result = decode_arrangement("beatoraja", {"option": 0}, 9)
     assert result["unavailable_reason"] == "keymode_unsupported"
+
+
+def test_bea_keymode_none_preserves_option_label():
+    """Beatoraja with keymode=None still displays the option label."""
+    result = decode_arrangement("beatoraja", {"option": 1}, None)
+    assert result["unavailable_reason"] == "keymode_missing"
+    assert result["option_label"] == "MIRROR"
 
 
 def test_bea_normal_decodable_without_seed():

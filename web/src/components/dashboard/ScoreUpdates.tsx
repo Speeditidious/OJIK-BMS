@@ -35,9 +35,10 @@ import { songHref } from "@/lib/song-href";
 import {
   RANK_SORT_ORDER,
   formatScoreRankLabel,
-  rankClassToken,
 } from "@/lib/score-rank-display-core.mjs";
 import { resolveCourseClearDisplay } from "@/lib/course-update-clear-core.mjs";
+import { clearTdClass, rankTdClass } from "@/lib/score-cell-class";
+import { GoalAchievementList } from "@/components/goals/GoalAchievementList";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -46,19 +47,10 @@ const CLEAR_TYPE_LABELS_SIMPLE: Record<number, string> = {
   5: "HARD", 6: "EX HARD", 7: "FULL COMBO", 8: "PERFECT", 9: "MAX",
 };
 
-/** Returns CSS class for a clear-type <td> (references globals.css clear-cell-*) */
-export function clearTdClass(clearType: number | null | undefined, dim = false): string {
-  const ct = clearType ?? 0;
-  // NO PLAY(0) is already dimmed — no dim variant needed
-  return (dim && ct !== 0) ? `clear-cell-${ct}-dim` : `clear-cell-${ct}`;
-}
-
-/** Returns CSS class for a rank-based <td> (references globals.css rank-cell-*) */
-export function rankTdClass(rank: string | null | undefined, dim = false): string {
-  const r = rankClassToken(rank);
-  // F is already dimmed — no dim variant needed
-  return (dim && r !== "F") ? `rank-cell-${r}-dim` : `rank-cell-${r}`;
-}
+// Re-exported for existing external callers — the canonical definitions now
+// live in @/lib/score-cell-class (GoalFilterBar / GoalCard need them without
+// importing this module, to avoid a ScoreUpdates <-> goals circular import).
+export { clearTdClass, rankTdClass };
 
 function formatDate(ts: string | null): string {
   if (!ts) return "";
@@ -798,6 +790,7 @@ function CategoryTab({ data, userId, asOf }: { data: ScoreUpdatesResponse; userI
       prefs={prefs}
       onPrefsChange={canPersist ? (p) => updatePrefs(p) : undefined}
       variant="tab"
+      goalSlot={<GoalAchievementList userId={userId} date={asOf} />}
     />
   );
 }
@@ -1105,7 +1098,17 @@ function FumenRow({
 
 type FumenSortKey = "recorded_at" | "level" | "title" | "lamp" | "score" | "bp" | "rate" | "rank" | "plays" | "option" | "env";
 
-function FumenTab({ data, userId, asOf }: { data: ScoreUpdatesResponse; userId?: string; asOf?: string }) {
+function FumenTab({
+  data,
+  userId,
+  asOf,
+  goalSlot,
+}: {
+  data: ScoreUpdatesResponse;
+  userId?: string;
+  asOf?: string;
+  goalSlot?: React.ReactNode;
+}) {
   const { t } = useTranslation();
   const [sortKey, setSortKey] = useState<FumenSortKey>("level");
   const [sortAsc, setSortAsc] = useState(true);
@@ -1200,6 +1203,7 @@ function FumenTab({ data, userId, asOf }: { data: ScoreUpdatesResponse; userId?:
 
   return (
     <div className="space-y-4">
+      {goalSlot}
       {mergedCourses.length > 0 && (
         <CourseSectionTable title={t("dashboard.scoreUpdates.courseRecords")} count={mergedCourses.length}>
           {mergedCourses.map((c, i) => (
@@ -1354,7 +1358,12 @@ export function ScoreUpdates({
               <TabsContent value="rating">{ratingSlot}</TabsContent>
             )}
             <TabsContent value="all">
-              <FumenTab data={data} userId={userId} asOf={date} />
+              <FumenTab
+                data={data}
+                userId={userId}
+                asOf={date}
+                goalSlot={<GoalAchievementList userId={userId} date={date} />}
+              />
             </TabsContent>
           </Tabs>
         )}
