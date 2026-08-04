@@ -921,6 +921,9 @@ export const resources = {
           courseAxis: "코스",
           table: "난이도표",
           applyLevelDisplayPrefs: "레벨 표시 선호 설정 적용",
+          levelDisplayPrefsHelp:
+            "표시할 난이도표의 범위를 설정합니다. 하나의 차분에 너무 많은 레벨이 적혀있어 보기 불편할 때 유용합니다.",
+          levelDisplayPrefsSettingsAria: "레벨 표시 설정 열기",
           showAxis: "표시",
           level: "레벨",
           clear: "클리어",
@@ -2101,6 +2104,9 @@ export const resources = {
           courseAxis: "Courses",
           table: "Table",
           applyLevelDisplayPrefs: "Apply level display preferences",
+          levelDisplayPrefsHelp:
+            "Choose which difficulty tables appear. Useful when a chart carries too many levels to read comfortably.",
+          levelDisplayPrefsSettingsAria: "Open level display settings",
           showAxis: "Show",
           level: "Level",
           clear: "Lamp",
@@ -3281,6 +3287,9 @@ export const resources = {
           courseAxis: "コース",
           table: "難易度表",
           applyLevelDisplayPrefs: "レベル表示設定を適用",
+          levelDisplayPrefsHelp:
+            "表示する難易度表の範囲を設定します。1つの譜面にレベルが多く表示されて見づらいときに便利です。",
+          levelDisplayPrefsSettingsAria: "レベル表示設定を開く",
           showAxis: "表示",
           level: "レベル",
           clear: "クリア",

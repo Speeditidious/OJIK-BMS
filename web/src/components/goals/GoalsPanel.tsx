@@ -101,6 +101,7 @@ export function GoalsPanel({ userId, isOwner }: GoalsPanelProps) {
                   filter={activeFilter}
                   onFilterChange={setActiveFilter}
                   showAchievedRange={false}
+                  isOwner={isOwner}
                 />
                 {filteredActive.length === 0 ? (
                   <p className="text-body text-muted-foreground">{t("goals.filter.noMatch")}</p>
@@ -135,6 +136,7 @@ export function GoalsPanel({ userId, isOwner }: GoalsPanelProps) {
                   filter={achievedFilter}
                   onFilterChange={setAchievedFilter}
                   showAchievedRange
+                  isOwner={isOwner}
                 />
                 {filteredAchieved.length === 0 ? (
                   <p className="text-body text-muted-foreground">{t("goals.filter.noMatch")}</p>

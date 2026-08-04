@@ -2,9 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, ChevronDown, ChevronUp, RotateCcw, SlidersHorizontal } from "lucide-react";
+import Link from "next/link";
+import { Check, ChevronDown, ChevronUp, RotateCcw, Settings2, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GoalFilterAxis } from "@/components/goals/GoalFilterAxis";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { GoalRecord } from "@/hooks/use-goals";
 import type { AxisFilter, GoalFilter, GoalTable } from "@/lib/goal-filter-core";
 import {
@@ -25,6 +27,8 @@ interface GoalFilterBarProps {
   onFilterChange: (next: GoalFilter) => void;
   /** The achieved-date range only makes sense on the achieved tab. */
   showAchievedRange: boolean;
+  /** False when viewing someone else's goals — hides the settings shortcut. */
+  isOwner: boolean;
 }
 
 /**
@@ -37,6 +41,7 @@ export function GoalFilterBar({
   filter,
   onFilterChange,
   showAchievedRange,
+  isOwner,
 }: GoalFilterBarProps) {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
@@ -95,23 +100,45 @@ export function GoalFilterBar({
         // content. `bg-background` sits below the surrounding card's `bg-card`
         // in both themes, so the contrast holds without a dark-only class.
         <div className="rounded-lg border border-border bg-background p-4 shadow-inner">
-          <button
-            type="button"
-            aria-pressed={filter.applyLevelDisplayPrefs}
-            onClick={toggleLevelDisplayPrefs}
-            className="mb-4 inline-flex items-center gap-2 rounded-md border border-border bg-card/50 px-2.5 py-1.5 text-label font-semibold text-foreground transition-colors hover:bg-secondary/60"
-          >
-            <span>{t("goals.filter.applyLevelDisplayPrefs")}</span>
-            <span
-              className={
-                filter.applyLevelDisplayPrefs
-                  ? "inline-flex h-4 w-4 items-center justify-center rounded-sm bg-primary text-primary-foreground"
-                  : "inline-flex h-4 w-4 items-center justify-center rounded-sm border border-muted-foreground/40"
-              }
+          <div className="mb-4 flex items-center gap-1.5">
+            <button
+              type="button"
+              aria-pressed={filter.applyLevelDisplayPrefs}
+              onClick={toggleLevelDisplayPrefs}
+              className="inline-flex items-center gap-2 rounded-md border border-border bg-card/50 px-2.5 py-1.5 text-label font-semibold text-foreground transition-colors hover:bg-secondary/60"
             >
-              {filter.applyLevelDisplayPrefs && <Check className="h-3 w-3" />}
-            </span>
-          </button>
+              <span>{t("goals.filter.applyLevelDisplayPrefs")}</span>
+              <span
+                className={
+                  filter.applyLevelDisplayPrefs
+                    ? "inline-flex h-4 w-4 items-center justify-center rounded-sm bg-primary text-primary-foreground"
+                    : "inline-flex h-4 w-4 items-center justify-center rounded-sm border border-muted-foreground/40"
+                }
+              >
+                {filter.applyLevelDisplayPrefs && <Check className="h-3 w-3" />}
+              </span>
+            </button>
+            {/* The preference belongs to the dashboard owner, so only they get
+                the shortcut into their own settings. */}
+            {isOwner && (
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href="/settings?tab=preferences#level-display"
+                      className="text-muted-foreground transition-colors hover:text-foreground"
+                      aria-label={t("goals.filter.levelDisplayPrefsSettingsAria")}
+                    >
+                      <Settings2 className="h-3.5 w-3.5" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-label">
+                    {t("goals.filter.levelDisplayPrefsHelp")}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
           <div className="flex flex-col gap-4 lg:flex-row lg:gap-0">
             <GoalFilterAxis
               axis="chart"

@@ -446,7 +446,7 @@ function LevelDisplayCard() {
   const { mutate: update } = useUpdateLevelDisplayPrefs();
 
   return (
-    <Card>
+    <Card id="level-display">
       <CardHeader>
         <CardTitle className="text-base">{t("settings.preferences.levelDisplayTitle")}</CardTitle>
         <CardDescription>{t("settings.preferences.levelDisplayDescription")}</CardDescription>
