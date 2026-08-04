@@ -73,7 +73,10 @@ export function SortableGoalList({
     setLocalGoals(reordered);
     reorder.mutate(
       reordered.map((goal) => goal.goal_id),
-      { onSuccess: () => setLocalGoals(null) },
+      // onSettled (not onSuccess) so a failed mutation also clears the
+      // optimistic override, falling back to `goals` (last known-good
+      // server data) instead of getting stuck showing the failed reorder.
+      { onSettled: () => setLocalGoals(null) },
     );
   }
 
