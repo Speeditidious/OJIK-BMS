@@ -141,11 +141,12 @@ class UserSyncEvent(Base):
 
 
 class UserActivityRanking(Base):
-    """Precomputed 30-day activity leaderboard rows (attendance / plays / notes_hit)."""
+    """Precomputed activity leaderboard rows by range and metric."""
 
     __tablename__ = "user_activity_ranking"
 
-    metric: Mapped[str] = mapped_column(String(16), primary_key=True)   # attendance | plays | notes_hit
+    range: Mapped[str] = mapped_column(String(16), primary_key=True)  # weekly | monthly
+    metric: Mapped[str] = mapped_column(String(16), primary_key=True)  # attendance | plays | notes_hit
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
@@ -158,4 +159,4 @@ class UserActivityRanking(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<UserActivityRanking metric={self.metric} user={self.user_id} rank={self.rank}>"
+        return f"<UserActivityRanking range={self.range} metric={self.metric} user={self.user_id} rank={self.rank}>"

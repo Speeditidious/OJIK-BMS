@@ -185,43 +185,45 @@ export default function HomePage() {
           </section>
         )}
 
-        <section className="container mx-auto px-4 pb-4 pt-10">
+        <section className="container mx-auto px-4 pb-16 pt-16">
           <UserActivitySection />
         </section>
 
-        <section className="container mx-auto px-4 py-20">
-          <div className="mx-auto max-w-3xl text-center">
-            <h2 className="text-3xl font-bold tracking-tight">{t("home.features.title")}</h2>
-          </div>
+        <section className="border-t border-border/60">
+          <div className="container mx-auto px-4 py-20">
+            <div className="mx-auto max-w-3xl text-center">
+              <h2 className="text-3xl font-bold tracking-tight">{t("home.features.title")}</h2>
+            </div>
 
-          <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-4">
-            {features.map((feature, index) => {
-              const Icon = feature.icon;
+            <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-4">
+              {features.map((feature, index) => {
+                const Icon = feature.icon;
 
-              return (
-                <Card
-                  key={feature.title}
-                  className="border-border/70 bg-card/85 shadow-sm transition-colors hover:border-primary/40"
-                >
-                  <CardHeader>
-                    <div className="mb-4 flex items-center justify-between">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/12 text-primary">
-                        <Icon className="h-6 w-6" />
+                return (
+                  <Card
+                    key={feature.title}
+                    className="border-border/70 bg-card/85 shadow-sm transition-colors hover:border-primary/40"
+                  >
+                    <CardHeader>
+                      <div className="mb-4 flex items-center justify-between">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/12 text-primary">
+                          <Icon className="h-6 w-6" />
+                        </div>
+                        <span className="text-label font-medium text-muted-foreground">
+                          {`0${index + 1}`}
+                        </span>
                       </div>
-                      <span className="text-label font-medium text-muted-foreground">
-                        {`0${index + 1}`}
-                      </span>
-                    </div>
-                    <CardTitle className="text-lg">{feature.title}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription className="text-body leading-relaxed text-muted-foreground">
-                      {feature.description}
-                    </CardDescription>
-                  </CardContent>
-                </Card>
-              );
-            })}
+                      <CardTitle className="text-lg">{feature.title}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <CardDescription className="text-body leading-relaxed text-muted-foreground">
+                        {feature.description}
+                      </CardDescription>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
           </div>
         </section>
 

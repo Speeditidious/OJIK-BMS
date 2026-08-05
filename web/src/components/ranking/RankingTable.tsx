@@ -106,7 +106,10 @@ export function RankingTable({
               </div>
 
               {/* Nickname + avatar */}
-              <div className="flex items-center gap-3 min-w-0">
+              <a
+                href={`/users/${entry.user_id}/dashboard`}
+                className="flex items-center gap-3 min-w-0 cursor-pointer"
+              >
                 {entry.avatar_url ? (
                   <AvatarImage
                     src={resolveAvatarUrl(entry.avatar_url)}
@@ -120,17 +123,12 @@ export function RankingTable({
                     {entry.username.charAt(0).toUpperCase()}
                   </div>
                 )}
-                <a
-                  href={`/users/${entry.user_id}/dashboard`}
-                  className="min-w-0 cursor-pointer"
-                >
-                  <DecoratedUsername
-                    username={entry.username}
-                    danDecoration={entry.dan_decoration}
-                    className="text-lg sm:text-xl font-semibold leading-none tracking-[0.02em] truncate block"
-                  />
-                </a>
-              </div>
+                <DecoratedUsername
+                  username={entry.username}
+                  danDecoration={entry.dan_decoration}
+                  className="text-lg sm:text-xl font-semibold leading-none tracking-[0.02em] truncate block"
+                />
+              </a>
 
               {/* Level / Rating */}
               {type === "exp" && (

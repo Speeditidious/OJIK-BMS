@@ -1,55 +1,68 @@
 "use client";
 
-import { useState } from "react";
-import { Activity } from "lucide-react";
+import type { ReactNode } from "react";
+import { Flame, History, Trophy, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RecentActivityFeed } from "./RecentActivityFeed";
 import { ActivityRankingPanel } from "./ActivityRankingPanel";
 import { PopularFumensTable } from "@/components/fumen/PopularFumensTable";
 
-type ActivityTab = "recent" | "ranking" | "popular";
-
-const TABS: ActivityTab[] = ["recent", "ranking", "popular"];
+function ActivityPanel({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: LucideIcon;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="flex h-full min-w-0 flex-col">
+      <div className="mb-3 flex items-center gap-2">
+        <Icon className="h-5 w-5 shrink-0 text-primary" />
+        <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
+      </div>
+      <div className="flex flex-1 flex-col">{children}</div>
+    </section>
+  );
+}
 
 /**
  * Home-page "User Activity" section: recent sync feed, 30-day activity
- * ranking, and the popular-fumens TOP 10 widget, behind 3 top-level tabs.
+ * ranking, and the popular-fumens TOP 10 widget, shown side by side as three
+ * columns (stacked on narrow viewports).
+ *
+ * Follows the borderless, center-headed layout of the features/guide sections
+ * rather than the bordered card used by the announcements preview.
  *
  * Not wrapped in any conditional by its own logic — this section renders
- * something reasonable even with zero data everywhere, so whoever mounts it
- * (a later task, in `page.tsx`) can always show it unconditionally.
+ * something reasonable even with zero data everywhere, so `page.tsx` can
+ * always show it unconditionally.
  *
- * Only the active tab's content is mounted, so switching tabs defers
- * fetching for the inactive ones instead of firing all 3 APIs up front.
+ * All three panels mount at once, so their APIs are all fetched on load (the
+ * previous tabbed version deferred the inactive ones).
  */
 export function UserActivitySection() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<ActivityTab>("recent");
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card/60 p-5 shadow-sm backdrop-blur-sm">
-      <div className="mb-4 flex items-center gap-2.5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/12 text-primary">
-          <Activity className="h-4 w-4" />
-        </div>
-        <h2 className="text-xl font-semibold">{t("home.activity.title")}</h2>
+    <div>
+      <div className="mx-auto max-w-3xl text-center">
+        <h2 className="text-3xl font-bold tracking-tight">{t("home.activity.title")}</h2>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as ActivityTab)}>
-        <TabsList className="grid w-full grid-cols-3">
-          {TABS.map((tab) => (
-            <TabsTrigger key={tab} value={tab}>
-              {t(`home.activity.tabs.${tab}`)}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      <div className="mt-12 grid grid-cols-1 gap-8 lg:grid-cols-3">
+        <ActivityPanel icon={History} title={t("home.activity.panels.recent")}>
+          <RecentActivityFeed />
+        </ActivityPanel>
 
-      <div className="mt-4">
-        {activeTab === "recent" && <RecentActivityFeed />}
-        {activeTab === "ranking" && <ActivityRankingPanel />}
-        {activeTab === "popular" && <PopularFumensTable />}
+        <ActivityPanel icon={Trophy} title={t("home.activity.panels.ranking")}>
+          <ActivityRankingPanel />
+        </ActivityPanel>
+
+        <ActivityPanel icon={Flame} title={t("home.activity.panels.popular")}>
+          <PopularFumensTable />
+        </ActivityPanel>
       </div>
     </div>
   );

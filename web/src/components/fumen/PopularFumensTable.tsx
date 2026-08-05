@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { songHref } from "@/lib/song-href";
 import { fumenArtistText, fumenTitleText } from "@/lib/fumen-display";
 import { rankClass } from "@/lib/rank-color";
+import { timeAgo } from "@/lib/time";
 import type { PopularRange, PopularSortBy } from "@/types";
 
 const RANGES: PopularRange[] = ["weekly", "monthly", "all_time"];
@@ -62,9 +63,9 @@ export function PopularFumensTable({
   const asOf = data?.as_of ?? null;
 
   return (
-    <div>
-      <p className="text-caption text-muted-foreground">
-        {asOf ? t("songs.popular.asOf", { time: new Date(asOf).toLocaleString() }) : " "}
+    <div className="flex h-full flex-col">
+      <p className="mb-3 min-h-4 text-right text-caption text-muted-foreground">
+        {asOf ? t("songs.popular.asOf", { time: timeAgo(asOf, t) }) : " "}
       </p>
 
       <Tabs value={range} onValueChange={(value) => setRange(value as PopularRange)}>
@@ -77,7 +78,7 @@ export function PopularFumensTable({
         </TabsList>
       </Tabs>
 
-      <div className="flex justify-center">
+      <div className="mt-3 flex justify-center">
         <Tabs value={sortBy} onValueChange={(v) => setSortBy(v as PopularSortBy)}>
           <TabsList className="grid grid-cols-2 w-56">
             {SORT_OPTIONS.map((opt) => (
@@ -89,7 +90,7 @@ export function PopularFumensTable({
         </Tabs>
       </div>
 
-      <div className="rounded-lg border border-border overflow-hidden">
+      <div className="mt-3 flex-1 rounded-lg border border-border overflow-hidden">
         <div className={cn("grid gap-2 px-3 py-2 bg-secondary/50 border-b border-border text-caption font-semibold text-muted-foreground", GRID)}>
           <span className="text-center">{t("songs.popular.rank")}</span>
           <span>{t("songs.columns.titleArtist")}</span>
@@ -107,16 +108,20 @@ export function PopularFumensTable({
           </div>
         ) : (
           rows.map((row) => (
-            <a
+            <div
               key={row.fumen_id}
-              href={songHref({ sha256: row.sha256, md5: row.md5 })}
-              className={cn("group grid gap-2 px-3 py-2 items-center border-b border-border/50 last:border-0 transition-colors hover:bg-secondary/40", GRID)}
+              className={cn("grid gap-2 px-3 py-2 items-center border-b border-border/50 last:border-0", GRID)}
             >
               <span className={cn("text-center tabular-nums font-bold", rankClass(row.rank))}>
                 {row.rank}
               </span>
               <span className="min-w-0">
-                <span className="block truncate text-label text-foreground transition-colors group-hover:text-primary">{fumenTitleText(row.title)}</span>
+                <a
+                  href={songHref({ sha256: row.sha256, md5: row.md5 })}
+                  className="block truncate text-label text-foreground transition-colors hover:text-primary"
+                >
+                  {fumenTitleText(row.title)}
+                </a>
                 <span className="block truncate text-caption text-muted-foreground">{fumenArtistText(row.artist)}</span>
               </span>
               <span className={cn("text-right tabular-nums text-label", sortBy === "players" && "font-semibold text-foreground")}>
@@ -125,7 +130,7 @@ export function PopularFumensTable({
               <span className={cn("text-right tabular-nums text-label", sortBy === "plays" && "font-semibold text-foreground")}>
                 {row.play_count.toLocaleString()}
               </span>
-            </a>
+            </div>
           ))
         )}
       </div>

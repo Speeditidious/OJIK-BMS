@@ -75,6 +75,7 @@ async def db_session():
             """,
             """
             CREATE TABLE user_activity_ranking (
+                range VARCHAR(16) NOT NULL,
                 metric VARCHAR(16) NOT NULL,
                 user_id CHAR(32) NOT NULL,
                 rank INTEGER NOT NULL,
@@ -82,7 +83,7 @@ async def db_session():
                 window_start DATE NOT NULL,
                 window_end DATE NOT NULL,
                 computed_at DATETIME,
-                PRIMARY KEY (metric, user_id)
+                PRIMARY KEY (range, metric, user_id)
             )
             """,
         ):
@@ -110,10 +111,10 @@ async def _make_user(db_session, username: str, *, is_active: bool = True) -> Us
     return user
 
 
-async def _rows_for(db_session, metric: str) -> list[UserActivityRanking]:
+async def _rows_for(db_session, metric: str, range_name: str = "monthly") -> list[UserActivityRanking]:
     result = await db_session.execute(
         sa.select(UserActivityRanking)
-        .where(UserActivityRanking.metric == metric)
+        .where(UserActivityRanking.range == range_name, UserActivityRanking.metric == metric)
         .order_by(UserActivityRanking.rank)
     )
     return list(result.scalars().all())
@@ -135,7 +136,7 @@ async def test_attendance_dedups_same_day_multiple_syncs(db_session):
     await db_session.flush()
 
     written = await rebuild_activity_ranking(db_session, today=WINDOW_END)
-    assert written["attendance"] == 1
+    assert written["monthly"]["attendance"] == 1
 
     rows = await _rows_for(db_session, "attendance")
     assert len(rows) == 1
@@ -158,6 +159,28 @@ async def test_attendance_events_outside_window_excluded(db_session):
     await rebuild_activity_ranking(db_session, today=WINDOW_END)
     rows = await _rows_for(db_session, "attendance")
     assert rows == []
+
+
+async def test_weekly_and_monthly_windows_are_both_written(db_session):
+    user = await _make_user(db_session, "range_user")
+    weekly_day = WINDOW_END - timedelta(days=2)
+    monthly_only_day = WINDOW_END - timedelta(days=20)
+    db_session.add_all(
+        [
+            UserSyncEvent(id=uuid.uuid4(), user_id=user.id, synced_at=_dt(weekly_day), updated_client_types=["lr2"]),
+            UserSyncEvent(id=uuid.uuid4(), user_id=user.id, synced_at=_dt(monthly_only_day), updated_client_types=["lr2"]),
+        ]
+    )
+    await db_session.flush()
+
+    written = await rebuild_activity_ranking(db_session, today=WINDOW_END)
+    assert written["weekly"]["attendance"] == 1
+    assert written["monthly"]["attendance"] == 1
+
+    weekly_rows = await _rows_for(db_session, "attendance", "weekly")
+    monthly_rows = await _rows_for(db_session, "attendance", "monthly")
+    assert weekly_rows[0].value == 1
+    assert monthly_rows[0].value == 2
 
 
 # ── plays ─────────────────────────────────────────────────────────────────
@@ -392,7 +415,7 @@ async def test_deactivated_user_not_ranked_for_attendance(db_session):
     await db_session.flush()
 
     written = await rebuild_activity_ranking(db_session, today=WINDOW_END)
-    assert written["attendance"] == 1
+    assert written["monthly"]["attendance"] == 1
 
     rows = await _rows_for(db_session, "attendance")
     assert [r.user_id for r in rows] == [active.id]
@@ -423,8 +446,8 @@ async def test_deactivated_user_not_ranked_for_plays_and_notes_hit(db_session):
     await db_session.flush()
 
     written = await rebuild_activity_ranking(db_session, today=WINDOW_END)
-    assert written["plays"] == 1
-    assert written["notes_hit"] == 1
+    assert written["monthly"]["plays"] == 1
+    assert written["monthly"]["notes_hit"] == 1
 
     for metric in ("plays", "notes_hit"):
         rows = await _rows_for(db_session, metric)

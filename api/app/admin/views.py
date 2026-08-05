@@ -1017,6 +1017,7 @@ class UserActivityRankingAdmin(ModelView, model=UserActivityRanking):
     name_plural = "User Activity Rankings"
     icon = "fa-solid fa-trophy"
     column_list = [
+        UserActivityRanking.range,
         UserActivityRanking.metric,
         UserActivityRanking.user_id,
         UserActivityRanking.rank,

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Trophy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Navbar } from "@/components/layout/navbar";
+import { NumberedPagination } from "@/components/common/NumberedPagination";
 import { RankingTableSelector } from "@/components/ranking/RankingTableSelector";
 import { RankingTypeToggle } from "@/components/ranking/RankingTypeToggle";
 import { RankingTable } from "@/components/ranking/RankingTable";
@@ -117,55 +118,11 @@ function RankingContent() {
       />
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 pt-2">
-          <button
-            disabled={page <= 1}
-            onClick={() => updateParams({ page: String(page - 1) })}
-            className="px-3 py-1.5 rounded border border-border text-body disabled:opacity-40 hover:bg-secondary transition-colors"
-          >
-            ←
-          </button>
-          {Array.from({ length: Math.min(totalPages, 7) }).map((_, i) => {
-            const p = i + 1;
-            return (
-              <button
-                key={p}
-                onClick={() => updateParams({ page: String(p) })}
-                className={`px-3 py-1.5 rounded border border-border text-body transition-colors ${
-                  p === page
-                    ? "bg-primary text-primary-foreground"
-                    : "hover:bg-secondary"
-                }`}
-              >
-                {p}
-              </button>
-            );
-          })}
-          {totalPages > 7 && (
-            <>
-              <span className="text-muted-foreground">…</span>
-              <button
-                onClick={() => updateParams({ page: String(totalPages) })}
-                className={`px-3 py-1.5 rounded border border-border text-body transition-colors ${
-                  page === totalPages
-                    ? "bg-primary text-primary-foreground"
-                    : "hover:bg-secondary"
-                }`}
-              >
-                {totalPages}
-              </button>
-            </>
-          )}
-          <button
-            disabled={page >= totalPages}
-            onClick={() => updateParams({ page: String(page + 1) })}
-            className="px-3 py-1.5 rounded border border-border text-body disabled:opacity-40 hover:bg-secondary transition-colors"
-          >
-            →
-          </button>
-        </div>
-      )}
+      <NumberedPagination
+        page={page}
+        totalPages={totalPages}
+        onChange={(p) => updateParams({ page: String(p) })}
+      />
     </div>
   );
 }

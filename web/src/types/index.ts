@@ -247,6 +247,7 @@ export interface PopularFumensResponse {
 // ── User activity (home page section) ───────────────────────────────────────
 
 export type ActivityMetric = "attendance" | "plays" | "notes_hit";
+export type ActivityRange = "weekly" | "monthly";
 
 export interface RecentActivityItem {
   id: string;
@@ -262,8 +263,9 @@ export interface RecentActivityItem {
 export interface RecentActivityResponse {
   items: RecentActivityItem[];
   window_days: number;
-  next_cursor: string | null;
-  has_next_page: boolean;
+  computed_at: string | null;
+  total_count: number;
+  page: number;
 }
 
 export interface ActivityRankingItem {
@@ -280,14 +282,15 @@ export interface ActivityMyRank {
 }
 
 export interface ActivityRankingResponse {
+  range: ActivityRange;
   metric: ActivityMetric;
   window_start: string | null;
   window_end: string | null;
   computed_at: string | null;
   items: ActivityRankingItem[];
   my_rank: ActivityMyRank | null;
-  next_rank_after: number | null;
-  has_next_page: boolean;
+  total_count: number;
+  page: number;
 }
 
 // ── API utility types ─────────────────────────────────────────────────────────

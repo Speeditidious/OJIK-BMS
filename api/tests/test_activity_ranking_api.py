@@ -3,8 +3,9 @@
 Same minimal-schema SQLite convention as `test_activity_recent.py` and
 `test_activity_ranking_service.py` — the shared `conftest.py` fixture's
 `Base.metadata.create_all` fails under SQLite for unrelated Postgres-only
-JSONB tables, so this file builds its own `users` + `user_activity_ranking`
-schema and drives the router over a real ASGI `AsyncClient`.
+JSONB tables, so this file builds its own `users`, `oauth_accounts`, and
+`user_activity_ranking` schema and drives the router over a real ASGI
+`AsyncClient`.
 """
 from __future__ import annotations
 
@@ -49,7 +50,19 @@ async def db_session():
             )
             """,
             """
+            CREATE TABLE oauth_accounts (
+                user_id CHAR(32) NOT NULL,
+                provider VARCHAR(32) NOT NULL,
+                provider_account_id VARCHAR(128) NOT NULL,
+                provider_username VARCHAR(128),
+                discord_avatar_hash VARCHAR(128),
+                discord_avatar_url VARCHAR(512),
+                PRIMARY KEY (user_id, provider)
+            )
+            """,
+            """
             CREATE TABLE user_activity_ranking (
+                range VARCHAR(16) NOT NULL,
                 metric VARCHAR(16) NOT NULL,
                 user_id CHAR(32) NOT NULL,
                 rank INTEGER NOT NULL,
@@ -57,7 +70,7 @@ async def db_session():
                 window_start DATE NOT NULL,
                 window_end DATE NOT NULL,
                 computed_at DATETIME,
-                PRIMARY KEY (metric, user_id)
+                PRIMARY KEY (range, metric, user_id)
             )
             """,
         ):
@@ -92,8 +105,9 @@ async def _make_user(db_session: AsyncSession, username: str, *, is_active: bool
     return user
 
 
-def _add_ranking(db_session, user, metric, rank, value, computed_at=None):
+def _add_ranking(db_session, user, metric, rank, value, computed_at=None, range_name="monthly"):
     row = UserActivityRanking(
+        range=range_name,
         metric=metric,
         user_id=user.id,
         rank=rank,
@@ -115,8 +129,8 @@ async def test_no_snapshot_rows_returns_empty_not_error(client, db_session):
     assert body["window_start"] is None
     assert body["window_end"] is None
     assert body["my_rank"] is None
-    assert body["next_rank_after"] is None
-    assert body["has_next_page"] is False
+    assert body["total_count"] == 0
+    assert body["page"] == 1
 
 
 async def test_ranking_ordering_and_pagination_two_pages(client, db_session):
@@ -125,24 +139,52 @@ async def test_ranking_ordering_and_pagination_two_pages(client, db_session):
         _add_ranking(db_session, user, "plays", rank=i, value=1000 - i)
     await db_session.commit()
 
-    resp1 = await client.get("/activity/ranking", params={"metric": "plays", "page_size": 10})
+    resp1 = await client.get("/activity/ranking", params={"metric": "plays", "page_size": 10, "page": 1})
     body1 = resp1.json()
     assert [item["rank"] for item in body1["items"]] == list(range(1, 11))
-    assert body1["has_next_page"] is True
-    assert body1["next_rank_after"] == 10
+    assert body1["total_count"] == 15
+    assert body1["page"] == 1
 
     resp2 = await client.get(
         "/activity/ranking",
-        params={"metric": "plays", "page_size": 10, "rank_after": body1["next_rank_after"]},
+        params={"metric": "plays", "page_size": 10, "page": 2},
     )
     body2 = resp2.json()
     assert [item["rank"] for item in body2["items"]] == list(range(11, 16))
-    assert body2["has_next_page"] is False
-    assert body2["next_rank_after"] is None
+    assert body2["total_count"] == 15
+    assert body2["page"] == 2
 
     assert body1["window_start"] == WINDOW_START.isoformat()
     assert body1["window_end"] == WINDOW_END.isoformat()
     assert body1["computed_at"] is not None
+    assert body1["range"] == "monthly"
+
+
+async def test_weekly_range_is_separate_from_monthly(client, db_session):
+    weekly_user = await _make_user(db_session, "weekly_user")
+    monthly_user = await _make_user(db_session, "monthly_user")
+    _add_ranking(
+        db_session,
+        weekly_user,
+        "attendance",
+        rank=1,
+        value=7,
+        range_name="weekly",
+    )
+    _add_ranking(
+        db_session,
+        monthly_user,
+        "attendance",
+        rank=1,
+        value=30,
+        range_name="monthly",
+    )
+    await db_session.commit()
+
+    resp = await client.get("/activity/ranking", params={"range": "weekly", "metric": "attendance"})
+    body = resp.json()
+    assert body["range"] == "weekly"
+    assert [item["username"] for item in body["items"]] == ["weekly_user"]
 
 
 async def test_logged_in_user_my_rank_out_of_page(client, db_session):
@@ -198,6 +240,11 @@ async def test_unauthenticated_request_gets_null_my_rank_and_200(client, db_sess
 
 async def test_invalid_metric_returns_400(client, db_session):
     resp = await client.get("/activity/ranking", params={"metric": "bogus"})
+    assert resp.status_code == 400
+
+
+async def test_invalid_range_returns_400(client, db_session):
+    resp = await client.get("/activity/ranking", params={"range": "all_time", "metric": "plays"})
     assert resp.status_code == 400
 
 

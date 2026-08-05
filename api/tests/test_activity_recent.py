@@ -7,9 +7,10 @@ fails under SQLite because several unrelated tables use Postgres-only JSONB
 columns and `server_default` expressions (verified directly: `CREATE TABLE
 difficulty_tables` errors with `Compiler ... can't render element of type
 JSONB`). This file therefore uses its own minimal-schema SQLite engine
-covering only `users` and `user_sync_events`, and drives the router through a
-real ASGI `AsyncClient` (matching `test_fumen_keymode_sync.py`'s HTTP-level
-pattern) with `get_db` overridden to the minimal-schema session.
+covering only `users`, `oauth_accounts`, and `user_sync_events`, and drives
+the router through a real ASGI `AsyncClient` (matching
+`test_fumen_keymode_sync.py`'s HTTP-level pattern) with `get_db` overridden to
+the minimal-schema session.
 """
 from __future__ import annotations
 
@@ -51,6 +52,17 @@ async def db_session():
             )
             """,
             """
+            CREATE TABLE oauth_accounts (
+                user_id CHAR(32) NOT NULL,
+                provider VARCHAR(32) NOT NULL,
+                provider_account_id VARCHAR(128) NOT NULL,
+                provider_username VARCHAR(128),
+                discord_avatar_hash VARCHAR(128),
+                discord_avatar_url VARCHAR(512),
+                PRIMARY KEY (user_id, provider)
+            )
+            """,
+            """
             CREATE TABLE user_sync_events (
                 id CHAR(32) PRIMARY KEY,
                 user_id CHAR(32) NOT NULL,
@@ -71,7 +83,7 @@ async def db_session():
 def _disable_response_cache(monkeypatch):
     """Neutralize the Redis response cache so tests hit the DB deterministically.
 
-    `/activity/recent` caches per `(page_size, cursor)`, so several tests here
+    `/activity/recent` caches per `(page_size, page)`, so several tests here
     would otherwise share the key `activity:recent:10:` and see each other's
     responses whenever a real Redis happens to be reachable. The cache's
     fail-open behavior is covered separately in `test_activity_recent_cache.py`.
@@ -175,6 +187,29 @@ async def test_only_lr2_changed_shows_lr2_only(client, db_session):
     assert item["avatar_url"] == "https://example.com/carol.png"
 
 
+async def test_uses_discord_avatar_when_user_avatar_is_empty(client, db_session):
+    user = await _make_user(db_session, "avatarless")
+    user.avatar_url = None
+    db_session.add(user)
+    await db_session.execute(
+        sa.text(
+            """
+            INSERT INTO oauth_accounts (
+                user_id, provider, provider_account_id, provider_username, discord_avatar_hash, discord_avatar_url
+            )
+            VALUES (:user_id, 'discord', '1234', 'avatarless', 'a_hash', NULL)
+            """
+        ),
+        {"user_id": user.id.hex},
+    )
+    _add_event(db_session, user, _now(), ["lr2"])
+    await db_session.commit()
+
+    resp = await client.get("/activity/recent")
+    assert resp.status_code == 200
+    assert resp.json()["items"][0]["avatar_url"] == "https://cdn.discordapp.com/avatars/1234/a_hash.gif"
+
+
 async def test_same_user_multiple_syncs_same_day_are_separate_lines_newest_first(client, db_session):
     user = await _make_user(db_session, "dave")
     base = _now().replace(hour=10, minute=0, second=0, microsecond=0)
@@ -189,7 +224,7 @@ async def test_same_user_multiple_syncs_same_day_are_separate_lines_newest_first
     assert body["items"][1]["id"] == str(e1.id)
 
 
-async def test_pagination_cursor_no_overlap_no_gap(client, db_session):
+async def test_pagination_offset_no_overlap_no_gap(client, db_session):
     user = await _make_user(db_session, "erin")
     base = _now().replace(hour=8, minute=0, second=0, microsecond=0)
     events = []
@@ -198,22 +233,22 @@ async def test_pagination_cursor_no_overlap_no_gap(client, db_session):
         events.append(ev)
     await db_session.commit()
 
-    resp1 = await client.get("/activity/recent", params={"page_size": 10})
+    resp1 = await client.get("/activity/recent", params={"page_size": 10, "page": 1})
     body1 = resp1.json()
     assert len(body1["items"]) == 10
-    assert body1["has_next_page"] is True
-    assert body1["next_cursor"] is not None
+    assert body1["total_count"] == 15
+    assert body1["page"] == 1
 
     page1_ids = {item["id"] for item in body1["items"]}
     # Newest-first: the 10 most recent of the 15 events.
     expected_page1_ids = {str(e.id) for e in sorted(events, key=lambda e: e.synced_at, reverse=True)[:10]}
     assert page1_ids == expected_page1_ids
 
-    resp2 = await client.get("/activity/recent", params={"page_size": 10, "cursor": body1["next_cursor"]})
+    resp2 = await client.get("/activity/recent", params={"page_size": 10, "page": 2})
     body2 = resp2.json()
     assert len(body2["items"]) == 5
-    assert body2["has_next_page"] is False
-    assert body2["next_cursor"] is None
+    assert body2["total_count"] == 15
+    assert body2["page"] == 2
 
     page2_ids = {item["id"] for item in body2["items"]}
     assert page1_ids | page2_ids == {str(e.id) for e in events}
@@ -233,12 +268,11 @@ async def test_deactivated_user_events_excluded(client, db_session):
     assert [item["username"] for item in body["items"]] == ["grace"]
 
 
-async def test_empty_updates_filtered_in_sql_so_has_next_page_is_exact(client, db_session):
-    """The empty-`updated_client_types` filter runs in SQL, so `limit` is exact.
+async def test_empty_updates_filtered_in_sql_so_total_count_is_exact(client, db_session):
+    """The empty-`updated_client_types` filter runs in SQL, so `total_count` is exact.
 
-    Previously this filter ran in Python over an over-fetched batch, which could
-    under-report `has_next_page`. With 10 qualifying events interleaved among 40
-    empty ones, page 1 must report exactly 10 items and `has_next_page` false.
+    With 10 qualifying events interleaved among 40 empty ones, `total_count`
+    must report exactly 10, not 50.
     """
     user = await _make_user(db_session, "heidi")
     base = _now().replace(hour=9, minute=0, second=0, microsecond=0)
@@ -254,8 +288,7 @@ async def test_empty_updates_filtered_in_sql_so_has_next_page_is_exact(client, d
     resp = await client.get("/activity/recent", params={"page_size": 10})
     body = resp.json()
     assert len(body["items"]) == 10
-    assert body["has_next_page"] is False
-    assert body["next_cursor"] is None
+    assert body["total_count"] == 10
     assert {item["id"] for item in body["items"]} == {str(e.id) for e in qualifying}
 
 

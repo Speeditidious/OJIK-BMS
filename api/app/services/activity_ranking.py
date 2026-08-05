@@ -1,7 +1,8 @@
-"""30-day user activity leaderboard aggregation.
+"""Weekly/monthly user activity leaderboard aggregation.
 
-Recomputes the ``user_activity_ranking`` snapshot for 3 metrics
-(attendance / plays / notes_hit) from ``UserSyncEvent`` and ``UserPlayerStats``.
+Recomputes the ``user_activity_ranking`` snapshots for 2 ranges (weekly /
+monthly) and 3 metrics (attendance / plays / notes_hit) from ``UserSyncEvent``
+and ``UserPlayerStats``.
 Mirrors the delta math already used by ``api/app/routers/analysis.py``'s
 ``_get_daily_plays`` / ``_get_day_stats`` (LAG-style play/notes deltas), but
 computed row-by-row in Python (see module docstring on ``rebuild_activity_ranking``
@@ -16,7 +17,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -27,8 +28,10 @@ from app.models.score import UserActivityRanking, UserPlayerStats, UserSyncEvent
 from app.models.user import User
 from app.services.player_stats_reliability import lr2_stats_unreliable_sql
 
-#: Inclusive window length in days (30 days total, including `today`).
-_WINDOW_DAYS = 30
+_RANGES: dict[str, int] = {
+    "weekly": 7,
+    "monthly": 30,
+}
 
 #: LR2 judgment keys counted as "notes hit" (poor excluded).
 _LR2_NOTES_HIT_KEYS = ("perfect", "great", "good", "bad")
@@ -229,19 +232,16 @@ def _rank_rows(
     return [(uid, rank, value) for rank, (uid, value) in enumerate(nonzero, start=1)]
 
 
-async def rebuild_activity_ranking(db: AsyncSession, *, today: date | None = None) -> dict[str, int]:
-    """Recompute the 3 activity metrics and replace the user_activity_ranking snapshot.
-
-    window_end = today (UTC) if not given; window_start = window_end - 29 days (30-day
-    inclusive window). Deletes all existing rows per metric and inserts the freshly
-    computed ranking rows, so the two operations must happen inside the same transaction
-    that the caller controls (does not commit internally — mirrors the
-    fumen_popularity.py convention of leaving transaction control to the caller).
-
-    Returns {"attendance": <n rows written>, "plays": <n rows written>, "notes_hit": <n rows written>}.
-    """
-    window_end = today if today is not None else date.today()
-    window_start = window_end - timedelta(days=_WINDOW_DAYS - 1)
+async def _rebuild_activity_ranking_range(
+    db: AsyncSession,
+    *,
+    range_name: str,
+    window_days: int,
+    today: date,
+) -> dict[str, int]:
+    """Recompute one activity range and replace its metric snapshots."""
+    window_end = today
+    window_start = window_end - timedelta(days=window_days - 1)
     window_end_exclusive = window_end + timedelta(days=1)
 
     attendance = await _compute_attendance(db, window_start, window_end_exclusive)
@@ -259,11 +259,17 @@ async def rebuild_activity_ranking(db: AsyncSession, *, today: date | None = Non
     metric_values = {"attendance": attendance, "plays": plays, "notes_hit": notes_hit}
     for metric, values in metric_values.items():
         ranked = _rank_rows(values, usernames)
-        await db.execute(sa.delete(UserActivityRanking).where(UserActivityRanking.metric == metric))
+        await db.execute(
+            sa.delete(UserActivityRanking).where(
+                UserActivityRanking.range == range_name,
+                UserActivityRanking.metric == metric,
+            )
+        )
         if ranked:
             db.add_all(
                 [
                     UserActivityRanking(
+                        range=range_name,
                         metric=metric,
                         user_id=user_id,
                         rank=rank,
@@ -277,4 +283,23 @@ async def rebuild_activity_ranking(db: AsyncSession, *, today: date | None = Non
         written[metric] = len(ranked)
 
     await db.flush()
+    return written
+
+
+async def rebuild_activity_ranking(db: AsyncSession, *, today: date | None = None) -> dict[str, dict[str, int]]:
+    """Recompute weekly/monthly activity snapshots.
+
+    `today` defaults to the current UTC date. Weekly is a 7-day inclusive
+    window, monthly is a 30-day inclusive window. Existing rows are replaced per
+    `(range, metric)` inside the caller-controlled transaction.
+    """
+    window_end = today if today is not None else datetime.now(UTC).date()
+    written: dict[str, dict[str, int]] = {}
+    for range_name, window_days in _RANGES.items():
+        written[range_name] = await _rebuild_activity_ranking_range(
+            db,
+            range_name=range_name,
+            window_days=window_days,
+            today=window_end,
+        )
     return written

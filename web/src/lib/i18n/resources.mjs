@@ -206,7 +206,8 @@ export const resources = {
         },
         activity: {
           title: "유저 활동",
-          tabs: {
+          lastComputedAt: "마지막 집계: {{time}}",
+          panels: {
             recent: "최근 활동",
             ranking: "활동 랭킹",
             popular: "인기 TOP 10",
@@ -216,35 +217,36 @@ export const resources = {
               lr2: "LR2",
               beatoraja: "Beatoraja",
             },
-            window: "최근 한 달 동기화 기준",
+            window: "최근 한 달 서버에 동기화 된 기록",
             empty: "아직 동기화 기록이 없습니다",
-            loadMore: "더 보기",
+            columns: { user: "유저명", client: "구동기", time: "시간", clientTime: "구동기 · 시간" },
           },
           ranking: {
-            window: "최근 30일 ({{start}} ~ {{end}}) 기준",
+            range: { weekly: "주간", monthly: "월간" },
+            window: "{{range}} ({{start}} ~ {{end}}) 기준",
             updatedAt: "{{time}} 갱신",
             pending: "집계 준비 중입니다",
             empty: "아직 랭킹 데이터가 없습니다",
             myRank: "내 순위",
-            loadMore: "더 보기",
+            columns: { rank: "순위", user: "유저명" },
           },
           metric: {
             attendance: {
               label: "출석",
-              desc: "최근 30일 동안 동기화한 날짜 수입니다. 같은 날 여러 번 동기화해도 1일로 셉니다.",
+              desc: "최근 한 달 동안 동기화한 날짜 수",
               unit: "{{count, number}}일",
             },
             plays: {
               label: "플레이",
-              desc: "최근 30일 누적 플레이 횟수입니다.",
+              desc: "최근 한 달 누적 플레이 횟수. 비토라자는 곡을 완주해야 플레이 횟수가 오르지만 LR2는 중간에 나가도 오릅니다. 따라서 구동기에 따라 횟수 체감이 다를 수 있습니다.",
               notice:
                 "비토라자는 곡을 완주해야 플레이 횟수가 오르지만 LR2는 중간에 나가도 오릅니다. 구동기에 따라 오차가 있을 수 있습니다.",
-              unit: "{{count, number}}회",
+              unit: "{{count, number}}",
             },
             notesHit: {
               label: "격파 노트",
-              desc: "최근 30일 동안 격파한 누적 노트 수입니다.",
-              unit: "{{count, number}} 노트",
+              desc: "최근 한 달 격파한 노트 수",
+              unit: "{{count, number}}",
             },
           },
         },
@@ -1433,7 +1435,8 @@ export const resources = {
         },
         activity: {
           title: "User Activity",
-          tabs: {
+          lastComputedAt: "Last updated: {{time}}",
+          panels: {
             recent: "Recent Activity",
             ranking: "Activity Ranking",
             popular: "Popular TOP 10",
@@ -1443,35 +1446,36 @@ export const resources = {
               lr2: "LR2",
               beatoraja: "Beatoraja",
             },
-            window: "Syncs in the last month",
+            window: "Records synced to the server in the last month",
             empty: "No sync activity yet",
-            loadMore: "Load more",
+            columns: { user: "Username", client: "Env", time: "Time", clientTime: "Env · Time" },
           },
           ranking: {
-            window: "Last 30 days ({{start}} – {{end}})",
+            range: { weekly: "Weekly", monthly: "Monthly" },
+            window: "{{range}} ({{start}} – {{end}})",
             updatedAt: "Updated {{time}}",
             pending: "Ranking is being prepared",
             empty: "No ranking data yet",
             myRank: "My rank",
-            loadMore: "Load more",
+            columns: { rank: "Rank", user: "Username" },
           },
           metric: {
             attendance: {
               label: "Attendance",
-              desc: "Number of days synced in the last 30 days. Multiple syncs on the same day count once.",
+              desc: "Number of days synced in the last month",
               unit: "{{count, number}} d",
             },
             plays: {
               label: "Plays",
-              desc: "Total plays in the last 30 days.",
+              desc: "Total plays in the last month. beatoraja counts a play only when the chart is finished, while LR2 counts it even if you quit mid-song. The count may feel different depending on the client.",
               notice:
                 "beatoraja counts a play only when the chart is finished, while LR2 counts it even if you quit mid-song. Numbers may differ by client.",
               unit: "{{count, number}}",
             },
             notesHit: {
               label: "Notes Hit",
-              desc: "Total notes hit in the last 30 days.",
-              unit: "{{count, number}} notes",
+              desc: "Notes hit in the last month",
+              unit: "{{count, number}}",
             },
           },
         },
@@ -2660,7 +2664,8 @@ export const resources = {
         },
         activity: {
           title: "ユーザー活動",
-          tabs: {
+          lastComputedAt: "最終集計: {{time}}",
+          panels: {
             recent: "最近の活動",
             ranking: "活動ランキング",
             popular: "人気TOP10",
@@ -2670,35 +2675,36 @@ export const resources = {
               lr2: "LR2",
               beatoraja: "Beatoraja",
             },
-            window: "直近1か月の同期",
+            window: "直近1か月にサーバーへ同期された記録",
             empty: "まだ同期記録がありません",
-            loadMore: "もっと見る",
+            columns: { user: "ユーザー名", client: "本体", time: "時間", clientTime: "本体 · 時間" },
           },
           ranking: {
-            window: "直近30日（{{start}}～{{end}}）",
+            range: { weekly: "週間", monthly: "月間" },
+            window: "{{range}}（{{start}}～{{end}}）",
             updatedAt: "{{time}} 更新",
             pending: "集計を準備中です",
             empty: "まだランキングデータがありません",
             myRank: "自分の順位",
-            loadMore: "もっと見る",
+            columns: { rank: "順位", user: "ユーザー名" },
           },
           metric: {
             attendance: {
               label: "出席",
-              desc: "直近30日で同期した日数です。同じ日に複数回同期しても1日として数えます。",
+              desc: "直近1か月で同期した日数",
               unit: "{{count, number}}日",
             },
             plays: {
               label: "プレイ",
-              desc: "直近30日の累計プレイ回数です。",
+              desc: "直近1か月の累計プレイ回数。beatorajaは曲を完走しないとプレイ回数が増えませんが、LR2は途中で抜けても増えます。そのため、本体によって回数の体感が異なる場合があります。",
               notice:
                 "beatorajaは曲を完走しないとプレイ回数が増えませんが、LR2は途中で抜けても増えます。本体によって誤差が生じる場合があります。",
-              unit: "{{count, number}}回",
+              unit: "{{count, number}}",
             },
             notesHit: {
               label: "ノーツ",
-              desc: "直近30日で処理した累計ノーツ数です。",
-              unit: "{{count, number}} ノーツ",
+              desc: "直近1か月で処理したノーツ数",
+              unit: "{{count, number}}",
             },
           },
         },

@@ -6,29 +6,29 @@ is site-wide and public: `/activity/recent` requires no auth at all, and
 """
 from __future__ import annotations
 
-import base64
 import json
 import logging
-import uuid
 from datetime import UTC, datetime, timedelta
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user_optional
 from app.models.score import UserActivityRanking, UserSyncEvent
-from app.models.user import User
+from app.models.user import OAuthAccount, User
+from app.routers.auth import build_discord_avatar_url
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/activity", tags=["activity"])
 
 _WINDOW_DAYS = 30
+_RANKING_RANGES = {"weekly", "monthly"}
 _RANKING_METRICS = {"attendance", "plays", "notes_hit"}
 
 #: TTL for the `/activity/recent` response cache. Short on purpose: this is the
@@ -55,8 +55,9 @@ class RecentActivityItem(BaseModel):
 class RecentActivityResponse(BaseModel):
     items: list[RecentActivityItem]
     window_days: int
-    next_cursor: str | None
-    has_next_page: bool
+    computed_at: str | None = None
+    total_count: int
+    page: int
 
 
 class RankingItem(BaseModel):
@@ -73,37 +74,24 @@ class MyRank(BaseModel):
 
 
 class ActivityRankingResponse(BaseModel):
+    range: str
     metric: str
     window_start: str | None
     window_end: str | None
     computed_at: str | None
     items: list[RankingItem]
     my_rank: MyRank | None
-    next_rank_after: int | None
-    has_next_page: bool
+    total_count: int
+    page: int
 
 
-# ---------------------------------------------------------------------------
-# Cursor encode/decode
-#
-# No existing cursor-pagination precedent in this codebase — this establishes
-# the pattern: a base64url-encoded compact JSON object carrying the last row's
-# sort key, `(synced_at, id)`.
-# ---------------------------------------------------------------------------
-
-def _encode_cursor(synced_at: datetime, id_: uuid.UUID) -> str:
-    """Encode a keyset-pagination cursor from the last row of a page."""
-    payload = json.dumps({"synced_at": synced_at.isoformat(), "id": str(id_)}).encode()
-    return base64.urlsafe_b64encode(payload).decode()
-
-
-def _decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
-    """Decode a cursor produced by `_encode_cursor`; raises 400 on malformed input."""
-    try:
-        payload = json.loads(base64.urlsafe_b64decode(cursor.encode()))
-        return datetime.fromisoformat(payload["synced_at"]), uuid.UUID(payload["id"])
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid cursor") from exc
+def _isoformat_datetime(value: datetime | str | None) -> str | None:
+    """Serialize DB datetime values, tolerating SQLite aggregate string results."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -142,9 +130,9 @@ def _get_redis() -> aioredis.Redis | None:
     return _redis_client
 
 
-def _recent_cache_key(page_size: int, cursor: str | None) -> str:
-    """Cache key for one `/activity/recent` page: `activity:recent:{page_size}:{cursor}`."""
-    return f"activity:recent:{page_size}:{cursor or ''}"
+def _recent_cache_key(page_size: int, page: int) -> str:
+    """Cache key for one `/activity/recent` page: `activity:recent:{page_size}:{page}`."""
+    return f"activity:recent:{page_size}:{page}"
 
 
 async def _cache_get(key: str) -> dict | None:
@@ -202,59 +190,85 @@ def _non_empty_updates_expr(dialect_name: str):
     return func.jsonb_array_length(column) > 0
 
 
+def _recent_base_filters(db: AsyncSession, window_start: datetime):
+    return (
+        UserSyncEvent.synced_at >= window_start,
+        # Deactivated/banned accounts are invisible site-wide (mirrors
+        # `ranking_calculator.select_ranking_user_ids`'s `is_active IS TRUE`).
+        User.is_active.is_(True),
+        _non_empty_updates_expr(_dialect_name(db)),
+    )
+
+
 async def _fetch_recent_page(
     db: AsyncSession,
-    cursor_synced_at: datetime | None,
-    cursor_id: uuid.UUID | None,
+    offset: int,
     page_size: int,
-) -> list[tuple[UserSyncEvent, str, str | None, bool]]:
-    """Fetch up to `page_size + 1` in-window sync events with non-empty updates.
+) -> list[tuple[UserSyncEvent, str, str | None, str | None, str | None, str | None, bool]]:
+    """Fetch exactly one offset-paginated page of in-window sync events with non-empty updates.
 
-    Ordering is keyset pagination on `(synced_at DESC, id DESC)`.
-
-    Tuple comparison `(synced_at, id) < (cursor_synced_at, cursor_id)` is
-    expressed as `or_(synced_at < x, and_(synced_at == x, id < y))` rather than
-    `sqlalchemy.tuple_(...)`, because it's the form most portable across
-    backends and is straightforward to verify against SQLite directly.
-
-    Both the empty-`updated_client_types` filter and the `is_active` filter are
-    applied in SQL, so `limit(page_size + 1)` is exact: `has_next_page` is
-    always accurate and no over-fetching is needed.
+    Ordered newest-first on `(synced_at DESC, id DESC)`, matching `/rankings/{table_slug}`'s
+    offset/limit pagination style so the frontend can render numbered page buttons.
     """
     window_start = datetime.now(UTC) - timedelta(days=_WINDOW_DAYS)
 
     query = (
-        select(UserSyncEvent, User.username, User.avatar_url, User.is_admin)
+        select(
+            UserSyncEvent,
+            User.username,
+            User.avatar_url,
+            OAuthAccount.provider_account_id,
+            OAuthAccount.discord_avatar_hash,
+            OAuthAccount.discord_avatar_url,
+            User.is_admin,
+        )
         .join(User, User.id == UserSyncEvent.user_id)
-        .where(
-            UserSyncEvent.synced_at >= window_start,
-            # Deactivated/banned accounts are invisible site-wide (mirrors
-            # `ranking_calculator.select_ranking_user_ids`'s `is_active IS TRUE`).
-            User.is_active.is_(True),
-            _non_empty_updates_expr(_dialect_name(db)),
+        .outerjoin(
+            OAuthAccount,
+            and_(OAuthAccount.user_id == User.id, OAuthAccount.provider == "discord"),
         )
+        .where(*_recent_base_filters(db, window_start))
+        .order_by(UserSyncEvent.synced_at.desc(), UserSyncEvent.id.desc())
+        .offset(offset)
+        .limit(page_size)
     )
-    if cursor_synced_at is not None and cursor_id is not None:
-        query = query.where(
-            or_(
-                UserSyncEvent.synced_at < cursor_synced_at,
-                and_(
-                    UserSyncEvent.synced_at == cursor_synced_at,
-                    UserSyncEvent.id < cursor_id,
-                ),
-            )
-        )
-    query = query.order_by(
-        UserSyncEvent.synced_at.desc(), UserSyncEvent.id.desc()
-    ).limit(page_size + 1)
 
     return (await db.execute(query)).all()
 
 
+async def _fetch_recent_total(db: AsyncSession) -> int:
+    """Total count of in-window, visible sync events, for page-count calculation."""
+    window_start = datetime.now(UTC) - timedelta(days=_WINDOW_DAYS)
+    return (
+        await db.execute(
+            select(func.count())
+            .select_from(UserSyncEvent)
+            .join(User, User.id == UserSyncEvent.user_id)
+            .where(*_recent_base_filters(db, window_start))
+        )
+    ).scalar_one()
+
+
+async def _fetch_recent_computed_at(db: AsyncSession) -> datetime | str | None:
+    """Return the newest in-window visible sync event timestamp for feed metadata."""
+    window_start = datetime.now(UTC) - timedelta(days=_WINDOW_DAYS)
+    return (
+        await db.execute(
+            select(func.max(UserSyncEvent.synced_at))
+            .join(User, User.id == UserSyncEvent.user_id)
+            .where(
+                UserSyncEvent.synced_at >= window_start,
+                User.is_active.is_(True),
+                _non_empty_updates_expr(_dialect_name(db)),
+            )
+        )
+    ).scalar_one_or_none()
+
+
 @router.get("/recent", response_model=RecentActivityResponse)
 async def get_recent_activity(
+    page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=10, le=50),
-    cursor: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> RecentActivityResponse:
     """Public feed of recent syncs (last 30 days) that actually changed something.
@@ -263,49 +277,44 @@ async def get_recent_activity(
     (i.e. a sync that found nothing new) are excluded from the feed, as are
     events belonging to deactivated users.
 
+    Offset-paginated (matches `/rankings/{table_slug}`'s `page`/`total_count`
+    shape) so the frontend can render numbered page buttons rather than an
+    infinite "load more" feed.
+
     Responses are cached in Redis for `_RECENT_CACHE_TTL_SECONDS`, keyed by
-    `(page_size, cursor)`. The response carries no per-user data, so the cache
+    `(page_size, page)`. The response carries no per-user data, so the cache
     is shared across all visitors.
     """
-    cache_key = _recent_cache_key(page_size, cursor)
+    cache_key = _recent_cache_key(page_size, page)
     cached = await _cache_get(cache_key)
     if cached is not None:
         return RecentActivityResponse(**cached)
 
-    cursor_synced_at: datetime | None = None
-    cursor_id: uuid.UUID | None = None
-    if cursor is not None:
-        cursor_synced_at, cursor_id = _decode_cursor(cursor)
-
-    rows = await _fetch_recent_page(db, cursor_synced_at, cursor_id, page_size)
-
-    has_next_page = len(rows) > page_size
-    page_rows = rows[:page_size]
+    offset = (page - 1) * page_size
+    rows = await _fetch_recent_page(db, offset, page_size)
+    total_count = await _fetch_recent_total(db)
 
     items = [
         RecentActivityItem(
             id=str(event.id),
             user_id=str(event.user_id),
             username=username,
-            avatar_url=avatar_url,
+            avatar_url=avatar_url or build_discord_avatar_url(discord_id or "", discord_avatar_hash) or discord_avatar_url,
             is_admin=is_admin,
             synced_at=event.synced_at.isoformat(),
             sync_date=event.synced_at.date().isoformat(),
             updated_client_types=list(event.updated_client_types or []),
         )
-        for event, username, avatar_url, is_admin in page_rows
+        for event, username, avatar_url, discord_id, discord_avatar_hash, discord_avatar_url, is_admin in rows
     ]
 
-    next_cursor: str | None = None
-    if has_next_page and page_rows:
-        last_event = page_rows[-1][0]
-        next_cursor = _encode_cursor(last_event.synced_at, last_event.id)
-
+    computed_at = await _fetch_recent_computed_at(db)
     response = RecentActivityResponse(
         items=items,
         window_days=_WINDOW_DAYS,
-        next_cursor=next_cursor,
-        has_next_page=has_next_page,
+        computed_at=_isoformat_datetime(computed_at),
+        total_count=total_count,
+        page=page,
     )
     await _cache_set(cache_key, response.model_dump())
     return response
@@ -317,20 +326,27 @@ async def get_recent_activity(
 
 @router.get("/ranking", response_model=ActivityRankingResponse)
 async def get_activity_ranking(
+    range: str = Query("monthly"),
     metric: str = Query(...),
+    page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=10, le=50),
-    rank_after: int = Query(0, ge=0),
     current_user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ) -> ActivityRankingResponse:
-    """Paginated 30-day activity leaderboard for one metric.
+    """Paginated weekly/monthly activity leaderboard for one metric.
 
-    `metric` must be one of `attendance`, `plays`, `notes_hit`. If the
-    precomputed snapshot for this metric has no rows yet (not computed yet),
-    this returns 200 with empty `items` and null window/computed_at fields —
-    the frontend is expected to show a "computing" state, not treat this as
-    an error.
+    `range` must be `weekly` or `monthly`; `metric` must be one of
+    `attendance`, `plays`, `notes_hit`. If the precomputed snapshot has no rows
+    yet (not computed yet), this returns 200 with empty `items` and null
+    window/computed_at fields — the frontend is expected to show a "computing"
+    state, not treat this as an error.
+
+    Offset-paginated (matches `/rankings/{table_slug}`'s `page`/`total_count`
+    shape) so the frontend can render numbered page buttons rather than an
+    infinite "load more" feed.
     """
+    if range not in _RANKING_RANGES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown range")
     if metric not in _RANKING_METRICS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown metric")
 
@@ -341,58 +357,79 @@ async def get_activity_ranking(
                 UserActivityRanking.window_end,
                 UserActivityRanking.computed_at,
             )
-            .where(UserActivityRanking.metric == metric)
+            .where(
+                UserActivityRanking.range == range,
+                UserActivityRanking.metric == metric,
+            )
             .limit(1)
         )
     ).first()
 
     if meta_row is None:
         return ActivityRankingResponse(
+            range=range,
             metric=metric,
             window_start=None,
             window_end=None,
             computed_at=None,
             items=[],
             my_rank=None,
-            next_rank_after=None,
-            has_next_page=False,
+            total_count=0,
+            page=page,
         )
 
     window_start, window_end, computed_at = meta_row
 
-    page_result = await db.execute(
-        select(UserActivityRanking, User.username, User.avatar_url)
-        .join(User, User.id == UserActivityRanking.user_id)
-        .where(
-            UserActivityRanking.metric == metric,
-            UserActivityRanking.rank > rank_after,
-            # Defense in depth: `activity_ranking.py` already excludes inactive
-            # users when building the snapshot, but a user deactivated between
-            # two snapshot rebuilds must not remain visible on the leaderboard.
-            User.is_active.is_(True),
+    # Defense in depth: `activity_ranking.py` already excludes inactive users
+    # when building the snapshot, but a user deactivated between two snapshot
+    # rebuilds must not remain visible on the leaderboard.
+    base_filters = (
+        UserActivityRanking.metric == metric,
+        UserActivityRanking.range == range,
+        User.is_active.is_(True),
+    )
+
+    total_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(UserActivityRanking)
+            .join(User, User.id == UserActivityRanking.user_id)
+            .where(*base_filters)
         )
+    ).scalar_one()
+
+    offset = (page - 1) * page_size
+    page_result = await db.execute(
+        select(
+            UserActivityRanking,
+            User.username,
+            User.avatar_url,
+            OAuthAccount.provider_account_id,
+            OAuthAccount.discord_avatar_hash,
+            OAuthAccount.discord_avatar_url,
+        )
+        .join(User, User.id == UserActivityRanking.user_id)
+        .outerjoin(
+            OAuthAccount,
+            and_(OAuthAccount.user_id == User.id, OAuthAccount.provider == "discord"),
+        )
+        .where(*base_filters)
         .order_by(UserActivityRanking.rank.asc())
-        .limit(page_size + 1)
+        .offset(offset)
+        .limit(page_size)
     )
     rows = page_result.all()
-
-    has_next_page = len(rows) > page_size
-    page_rows = rows[:page_size]
 
     items = [
         RankingItem(
             rank=ranking.rank,
             user_id=str(ranking.user_id),
             username=username,
-            avatar_url=avatar_url,
+            avatar_url=avatar_url or build_discord_avatar_url(discord_id or "", discord_avatar_hash) or discord_avatar_url,
             value=ranking.value,
         )
-        for ranking, username, avatar_url in page_rows
+        for ranking, username, avatar_url, discord_id, discord_avatar_hash, discord_avatar_url in rows
     ]
-
-    next_rank_after: int | None = None
-    if has_next_page and page_rows:
-        next_rank_after = page_rows[-1][0].rank
 
     # Deliberately not filtered on `current_user.is_active`: this is the caller
     # looking up their own row, not a public listing. In practice a deactivated
@@ -403,6 +440,7 @@ async def get_activity_ranking(
         my_row = (
             await db.execute(
                 select(UserActivityRanking.rank, UserActivityRanking.value).where(
+                    UserActivityRanking.range == range,
                     UserActivityRanking.metric == metric,
                     UserActivityRanking.user_id == current_user.id,
                 )
@@ -412,12 +450,13 @@ async def get_activity_ranking(
             my_rank = MyRank(rank=my_row.rank, value=my_row.value)
 
     return ActivityRankingResponse(
+        range=range,
         metric=metric,
         window_start=window_start.isoformat() if window_start else None,
         window_end=window_end.isoformat() if window_end else None,
         computed_at=computed_at.isoformat() if computed_at else None,
         items=items,
         my_rank=my_rank,
-        next_rank_after=next_rank_after,
-        has_next_page=has_next_page,
+        total_count=total_count,
+        page=page,
     )

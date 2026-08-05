@@ -16,5 +16,5 @@ async def _rebuild() -> dict:
 
 @celery_app.task(name="app.tasks.activity_ranking.rebuild_activity_ranking")
 def rebuild_activity_ranking_task() -> dict:
-    """Recompute the 30-day attendance/plays/notes_hit leaderboard snapshot."""
+    """Recompute weekly/monthly attendance/plays/notes_hit leaderboard snapshots."""
     return _run_async(_rebuild())

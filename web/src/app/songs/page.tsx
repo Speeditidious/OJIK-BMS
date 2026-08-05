@@ -17,7 +17,6 @@ import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { SongListTable } from "@/components/songs/SongListTable";
-import { PopularFumensDialog } from "@/components/fumen/PopularFumens";
 import { Pagination } from "@/components/common/Pagination";
 import { useFumensList } from "@/hooks/use-fumens-list";
 import { useAuthStore } from "@/stores/auth";
@@ -160,7 +159,6 @@ function SongsPageContent() {
                 {t("songs.total", { count: data.total })}
               </span>
             )}
-            <PopularFumensDialog />
           </div>
           <p className="text-label text-muted-foreground ml-1">
             {t("songs.description")}

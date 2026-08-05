@@ -43,15 +43,15 @@ class _BrokenRedis:
 
 
 async def test_cache_key_shape_matches_plan():
-    assert activity._recent_cache_key(10, None) == "activity:recent:10:"
-    assert activity._recent_cache_key(25, "abc") == "activity:recent:25:abc"
+    assert activity._recent_cache_key(10, 1) == "activity:recent:10:1"
+    assert activity._recent_cache_key(25, 3) == "activity:recent:25:3"
 
 
 async def test_cache_set_then_get_round_trips_with_ttl(monkeypatch):
     fake = _FakeRedis()
     monkeypatch.setattr(activity, "_get_redis", lambda: fake)
 
-    payload = {"items": [], "window_days": 30, "next_cursor": None, "has_next_page": False}
+    payload = {"items": [], "window_days": 30, "total_count": 0, "page": 1}
     await activity._cache_set("activity:recent:10:", payload)
 
     assert fake.set_calls == [("activity:recent:10:", activity._RECENT_CACHE_TTL_SECONDS)]
@@ -111,8 +111,8 @@ async def test_cached_payload_deserializes_into_response_model(monkeypatch):
             )
         ],
         window_days=30,
-        next_cursor=None,
-        has_next_page=False,
+        total_count=1,
+        page=1,
     )
     await activity._cache_set("activity:recent:10:", original.model_dump())
 
