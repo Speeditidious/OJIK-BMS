@@ -35,7 +35,7 @@ export function DashboardUserHeader({
   onGoToGoals,
 }: DashboardUserHeaderProps) {
   const { t } = useTranslation();
-  const activeGoals = useGoals("active", undefined, isOwner);
+  const activeGoals = useGoals("active", isOwner ? undefined : userId);
   const totalActiveCount = activeGoals.data?.goals.length ?? 0;
   const visibleGoals = useMemo(
     () =>
@@ -86,7 +86,7 @@ export function DashboardUserHeader({
         </Button>
       </div>
 
-      {isOwner && (activeGoals.isLoading || visibleGoals.length > 0) && (
+      {(activeGoals.isLoading || visibleGoals.length > 0) && (
         <div className="mt-4 border-t border-border/70 pt-4">
           <div className="mb-2 flex items-center gap-1.5">
             <span className="text-body font-medium">
@@ -122,7 +122,7 @@ export function DashboardUserHeader({
             <SortableGoalList
               goals={visibleGoals}
               strategy={rectSortingStrategy}
-              disabled={visibleGoals.length !== totalActiveCount}
+              disabled={!isOwner || visibleGoals.length !== totalActiveCount}
               className="grid gap-2 lg:grid-cols-3"
               renderItem={(goal, dragHandle) => (
                 <GoalCard goal={goal} compact dragHandle={dragHandle} />

@@ -701,7 +701,7 @@ export function UserDashboardContent({ userId }: { userId: string }) {
             createdAt={profileUser.created_at}
             lastSyncedAt={profileUser.last_synced_at}
             isOwner={isOwner}
-            onGoToGoals={isOwner ? handleGoToGoals : undefined}
+            onGoToGoals={handleGoToGoals}
           />
         </div>
 
