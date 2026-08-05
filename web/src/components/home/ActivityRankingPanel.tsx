@@ -20,33 +20,56 @@ const I18N_METRIC_KEY: Record<ActivityMetric, string> = {
   notes_hit: "notesHit",
 };
 
+/** Sentinel for "no page has been merged into `items` yet". */
+const NOT_MERGED = Symbol("not-merged");
+
 /**
  * Activity ranking tab content: sub-tabs for 3 metrics (attendance / plays /
  * notes_hit), each backed by a paginated 30-day leaderboard snapshot.
+ *
+ * Pagination follows the same pattern as `RecentActivityFeed`: items are
+ * merged into local state by adjusting state directly during render (React's
+ * documented pattern for "derived state from a changing key" — see
+ * https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes),
+ * guarded by `mergedKey` tracking which `metric:rankAfter` page was last
+ * merged — not appended inside the "load more" click handler off a stale
+ * closed-over `data`. `useActivityRanking` uses `placeholderData:
+ * keepPreviousData` so the list doesn't blank to a loading skeleton while
+ * the next page (or a new metric) is in flight.
  */
 export function ActivityRankingPanel() {
   const { t } = useTranslation();
   const { user } = useAuthStore();
   const [metric, setMetric] = useState<ActivityMetric>("attendance");
   const [rankAfter, setRankAfter] = useState(0);
-  const [accumulated, setAccumulated] = useState<ActivityRankingItem[]>([]);
-  const { data, isLoading, isFetching } = useActivityRanking(metric, 10, rankAfter);
+  const [items, setItems] = useState<ActivityRankingItem[]>([]);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [nextRankAfter, setNextRankAfter] = useState<number | null>(null);
+  const [mergedKey, setMergedKey] = useState<string | typeof NOT_MERGED>(NOT_MERGED);
 
-  const isFirstPage = rankAfter === 0;
-  const items = isFirstPage ? (data?.items ?? []) : accumulated;
-  const hasNextPage = data?.has_next_page ?? false;
+  const { data, isFetching } = useActivityRanking(metric, 10, rankAfter);
   const i18nMetric = I18N_METRIC_KEY[metric];
+  const pageKey = `${metric}:${rankAfter}`;
+
+  if (data && !isFetching && mergedKey !== pageKey) {
+    setMergedKey(pageKey);
+    setItems((prev) => (rankAfter === 0 ? data.items : [...prev, ...data.items]));
+    setHasNextPage(data.has_next_page);
+    setNextRankAfter(data.next_rank_after);
+  }
+
+  const isInitialLoading = items.length === 0 && isFetching;
 
   const handleMetricChange = (value: ActivityMetric) => {
     setMetric(value);
     setRankAfter(0);
-    setAccumulated([]);
+    setItems([]);
+    setHasNextPage(false);
+    setNextRankAfter(null);
   };
 
   const handleLoadMore = () => {
-    if (!data) return;
-    setAccumulated((prev) => (isFirstPage ? data.items : [...prev, ...data.items]));
-    if (data.next_rank_after !== null) setRankAfter(data.next_rank_after);
+    if (nextRankAfter !== null) setRankAfter(nextRankAfter);
   };
 
   const myRow = data?.my_rank ?? null;
@@ -94,7 +117,7 @@ export function ActivityRankingPanel() {
           )}
 
           <div className="mt-2 rounded-lg border border-border overflow-hidden">
-            {isLoading ? (
+            {isInitialLoading ? (
               Array.from({ length: 10 }).map((_, index) => (
                 <div
                   key={index}
@@ -103,7 +126,7 @@ export function ActivityRankingPanel() {
               ))
             ) : items.length === 0 ? (
               <div className="py-10 text-center text-label text-muted-foreground">
-                {t("home.activity.recent.empty")}
+                {t("home.activity.ranking.empty")}
               </div>
             ) : (
               items.map((item) => {
@@ -114,7 +137,7 @@ export function ActivityRankingPanel() {
                     href={`/users/${item.user_id}/dashboard`}
                     className={cn(
                       "flex items-center gap-3 px-3 py-2 border-b border-border/50 last:border-0 transition-colors",
-                      isMe ? "bg-primary/10 border-primary/30" : "hover:bg-secondary/40",
+                      isMe ? "bg-primary/5 dark:bg-primary/10 border-primary/30" : "hover:bg-secondary/40",
                     )}
                   >
                     <span className={cn("w-8 flex-shrink-0 text-center tabular-nums font-bold", rankClass(item.rank))}>

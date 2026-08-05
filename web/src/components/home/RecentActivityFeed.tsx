@@ -9,29 +9,48 @@ import { timeAgo } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { RecentActivityItem } from "@/types";
 
+/** Sentinel for "no page has been merged into `items` yet" (distinct from a real `undefined` cursor). */
+const NOT_MERGED = Symbol("not-merged");
+
 /**
  * Recent-activity tab content: a public feed of recent syncs (last 30 days) that
  * actually changed something, paginated via a keyset cursor.
  *
- * Pagination is accumulated client-side: each "load more" click fetches the
- * next page with the latest cursor and appends its items to local state,
- * rather than replacing them. This keeps the component self-contained
- * without a generic infinite-query abstraction (none exists in this codebase yet).
+ * Pagination is accumulated client-side by adjusting state directly during
+ * render (React's documented pattern for "derived state from a changing
+ * key" — see https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes),
+ * guarded by `mergedCursor` so it only reacts once *resolved* query data for
+ * a given cursor arrives — not appended inside the "load more" click
+ * handler (which would close over a stale `data` snapshot from before the
+ * click — the fetch triggered by the click resolves later, asynchronously).
+ * `useRecentActivity` uses `placeholderData: keepPreviousData` so `data`
+ * keeps showing the previous page while the next one is in flight, instead
+ * of the whole hook resetting to `isLoading`/`undefined` and blanking the
+ * already-rendered list. Tracking the last-merged cursor also means a
+ * background refetch of the same page (e.g. once `staleTime` elapses)
+ * doesn't re-append and duplicate rows.
  */
 export function RecentActivityFeed() {
   const { t } = useTranslation();
   const [cursor, setCursor] = useState<string | undefined>(undefined);
-  const [accumulated, setAccumulated] = useState<RecentActivityItem[]>([]);
-  const { data, isLoading, isFetching } = useRecentActivity(10, cursor);
+  const [items, setItems] = useState<RecentActivityItem[]>([]);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
+  const [mergedCursor, setMergedCursor] = useState<string | undefined | typeof NOT_MERGED>(NOT_MERGED);
 
-  const items = cursor === undefined ? (data?.items ?? []) : accumulated;
-  const hasNextPage = data?.has_next_page ?? false;
-  const isFirstPage = cursor === undefined;
+  const { data, isFetching } = useRecentActivity(10, cursor);
+
+  if (data && !isFetching && mergedCursor !== cursor) {
+    setMergedCursor(cursor);
+    setItems((prev) => (cursor === undefined ? data.items : [...prev, ...data.items]));
+    setHasNextPage(data.has_next_page);
+    setNextCursor(data.next_cursor ?? undefined);
+  }
+
+  const isInitialLoading = items.length === 0 && isFetching;
 
   const handleLoadMore = () => {
-    if (!data) return;
-    setAccumulated((prev) => (isFirstPage ? data.items : [...prev, ...data.items]));
-    if (data.next_cursor) setCursor(data.next_cursor);
+    if (nextCursor) setCursor(nextCursor);
   };
 
   return (
@@ -41,14 +60,14 @@ export function RecentActivityFeed() {
       </p>
 
       <div className="rounded-lg border border-border overflow-hidden">
-        {isLoading ? (
+        {isInitialLoading ? (
           Array.from({ length: 10 }).map((_, index) => (
             <div
               key={index}
               className="h-11 border-b border-border/50 last:border-0 bg-secondary/30 animate-pulse"
             />
           ))
-        ) : items.length === 0 && isFirstPage ? (
+        ) : items.length === 0 ? (
           <div className="py-10 text-center text-label text-muted-foreground">
             {t("home.activity.recent.empty")}
           </div>
@@ -81,7 +100,9 @@ export function RecentActivityFeed() {
                     key={clientType}
                     className="rounded-full bg-secondary px-2 py-0.5 text-caption text-muted-foreground"
                   >
-                    {t(`home.activity.recent.client.${clientType.toLowerCase()}`)}
+                    {t(`home.activity.recent.client.${clientType.toLowerCase()}`, {
+                      defaultValue: clientType.toUpperCase(),
+                    })}
                   </span>
                 ))}
               </span>
