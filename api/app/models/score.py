@@ -153,7 +153,9 @@ class UserActivityRanking(Base):
     value: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     window_start: Mapped[date] = mapped_column(Date, nullable=False)
     window_end: Mapped[date] = mapped_column(Date, nullable=False)
-    computed_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("now()"))
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
 
     def __repr__(self) -> str:
         return f"<UserActivityRanking metric={self.metric} user={self.user_id} rank={self.rank}>"
