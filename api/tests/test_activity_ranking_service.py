@@ -103,8 +103,8 @@ def _dt(d: date, hour: int = 12) -> datetime:
     return datetime(d.year, d.month, d.day, hour)
 
 
-async def _make_user(db_session, username: str) -> User:
-    user = User(id=uuid.uuid4(), username=username)
+async def _make_user(db_session, username: str, *, is_active: bool = True) -> User:
+    user = User(id=uuid.uuid4(), username=username, is_active=is_active)
     db_session.add(user)
     await db_session.flush()
     return user
@@ -373,3 +373,59 @@ async def test_window_start_and_end_recorded_on_rows(db_session):
     rows = await _rows_for(db_session, "attendance")
     assert rows[0].window_start == WINDOW_START
     assert rows[0].window_end == WINDOW_END
+
+
+# ── deactivated users ─────────────────────────────────────────────────────
+
+async def test_deactivated_user_not_ranked_for_attendance(db_session):
+    """A deactivated user is excluded from the candidate set, not just hidden."""
+    active = await _make_user(db_session, "active_one")
+    banned = await _make_user(db_session, "banned_one", is_active=False)
+    day1 = WINDOW_START + timedelta(days=1)
+    db_session.add_all(
+        [
+            UserSyncEvent(id=uuid.uuid4(), user_id=active.id, synced_at=_dt(day1, 9), updated_client_types=["lr2"]),
+            UserSyncEvent(id=uuid.uuid4(), user_id=banned.id, synced_at=_dt(day1, 9), updated_client_types=["lr2"]),
+            UserSyncEvent(id=uuid.uuid4(), user_id=banned.id, synced_at=_dt(day1 + timedelta(days=1), 9), updated_client_types=["lr2"]),
+        ]
+    )
+    await db_session.flush()
+
+    written = await rebuild_activity_ranking(db_session, today=WINDOW_END)
+    assert written["attendance"] == 1
+
+    rows = await _rows_for(db_session, "attendance")
+    assert [r.user_id for r in rows] == [active.id]
+    # Ranks are reassigned over the active-only set, so the survivor is rank 1.
+    assert rows[0].rank == 1
+
+
+async def test_deactivated_user_not_ranked_for_plays_and_notes_hit(db_session):
+    active = await _make_user(db_session, "active_two")
+    banned = await _make_user(db_session, "banned_two", is_active=False)
+    d0 = WINDOW_START
+    d1 = WINDOW_START + timedelta(days=1)
+    for user, base in ((active, 10), (banned, 1000)):
+        db_session.add_all(
+            [
+                UserPlayerStats(
+                    id=uuid.uuid4(),
+                    user_id=user.id, client_type="lr2", synced_at=_dt(d0), playcount=base, playtime=base * 100,
+                    judgments={"perfect": 100, "great": 50, "good": 10, "bad": 1, "poor": 5},
+                ),
+                UserPlayerStats(
+                    id=uuid.uuid4(),
+                    user_id=user.id, client_type="lr2", synced_at=_dt(d1), playcount=base + 5, playtime=(base + 5) * 100,
+                    judgments={"perfect": 120, "great": 55, "good": 12, "bad": 2, "poor": 9},
+                ),
+            ]
+        )
+    await db_session.flush()
+
+    written = await rebuild_activity_ranking(db_session, today=WINDOW_END)
+    assert written["plays"] == 1
+    assert written["notes_hit"] == 1
+
+    for metric in ("plays", "notes_hit"):
+        rows = await _rows_for(db_session, metric)
+        assert [r.user_id for r in rows] == [active.id], metric

@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.database import get_db
 from app.main import app
+from app.routers import activity as activity_router
 from app.models.score import UserSyncEvent
 from app.models.user import User
 
@@ -66,6 +67,27 @@ async def db_session():
     await engine.dispose()
 
 
+@pytest_asyncio.fixture(autouse=True)
+def _disable_response_cache(monkeypatch):
+    """Neutralize the Redis response cache so tests hit the DB deterministically.
+
+    `/activity/recent` caches per `(page_size, cursor)`, so several tests here
+    would otherwise share the key `activity:recent:10:` and see each other's
+    responses whenever a real Redis happens to be reachable. The cache's
+    fail-open behavior is covered separately in `test_activity_recent_cache.py`.
+    """
+    monkeypatch.setattr(activity_router, "_cache_get", lambda key: _noop_get())
+    monkeypatch.setattr(activity_router, "_cache_set", lambda key, payload: _noop_set())
+
+
+async def _noop_get():
+    return None
+
+
+async def _noop_set():
+    return None
+
+
 @pytest_asyncio.fixture
 async def client(db_session: AsyncSession):
     async def override_get_db():
@@ -81,8 +103,13 @@ def _now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-async def _make_user(db_session: AsyncSession, username: str) -> User:
-    user = User(id=uuid.uuid4(), username=username, avatar_url=f"https://example.com/{username}.png")
+async def _make_user(db_session: AsyncSession, username: str, *, is_active: bool = True) -> User:
+    user = User(
+        id=uuid.uuid4(),
+        username=username,
+        avatar_url=f"https://example.com/{username}.png",
+        is_active=is_active,
+    )
     db_session.add(user)
     await db_session.flush()
     return user
@@ -191,6 +218,45 @@ async def test_pagination_cursor_no_overlap_no_gap(client, db_session):
     page2_ids = {item["id"] for item in body2["items"]}
     assert page1_ids | page2_ids == {str(e.id) for e in events}
     assert page1_ids.isdisjoint(page2_ids)
+
+
+async def test_deactivated_user_events_excluded(client, db_session):
+    """A deactivated account must be invisible in the public feed."""
+    active = await _make_user(db_session, "grace")
+    banned = await _make_user(db_session, "mallory", is_active=False)
+    _add_event(db_session, active, _now(), ["lr2"])
+    _add_event(db_session, banned, _now() - timedelta(minutes=1), ["beatoraja"])
+    await db_session.commit()
+
+    resp = await client.get("/activity/recent")
+    body = resp.json()
+    assert [item["username"] for item in body["items"]] == ["grace"]
+
+
+async def test_empty_updates_filtered_in_sql_so_has_next_page_is_exact(client, db_session):
+    """The empty-`updated_client_types` filter runs in SQL, so `limit` is exact.
+
+    Previously this filter ran in Python over an over-fetched batch, which could
+    under-report `has_next_page`. With 10 qualifying events interleaved among 40
+    empty ones, page 1 must report exactly 10 items and `has_next_page` false.
+    """
+    user = await _make_user(db_session, "heidi")
+    base = _now().replace(hour=9, minute=0, second=0, microsecond=0)
+    qualifying = []
+    for i in range(50):
+        types = ["lr2"] if i % 5 == 0 else []
+        ev = _add_event(db_session, user, base + timedelta(minutes=i), types)
+        if types:
+            qualifying.append(ev)
+    await db_session.commit()
+    assert len(qualifying) == 10
+
+    resp = await client.get("/activity/recent", params={"page_size": 10})
+    body = resp.json()
+    assert len(body["items"]) == 10
+    assert body["has_next_page"] is False
+    assert body["next_cursor"] is None
+    assert {item["id"] for item in body["items"]} == {str(e.id) for e in qualifying}
 
 
 async def test_unauthenticated_request_returns_200(client, db_session):

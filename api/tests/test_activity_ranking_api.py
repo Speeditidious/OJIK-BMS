@@ -80,8 +80,13 @@ async def client(db_session: AsyncSession):
     app.dependency_overrides.clear()
 
 
-async def _make_user(db_session: AsyncSession, username: str) -> User:
-    user = User(id=uuid.uuid4(), username=username, avatar_url=f"https://example.com/{username}.png")
+async def _make_user(db_session: AsyncSession, username: str, *, is_active: bool = True) -> User:
+    user = User(
+        id=uuid.uuid4(),
+        username=username,
+        avatar_url=f"https://example.com/{username}.png",
+        is_active=is_active,
+    )
     db_session.add(user)
     await db_session.flush()
     return user
@@ -194,3 +199,16 @@ async def test_unauthenticated_request_gets_null_my_rank_and_200(client, db_sess
 async def test_invalid_metric_returns_400(client, db_session):
     resp = await client.get("/activity/ranking", params={"metric": "bogus"})
     assert resp.status_code == 400
+
+
+async def test_deactivated_user_excluded_from_ranking_items(client, db_session):
+    """A snapshot row for a since-deactivated user must not appear in the leaderboard."""
+    active = await _make_user(db_session, "active_user")
+    banned = await _make_user(db_session, "banned_user", is_active=False)
+    _add_ranking(db_session, active, "plays", rank=1, value=500)
+    _add_ranking(db_session, banned, "plays", rank=2, value=400)
+    await db_session.commit()
+
+    resp = await client.get("/activity/ranking", params={"metric": "plays"})
+    body = resp.json()
+    assert [item["username"] for item in body["items"]] == ["active_user"]

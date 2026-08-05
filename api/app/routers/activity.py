@@ -8,28 +8,33 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user_optional
 from app.models.score import UserActivityRanking, UserSyncEvent
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/activity", tags=["activity"])
 
 _WINDOW_DAYS = 30
 _RANKING_METRICS = {"attendance", "plays", "notes_hit"}
 
-# Cap on how many multiples of `page_size + 1` we're willing to fetch from the DB
-# in one request while filtering out empty-`updated_client_types` rows in Python
-# (see `_fetch_recent_page` docstring for why this filter isn't done in SQL).
-_MAX_RAW_FETCH_MULTIPLIER = 8
+#: TTL for the `/activity/recent` response cache. Short on purpose: this is the
+#: home page's default tab, hit by every visitor, but the feed must still feel
+#: near-live.
+_RECENT_CACHE_TTL_SECONDS = 30
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +110,98 @@ def _decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
 # /activity/recent
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Redis response cache for /activity/recent
+#
+# `/activity/recent` is the home page's default tab and is fully public (no
+# auth, no per-user variation), so an identical response can safely be shared
+# across all visitors for a short TTL. Redis is otherwise only used here as the
+# Celery broker/backend, so there's no existing HTTP-cache helper to reuse;
+# this is deliberately kept minimal and local rather than generalized.
+#
+# Every cache operation fails open: any Redis error is logged once at WARNING
+# and the request proceeds against the database.
+# ---------------------------------------------------------------------------
+
+_redis_client: aioredis.Redis | None = None
+
+
+def _get_redis() -> aioredis.Redis | None:
+    """Return a lazily-created Redis client, or None if one can't be constructed.
+
+    Construction is non-blocking (redis-py connects lazily on first command),
+    so an unreachable Redis surfaces as an error at get/set time, not here.
+    """
+    global _redis_client
+    if _redis_client is None:
+        try:
+            _redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        except Exception as exc:  # pragma: no cover - malformed REDIS_URL only
+            logger.warning("activity cache: could not create Redis client: %s", exc)
+            return None
+    return _redis_client
+
+
+def _recent_cache_key(page_size: int, cursor: str | None) -> str:
+    """Cache key for one `/activity/recent` page: `activity:recent:{page_size}:{cursor}`."""
+    return f"activity:recent:{page_size}:{cursor or ''}"
+
+
+async def _cache_get(key: str) -> dict | None:
+    """Read a cached JSON payload, returning None on miss or any Redis failure."""
+    client = _get_redis()
+    if client is None:
+        return None
+    try:
+        raw = await client.get(key)
+    except Exception as exc:
+        logger.warning("activity cache: Redis GET failed (%s), serving uncached", exc)
+        return None
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        # Corrupt/legacy payload — treat as a miss rather than failing the request.
+        return None
+
+
+async def _cache_set(key: str, payload: dict) -> None:
+    """Store a JSON payload under `key` with the short TTL; silent on Redis failure."""
+    client = _get_redis()
+    if client is None:
+        return
+    try:
+        await client.set(key, json.dumps(payload), ex=_RECENT_CACHE_TTL_SECONDS)
+    except Exception as exc:
+        logger.warning("activity cache: Redis SET failed (%s), continuing uncached", exc)
+
+
+def _dialect_name(db: AsyncSession) -> str:
+    """Return the bound dialect's name, defaulting to postgresql (mirrors `fumen_popularity.py`)."""
+    bind = db.get_bind()
+    return bind.dialect.name if bind is not None else "postgresql"
+
+
+def _non_empty_updates_expr(dialect_name: str):
+    """SQL predicate for `updated_client_types` being a non-empty JSON array.
+
+    Dialect-branched because the JSON array-length function differs: Postgres
+    exposes `jsonb_array_length` for `jsonb` columns, SQLite exposes
+    `json_array_length`. Following the same `_utc_date_expr` dialect-branching
+    convention already used in `app/services/fumen_popularity.py`.
+
+    Emitting this as SQL (rather than filtering in Python) is what lets the
+    Postgres planner match the partial index
+    `ix_user_sync_events_updated_synced_at_id`, whose predicate is exactly
+    `jsonb_array_length(updated_client_types) > 0`.
+    """
+    column = UserSyncEvent.updated_client_types
+    if dialect_name == "sqlite":
+        return func.json_array_length(column) > 0
+    return func.jsonb_array_length(column) > 0
+
+
 async def _fetch_recent_page(
     db: AsyncSession,
     cursor_synced_at: datetime | None,
@@ -115,53 +212,43 @@ async def _fetch_recent_page(
 
     Ordering is keyset pagination on `(synced_at DESC, id DESC)`.
 
-    Two portability notes (no precedent for either in this codebase, verified
-    against the SQLite test backend used by this repo's test suite):
+    Tuple comparison `(synced_at, id) < (cursor_synced_at, cursor_id)` is
+    expressed as `or_(synced_at < x, and_(synced_at == x, id < y))` rather than
+    `sqlalchemy.tuple_(...)`, because it's the form most portable across
+    backends and is straightforward to verify against SQLite directly.
 
-    - Tuple comparison `(synced_at, id) < (cursor_synced_at, cursor_id)` is
-      expressed as `or_(synced_at < x, and_(synced_at == x, id < y))` rather
-      than `sqlalchemy.tuple_(...)`, because it's the form most portable across
-      backends and is straightforward to verify against SQLite directly.
-    - Filtering out rows with an empty `updated_client_types` JSON array is done
-      in Python, not SQL. Postgres exposes `jsonb_array_length` (for `jsonb`
-      columns) while SQLite exposes `json_array_length`; a single expression
-      that is verified correct on both without a live Postgres instance to test
-      against isn't available here, so per the task brief's documented
-      fallback, the empty-array filter runs after fetching. To keep pagination
-      correct despite this, we over-fetch in growing batches (capped) until we
-      have `page_size + 1` qualifying rows or run out of underlying rows.
+    Both the empty-`updated_client_types` filter and the `is_active` filter are
+    applied in SQL, so `limit(page_size + 1)` is exact: `has_next_page` is
+    always accurate and no over-fetching is needed.
     """
     window_start = datetime.now(UTC) - timedelta(days=_WINDOW_DAYS)
-    multiplier = 1
-    filtered: list[tuple[UserSyncEvent, str, str | None, bool]] = []
 
-    while True:
-        raw_limit = (page_size + 1) * multiplier
-        query = (
-            select(UserSyncEvent, User.username, User.avatar_url, User.is_admin)
-            .join(User, User.id == UserSyncEvent.user_id)
-            .where(UserSyncEvent.synced_at >= window_start)
+    query = (
+        select(UserSyncEvent, User.username, User.avatar_url, User.is_admin)
+        .join(User, User.id == UserSyncEvent.user_id)
+        .where(
+            UserSyncEvent.synced_at >= window_start,
+            # Deactivated/banned accounts are invisible site-wide (mirrors
+            # `ranking_calculator.select_ranking_user_ids`'s `is_active IS TRUE`).
+            User.is_active.is_(True),
+            _non_empty_updates_expr(_dialect_name(db)),
         )
-        if cursor_synced_at is not None and cursor_id is not None:
-            query = query.where(
-                or_(
-                    UserSyncEvent.synced_at < cursor_synced_at,
-                    and_(
-                        UserSyncEvent.synced_at == cursor_synced_at,
-                        UserSyncEvent.id < cursor_id,
-                    ),
-                )
+    )
+    if cursor_synced_at is not None and cursor_id is not None:
+        query = query.where(
+            or_(
+                UserSyncEvent.synced_at < cursor_synced_at,
+                and_(
+                    UserSyncEvent.synced_at == cursor_synced_at,
+                    UserSyncEvent.id < cursor_id,
+                ),
             )
-        query = query.order_by(
-            UserSyncEvent.synced_at.desc(), UserSyncEvent.id.desc()
-        ).limit(raw_limit)
+        )
+    query = query.order_by(
+        UserSyncEvent.synced_at.desc(), UserSyncEvent.id.desc()
+    ).limit(page_size + 1)
 
-        rows = (await db.execute(query)).all()
-        filtered = [row for row in rows if row[0].updated_client_types]
-
-        if len(filtered) >= page_size + 1 or len(rows) < raw_limit or multiplier >= _MAX_RAW_FETCH_MULTIPLIER:
-            return filtered
-        multiplier *= 2
+    return (await db.execute(query)).all()
 
 
 @router.get("/recent", response_model=RecentActivityResponse)
@@ -173,8 +260,18 @@ async def get_recent_activity(
     """Public feed of recent syncs (last 30 days) that actually changed something.
 
     No authentication required. Events with an empty `updated_client_types`
-    (i.e. a sync that found nothing new) are excluded from the feed.
+    (i.e. a sync that found nothing new) are excluded from the feed, as are
+    events belonging to deactivated users.
+
+    Responses are cached in Redis for `_RECENT_CACHE_TTL_SECONDS`, keyed by
+    `(page_size, cursor)`. The response carries no per-user data, so the cache
+    is shared across all visitors.
     """
+    cache_key = _recent_cache_key(page_size, cursor)
+    cached = await _cache_get(cache_key)
+    if cached is not None:
+        return RecentActivityResponse(**cached)
+
     cursor_synced_at: datetime | None = None
     cursor_id: uuid.UUID | None = None
     if cursor is not None:
@@ -204,12 +301,14 @@ async def get_recent_activity(
         last_event = page_rows[-1][0]
         next_cursor = _encode_cursor(last_event.synced_at, last_event.id)
 
-    return RecentActivityResponse(
+    response = RecentActivityResponse(
         items=items,
         window_days=_WINDOW_DAYS,
         next_cursor=next_cursor,
         has_next_page=has_next_page,
     )
+    await _cache_set(cache_key, response.model_dump())
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +363,14 @@ async def get_activity_ranking(
     page_result = await db.execute(
         select(UserActivityRanking, User.username, User.avatar_url)
         .join(User, User.id == UserActivityRanking.user_id)
-        .where(UserActivityRanking.metric == metric, UserActivityRanking.rank > rank_after)
+        .where(
+            UserActivityRanking.metric == metric,
+            UserActivityRanking.rank > rank_after,
+            # Defense in depth: `activity_ranking.py` already excludes inactive
+            # users when building the snapshot, but a user deactivated between
+            # two snapshot rebuilds must not remain visible on the leaderboard.
+            User.is_active.is_(True),
+        )
         .order_by(UserActivityRanking.rank.asc())
         .limit(page_size + 1)
     )
@@ -288,6 +394,10 @@ async def get_activity_ranking(
     if has_next_page and page_rows:
         next_rank_after = page_rows[-1][0].rank
 
+    # Deliberately not filtered on `current_user.is_active`: this is the caller
+    # looking up their own row, not a public listing. In practice a deactivated
+    # user has no snapshot row (the rebuild excludes them), so this resolves to
+    # None on its own once the next rebuild runs.
     my_rank: MyRank | None = None
     if current_user is not None:
         my_row = (
