@@ -38,8 +38,8 @@ export function GoalsPanel({ userId, isOwner }: GoalsPanelProps) {
 
   const activeList = useMemo(() => activeGoals.data?.goals ?? [], [activeGoals.data]);
   const achievedList = useMemo(() => achievedGoals.data?.goals ?? [], [achievedGoals.data]);
-  const activeTables = activeGoals.data?.tables ?? [];
-  const achievedTables = achievedGoals.data?.tables ?? [];
+  const activeTables = useMemo(() => activeGoals.data?.tables ?? [], [activeGoals.data]);
+  const achievedTables = useMemo(() => achievedGoals.data?.tables ?? [], [achievedGoals.data]);
   const preferenceActiveList = useMemo(
     () => applyLevelDisplayPreference(activeList, activeTables, activeFilter.applyLevelDisplayPrefs),
     [activeList, activeTables, activeFilter.applyLevelDisplayPrefs],

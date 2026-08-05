@@ -95,11 +95,11 @@ export function GoalCard({ goal, compact = false, canDelete = true, dragHandle }
   return (
     <div
       className={cn(
-        "flex items-start justify-between gap-3 rounded-lg border border-border bg-card/60 shadow-sm",
+        "flex items-center justify-between gap-3 rounded-lg border border-border bg-card/60 shadow-sm",
         compact ? "px-3 py-2" : "px-4 py-3",
       )}
     >
-      {dragHandle && <div className="mt-0.5 flex shrink-0 items-center">{dragHandle}</div>}
+      {dragHandle && <div className="flex shrink-0 items-center self-stretch">{dragHandle}</div>}
       <div className="min-w-0 flex-1 space-y-1">
         <div className={cn("flex min-w-0 items-center gap-1.5", compact ? "flex-nowrap" : "flex-wrap")}>
           {goal.goal_type === "chart" ? (
@@ -151,7 +151,7 @@ export function GoalCard({ goal, compact = false, canDelete = true, dragHandle }
       </div>
 
       {!compact && (goal.created_at || goal.achieved_recorded_at) && (
-        <div className="shrink-0 space-y-0.5 whitespace-nowrap text-right text-caption text-muted-foreground">
+        <div className="shrink-0 space-y-0.5 whitespace-nowrap text-right text-body text-muted-foreground">
           {goal.created_at && <p>{t("goals.card.registeredOn", { date: formatGoalDate(goal.created_at) })}</p>}
           {goal.status === "achieved" && goal.achieved_recorded_at && (
             <p>{t("goals.card.achievedOnDate", { date: formatGoalDate(goal.achieved_recorded_at) })}</p>

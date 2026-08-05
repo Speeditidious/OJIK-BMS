@@ -135,10 +135,10 @@ function SortableGoalItem({
             type="button"
             {...attributes}
             {...listeners}
-            className="shrink-0 cursor-grab opacity-40 transition-opacity hover:opacity-80 active:cursor-grabbing"
+            className="flex h-full min-h-10 w-5 shrink-0 cursor-grab items-center justify-center rounded-md opacity-40 transition-opacity hover:opacity-80 active:cursor-grabbing"
             aria-label={t("goals.card.reorderTitle")}
           >
-            <GripVertical className="h-4 w-4 text-muted-foreground" />
+            <GripVertical className="h-full min-h-8 w-4 text-muted-foreground" />
           </button>
         </TooltipTrigger>
         <TooltipContent className="text-label">{t("goals.card.reorderTitle")}</TooltipContent>
@@ -150,8 +150,8 @@ function SortableGoalItem({
     dragHandle = (
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="shrink-0 cursor-not-allowed opacity-25">
-            <GripVertical className="h-4 w-4 text-muted-foreground" />
+          <span className="flex h-full min-h-10 w-5 shrink-0 cursor-not-allowed items-center justify-center rounded-md opacity-25">
+            <GripVertical className="h-full min-h-8 w-4 text-muted-foreground" />
           </span>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs text-label">{disabledReason}</TooltipContent>

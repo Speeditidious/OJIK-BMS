@@ -34,11 +34,11 @@ from app.services.goal_evaluator import (
     compute_course_baseline,
     validate_goal_target,
 )
+from app.services.level_display_preferences import normalize_level_display_preferences
 from app.services.ranking_calculator import CLEAR_TYPE_TO_LAMP_NAME
 from app.services.ranking_calculator import _song_rating as _rate_chart
 from app.services.ranking_config import get_effective_dans, get_ranking_config
 from app.services.table_level_order import split_table_level_order
-from app.services.level_display_preferences import normalize_level_display_preferences
 
 router = APIRouter(prefix="/goals", tags=["goals"])
 

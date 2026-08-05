@@ -446,7 +446,7 @@ function LevelDisplayCard() {
   const { mutate: update } = useUpdateLevelDisplayPrefs();
 
   return (
-    <Card id="level-display">
+    <Card id="level-display" className="scroll-mt-16">
       <CardHeader>
         <CardTitle className="text-base">{t("settings.preferences.levelDisplayTitle")}</CardTitle>
         <CardDescription>{t("settings.preferences.levelDisplayDescription")}</CardDescription>
