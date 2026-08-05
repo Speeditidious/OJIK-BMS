@@ -361,7 +361,7 @@ async def list_categories(
     slug_to_symbol: dict[str, str | None] = {r.slug: r.symbol for r in sym_result.all()}
     category_order = {c.key: c.order for c in cfg.categories}
 
-    if offset < 0 and existing_weeklies:
+    if existing_weeklies:
         return _historical_category_meta(existing_weeklies, category_order, slug_to_symbol)
 
     def _build_display_ranges(b) -> list[RangeDisplay]:
