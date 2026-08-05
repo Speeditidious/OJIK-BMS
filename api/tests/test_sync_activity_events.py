@@ -266,6 +266,8 @@ class _StatsMockDB:
         result = MagicMock()
         if "user_goals" in compiled:
             result.scalar_one_or_none.return_value = 0
+        elif "user_sync_events" in compiled:
+            result.scalar_one_or_none.return_value = None
         elif "user_player_stats" in compiled and "ORDER BY" in compiled.upper():
             result.scalar_one_or_none.return_value = self.latest_row
         elif "user_player_stats" in compiled:
@@ -408,13 +410,17 @@ async def test_mixed_client_types_only_changed_one_reported(db_session: AsyncSes
     assert result.skipped_scores == 1
 
     events = await _sync_events(db_session, user.id)
-    assert events[-1].updated_client_types == ["lr2"]
+    assert len(events) == 1
+    assert events[0].updated_client_types == ["beatoraja", "lr2"]
 
 
 @pytest.mark.asyncio
-async def test_two_requests_produce_two_separate_events(db_session: AsyncSession):
-    """Append-only: two sync requests each produce their own event row,
-    never merged/deduped across requests.
+async def test_two_changed_requests_on_same_day_update_one_visible_event(db_session: AsyncSession):
+    """Visible recent-activity rows are one-per-user-per-UTC-day.
+
+    A later record-changing sync updates the existing row's timestamp/client
+    chips instead of adding a duplicate public feed row, so ordering can still
+    move forward while the same day stays collapsed.
     """
     user = _user()
     payload = SyncRequest(
@@ -430,6 +436,8 @@ async def test_two_requests_produce_two_separate_events(db_session: AsyncSession
         player_stats=[],
     )
     await _sync(payload, user, db_session)
+    first_event = (await _sync_events(db_session, user.id))[0]
+    first_synced_at = first_event.synced_at
 
     payload2 = SyncRequest(
         scores=[
@@ -446,8 +454,19 @@ async def test_two_requests_produce_two_separate_events(db_session: AsyncSession
     await _sync(payload2, user, db_session)
 
     events = await _sync_events(db_session, user.id)
-    assert len(events) == 2
-    assert all(e.updated_client_types == ["lr2"] for e in events)
+    assert len(events) == 1
+    assert events[0].updated_client_types == ["lr2"]
+    first_ts = (
+        first_synced_at.replace(tzinfo=UTC).timestamp()
+        if first_synced_at.tzinfo is None
+        else first_synced_at.timestamp()
+    )
+    latest_ts = (
+        events[0].synced_at.replace(tzinfo=UTC).timestamp()
+        if events[0].synced_at.tzinfo is None
+        else events[0].synced_at.timestamp()
+    )
+    assert latest_ts >= first_ts
 
 
 @pytest.mark.asyncio
