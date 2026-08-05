@@ -12,14 +12,19 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { PopularFumensTable } from "@/components/fumen/PopularFumensTable";
-import type { PopularRange } from "@/types";
+import type { PopularRange, PopularSortBy } from "@/types";
 
 export function PopularFumensDialog() {
   const { t } = useTranslation();
-  // Mirrors PopularFumensTable's internal range state (via onRangeChange)
-  // so the dialog title can keep showing the live selected range, exactly
-  // as it did before the range/sortBy state moved into PopularFumensTable.
+  // range/sortBy are owned here (in PopularFumensDialog, which stays
+  // mounted across the dialog's open/close cycle) rather than inside
+  // PopularFumensTable, and passed down as controlled props. DialogContent
+  // unmounts its subtree on close, so if PopularFumensTable owned this
+  // state uncontrolled, every close->reopen would reset it back to the
+  // defaults. Lifting it here also lets the title below stay in sync with
+  // the live selected range with no extra effect/flicker.
   const [range, setRange] = useState<PopularRange>("weekly");
+  const [sortBy, setSortBy] = useState<PopularSortBy>("players");
 
   return (
     <Dialog>
@@ -37,7 +42,7 @@ export function PopularFumensDialog() {
           </DialogTitle>
         </DialogHeader>
 
-        <PopularFumensTable onRangeChange={setRange} />
+        <PopularFumensTable range={range} onRangeChange={setRange} sortBy={sortBy} onSortByChange={setSortBy} />
       </DialogContent>
     </Dialog>
   );
