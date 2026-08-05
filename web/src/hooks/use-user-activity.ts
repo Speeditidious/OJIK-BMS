@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ActivityMetric, ActivityRankingResponse, RecentActivityResponse } from "@/types";
 
-export function useRecentActivity(pageSize = 10, cursor?: string, enabled = true) {
+export function useRecentActivity(pageSize = 10, cursor?: string) {
   return useQuery<RecentActivityResponse>({
     queryKey: ["activity", "recent", pageSize, cursor ?? null],
     queryFn: () =>
@@ -16,11 +16,10 @@ export function useRecentActivity(pageSize = 10, cursor?: string, enabled = true
     // on every "load more" click). Matches the established pattern in
     // `use-rankings.ts`'s `useRankingHistory`.
     placeholderData: keepPreviousData,
-    enabled,
   });
 }
 
-export function useActivityRanking(metric: ActivityMetric, pageSize = 10, rankAfter = 0, enabled = true) {
+export function useActivityRanking(metric: ActivityMetric, pageSize = 10, rankAfter = 0) {
   return useQuery<ActivityRankingResponse>({
     queryKey: ["activity", "ranking", metric, pageSize, rankAfter],
     queryFn: () => api.get(`/activity/ranking?metric=${metric}&page_size=${pageSize}&rank_after=${rankAfter}`),
@@ -28,6 +27,5 @@ export function useActivityRanking(metric: ActivityMetric, pageSize = 10, rankAf
     // Same rationale as `useRecentActivity` above — avoids a full loading
     // flash when `rankAfter` changes on "load more".
     placeholderData: keepPreviousData,
-    enabled,
   });
 }

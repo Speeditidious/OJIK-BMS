@@ -226,19 +226,19 @@ export const resources = {
             attendance: {
               label: "출석",
               desc: "최근 30일 동안 동기화한 날짜 수입니다. 같은 날 여러 번 동기화해도 1일로 셉니다.",
-              unit: "{{count}}일",
+              unit: "{{count, number}}일",
             },
             plays: {
               label: "플레이",
               desc: "최근 30일 누적 플레이 횟수입니다.",
               notice:
                 "비토라자는 곡을 완주해야 플레이 횟수가 오르지만 LR2는 중간에 나가도 오릅니다. 구동기에 따라 오차가 있을 수 있습니다.",
-              unit: "{{count}}회",
+              unit: "{{count, number}}회",
             },
             notesHit: {
               label: "격파 노트",
               desc: "최근 30일 동안 격파한 누적 노트 수입니다.",
-              unit: "{{count}} 노트",
+              unit: "{{count, number}} 노트",
             },
           },
         },
@@ -1412,19 +1412,19 @@ export const resources = {
             attendance: {
               label: "Attendance",
               desc: "Number of days synced in the last 30 days. Multiple syncs on the same day count once.",
-              unit: "{{count}} d",
+              unit: "{{count, number}} d",
             },
             plays: {
               label: "Plays",
               desc: "Total plays in the last 30 days.",
               notice:
                 "beatoraja counts a play only when the chart is finished, while LR2 counts it even if you quit mid-song. Numbers may differ by client.",
-              unit: "{{count}}",
+              unit: "{{count, number}}",
             },
             notesHit: {
               label: "Notes Hit",
               desc: "Total notes hit in the last 30 days.",
-              unit: "{{count}} notes",
+              unit: "{{count, number}} notes",
             },
           },
         },
@@ -2598,19 +2598,19 @@ export const resources = {
             attendance: {
               label: "出席",
               desc: "直近30日で同期した日数です。同じ日に複数回同期しても1日として数えます。",
-              unit: "{{count}}日",
+              unit: "{{count, number}}日",
             },
             plays: {
               label: "プレイ",
               desc: "直近30日の累計プレイ回数です。",
               notice:
                 "beatorajaは曲を完走しないとプレイ回数が増えませんが、LR2は途中で抜けても増えます。本体によって誤差が生じる場合があります。",
-              unit: "{{count}}回",
+              unit: "{{count, number}}回",
             },
             notesHit: {
               label: "ノーツ",
               desc: "直近30日で処理した累計ノーツ数です。",
-              unit: "{{count}} ノーツ",
+              unit: "{{count, number}} ノーツ",
             },
           },
         },
