@@ -54,10 +54,6 @@ export function ActivityRankingPanel() {
     setPage(1);
   };
 
-  const myRow = displayedData?.my_rank ?? null;
-  const myRowInPage = user ? items.some((item) => item.user_id === user.id) : false;
-  const showMyRankSummary = Boolean(user && myRow && !myRowInPage);
-
   return (
     <div className="flex h-full flex-col">
       <div className="mb-3 min-h-4 flex items-center justify-between gap-3 text-caption text-muted-foreground">
@@ -167,21 +163,6 @@ export function ActivityRankingPanel() {
                   </div>
                 );
               })
-            )}
-
-            {showMyRankSummary && myRow && (
-              <div className="flex items-center gap-3 px-3 py-2 bg-primary/10 border-t border-primary/30">
-                <span className="w-8 flex-shrink-0 text-center text-caption text-muted-foreground">
-                  {t("home.activity.ranking.myRank")}
-                </span>
-                <span className={cn("flex-shrink-0 tabular-nums font-bold", rankClass(myRow.rank))}>
-                  {myRow.rank}
-                </span>
-                <span className="min-w-0 flex-1" />
-                <span className="flex-shrink-0 tabular-nums text-label font-semibold text-foreground">
-                  {t(`home.activity.metric.${i18nMetric}.unit`, { count: myRow.value })}
-                </span>
-              </div>
             )}
           </div>
 
