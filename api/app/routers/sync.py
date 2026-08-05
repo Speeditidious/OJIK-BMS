@@ -15,7 +15,7 @@ from app.core.security import get_current_user
 from app.models.course import Course
 from app.models.fumen import Fumen
 from app.models.goal import UserGoal
-from app.models.score import UserPlayerStats, UserScore
+from app.models.score import UserPlayerStats, UserScore, UserSyncEvent
 from app.models.user import User
 from app.services.goal_evaluator import (
     GoalAchievementCandidate,
@@ -632,13 +632,20 @@ async def sync_data(
     metadata_updated = 0
     now = datetime.now(UTC)
     touched_fumen_ids: set[Any] = set()
+    touched_client_types: set[str] = set()
 
     if not payload.scores and not payload.player_stats:
+        # Record attendance even for a no-op sync request (e.g. heartbeat-only
+        # clients with nothing new to submit) — see plan section 3-3.
+        db.add(UserSyncEvent(user_id=current_user.id, synced_at=now, updated_client_types=[]))
+        await db.commit()
         return SyncResponse(synced_scores=0, skipped_scores=0, errors=[])
 
     syncable_scores = [item for item in payload.scores if _is_syncable_score(item)]
     skipped_scores = len(payload.scores) - len(syncable_scores)
     if not syncable_scores and not payload.player_stats:
+        db.add(UserSyncEvent(user_id=current_user.id, synced_at=now, updated_client_types=[]))
+        await db.commit()
         return SyncResponse(synced_scores=0, skipped_scores=skipped_scores, errors=[])
 
     # ── Goal achievement detection (Task 10) ────────────────────────────────────
@@ -835,6 +842,7 @@ async def sync_data(
                                         .values(**update_vals)
                                     )
                                 metadata_updated += 1
+                                touched_client_types.add(item.client_type)
                                 for field, value in update_vals.items():
                                     best[f"_latest_{field}"] = value
                                 scorehash_key = _scorehash_identity_key(item)
@@ -874,6 +882,7 @@ async def sync_data(
                                 )
                             )
                             metadata_updated += 1
+                            touched_client_types.add(item.client_type)
                         new_id = existing_same_day.id
                         if resolved_fumen_id is not None:
                             touched_fumen_ids.add(resolved_fumen_id)
@@ -952,6 +961,7 @@ async def sync_data(
                             continue
                         if resolved_fumen_id is not None:
                             touched_fumen_ids.add(resolved_fumen_id)
+                        touched_client_types.add(item.client_type)
                         if updates_existing_scorehash:
                             metadata_updated += 1
                         else:
@@ -1077,6 +1087,12 @@ async def sync_data(
             )
             row = existing.scalar_one_or_none()
             if row:
+                if (
+                    row.playcount != ps.playcount
+                    or row.clearcount != ps.clearcount
+                    or row.playtime != ps.playtime
+                ):
+                    touched_client_types.add(ps.client_type)
                 await db.execute(
                     update(UserPlayerStats)
                     .where(UserPlayerStats.id == row.id)
@@ -1107,6 +1123,7 @@ async def sync_data(
                     and latest_row.playtime == ps.playtime
                 ):
                     continue
+                touched_client_types.add(ps.client_type)
                 db.add(UserPlayerStats(
                     user_id=current_user.id,
                     client_type=ps.client_type,
@@ -1181,6 +1198,12 @@ async def sync_data(
                 "Sync marked %d goal(s) achieved for user %s",
                 len(achieved_goal_ids), current_user.id,
             )
+
+    db.add(UserSyncEvent(
+        user_id=current_user.id,
+        synced_at=now,
+        updated_client_types=sorted(touched_client_types),
+    ))
 
     await db.commit()
 

@@ -244,6 +244,52 @@ export interface PopularFumensResponse {
   items: PopularFumen[];
 }
 
+// ── User activity (home page section) ───────────────────────────────────────
+
+export type ActivityMetric = "attendance" | "plays" | "notes_hit";
+
+export interface RecentActivityItem {
+  id: string;
+  user_id: string;
+  username: string;
+  avatar_url: string | null;
+  is_admin: boolean;
+  synced_at: string;
+  sync_date: string;
+  updated_client_types: string[];
+}
+
+export interface RecentActivityResponse {
+  items: RecentActivityItem[];
+  window_days: number;
+  next_cursor: string | null;
+  has_next_page: boolean;
+}
+
+export interface ActivityRankingItem {
+  rank: number;
+  user_id: string;
+  username: string;
+  avatar_url: string | null;
+  value: number;
+}
+
+export interface ActivityMyRank {
+  rank: number;
+  value: number;
+}
+
+export interface ActivityRankingResponse {
+  metric: ActivityMetric;
+  window_start: string | null;
+  window_end: string | null;
+  computed_at: string | null;
+  items: ActivityRankingItem[];
+  my_rank: ActivityMyRank | null;
+  next_rank_after: number | null;
+  has_next_page: boolean;
+}
+
 // ── API utility types ─────────────────────────────────────────────────────────
 
 export interface Pagination<T> {

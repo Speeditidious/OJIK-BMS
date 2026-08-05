@@ -40,7 +40,12 @@ from app.models.ranking import (
     UserTableRatingUpdateKey,
 )
 from app.models.schedule import Schedule
-from app.models.score import UserPlayerStats, UserScore
+from app.models.score import (
+    UserActivityRanking,
+    UserPlayerStats,
+    UserScore,
+    UserSyncEvent,
+)
 from app.models.table_import import TableImportLog, TableSourceAlias
 from app.models.user import OAuthAccount, User
 from app.models.weekly import Weekly, WeeklyFumen
@@ -73,6 +78,8 @@ __all__ = [
     "UserGoal",
     "UserScore",
     "UserPlayerStats",
+    "UserSyncEvent",
+    "UserActivityRanking",
     "Course",
     "DifficultyTable",
     "UserFavoriteDifficultyTable",

@@ -10,6 +10,7 @@ import { Navbar } from "@/components/layout/navbar";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { LoginButton } from "@/components/home/LoginButton";
 import { AnnouncementCard } from "@/components/announcements/AnnouncementCard";
+import { UserActivitySection } from "@/components/home/UserActivitySection";
 import { IssueStatusBadge } from "@/components/issues/IssueStatusBadge";
 import { useAnnouncements } from "@/hooks/use-announcements";
 import { usePinnedIssues } from "@/hooks/use-issues";
@@ -183,6 +184,10 @@ export default function HomePage() {
             </div>
           </section>
         )}
+
+        <section className="container mx-auto px-4 pb-4 pt-10">
+          <UserActivitySection />
+        </section>
 
         <section className="container mx-auto px-4 py-20">
           <div className="mx-auto max-w-3xl text-center">

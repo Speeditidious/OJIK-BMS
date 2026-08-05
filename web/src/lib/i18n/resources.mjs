@@ -204,6 +204,50 @@ export const resources = {
             },
           ],
         },
+        activity: {
+          title: "유저 활동",
+          tabs: {
+            recent: "최근 활동",
+            ranking: "활동 랭킹",
+            popular: "인기 TOP 10",
+          },
+          recent: {
+            client: {
+              lr2: "LR2",
+              beatoraja: "Beatoraja",
+            },
+            window: "최근 한 달 동기화 기준",
+            empty: "아직 동기화 기록이 없습니다",
+            loadMore: "더 보기",
+          },
+          ranking: {
+            window: "최근 30일 ({{start}} ~ {{end}}) 기준",
+            updatedAt: "{{time}} 갱신",
+            pending: "집계 준비 중입니다",
+            empty: "아직 랭킹 데이터가 없습니다",
+            myRank: "내 순위",
+            loadMore: "더 보기",
+          },
+          metric: {
+            attendance: {
+              label: "출석",
+              desc: "최근 30일 동안 동기화한 날짜 수입니다. 같은 날 여러 번 동기화해도 1일로 셉니다.",
+              unit: "{{count, number}}일",
+            },
+            plays: {
+              label: "플레이",
+              desc: "최근 30일 누적 플레이 횟수입니다.",
+              notice:
+                "비토라자는 곡을 완주해야 플레이 횟수가 오르지만 LR2는 중간에 나가도 오릅니다. 구동기에 따라 오차가 있을 수 있습니다.",
+              unit: "{{count, number}}회",
+            },
+            notesHit: {
+              label: "격파 노트",
+              desc: "최근 30일 동안 격파한 누적 노트 수입니다.",
+              unit: "{{count, number}} 노트",
+            },
+          },
+        },
       },
       auth: {
         login: {
@@ -1387,6 +1431,50 @@ export const resources = {
             },
           ],
         },
+        activity: {
+          title: "User Activity",
+          tabs: {
+            recent: "Recent Activity",
+            ranking: "Activity Ranking",
+            popular: "Popular TOP 10",
+          },
+          recent: {
+            client: {
+              lr2: "LR2",
+              beatoraja: "Beatoraja",
+            },
+            window: "Syncs in the last month",
+            empty: "No sync activity yet",
+            loadMore: "Load more",
+          },
+          ranking: {
+            window: "Last 30 days ({{start}} – {{end}})",
+            updatedAt: "Updated {{time}}",
+            pending: "Ranking is being prepared",
+            empty: "No ranking data yet",
+            myRank: "My rank",
+            loadMore: "Load more",
+          },
+          metric: {
+            attendance: {
+              label: "Attendance",
+              desc: "Number of days synced in the last 30 days. Multiple syncs on the same day count once.",
+              unit: "{{count, number}} d",
+            },
+            plays: {
+              label: "Plays",
+              desc: "Total plays in the last 30 days.",
+              notice:
+                "beatoraja counts a play only when the chart is finished, while LR2 counts it even if you quit mid-song. Numbers may differ by client.",
+              unit: "{{count, number}}",
+            },
+            notesHit: {
+              label: "Notes Hit",
+              desc: "Total notes hit in the last 30 days.",
+              unit: "{{count, number}} notes",
+            },
+          },
+        },
       },
       auth: {
         login: {
@@ -2569,6 +2657,50 @@ export const resources = {
               imageAlt: "ユーザープロフィール",
             },
           ],
+        },
+        activity: {
+          title: "ユーザー活動",
+          tabs: {
+            recent: "最近の活動",
+            ranking: "活動ランキング",
+            popular: "人気TOP10",
+          },
+          recent: {
+            client: {
+              lr2: "LR2",
+              beatoraja: "Beatoraja",
+            },
+            window: "直近1か月の同期",
+            empty: "まだ同期記録がありません",
+            loadMore: "もっと見る",
+          },
+          ranking: {
+            window: "直近30日（{{start}}～{{end}}）",
+            updatedAt: "{{time}} 更新",
+            pending: "集計を準備中です",
+            empty: "まだランキングデータがありません",
+            myRank: "自分の順位",
+            loadMore: "もっと見る",
+          },
+          metric: {
+            attendance: {
+              label: "出席",
+              desc: "直近30日で同期した日数です。同じ日に複数回同期しても1日として数えます。",
+              unit: "{{count, number}}日",
+            },
+            plays: {
+              label: "プレイ",
+              desc: "直近30日の累計プレイ回数です。",
+              notice:
+                "beatorajaは曲を完走しないとプレイ回数が増えませんが、LR2は途中で抜けても増えます。本体によって誤差が生じる場合があります。",
+              unit: "{{count, number}}回",
+            },
+            notesHit: {
+              label: "ノーツ",
+              desc: "直近30日で処理した累計ノーツ数です。",
+              unit: "{{count, number}} ノーツ",
+            },
+          },
         },
       },
       auth: {

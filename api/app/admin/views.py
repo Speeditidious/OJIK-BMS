@@ -49,7 +49,12 @@ from app.models.ranking import (
     UserTableRatingUpdateKey,
 )
 from app.models.schedule import Schedule
-from app.models.score import UserPlayerStats, UserScore
+from app.models.score import (
+    UserActivityRanking,
+    UserPlayerStats,
+    UserScore,
+    UserSyncEvent,
+)
 from app.models.table_import import TableImportLog, TableSourceAlias
 from app.models.user import OAuthAccount, User
 from app.models.weekly import Weekly, WeeklyFumen
@@ -988,6 +993,43 @@ class UserPlayerStatsAdmin(ModelView, model=UserPlayerStats):
     ]
     column_default_sort = [(UserPlayerStats.synced_at, True)]
     # judgments (JSONB) intentionally omitted from column_list
+
+
+class UserSyncEventAdmin(ModelView, model=UserSyncEvent):
+    name = "User Sync Event"
+    name_plural = "User Sync Events"
+    icon = "fa-solid fa-arrows-rotate"
+    column_list = [
+        UserSyncEvent.id,
+        UserSyncEvent.user_id,
+        UserSyncEvent.synced_at,
+        UserSyncEvent.updated_client_types,
+    ]
+    column_sortable_list = [UserSyncEvent.synced_at]
+    column_searchable_list = [UserSyncEvent.user_id]
+    can_create = False
+    can_edit = False
+    can_delete = False
+
+
+class UserActivityRankingAdmin(ModelView, model=UserActivityRanking):
+    name = "User Activity Ranking"
+    name_plural = "User Activity Rankings"
+    icon = "fa-solid fa-trophy"
+    column_list = [
+        UserActivityRanking.metric,
+        UserActivityRanking.user_id,
+        UserActivityRanking.rank,
+        UserActivityRanking.value,
+        UserActivityRanking.window_start,
+        UserActivityRanking.window_end,
+        UserActivityRanking.computed_at,
+    ]
+    column_sortable_list = [UserActivityRanking.rank, UserActivityRanking.value]
+    column_searchable_list = [UserActivityRanking.user_id]
+    can_create = False
+    can_edit = False
+    can_delete = False
 
 
 class CourseAdmin(ModelView, model=Course):
