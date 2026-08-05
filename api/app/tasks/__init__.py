@@ -8,6 +8,7 @@ UPDATE_ALL_TABLES_TASK = "app.tasks.table_updater.update_all_difficulty_tables"
 RECALCULATE_ALL_RANKINGS_TASK = "app.tasks.ranking_calculator.recalculate_all_rankings"
 REFRESH_FUMEN_POPULARITY_TASK = "app.tasks.fumen_popularity.refresh_dirty_fumen_popularity"
 REBUILD_FUMEN_POPULARITY_WINDOWS_TASK = "app.tasks.fumen_popularity.rebuild_fumen_popularity_windows"
+REBUILD_ACTIVITY_RANKING_TASK = "app.tasks.activity_ranking.rebuild_activity_ranking"
 GENERATE_WEEKLIES_TASK = "app.tasks.weekly_generator.generate_weeklies"
 
 celery_app = Celery(
@@ -18,6 +19,7 @@ celery_app = Celery(
         "app.tasks.table_updater",
         "app.tasks.ranking_calculator",
         "app.tasks.fumen_popularity",
+        "app.tasks.activity_ranking",
         "app.tasks.weekly_generator",
     ],
 )
@@ -74,6 +76,10 @@ def build_beat_schedule(update_config: dict, table_configs: list[dict]) -> dict:
         "rebuild-fumen-popularity-windows": {
             "task": REBUILD_FUMEN_POPULARITY_WINDOWS_TASK,
             "schedule": 86400,
+        },
+        "rebuild-activity-ranking": {
+            "task": REBUILD_ACTIVITY_RANKING_TASK,
+            "schedule": 900,
         },
         "update-user-difficulty-tables": {
             "task": UPDATE_ALL_TABLES_TASK,
