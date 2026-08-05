@@ -10,6 +10,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.core.config import settings
 from app.routers import (
+    activity,
     admin,
     analysis,
     announcement_admin,
@@ -178,6 +179,7 @@ app.include_router(day_notes.router)
 app.include_router(analysis.router)
 app.include_router(custom.router)
 app.include_router(sync.router)
+app.include_router(activity.router)
 app.include_router(schedules.router)
 app.include_router(goals.router)
 app.include_router(rankings.router)
