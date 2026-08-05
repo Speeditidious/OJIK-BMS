@@ -3,7 +3,7 @@
 `sync_data` is called directly (bypassing FastAPI's DI layer) against a real
 in-memory SQLite session, mirroring the convention in `test_goals_api.py` /
 `test_goal_evaluator.py` — raw DDL for the tables this hook touches
-(`user_scores`, `courses`, `user_goals`, `fumens`), because
+(`user_scores`, `courses`, `user_goals`, `fumens`, `user_sync_events`), because
 `Base.metadata.create_all` chokes on SQLite for Postgres-only
 `server_default` expressions and the JSONB type used across the full model
 set.
@@ -138,6 +138,14 @@ async def db_session():
                 added_by_user_id CHAR(32),
                 created_at DATETIME,
                 updated_at DATETIME
+            )
+            """,
+            """
+            CREATE TABLE user_sync_events (
+                id CHAR(32) PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+                user_id CHAR(32) NOT NULL,
+                synced_at DATETIME NOT NULL,
+                updated_client_types JSON NOT NULL DEFAULT '[]'
             )
             """,
         ):
