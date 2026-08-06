@@ -13,13 +13,13 @@ from datetime import UTC, datetime, timedelta
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import and_, func, select
+from sqlalchemy import Date, and_, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user_optional
-from app.models.score import UserActivityRanking, UserSyncEvent
+from app.models.score import UserActivityRanking, UserPlayerStats
 from app.models.user import OAuthAccount, User
 from app.routers.auth import build_discord_avatar_url
 
@@ -171,95 +171,129 @@ def _dialect_name(db: AsyncSession) -> str:
     return bind.dialect.name if bind is not None else "postgresql"
 
 
-def _non_empty_updates_expr(dialect_name: str):
-    """SQL predicate for `updated_client_types` being a non-empty JSON array.
-
-    Dialect-branched because the JSON array-length function differs: Postgres
-    exposes `jsonb_array_length` for `jsonb` columns, SQLite exposes
-    `json_array_length`. Following the same `_utc_date_expr` dialect-branching
-    convention already used in `app/services/fumen_popularity.py`.
-
-    Emitting this as SQL (rather than filtering in Python) is what lets the
-    Postgres planner match the partial index
-    `ix_user_sync_events_updated_synced_at_id`, whose predicate is exactly
-    `jsonb_array_length(updated_client_types) > 0`.
-    """
-    column = UserSyncEvent.updated_client_types
+def _utc_date_expr(value, dialect_name: str):
+    """UTC calendar-day expression for a timestamp column, per dialect."""
     if dialect_name == "sqlite":
-        return func.json_array_length(column) > 0
-    return func.jsonb_array_length(column) > 0
+        return func.date(value)
+    return cast(func.timezone("UTC", value), Date)
 
 
-def _recent_base_filters(db: AsyncSession, window_start: datetime):
-    return (
-        UserSyncEvent.synced_at >= window_start,
-        # Deactivated/banned accounts are invisible site-wide (mirrors
-        # `ranking_calculator.select_ranking_user_ids`'s `is_active IS TRUE`).
-        User.is_active.is_(True),
-        _non_empty_updates_expr(_dialect_name(db)),
-    )
+def _sync_date(value: datetime) -> str:
+    """Return the UTC calendar date string for a synced_at value."""
+    if value.tzinfo is None:
+        return value.date().isoformat()
+    return value.astimezone(UTC).date().isoformat()
 
 
 async def _fetch_recent_page(
     db: AsyncSession,
     offset: int,
     page_size: int,
-) -> list[tuple[UserSyncEvent, str, str | None, str | None, str | None, str | None, bool]]:
-    """Fetch exactly one offset-paginated page of in-window sync events with non-empty updates.
+) -> list[dict]:
+    """Fetch one offset-paginated page of in-window player-stat sync days.
 
-    Ordered newest-first on `(synced_at DESC, id DESC)`, matching `/rankings/{table_slug}`'s
-    offset/limit pagination style so the frontend can render numbered page buttons.
+    `user_player_stats` already stores at most one row per user/client/UTC day.
+    The public feed groups those rows again by user/day so LR2 + Beatoraja
+    synced on the same day appears as one line with two client chips.
     """
     window_start = datetime.now(UTC) - timedelta(days=_WINDOW_DAYS)
+    rows = (
+        await db.execute(
+            select(
+                UserPlayerStats.user_id,
+                UserPlayerStats.synced_at,
+                UserPlayerStats.client_type,
+                User.username,
+                User.avatar_url,
+                OAuthAccount.provider_account_id,
+                OAuthAccount.discord_avatar_hash,
+                OAuthAccount.discord_avatar_url,
+                User.is_admin,
+            )
+            .join(User, User.id == UserPlayerStats.user_id)
+            .outerjoin(
+                OAuthAccount,
+                and_(OAuthAccount.user_id == User.id, OAuthAccount.provider == "discord"),
+            )
+            .where(
+                UserPlayerStats.synced_at >= window_start,
+                User.is_active.is_(True),
+            )
+            .order_by(UserPlayerStats.synced_at.desc(), UserPlayerStats.user_id.asc())
+        )
+    ).all()
 
-    query = (
-        select(
-            UserSyncEvent,
-            User.username,
-            User.avatar_url,
-            OAuthAccount.provider_account_id,
-            OAuthAccount.discord_avatar_hash,
-            OAuthAccount.discord_avatar_url,
-            User.is_admin,
-        )
-        .join(User, User.id == UserSyncEvent.user_id)
-        .outerjoin(
-            OAuthAccount,
-            and_(OAuthAccount.user_id == User.id, OAuthAccount.provider == "discord"),
-        )
-        .where(*_recent_base_filters(db, window_start))
-        .order_by(UserSyncEvent.synced_at.desc(), UserSyncEvent.id.desc())
-        .offset(offset)
-        .limit(page_size)
+    grouped: dict[tuple[str, str], dict] = {}
+    for row in rows:
+        (
+            user_id,
+            synced_at,
+            client_type,
+            username,
+            avatar_url,
+            discord_id,
+            discord_avatar_hash,
+            discord_avatar_url,
+            is_admin,
+        ) = row
+        sync_date = _sync_date(synced_at)
+        key = (str(user_id), sync_date)
+        existing = grouped.get(key)
+        if existing is None:
+            grouped[key] = {
+                "id": f"{user_id}:{sync_date}",
+                "user_id": str(user_id),
+                "username": username,
+                "avatar_url": avatar_url,
+                "discord_id": discord_id,
+                "discord_avatar_hash": discord_avatar_hash,
+                "discord_avatar_url": discord_avatar_url,
+                "is_admin": is_admin,
+                "synced_at": synced_at,
+                "sync_date": sync_date,
+                "updated_client_types": {client_type},
+            }
+            continue
+        if synced_at > existing["synced_at"]:
+            existing["synced_at"] = synced_at
+        existing["updated_client_types"].add(client_type)
+
+    ordered = sorted(
+        grouped.values(),
+        key=lambda item: (item["synced_at"], item["user_id"]),
+        reverse=True,
     )
-
-    return (await db.execute(query)).all()
+    return ordered[offset:offset + page_size]
 
 
 async def _fetch_recent_total(db: AsyncSession) -> int:
-    """Total count of in-window, visible sync events, for page-count calculation."""
+    """Total count of in-window user/day player-stat groups."""
     window_start = datetime.now(UTC) - timedelta(days=_WINDOW_DAYS)
-    return (
+    sync_day = _utc_date_expr(UserPlayerStats.synced_at, _dialect_name(db))
+    rows = (
         await db.execute(
-            select(func.count())
-            .select_from(UserSyncEvent)
-            .join(User, User.id == UserSyncEvent.user_id)
-            .where(*_recent_base_filters(db, window_start))
+            select(UserPlayerStats.user_id, sync_day)
+            .join(User, User.id == UserPlayerStats.user_id)
+            .where(
+                UserPlayerStats.synced_at >= window_start,
+                User.is_active.is_(True),
+            )
+            .group_by(UserPlayerStats.user_id, sync_day)
         )
-    ).scalar_one()
+    ).all()
+    return len(rows)
 
 
 async def _fetch_recent_computed_at(db: AsyncSession) -> datetime | str | None:
-    """Return the newest in-window visible sync event timestamp for feed metadata."""
+    """Return the newest in-window player-stat sync timestamp for feed metadata."""
     window_start = datetime.now(UTC) - timedelta(days=_WINDOW_DAYS)
     return (
         await db.execute(
-            select(func.max(UserSyncEvent.synced_at))
-            .join(User, User.id == UserSyncEvent.user_id)
+            select(func.max(UserPlayerStats.synced_at))
+            .join(User, User.id == UserPlayerStats.user_id)
             .where(
-                UserSyncEvent.synced_at >= window_start,
+                UserPlayerStats.synced_at >= window_start,
                 User.is_active.is_(True),
-                _non_empty_updates_expr(_dialect_name(db)),
             )
         )
     ).scalar_one_or_none()
@@ -271,11 +305,11 @@ async def get_recent_activity(
     page_size: int = Query(10, ge=10, le=50),
     db: AsyncSession = Depends(get_db),
 ) -> RecentActivityResponse:
-    """Public feed of recent syncs (last 30 days) that actually changed something.
+    """Public feed of recent player-stat sync days (last 30 days).
 
-    No authentication required. Events with an empty `updated_client_types`
-    (i.e. a sync that found nothing new) are excluded from the feed, as are
-    events belonging to deactivated users.
+    No authentication required. Rows belonging to deactivated users are
+    excluded. Multiple client rows for the same user and UTC day are collapsed
+    into one feed item.
 
     Offset-paginated (matches `/rankings/{table_slug}`'s `page`/`total_count`
     shape) so the frontend can render numbered page buttons rather than an
@@ -296,16 +330,18 @@ async def get_recent_activity(
 
     items = [
         RecentActivityItem(
-            id=str(event.id),
-            user_id=str(event.user_id),
-            username=username,
-            avatar_url=avatar_url or build_discord_avatar_url(discord_id or "", discord_avatar_hash) or discord_avatar_url,
-            is_admin=is_admin,
-            synced_at=event.synced_at.isoformat(),
-            sync_date=event.synced_at.date().isoformat(),
-            updated_client_types=list(event.updated_client_types or []),
+            id=row["id"],
+            user_id=row["user_id"],
+            username=row["username"],
+            avatar_url=row["avatar_url"]
+            or build_discord_avatar_url(row["discord_id"] or "", row["discord_avatar_hash"])
+            or row["discord_avatar_url"],
+            is_admin=row["is_admin"],
+            synced_at=row["synced_at"].isoformat(),
+            sync_date=row["sync_date"],
+            updated_client_types=sorted(row["updated_client_types"]),
         )
-        for event, username, avatar_url, discord_id, discord_avatar_hash, discord_avatar_url, is_admin in rows
+        for row in rows
     ]
 
     computed_at = await _fetch_recent_computed_at(db)

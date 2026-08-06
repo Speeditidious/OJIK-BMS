@@ -1,8 +1,8 @@
 """Weekly/monthly user activity leaderboard aggregation.
 
 Recomputes the ``user_activity_ranking`` snapshots for 2 ranges (weekly /
-monthly) and 3 metrics (attendance / plays / notes_hit) from ``UserSyncEvent``
-and ``UserPlayerStats``.
+monthly) and 3 metrics (attendance / plays / notes_hit) from
+``UserPlayerStats``.
 Mirrors the delta math already used by ``api/app/routers/analysis.py``'s
 ``_get_daily_plays`` / ``_get_day_stats`` (LAG-style play/notes deltas), but
 computed row-by-row in Python (see module docstring on ``rebuild_activity_ranking``
@@ -24,7 +24,7 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.score import UserActivityRanking, UserPlayerStats, UserSyncEvent
+from app.models.score import UserActivityRanking, UserPlayerStats
 from app.models.user import User
 from app.services.player_stats_reliability import lr2_stats_unreliable_sql
 
@@ -81,11 +81,8 @@ def _utc_date_expr(value: Any, dialect_name: str) -> Any:
     """UTC calendar-day expression for a timestamp column, per dialect.
 
     Same helper shape as `app/services/fumen_popularity.py::_utc_date_expr`.
-    The Postgres branch renders `CAST(timezone('UTC', <col>) AS DATE)`, which is
-    exactly what `<col> AT TIME ZONE 'UTC')::date` normalizes to — that matches
-    the expression of the functional index `ix_user_sync_events_sync_date_user`
-    and so keeps that index usable by the planner. SQLite (this repo's test
-    backend) has no `timezone()` function, hence the `date()` fallback.
+    SQLite (this repo's test backend) has no `timezone()` function, hence the
+    `date()` fallback.
     """
     if dialect_name == "sqlite":
         return sa.func.date(value)
@@ -95,24 +92,26 @@ def _utc_date_expr(value: Any, dialect_name: str) -> Any:
 async def _compute_attendance(
     db: AsyncSession, window_start: date, window_end_exclusive: date
 ) -> dict[UUID, int]:
-    """COUNT(DISTINCT UTC day) of UserSyncEvent rows per active user_id in the window.
+    """COUNT(DISTINCT UTC day) of reliable UserPlayerStats rows per active user_id.
 
     Deactivated users are excluded outright (not merely hidden at display time),
     mirroring `ranking_calculator.select_ranking_user_ids`'s `is_active IS TRUE`.
     """
-    sync_day = _utc_date_expr(UserSyncEvent.synced_at, _dialect_name(db))
+    h = UserPlayerStats
+    sync_day = _utc_date_expr(h.synced_at, _dialect_name(db))
     result = await db.execute(
         sa.select(
-            UserSyncEvent.user_id,
+            h.user_id,
             sa.func.count(sa.func.distinct(sync_day)).label("days"),
         )
-        .join(User, User.id == UserSyncEvent.user_id)
+        .join(User, User.id == h.user_id)
         .where(
-            UserSyncEvent.synced_at >= window_start,
-            UserSyncEvent.synced_at < window_end_exclusive,
+            h.synced_at >= window_start,
+            h.synced_at < window_end_exclusive,
+            sa.not_(lr2_stats_unreliable_sql(h)),
             User.is_active.is_(True),
         )
-        .group_by(UserSyncEvent.user_id)
+        .group_by(h.user_id)
     )
     return {row.user_id: int(row.days) for row in result.all()}
 

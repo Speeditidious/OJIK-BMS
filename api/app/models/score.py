@@ -120,26 +120,6 @@ class UserScore(Base):
         return f"<UserScore id={self.id} user={self.user_id} sha256={self.fumen_sha256}>"
 
 
-class UserSyncEvent(Base):
-    """A successful user sync request, independent from player-stat changes."""
-
-    __tablename__ = "user_sync_events"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    synced_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()")
-    )
-    updated_client_types: Mapped[list[str]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
-
-    def __repr__(self) -> str:
-        return f"<UserSyncEvent user={self.user_id} synced_at={self.synced_at}>"
-
-
 class UserActivityRanking(Base):
     """Precomputed activity leaderboard rows by range and metric."""
 

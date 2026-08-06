@@ -15,7 +15,7 @@ from app.core.security import get_current_user
 from app.models.course import Course
 from app.models.fumen import Fumen
 from app.models.goal import UserGoal
-from app.models.score import UserPlayerStats, UserScore, UserSyncEvent
+from app.models.score import UserPlayerStats, UserScore
 from app.models.user import User
 from app.services.goal_evaluator import (
     GoalAchievementCandidate,
@@ -143,63 +143,9 @@ def _dialect_name(db: AsyncSession) -> str:
     """Return the bound DB dialect name, defaulting to PostgreSQL."""
     get_bind = getattr(db, "get_bind", None)
     if get_bind is None:
-        return "postgresql"
+        return "unknown"
     bind = get_bind()
-    return bind.dialect.name if bind is not None else "postgresql"
-
-
-def _sync_event_day_expr(db: AsyncSession):
-    """UTC date expression for `UserSyncEvent.synced_at`."""
-    if _dialect_name(db) == "sqlite":
-        return func.date(UserSyncEvent.synced_at)
-    return cast(func.timezone("UTC", UserSyncEvent.synced_at), Date)
-
-
-async def _record_sync_event(
-    db: AsyncSession,
-    *,
-    user_id: Any,
-    synced_at: datetime,
-    updated_client_types: list[str],
-) -> None:
-    """Record one sync event, merging visible same-day activity rows.
-
-    Public recent activity only displays events whose `updated_client_types` is
-    non-empty. For those visible rows, keep one row per user per UTC day and
-    move its `synced_at` forward so feed ordering still reflects the latest
-    record-changing sync. Empty no-op events stay append-only for attendance
-    auditing but remain hidden from the public feed.
-    """
-    if not updated_client_types:
-        db.add(UserSyncEvent(user_id=user_id, synced_at=synced_at, updated_client_types=[]))
-        return
-
-    sync_date = synced_at.date()
-    existing_result = await db.execute(
-        select(UserSyncEvent)
-        .where(
-            UserSyncEvent.user_id == user_id,
-            _sync_event_day_expr(db) == sync_date,
-        )
-        .order_by(UserSyncEvent.synced_at.desc(), UserSyncEvent.id.desc())
-        .limit(1)
-    )
-    existing = existing_result.scalar_one_or_none()
-    if existing is None:
-        db.add(
-            UserSyncEvent(
-                user_id=user_id,
-                synced_at=synced_at,
-                updated_client_types=updated_client_types,
-            )
-        )
-        return
-
-    existing.synced_at = synced_at
-    existing.updated_client_types = sorted(
-        set(existing.updated_client_types or []) | set(updated_client_types)
-    )
-    db.add(existing)
+    return bind.dialect.name if bind is not None else "unknown"
 
 
 # ── Best-value helpers ────────────────────────────────────────────────────────
@@ -695,29 +641,14 @@ async def sync_data(
     metadata_updated = 0
     now = datetime.now(UTC)
     touched_fumen_ids: set[Any] = set()
-    touched_client_types: set[str] = set()
 
     if not payload.scores and not payload.player_stats:
-        # Record attendance even for a no-op sync request (e.g. heartbeat-only
-        # clients with nothing new to submit) — see plan section 3-3.
-        await _record_sync_event(
-            db,
-            user_id=current_user.id,
-            synced_at=now,
-            updated_client_types=[],
-        )
         await db.commit()
         return SyncResponse(synced_scores=0, skipped_scores=0, errors=[])
 
     syncable_scores = [item for item in payload.scores if _is_syncable_score(item)]
     skipped_scores = len(payload.scores) - len(syncable_scores)
     if not syncable_scores and not payload.player_stats:
-        await _record_sync_event(
-            db,
-            user_id=current_user.id,
-            synced_at=now,
-            updated_client_types=[],
-        )
         await db.commit()
         return SyncResponse(synced_scores=0, skipped_scores=skipped_scores, errors=[])
 
@@ -915,7 +846,6 @@ async def sync_data(
                                         .values(**update_vals)
                                     )
                                 metadata_updated += 1
-                                touched_client_types.add(item.client_type)
                                 for field, value in update_vals.items():
                                     best[f"_latest_{field}"] = value
                                 scorehash_key = _scorehash_identity_key(item)
@@ -955,7 +885,6 @@ async def sync_data(
                                 )
                             )
                             metadata_updated += 1
-                            touched_client_types.add(item.client_type)
                         new_id = existing_same_day.id
                         if resolved_fumen_id is not None:
                             touched_fumen_ids.add(resolved_fumen_id)
@@ -1034,7 +963,6 @@ async def sync_data(
                             continue
                         if resolved_fumen_id is not None:
                             touched_fumen_ids.add(resolved_fumen_id)
-                        touched_client_types.add(item.client_type)
                         if updates_existing_scorehash:
                             metadata_updated += 1
                         else:
@@ -1160,12 +1088,6 @@ async def sync_data(
             )
             row = existing.scalar_one_or_none()
             if row:
-                if (
-                    row.playcount != ps.playcount
-                    or row.clearcount != ps.clearcount
-                    or row.playtime != ps.playtime
-                ):
-                    touched_client_types.add(ps.client_type)
                 await db.execute(
                     update(UserPlayerStats)
                     .where(UserPlayerStats.id == row.id)
@@ -1196,7 +1118,6 @@ async def sync_data(
                     and latest_row.playtime == ps.playtime
                 ):
                     continue
-                touched_client_types.add(ps.client_type)
                 db.add(UserPlayerStats(
                     user_id=current_user.id,
                     client_type=ps.client_type,
@@ -1271,13 +1192,6 @@ async def sync_data(
                 "Sync marked %d goal(s) achieved for user %s",
                 len(achieved_goal_ids), current_user.id,
             )
-
-    await _record_sync_event(
-        db,
-        user_id=current_user.id,
-        synced_at=now,
-        updated_client_types=sorted(touched_client_types),
-    )
 
     await db.commit()
 

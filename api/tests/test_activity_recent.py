@@ -1,13 +1,13 @@
 """Tests for `GET /activity/recent` (Task 6).
 
 Following the established convention in `test_activity_ranking_service.py` and
-`test_sync_activity_events.py`: the shared `conftest.py` `client`/`db_session`
+the activity-ranking service tests: the shared `conftest.py` `client`/`db_session`
 fixtures build the *entire* real schema via `Base.metadata.create_all`, which
 fails under SQLite because several unrelated tables use Postgres-only JSONB
 columns and `server_default` expressions (verified directly: `CREATE TABLE
 difficulty_tables` errors with `Compiler ... can't render element of type
 JSONB`). This file therefore uses its own minimal-schema SQLite engine
-covering only `users`, `oauth_accounts`, and `user_sync_events`, and drives
+covering only `users`, `oauth_accounts`, and `user_player_stats`, and drives
 the router through a real ASGI `AsyncClient` (matching
 `test_fumen_keymode_sync.py`'s HTTP-level pattern) with `get_db` overridden to
 the minimal-schema session.
@@ -25,8 +25,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.database import get_db
 from app.main import app
+from app.models.score import UserPlayerStats
 from app.routers import activity as activity_router
-from app.models.score import UserSyncEvent
 from app.models.user import User
 
 pytestmark = pytest.mark.asyncio
@@ -63,11 +63,15 @@ async def db_session():
             )
             """,
             """
-            CREATE TABLE user_sync_events (
+            CREATE TABLE user_player_stats (
                 id CHAR(32) PRIMARY KEY,
                 user_id CHAR(32) NOT NULL,
+                client_type VARCHAR(32) NOT NULL,
                 synced_at DATETIME NOT NULL,
-                updated_client_types JSON NOT NULL
+                playcount INTEGER,
+                clearcount INTEGER,
+                playtime INTEGER,
+                judgments JSON
             )
             """,
         ):
@@ -127,28 +131,32 @@ async def _make_user(db_session: AsyncSession, username: str, *, is_active: bool
     return user
 
 
-def _add_event(
+def _add_stat(
     db_session: AsyncSession,
     user: User,
     synced_at: datetime,
-    updated_client_types: list[str],
-) -> UserSyncEvent:
-    event = UserSyncEvent(
+    client_type: str,
+) -> UserPlayerStats:
+    stat = UserPlayerStats(
         id=uuid.uuid4(),
         user_id=user.id,
+        client_type=client_type,
         synced_at=synced_at,
-        updated_client_types=updated_client_types,
+        playcount=100,
+        clearcount=50,
+        playtime=1000,
+        judgments={},
     )
-    db_session.add(event)
-    return event
+    db_session.add(stat)
+    return stat
 
 
 async def test_events_older_than_30_days_excluded(client, db_session):
     user = await _make_user(db_session, "alice")
     old = _now() - timedelta(days=31)
     recent = _now() - timedelta(days=1)
-    _add_event(db_session, user, old, ["lr2"])
-    _add_event(db_session, user, recent, ["lr2"])
+    _add_stat(db_session, user, old, "lr2")
+    _add_stat(db_session, user, recent, "lr2")
     await db_session.commit()
 
     resp = await client.get("/activity/recent")
@@ -159,21 +167,22 @@ async def test_events_older_than_30_days_excluded(client, db_session):
     assert body["window_days"] == 30
 
 
-async def test_events_with_empty_updated_client_types_excluded(client, db_session):
+async def test_same_day_client_types_are_merged(client, db_session):
     user = await _make_user(db_session, "bob")
-    _add_event(db_session, user, _now(), [])
-    _add_event(db_session, user, _now() - timedelta(minutes=1), ["beatoraja"])
+    base = _now().replace(hour=9, minute=0, second=0, microsecond=0)
+    _add_stat(db_session, user, base, "lr2")
+    _add_stat(db_session, user, base + timedelta(minutes=1), "beatoraja")
     await db_session.commit()
 
     resp = await client.get("/activity/recent")
     body = resp.json()
     assert len(body["items"]) == 1
-    assert body["items"][0]["updated_client_types"] == ["beatoraja"]
+    assert body["items"][0]["updated_client_types"] == ["beatoraja", "lr2"]
 
 
 async def test_only_lr2_changed_shows_lr2_only(client, db_session):
     user = await _make_user(db_session, "carol")
-    _add_event(db_session, user, _now(), ["lr2"])
+    _add_stat(db_session, user, _now(), "lr2")
     await db_session.commit()
 
     resp = await client.get("/activity/recent")
@@ -202,7 +211,7 @@ async def test_uses_discord_avatar_when_user_avatar_is_empty(client, db_session)
         ),
         {"user_id": user.id.hex},
     )
-    _add_event(db_session, user, _now(), ["lr2"])
+    _add_stat(db_session, user, _now(), "lr2")
     await db_session.commit()
 
     resp = await client.get("/activity/recent")
@@ -210,27 +219,27 @@ async def test_uses_discord_avatar_when_user_avatar_is_empty(client, db_session)
     assert resp.json()["items"][0]["avatar_url"] == "https://cdn.discordapp.com/avatars/1234/a_hash.gif"
 
 
-async def test_same_user_multiple_syncs_same_day_are_separate_lines_newest_first(client, db_session):
+async def test_same_user_multiple_days_are_separate_lines_newest_first(client, db_session):
     user = await _make_user(db_session, "dave")
     base = _now().replace(hour=10, minute=0, second=0, microsecond=0)
-    e1 = _add_event(db_session, user, base, ["lr2"])
-    e2 = _add_event(db_session, user, base + timedelta(hours=2), ["beatoraja"])
+    older = _add_stat(db_session, user, base - timedelta(days=1), "lr2")
+    newer = _add_stat(db_session, user, base, "beatoraja")
     await db_session.commit()
 
     resp = await client.get("/activity/recent")
     body = resp.json()
     assert len(body["items"]) == 2
-    assert body["items"][0]["id"] == str(e2.id)
-    assert body["items"][1]["id"] == str(e1.id)
+    assert body["items"][0]["id"] == f"{newer.user_id}:{newer.synced_at.date().isoformat()}"
+    assert body["items"][1]["id"] == f"{older.user_id}:{older.synced_at.date().isoformat()}"
 
 
 async def test_pagination_offset_no_overlap_no_gap(client, db_session):
     user = await _make_user(db_session, "erin")
     base = _now().replace(hour=8, minute=0, second=0, microsecond=0)
-    events = []
+    stats = []
     for i in range(15):
-        ev = _add_event(db_session, user, base + timedelta(minutes=i), ["lr2"])
-        events.append(ev)
+        stat = _add_stat(db_session, user, base - timedelta(days=i), "lr2")
+        stats.append(stat)
     await db_session.commit()
 
     resp1 = await client.get("/activity/recent", params={"page_size": 10, "page": 1})
@@ -241,7 +250,10 @@ async def test_pagination_offset_no_overlap_no_gap(client, db_session):
 
     page1_ids = {item["id"] for item in body1["items"]}
     # Newest-first: the 10 most recent of the 15 events.
-    expected_page1_ids = {str(e.id) for e in sorted(events, key=lambda e: e.synced_at, reverse=True)[:10]}
+    expected_page1_ids = {
+        f"{s.user_id}:{s.synced_at.date().isoformat()}"
+        for s in sorted(stats, key=lambda s: s.synced_at, reverse=True)[:10]
+    }
     assert page1_ids == expected_page1_ids
 
     resp2 = await client.get("/activity/recent", params={"page_size": 10, "page": 2})
@@ -251,7 +263,10 @@ async def test_pagination_offset_no_overlap_no_gap(client, db_session):
     assert body2["page"] == 2
 
     page2_ids = {item["id"] for item in body2["items"]}
-    assert page1_ids | page2_ids == {str(e.id) for e in events}
+    assert page1_ids | page2_ids == {
+        f"{s.user_id}:{s.synced_at.date().isoformat()}"
+        for s in stats
+    }
     assert page1_ids.isdisjoint(page2_ids)
 
 
@@ -259,8 +274,8 @@ async def test_deactivated_user_events_excluded(client, db_session):
     """A deactivated account must be invisible in the public feed."""
     active = await _make_user(db_session, "grace")
     banned = await _make_user(db_session, "mallory", is_active=False)
-    _add_event(db_session, active, _now(), ["lr2"])
-    _add_event(db_session, banned, _now() - timedelta(minutes=1), ["beatoraja"])
+    _add_stat(db_session, active, _now(), "lr2")
+    _add_stat(db_session, banned, _now() - timedelta(minutes=1), "beatoraja")
     await db_session.commit()
 
     resp = await client.get("/activity/recent")
@@ -268,33 +283,25 @@ async def test_deactivated_user_events_excluded(client, db_session):
     assert [item["username"] for item in body["items"]] == ["grace"]
 
 
-async def test_empty_updates_filtered_in_sql_so_total_count_is_exact(client, db_session):
-    """The empty-`updated_client_types` filter runs in SQL, so `total_count` is exact.
-
-    With 10 qualifying events interleaved among 40 empty ones, `total_count`
-    must report exactly 10, not 50.
-    """
+async def test_total_count_counts_user_day_groups(client, db_session):
     user = await _make_user(db_session, "heidi")
     base = _now().replace(hour=9, minute=0, second=0, microsecond=0)
-    qualifying = []
-    for i in range(50):
-        types = ["lr2"] if i % 5 == 0 else []
-        ev = _add_event(db_session, user, base + timedelta(minutes=i), types)
-        if types:
-            qualifying.append(ev)
+    for i in range(10):
+        day = base - timedelta(days=i)
+        _add_stat(db_session, user, day, "lr2")
+        _add_stat(db_session, user, day + timedelta(minutes=1), "beatoraja")
     await db_session.commit()
-    assert len(qualifying) == 10
 
     resp = await client.get("/activity/recent", params={"page_size": 10})
     body = resp.json()
     assert len(body["items"]) == 10
     assert body["total_count"] == 10
-    assert {item["id"] for item in body["items"]} == {str(e.id) for e in qualifying}
+    assert all(item["updated_client_types"] == ["beatoraja", "lr2"] for item in body["items"])
 
 
 async def test_unauthenticated_request_returns_200(client, db_session):
     user = await _make_user(db_session, "frank")
-    _add_event(db_session, user, _now(), ["lr2"])
+    _add_stat(db_session, user, _now(), "lr2")
     await db_session.commit()
 
     resp = await client.get("/activity/recent")

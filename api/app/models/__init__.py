@@ -44,7 +44,6 @@ from app.models.score import (
     UserActivityRanking,
     UserPlayerStats,
     UserScore,
-    UserSyncEvent,
 )
 from app.models.table_import import TableImportLog, TableSourceAlias
 from app.models.user import OAuthAccount, User
@@ -78,7 +77,6 @@ __all__ = [
     "UserGoal",
     "UserScore",
     "UserPlayerStats",
-    "UserSyncEvent",
     "UserActivityRanking",
     "Course",
     "DifficultyTable",

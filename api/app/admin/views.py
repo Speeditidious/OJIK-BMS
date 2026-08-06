@@ -53,7 +53,6 @@ from app.models.score import (
     UserActivityRanking,
     UserPlayerStats,
     UserScore,
-    UserSyncEvent,
 )
 from app.models.table_import import TableImportLog, TableSourceAlias
 from app.models.user import OAuthAccount, User
@@ -993,23 +992,6 @@ class UserPlayerStatsAdmin(ModelView, model=UserPlayerStats):
     ]
     column_default_sort = [(UserPlayerStats.synced_at, True)]
     # judgments (JSONB) intentionally omitted from column_list
-
-
-class UserSyncEventAdmin(ModelView, model=UserSyncEvent):
-    name = "User Sync Event"
-    name_plural = "User Sync Events"
-    icon = "fa-solid fa-arrows-rotate"
-    column_list = [
-        UserSyncEvent.id,
-        UserSyncEvent.user_id,
-        UserSyncEvent.synced_at,
-        UserSyncEvent.updated_client_types,
-    ]
-    column_sortable_list = [UserSyncEvent.synced_at]
-    column_searchable_list = [UserSyncEvent.user_id]
-    can_create = False
-    can_edit = False
-    can_delete = False
 
 
 class UserActivityRankingAdmin(ModelView, model=UserActivityRanking):

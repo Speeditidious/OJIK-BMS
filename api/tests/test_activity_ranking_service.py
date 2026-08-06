@@ -18,7 +18,7 @@ import pytest_asyncio
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.models.score import UserActivityRanking, UserPlayerStats, UserSyncEvent
+from app.models.score import UserActivityRanking, UserPlayerStats
 from app.models.user import User
 from app.services.activity_ranking import rebuild_activity_ranking
 
@@ -32,8 +32,7 @@ pytestmark = pytest.mark.asyncio
 # shared fixture, not something introduced by this task. Following the same
 # precedent as `tests/test_fumen_popularity.py` and `tests/test_analysis_heatmap.py`,
 # this file uses its own minimal-schema SQLite engine covering only the tables
-# this service touches (users, user_sync_events, user_player_stats,
-# user_activity_ranking).
+# this service touches (users, user_player_stats, user_activity_ranking).
 @pytest_asyncio.fixture
 async def db_session():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
@@ -51,14 +50,6 @@ async def db_session():
                 preferences JSON,
                 created_at DATETIME,
                 updated_at DATETIME
-            )
-            """,
-            """
-            CREATE TABLE user_sync_events (
-                id CHAR(32) PRIMARY KEY,
-                user_id CHAR(32) NOT NULL,
-                synced_at DATETIME NOT NULL,
-                updated_client_types JSON NOT NULL
             )
             """,
             """
@@ -104,6 +95,18 @@ def _dt(d: date, hour: int = 12) -> datetime:
     return datetime(d.year, d.month, d.day, hour)
 
 
+def _stat(user: User, d: date, client_type: str = "beatoraja", hour: int = 12) -> UserPlayerStats:
+    return UserPlayerStats(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        client_type=client_type,
+        synced_at=_dt(d, hour),
+        playcount=100,
+        playtime=10000,
+        judgments={},
+    )
+
+
 async def _make_user(db_session, username: str, *, is_active: bool = True) -> User:
     user = User(id=uuid.uuid4(), username=username, is_active=is_active)
     db_session.add(user)
@@ -125,12 +128,12 @@ async def _rows_for(db_session, metric: str, range_name: str = "monthly") -> lis
 async def test_attendance_dedups_same_day_multiple_syncs(db_session):
     user = await _make_user(db_session, "alice")
     day1 = WINDOW_START + timedelta(days=1)
-    # Two syncs same UTC day, different updated_client_types -> still 1 day.
+    # Two client stats same UTC day -> still 1 attendance day.
     db_session.add_all(
         [
-            UserSyncEvent(id=uuid.uuid4(), user_id=user.id, synced_at=_dt(day1, 9), updated_client_types=["lr2"]),
-            UserSyncEvent(id=uuid.uuid4(), user_id=user.id, synced_at=_dt(day1, 15), updated_client_types=["beatoraja"]),
-            UserSyncEvent(id=uuid.uuid4(), user_id=user.id, synced_at=_dt(day1 + timedelta(days=1), 9), updated_client_types=["lr2"]),
+            _stat(user, day1, "lr2", 9),
+            _stat(user, day1, "beatoraja", 15),
+            _stat(user, day1 + timedelta(days=1), "lr2", 9),
         ]
     )
     await db_session.flush()
@@ -150,8 +153,8 @@ async def test_attendance_events_outside_window_excluded(db_session):
     after = WINDOW_END + timedelta(days=1)
     db_session.add_all(
         [
-            UserSyncEvent(id=uuid.uuid4(), user_id=user.id, synced_at=_dt(before), updated_client_types=[]),
-            UserSyncEvent(id=uuid.uuid4(), user_id=user.id, synced_at=_dt(after), updated_client_types=[]),
+            _stat(user, before),
+            _stat(user, after),
         ]
     )
     await db_session.flush()
@@ -167,8 +170,8 @@ async def test_weekly_and_monthly_windows_are_both_written(db_session):
     monthly_only_day = WINDOW_END - timedelta(days=20)
     db_session.add_all(
         [
-            UserSyncEvent(id=uuid.uuid4(), user_id=user.id, synced_at=_dt(weekly_day), updated_client_types=["lr2"]),
-            UserSyncEvent(id=uuid.uuid4(), user_id=user.id, synced_at=_dt(monthly_only_day), updated_client_types=["lr2"]),
+            _stat(user, weekly_day),
+            _stat(user, monthly_only_day),
         ]
     )
     await db_session.flush()
@@ -334,9 +337,7 @@ async def test_tie_break_by_username_ascending(db_session):
     user_a = await _make_user(db_session, "alice")
     day1 = WINDOW_START
     for user in (user_a, user_b):
-        db_session.add(
-            UserSyncEvent(id=uuid.uuid4(), user_id=user.id, synced_at=_dt(day1), updated_client_types=[])
-        )
+        db_session.add(_stat(user, day1))
     await db_session.flush()
 
     await rebuild_activity_ranking(db_session, today=WINDOW_END)
@@ -350,10 +351,8 @@ async def test_tie_break_by_username_ascending(db_session):
 
 async def test_zero_value_users_excluded(db_session):
     user = await _make_user(db_session, "hank")
-    # Single sync event outside the window entirely -> attendance 0 -> excluded.
-    db_session.add(
-        UserSyncEvent(id=uuid.uuid4(), user_id=user.id, synced_at=_dt(WINDOW_START - timedelta(days=5)), updated_client_types=[])
-    )
+    # Single player-stat row outside the window entirely -> attendance 0 -> excluded.
+    db_session.add(_stat(user, WINDOW_START - timedelta(days=5)))
     await db_session.flush()
 
     await rebuild_activity_ranking(db_session, today=WINDOW_END)
@@ -364,18 +363,14 @@ async def test_zero_value_users_excluded(db_session):
 
 async def test_rebuild_replaces_previous_snapshot(db_session):
     user1 = await _make_user(db_session, "ivan")
-    db_session.add(
-        UserSyncEvent(id=uuid.uuid4(), user_id=user1.id, synced_at=_dt(WINDOW_START), updated_client_types=[])
-    )
+    db_session.add(_stat(user1, WINDOW_START))
     await db_session.flush()
     await rebuild_activity_ranking(db_session, today=WINDOW_END)
     assert len(await _rows_for(db_session, "attendance")) == 1
 
     # Second user added, rebuild again -> old snapshot fully replaced, not appended.
     user2 = await _make_user(db_session, "judy")
-    db_session.add(
-        UserSyncEvent(id=uuid.uuid4(), user_id=user2.id, synced_at=_dt(WINDOW_START), updated_client_types=[])
-    )
+    db_session.add(_stat(user2, WINDOW_START))
     await db_session.flush()
     await rebuild_activity_ranking(db_session, today=WINDOW_END)
 
@@ -387,9 +382,7 @@ async def test_rebuild_replaces_previous_snapshot(db_session):
 
 async def test_window_start_and_end_recorded_on_rows(db_session):
     user = await _make_user(db_session, "karen")
-    db_session.add(
-        UserSyncEvent(id=uuid.uuid4(), user_id=user.id, synced_at=_dt(WINDOW_START), updated_client_types=[])
-    )
+    db_session.add(_stat(user, WINDOW_START))
     await db_session.flush()
 
     await rebuild_activity_ranking(db_session, today=WINDOW_END)
@@ -407,9 +400,9 @@ async def test_deactivated_user_not_ranked_for_attendance(db_session):
     day1 = WINDOW_START + timedelta(days=1)
     db_session.add_all(
         [
-            UserSyncEvent(id=uuid.uuid4(), user_id=active.id, synced_at=_dt(day1, 9), updated_client_types=["lr2"]),
-            UserSyncEvent(id=uuid.uuid4(), user_id=banned.id, synced_at=_dt(day1, 9), updated_client_types=["lr2"]),
-            UserSyncEvent(id=uuid.uuid4(), user_id=banned.id, synced_at=_dt(day1 + timedelta(days=1), 9), updated_client_types=["lr2"]),
+            _stat(active, day1, "lr2", 9),
+            _stat(banned, day1, "lr2", 9),
+            _stat(banned, day1 + timedelta(days=1), "lr2", 9),
         ]
     )
     await db_session.flush()

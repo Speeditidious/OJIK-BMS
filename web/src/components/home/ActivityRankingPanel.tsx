@@ -34,7 +34,7 @@ const I18N_METRIC_KEY: Record<ActivityMetric, string> = {
 export function ActivityRankingPanel() {
   const { t } = useTranslation();
   const { user } = useAuthStore();
-  const [range, setRange] = useState<ActivityRange>("monthly");
+  const [range, setRange] = useState<ActivityRange>("weekly");
   const [metric, setMetric] = useState<ActivityMetric>("attendance");
   const [page, setPage] = useState(1);
 
